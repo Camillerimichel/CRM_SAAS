@@ -125,3 +125,10 @@ To https://github.com/Camillerimichel/CRM_SAAS.git
  ! [remote rejected] main -> main (pre-receive hook declined)
 error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
 [1;33m⚠️ Échec du push (tentative 1/3). Nouvelle tentative dans 5s...[0m
+[0;34m[2025-09-26 14:54:18] === Début du script de push Git ===[0m
+[0;34mDossier de travail: /users/michelcamilleri_1/crm_saas[0m
+[0;34m[2025-09-26 14:54:18] Vérification des prérequis...[0m
+[0;32m✅ Tous les prérequis sont OK[0m
+[0;34m[2025-09-26 14:54:18] Configuration Git...[0m
+[0;32m✅ Configuration Git mise à jour[0m
+[0;34m[2025-09-26 14:54:18] Vérification des changements Git...[0m
