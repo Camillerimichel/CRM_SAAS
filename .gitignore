@@ -1,0 +1,19 @@
+# Bases de données / gros fichiers à ne jamais pousser
+*.sqlite
+*.sqlite3
+*.db
+
+# Divers
+__pycache__/
+.env
+.DS_Store
+node_modules/
+*.sql
+*.sql.gz
+schema.sql*
+*.sql
+*.sql.gz
+schema.sql*
+dump.sql
+dump.sql
+*.sql

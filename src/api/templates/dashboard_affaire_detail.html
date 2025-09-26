@@ -1,0 +1,982 @@
+{% extends "base.html" %}
+
+{% block title %}{% if affaire %}{{ affaire.ref }}{% else %}Détail Affaire{% endif %}{% endblock %}
+{% block header_title %}
+  <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <span><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Suivi de l'affaire{% if affaire %} – {{ affaire.ref }}{% endif %}</span>
+    <span style="display:inline-flex; gap:6px;">
+      {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
+        <button type="button" class="btn" style="background:#16a34a; color:#fff; border:1px solid #16a34a; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')">{{ msgs_nonreg_count }} message{{ 's' if msgs_nonreg_count>1 }} en cours</button>
+      {% endif %}
+      {% if msgs_reg_count and msgs_reg_count > 0 %}
+        <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
+      {% endif %}
+    </span>
+  </span>
+{% endblock %}
+
+{% block content %}
+<style>
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  /* Bandeau KPI: grille réactive stricte (évite tout dépassement) */
+  .kpi-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; width:100%; }
+  .kpi-grid .card { min-width:0; box-sizing:border-box; }
+  /* suppr. les ruptures pour garder 3 colonnes et éviter le passage sur 2 lignes */
+  .card { background:#fff; border-radius:12px; padding:12px; box-shadow:0 6px 18px rgba(0,0,0,.08); }
+  .kpi { font-size:0.95rem; font-weight:700; }
+  .kpi-mini { font-size:0.85rem; color:#333; line-height:1.2; }
+  .kpi-line { display:flex; align-items:center; justify-content:space-between; gap: 8px; }
+  .kpi-line .kv { font-weight:600; text-align:right; }
+  .muted { color:#666; font-size:0.9rem; }
+  table { width:100%; border-collapse: collapse; }
+  th, td { padding:8px 10px; border-bottom:1px solid #eee; }
+  th { background:#f8f9fa; text-align:left; }
+  .right { text-align:right; }
+  .row-good { background: #e8f7ee; }
+  .row-bad { background: #fdeaea; }
+  /* table supports: compact and widths */
+  #supportsTableContract { table-layout: fixed; }
+  #supportsTableContract th, #supportsTableContract td { padding: 6px 8px; }
+  #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 14%; }
+  #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 15%; overflow:hidden; text-overflow: ellipsis; }
+  #supportsTableContract td:nth-child(2) { font-size: 11px; }
+  #supportsTableContract th:nth-child(3), #supportsTableContract td:nth-child(3) { width: 5%; text-align: center; }
+  /* Numeric columns (Nb UC, VL, PRMP, Valorisation) widths */
+  #supportsTableContract th:nth-child(4), #supportsTableContract td:nth-child(4) { width: 8%; }
+  #supportsTableContract th:nth-child(5), #supportsTableContract td:nth-child(5) { width: 5%; }
+  #supportsTableContract th:nth-child(6), #supportsTableContract td:nth-child(6) { width: 5%; }
+  #supportsTableContract th:nth-child(7), #supportsTableContract td:nth-child(7) { width: 10%; }
+  /* ESG columns ultra-compact */
+  #supportsTableContract th:nth-child(8), #supportsTableContract td:nth-child(8),
+  #supportsTableContract th:nth-child(9), #supportsTableContract td:nth-child(9),
+  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px 4px; font-size: 10px; }
+  /* Right-align headers for Nb UC, PRMP, Valorisation */
+  #supportsTableContract th:nth-child(4), #supportsTableContract th:nth-child(6), #supportsTableContract th:nth-child(7) { text-align: right; }
+  /* DataTables center alignment helper */
+  .dt-center { text-align: center; }
+  .gain { color: #2e7d32; }
+  .loss { color: #c62828; }
+  /* Equal-size pie charts */
+  .pie-grid { grid-template-columns: 1fr 1fr; align-items: stretch; }
+  /* Cadres fixes, assez hauts pour afficher les abscisses */
+  .pie-card { display: flex; flex-direction: column; height: 300px; overflow: hidden; }
+  .pie-card canvas { flex: 1 1 auto; display:block; }
+  .chart-title { font-size: 0.95rem; margin: 0 0 4px 0; }
+  /* Small SRRI icon override */
+  .card .srri-icon { font-size: 0.9rem !important; margin-left: 6px; margin-bottom: 0 !important; vertical-align: middle; }
+  /* Harmoniser boutons avec Détail Client */
+  .dim-btn { padding:3px 7px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:11px; }
+  .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
+  .rangeBtn { padding:3px 7px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:11px; margin-right:4px; }
+  .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
+  /* Toggle chevron styles (reuse for inv+graphs) */
+  #invToggle, #avisToggle, #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; width:100%; box-sizing:border-box; grid-column: 1 / -1; clear: both; }
+  #invToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  #invToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  /* Ensure accordion sections take full row under any grid */
+  #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
+  /* Reportings pluriannuels toggle full width */
+  #reportToggle { width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; }
+  #reportToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  #reportToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #reportSection { width:100%; grid-column: 1 / -1; }
+  /* Toggle chevron */
+  #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; }
+  #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+</style>
+
+<h1>
+  {% if client_id %}
+    <a href="/dashboard/clients/{{ client_id }}" style="text-decoration:underline; color: inherit;">{{ client_prenom }} {{ client_nom }}</a>
+  {% else %}
+    {% if affaire %}{{ affaire.ref }}{% else %}Détail du contrat{% endif %}
+  {% endif %}
+</h1>
+{% if error %}
+  <div class="card">{{ error }}</div>
+{% else %}
+
+<!-- Modal: Messages/Tâches affaire (filtré par type réglementaire / non réglementaire) -->
+<style>
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
+  .modal-card { background: #fff; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+  .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .modal-header h3 { margin: 0; font-size: 1.05rem; }
+  .modal-body { padding: 12px 14px; }
+  .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+  /* Harmonisation colonnes pop-up Messages (affaire) */
+  #affMsgsTable { table-layout: fixed; width: 100%; }
+  #affMsgsTable th:nth-child(1), #affMsgsTable td:nth-child(1) { width: 16%; }
+  #affMsgsTable th:nth-child(2), #affMsgsTable td:nth-child(2) { width: 18%; }
+  #affMsgsTable th:nth-child(3), #affMsgsTable td:nth-child(3) { width: 16%; }
+  #affMsgsTable th:nth-child(4), #affMsgsTable td:nth-child(4) { width: 12%; }
+  #affMsgsTable th:nth-child(5), #affMsgsTable td:nth-child(5) { width: 30%; }
+  #affMsgsTable th:nth-child(6), #affMsgsTable td:nth-child(6) { width: 8%; text-align:center; }
+  #affMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #affMsgsTable td:nth-child(5) { white-space: normal; word-break: break-word; }
+</style>
+<div id="affMsgsModal" class="modal-overlay" onclick="if(event.target===this) closeAffMsgs()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="affMsgsTitle"><i class="fa-solid fa-envelope" style="margin-right:8px;"></i>Messages</h3>
+      <button class="modal-close" onclick="closeAffMsgs()">✕</button>
+    </div>
+    <div class="modal-body">
+      <table id="affMsgsTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Catégorie</th>
+            <th>Statut</th>
+            <th>Commentaire</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs en tête -->
+<div class="kpi-grid" style="margin-top:12px;">
+  <div class="card">
+    <div class="muted">Synthèse</div>
+    <div class="kpi-mini"><strong>Statut:</strong>
+      {% if affaire and affaire.date_cle %}
+        Clôturé ({{ (affaire.date_cle|string)[:10] }})
+      {% else %}
+        Ouvert
+      {% endif %}
+    </div>
+    <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
+  </div>
+  <div class="card">
+    <div class="muted">Valorisation actuelle</div>
+    <div class="kpi">{{ '{:,.0f}'.format(last_valo or 0).replace(',', ' ') }} €</div>
+    <div class="{% if (last_valo or 0) >= (solde or 0) %}gain{% else %}loss{% endif %}" style="font-weight:600;">
+      {% if (last_valo or 0) >= (solde or 0) %}En plus-value{% else %}En moins-value{% endif %}
+    </div>
+    <div class="kpi-mini kpi-line" style="margin-top:6px;"><span>Versements</span><span class="kv">{{ '{:,.0f}'.format(depots or 0).replace(',', ' ') }} €</span></div>
+    <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ '{:,.0f}'.format(retraits or 0).replace(',', ' ') }} €</span></div>
+    <div class="kpi-mini kpi-line"><span>Solde mouvements</span><span class="kv">{{ '{:,.0f}'.format(solde or 0).replace(',', ' ') }} €</span></div>
+  </div>
+  <div class="card">
+    <div class="muted">Indicateurs</div>
+    <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+    <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
+    <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span>
+      <span class="kv">
+        {{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}
+        {% if srri_icon_aff %}
+          {% if srri_icon_aff == 'fire' %}🔥{% elif srri_icon_aff == 'hands-praying' %}🙏{% elif srri_icon_aff == 'snowflake' %}❄️{% else %}{% endif %}
+        {% endif %}
+      </span>
+    </div>
+    <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+  </div>
+
+  <!-- Définir une tâche (ouverture de pop-up, même stratégie que Détail Client) -->
+  <div id="affTasksToggle" class="card accordion-toggle" style="margin-top:12px; cursor:pointer; width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center;" onclick="openAffTaskPopup()">
+    <h3 style="margin:0;">Définir une tâche</h3>
+    <span class="chevron">▾</span>
+  </div>
+
+  <!-- Pop-up de création de tâche pour l'affaire -->
+  <style>
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
+    .modal-card { background: #fff; border-radius: 12px; width: 640px; max-width: 92vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .modal-header h3 { margin: 0; font-size: 1.05rem; }
+    .modal-body { padding: 12px 14px; }
+    .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+  </style>
+  <div id="affTaskModal" class="modal-overlay" onclick="if(event.target===this) closeAffTaskPopup()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
+        <button class="modal-close" onclick="closeAffTaskPopup()">✕</button>
+      </div>
+      <div class="modal-body task-block">
+        <form method="post" action="/dashboard/affaires/{{ affaire.id }}/taches">
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Client (Nom Prénom)</label>
+              <input type="text" name="client_fullname" list="clients_list_aff_modal" placeholder="Nom Prénom" value="{{ client_fullname_default or '' }}" />
+            </div>
+            <div class="field">
+              <label>Affaire (Référence)</label>
+              <input type="text" name="affaire_ref" list="affaires_list_aff_modal" placeholder="REF-0001" value="{{ affaire_ref_default or '' }}" />
+            </div>
+            <div class="field">
+              <label>Responsable</label>
+              <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+            </div>
+          </div>
+
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Catégorie</label>
+              <select class="select-choice" name="categorie" id="aff_cat_select_modal">
+                <option value="">-- choisir --</option>
+                {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Type</label>
+              <select class="select-choice" name="type_libelle" id="aff_type_select_modal">
+                <option value="">-- choisir une catégorie --</option>
+              </select>
+            </div>
+            <div class="field" style="align-self:center;">
+              <label>&nbsp;</label>
+              <button type="button" id="aff_comm_btn_modal" class="btn btn-choice" onclick="toggleAffCommModal()">Préparer une communication</button>
+              <input type="hidden" id="aff_comm_toggle_modal" name="comm_toggle" value="0" />
+            </div>
+          </div>
+
+          <div id="aff_comm_block_modal" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
+            <div class="form-row" style="margin-bottom:.6rem;">
+              <div class="field">
+                <label>Canal</label>
+                <select class="select-choice" name="comm_canal">
+                  <option value="email">email</option>
+                  <option value="courrier">courrier</option>
+                  <option value="sms">sms</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Destinataire</label>
+                <input class="input-large" type="text" name="comm_destinataire" placeholder="email ou adresse" />
+              </div>
+              <div class="field">
+                <label>Objet</label>
+                <input class="input-large" type="text" name="comm_objet" placeholder="Objet du message" />
+              </div>
+            </div>
+            <div>
+              <label>Contenu</label>
+              <textarea class="input-large" name="comm_contenu" rows="3" placeholder="Contenu du message..." style="width:100%;"></textarea>
+            </div>
+          </div>
+
+          <div style="margin-bottom:.6rem;">
+            <label>Commentaire</label>
+            <textarea name="commentaire" rows="3" placeholder="Détails / notes…"></textarea>
+          </div>
+
+          <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
+            <div style="flex:1 1 100%;">
+              <label>Statut initial</label>
+              <div id="aff_initial_status_modal" style="display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;">
+                {% for s in status_ui %}
+                  <button type="button" class="btn btn-choice" data-sid="{{ s.id }}" data-key="{{ s.key }}" onclick="affSelectStatusModal(this)">{{ s.label }}</button>
+                {% endfor %}
+                {% if en_cours_id %}
+                  <button type="button" id="aff_en_cours_btn_modal" class="btn btn-choice" style="display:none; background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;" data-sid="{{ en_cours_id }}" onclick="affSelectStatusModal(this)">en cours</button>
+                {% endif %}
+                <input type="hidden" name="statut_id" id="aff_statut_id_modal" value="" />
+              </div>
+            </div>
+          </div>
+          <div class="create-btn-container">
+            <button class="btn btn-primary btn-choice" style="min-width:160px;" type="submit"><i class="fa-solid fa-plus"></i>Créer</button>
+          </div>
+
+          <datalist id="clients_list_aff_modal">
+            {% for c in clients_suggest %}
+              <option value="{{ ((c.nom or '') ~ ' ' ~ (c.prenom or '')) | trim }}"></option>
+            {% endfor %}
+          </datalist>
+          <datalist id="affaires_list_aff_modal"></datalist>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openAffTaskPopup(){ document.getElementById('affTaskModal').style.display='flex'; }
+    function closeAffTaskPopup(){ document.getElementById('affTaskModal').style.display='none'; }
+    function toggleAffCommModal(){ const h=document.getElementById('aff_comm_toggle_modal'); const on=h.value==='1'?false:true; h.value=on?'1':'0'; document.getElementById('aff_comm_block_modal').style.display=on?'block':'none'; document.getElementById('aff_comm_btn_modal').classList.toggle('btn-choice-active', on); }
+    function normName(s){ return (s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
+    function updateAffAffairesModal(){ const inp=document.querySelector('#affTaskModal input[name="client_fullname"]'); const val=normName(inp?inp.value:''); const dl=document.getElementById('affaires_list_aff_modal'); if(!dl) return; dl.innerHTML=''; const data = [
+      {% for a in affaires_suggest %}
+        { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
+      {% endfor %}
+    ]; (val? data.filter(a=>normName(a.client)===val): data).forEach(a=>{ const o=document.createElement('option'); o.value=a.ref; o.textContent=`${a.ref} — ${a.client}`; dl.appendChild(o); }); }
+    (function initAffTaskModal(){
+      const inp=document.querySelector('#affTaskModal input[name="client_fullname"]'); if(inp){ inp.addEventListener('input', updateAffAffairesModal); inp.addEventListener('change', updateAffAffairesModal); }
+      updateAffAffairesModal();
+      const types = [
+        {% for t in types %}
+          { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
+        {% endfor %}
+      ];
+      const cat=document.getElementById('aff_cat_select_modal'); const typ=document.getElementById('aff_type_select_modal');
+      function sync(){ typ.innerHTML=''; if(!cat.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o); return; } const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle); list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); }); if(list.length>0) typ.value=list[0]; }
+      if (cat){ cat.addEventListener('change', sync); if(cat.value) sync(); }
+    })();
+    function affSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('aff_statut_id_modal').value=sid; const peers=document.getElementById('aff_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('aff_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
+  </script>
+
+<!-- Accordéon Investissements -->
+<div id="invToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
+  <h3 class="chart-title" style="font-size: 0.95rem;">Investissements</h3>
+  <span class="chevron">▾</span>
+</div>
+<div id="invSection" style="display:none;">
+<div class="card" style="margin-top:12px;">
+  <h3 class="chart-title">Supports financiers</h3>
+  <form method="get" action="" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+    <label class="muted">Date d'analyse :</label>
+    <input type="date" name="as_of" value="{{ as_of_effective }}" style="padding:4px 8px; border:1px solid #ccc; border-radius:6px; width:auto; max-width:180px; flex:0 0 auto;" />
+    <button type="submit" style="padding:4px 10px; border-radius:6px; border:1px solid var(--primary); background: var(--primary); color:#fff;">Mettre à jour</button>
+    <span class="muted" style="margin-left:8px;">Vendredi suivant appliqué</span>
+  </form>
+  <table id="supportsTableContract" class="display nowrap" style="width:100%">
+    <thead>
+      <tr>
+        <th>ISIN</th><th>Nom</th><th>SRRI</th>
+        <th>Nb UC</th><th>VL</th><th>PRMP</th><th>Valorisation</th>
+        <th>E</th><th>S</th><th>G</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in supports %}
+    <tr class="{% if (s.prmp|float) < (s.vl|float) %}row-good{% else %}row-bad{% endif %}">
+      <td>{{ s.code_isin }}</td>
+      <td>{{ s.nom }}</td>
+      <td style="text-align:center;">{{ s.srri_support }}</td>
+      <td class="right">{{ s.nbuc }}</td>
+      <td class="right">{{ s.vl }}</td>
+      <td class="right">{{ s.prmp }}</td>
+      <td class="right">{{ s.valo }}</td>
+      <td>{{ s.noteE or '' }}</td>
+      <td>{{ s.noteS or '' }}</td>
+      <td>{{ s.noteG or '' }}</td>
+    </tr>
+    {% endfor %}
+    {% if not supports %}
+    <tr><td colspan="10" class="muted">Aucun support trouvé pour ce contrat.</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+  <small class="muted">Source: mariadb_historique_support_w + mariadb_support + donnees_esg_etendu</small>
+</div>
+
+<div class="grid pie-grid" style="margin-top:12px; gap:12px;">
+  <div class="card pie-card">
+    <h3 class="chart-title">Répartition par catégorie</h3>
+    <div class="dim-buttons" style="display:flex; gap:6px; margin-bottom:6px; flex-wrap: wrap;">
+      <button type="button" class="dim-btn active" data-field="cat_gene">Catégorie générale</button>
+      <button type="button" class="dim-btn" data-field="cat_principale">Catégorie principale</button>
+      <button type="button" class="dim-btn" data-field="cat_det">Catégorie détaillée</button>
+    </div>
+    <canvas id="supportsCatChart" height="260"></canvas>
+  </div>
+
+  <div class="card pie-card">
+    <h3 class="chart-title">Répartition géographique du secteur</h3>
+    <canvas id="supportsGeoChart" height="260"></canvas>
+  </div>
+ </div>
+</div>
+<!-- Séparateur visuel -->
+<!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
+<div id="avisToggle" class="card accordion-toggle" style="margin-top:12px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center;" onclick="openAvisModal()">
+  <h3 class="chart-title" style="font-size: 0.95rem;">Avis d'opération <span class="badge">{{ (avis_affaire|length) if avis_affaire else 0 }}</span></h3>
+  <span class="chevron">▾</span>
+</div>
+<div id="avisSection" style="display:none;">
+  <div class="card">
+    <h3 class="chart-title">Avis d'opération</h3>
+    <style>
+      /* Largeurs et non-retour à la ligne pour tenir sur une ligne */
+      #avisTable { table-layout: fixed; width: 100%; }
+      #avisTable th:nth-child(1), #avisTable td:nth-child(1) { width: 12ch; white-space: nowrap; }
+      #avisTable th:nth-child(2), #avisTable td:nth-child(2) { width: 40ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #avisTable th:nth-child(3), #avisTable td:nth-child(3) { width: 10ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #avisTable th:nth-child(4), #avisTable td:nth-child(4) { width: 14ch; white-space: nowrap; text-align: right; }
+      #avisTable th:nth-child(5), #avisTable td:nth-child(5) { width: 14ch; white-space: nowrap; text-align: right; }
+      #avisTable th:nth-child(6), #avisTable td:nth-child(6) { width: 14ch; white-space: nowrap; text-align: center; }
+    </style>
+    <table id="avisTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Référence</th>
+          <th>Étape</th>
+          <th style="text-align:right;">Entrée</th>
+          <th style="text-align:right;">Sortie</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in avis_affaire %}
+        <tr>
+          <td>{{ a.date or '' }}</td>
+          <td>{{ a.reference or '' }}</td>
+          <td>{{ a.etape or '' }}</td>
+          <td style="text-align:right;">{{ a.entree_str or '' }}</td>
+          <td style="text-align:right;">{{ a.sortie_str or '' }}</td>
+          <td>
+            <button type="button" class="btn btn-choice" title="Voir mouvement" aria-label="Voir mouvement" style="padding:2px 6px; font-size:11px; border-radius:4px;" onclick="openMovementPopup({{ affaire.id }}, {{ a.avis_id }})"><i class="fa-solid fa-eye"></i></button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Aucun avis trouvé.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="graphsToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
+  <h3 class="chart-title" style="font-size: 0.95rem;">Graphiques</h3>
+  <span class="chevron">▾</span>
+</div>
+<div id="graphsSection" style="display:none;">
+
+<div class="card" style="margin-top:12px;">
+  <h3>Evolution valorisation et cumul des mouvements</h3>
+  <canvas id="chartValo" height="120"></canvas>
+  <small class="muted">Courbes sans points; axes ajustés automatiquement.</small>
+  <div style="margin-top:8px;">
+    <button class="rangeBtn" data-range="90">3M</button>
+    <button class="rangeBtn" data-range="180">6M</button>
+    <button class="rangeBtn" data-range="365">1A</button>
+    <button class="rangeBtn" data-range="all">Tout</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px;">
+  <h3>Performances et volatilité annuelles</h3>
+  <canvas id="chartAnnuel" height="120"></canvas>
+</div>
+
+<div class="card" style="margin-top:12px;">
+  <h3>Comparatif investissements vs Offre produit</h3>
+  <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
+    <div>
+      <label>Offres financières à comparer</label><br>
+      <select id="allocSelect" style="min-width:200px; max-width:260px; width:auto;"></select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Période</label><br>
+      <button class="rangeBtnCmp" data-range="all">Tout</button>
+      <button class="rangeBtnCmp" data-range="365">1 an</button>
+      <button class="rangeBtnCmp" data-range="180">6 mois</button>
+      <button class="rangeBtnCmp" data-range="90">3 mois</button>
+      <button class="rangeBtnCmp" data-range="30">1 mois</button>
+    </div>
+  </div>
+  <canvas id="chartSicav" height="120" style="margin-top:8px;"></canvas>
+</div>
+
+<!-- (sections supports & répartitions remontées plus haut) -->
+</div>
+
+<!-- Reportings pluriannuels (accordéon pleine largeur) -->
+<div id="reportToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
+  <h3 class="chart-title" style="font-size: 0.95rem;">Reportings pluriannuels</h3>
+  <span class="chevron">▾</span>
+</div>
+<div id="reportSection" style="width:100%; grid-column: 1 / -1;">
+  <div class="card" style="margin-top:8px;">
+    {% if reporting_years %}
+    <table style="font-size:12px;">
+      <thead>
+        <tr>
+          <th>Année</th>
+          <th style="text-align:right;">Versements</th>
+          <th style="text-align:right;">Retraits</th>
+          <th style="text-align:right;">Solde annuel</th>
+          <th style="text-align:right;">Solde cumulé</th>
+          <th style="text-align:right;">Valo fin d'année</th>
+          <th style="text-align:right;">Perf fin d'année</th>
+          <th style="text-align:right;">Cumul perf</th>
+          <th style="text-align:right;">Perf annualisée</th>
+          <th style="text-align:right;">Vol. 52s (fin)</th>
+          <th style="text-align:right;">Vol. moyenne</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reporting_years %}
+        <tr>
+          <td style="text-align:center;">{{ r.year }}</td>
+          <td style="text-align:right;">{{ r.versements_str }}</td>
+          <td style="text-align:right;">{{ r.retraits_str }}</td>
+          <td style="text-align:right;">{{ r.solde_str }}</td>
+          <td style="text-align:right;">{{ r.solde_cum_str }}</td>
+          <td style="text-align:right;">{{ r.last_valo_str }}</td>
+          <td style="text-align:right;">{% if r.last_perf_pct is not none %}{{ '%.2f'|format(r.last_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.cum_perf_pct is not none %}{{ '%.2f'|format(r.cum_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.ann_perf_pct is not none %}{{ '%.2f'|format(r.ann_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.last_vol_pct is not none %}{{ '%.2f'|format(r.last_vol_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.avg_vol_pct is not none %}{{ '%.2f'|format(r.avg_vol_pct) }} %{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="muted" style="margin-top:6px; font-size:12px;">
+      <div>Les pourcentages sont exprimés en % (valeurs décimales converties).</div>
+      <div>La performance annualisée correspond à la performance cumulée observée à la date, ramenée en taux annuel fixe (CAGR).</div>
+    </div>
+    {% else %}
+      <div class="muted">Aucune donnée annuelle disponible.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Chart.js: couleur par défaut (axes/labels) = bleu CSS
+try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+// Messages header buttons & modal (Affaire)
+const AFF_EVENTS_OPEN = {{ affaire_events_open | tojson }};
+function _normCatAff(s){ if(!s) return ''; return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c'); }
+function openAffMsgs(kind){
+  const modal = document.getElementById('affMsgsModal');
+  const tbody = modal.querySelector('tbody');
+  tbody.innerHTML = '';
+  const isReg = (kind === 'reg');
+  const title = document.getElementById('affMsgsTitle');
+  title.innerHTML = (isReg ? '<i class="fa-solid fa-envelope"></i>Messages réglementaires' : '<i class="fa-solid fa-envelope"></i>Messages non réglementaires');
+  const rows = (AFF_EVENTS_OPEN||[]).filter(ev => {
+    const cat = _normCatAff(ev.type_categorie);
+    const reg = (cat === 'reglementaire');
+    return isReg ? reg : !reg;
+  });
+  function statusStyle(label){
+    const s = (label||'').toLowerCase();
+    if (s === 'en cours') return 'background:#16a34a; color:#fff; border-color:#16a34a;';
+    if (s === 'en attente') return 'background:#f59e0b; color:#fff; border-color:#f59e0b;';
+    if (s === 'terminé' || s === 'termine') return 'background:#4b5563; color:#fff; border-color:#4b5563;';
+    if (s === 'annulé' || s === 'annule') return 'background:#b91c1c; color:#fff; border-color:#b91c1c;';
+    return '';
+  }
+  function openTaskEditPopup(id){
+    try {
+      var w = 1100, h = 800;
+      var left = Math.max(0, Math.floor(((screen.availWidth||screen.width||w) - w) / 2));
+      var top = Math.max(0, Math.floor(((screen.availHeight||screen.height||h) - h) / 2));
+      var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+      var win = window.open('/dashboard/taches/'+id, 'taskEdit'+id, feat);
+      if (win && win.focus) { try { win.focus(); } catch(e){} }
+    } catch(e){}
+  }
+  rows.forEach(ev => {
+    const tr = document.createElement('tr');
+    function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
+    function tdEl(el){ const td = document.createElement('td'); td.appendChild(el); return td; }
+    tr.appendChild(td(ev.date_evenement||''));
+    tr.appendChild(td(ev.type_libelle||''));
+    tr.appendChild(td(ev.type_categorie||''));
+    // Statut cliquable vers la page d'édition (nouvel onglet)
+    const sb = document.createElement('a');
+    sb.className = 'btn btn-choice';
+    sb.textContent = ev.statut || 'à faire';
+    sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
+    sb.href = '/dashboard/taches/' + (ev.id||'');
+    sb.target = '_blank';
+    sb.rel = 'noopener noreferrer';
+    tr.appendChild(tdEl(sb));
+    // Commentaire tronqué avec Voir plus/moins
+    const ctd = document.createElement('td');
+    const full = String(ev.commentaire||'');
+    const short = full.slice(0, 180);
+    const sid = 'caff-short-' + (ev.id||Math.random());
+    const fid = 'caff-full-' + (ev.id||Math.random());
+    const sdiv = document.createElement('div'); sdiv.id=sid; sdiv.style.whiteSpace='pre-wrap'; if (full.length <= 180) sdiv.style.display='none'; sdiv.textContent = short + (full.length>180 ? '…' : '');
+    const fdiv = document.createElement('div'); fdiv.id=fid; fdiv.style.whiteSpace='pre-wrap'; if (full.length > 180) fdiv.style.display='none'; fdiv.textContent = full;
+    ctd.appendChild(sdiv); ctd.appendChild(fdiv);
+    if (full.length > 180){ const a=document.createElement('a'); a.href='#'; a.style.fontSize='12px'; a.textContent='Voir plus'; a.addEventListener('click', function(e){ e.preventDefault(); const sh=document.getElementById(sid); const fl=document.getElementById(fid); const isShort=sh.style.display!=='none'; sh.style.display=isShort?'none':''; fl.style.display=isShort?'':'none'; this.textContent=isShort?'Voir moins':'Voir plus'; }); const wrap=document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);}    
+    tr.appendChild(ctd);
+    // Action
+    const actionTd = document.createElement('td');
+    const editBtn = document.createElement('button');
+    editBtn.type='button'; editBtn.className='btn btn-choice'; editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
+    editBtn.textContent = 'Modifier';
+    editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
+    actionTd.appendChild(editBtn);
+    tr.appendChild(actionTd);
+    tr.addEventListener('dblclick', function(){ openTaskEditPopup(ev.id); });
+    tbody.appendChild(tr);
+  });
+  // DataTable + export CSV (Buttons déjà chargés sur cette page)
+  try { if (window.affMsgsDT) { window.affMsgsDT.destroy(); } } catch(e) {}
+  try {
+    window.affMsgsDT = $('#affMsgsTable').DataTable({
+      destroy: true,
+      paging: true,
+      pageLength: 25,
+      dom: 'Bfrtip',
+      buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'messages_affaire_{{ affaire.id }}', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+      order: [[0,'desc']],
+      columnDefs: [ { targets: [0,1,2,4], className: 'nowrap' } ]
+    });
+  } catch(e) {}
+  // Avis d'opération: activer DataTable + export CSV (UTF-8 BOM)
+  try {
+    $('#avisTable').DataTable({
+      destroy: true,
+      paging: true,
+      pageLength: 25,
+      dom: 'Bfrtip',
+      buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'avis_affaire_{{ affaire.id }}', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+      order: [[0,'desc']],
+      columnDefs: [ { targets: [3,4], className: 'right' } ]
+    });
+  } catch(e) {}
+  modal.style.display = 'flex';
+}
+function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display = 'none'; }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<script>
+  // Accordéons mutualisés: un seul ouvert, possibilité de tout fermer; scroll en haut à l'ouverture
+  (function(){
+    var groups = [
+      { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
+      { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
+      { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
+    ];
+    function byId(id){ return document.getElementById(id); }
+    function setOpen(targetKey){
+      groups.forEach(function(g){
+        var t = byId(g.toggleId), s = byId(g.sectionId);
+        if (!t || !s) return;
+        if (targetKey && g.key === targetKey){ s.style.display = ''; t.classList.remove('collapsed'); }
+        else { s.style.display = 'none'; t.classList.add('collapsed'); }
+      });
+      try { localStorage.setItem('aff_detail_open', targetKey || ''); } catch(e) {}
+    }
+    // Init: restaurer la dernière ouverte si possible
+    var saved = ''; try { saved = localStorage.getItem('aff_detail_open') || ''; } catch(e) {}
+    if (saved){ setOpen(saved); }
+    // Bind clicks
+    groups.forEach(function(g){
+      var t = byId(g.toggleId), s = byId(g.sectionId);
+      if (!t || !s) return;
+      t.addEventListener('click', function(){
+        var isOpen = s.style.display !== 'none';
+        if (isOpen) { setOpen(''); }
+        else { setOpen(g.key); try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {} }
+      });
+    });
+  })();
+
+  // Persist preferred as_of in localStorage and preselect
+  (function(){
+    var sel = document.querySelector('select[name="as_of"]');
+    if (!sel) return;
+    var asOfInput = {{ as_of_input | tojson }};
+    try {
+      var stored = localStorage.getItem('as_of_selected');
+      if (!asOfInput && stored) {
+        for (var i=0;i<sel.options.length;i++){ if (sel.options[i].value === stored){ sel.selectedIndex = i; break; } }
+      }
+      sel.form && sel.form.addEventListener('submit', function(){
+        try { localStorage.setItem('as_of_selected', sel.value); } catch(e) {}
+      });
+    } catch(e) {}
+  })();
+
+  const labels = {{ labels | tojson }};
+  const valo = {{ serie_valo | tojson }};
+  const cum = {{ serie_cum_mouv | tojson }};
+  const years = {{ years | tojson }};
+  const annPerf = {{ ann_perf | tojson }};
+  const annVol = {{ ann_vol | tojson }};
+  const allocSeries = {{ alloc_series | tojson }};
+  const affaireSicav = {{ affaire_sicav | tojson }};
+  const supportsData = {{ supports | tojson }};
+  const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#2456a6';
+
+  // Chart 1: valo vs cumul mouvements
+  const ctx1 = document.getElementById('chartValo').getContext('2d');
+  let chart1;
+  function drawChart1(L, V, C) {
+    if (chart1) chart1.destroy();
+    const vmin = Math.min(...V), vmax = Math.max(...V);
+    const cmin = Math.min(...C), cmax = Math.max(...C);
+    const vm = (vmax - vmin) * 0.1 || 1, cm = (cmax - cmin) * 0.1 || 1;
+    chart1 = new Chart(ctx1, {
+      type: 'line',
+      data: { labels: L, datasets: [
+        { label: 'Valorisation', data: V, borderColor: primaryColor, fill: false, yAxisID: 'y1', pointRadius: 0, pointHoverRadius: 0 },
+        { label: 'Cumul mouvements', data: C, borderColor: '#ff6b6b', fill: false, yAxisID: 'y2', pointRadius: 0, pointHoverRadius: 0 },
+      ]},
+      options: { responsive:true, interaction:{mode:'index', intersect:false}, stacked:false,
+        scales: {
+          y1: { type:'linear', position:'left', suggestedMin: vmin - vm, suggestedMax: vmax + vm, ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' }, border:{ color: primaryColor }, title:{ display:true, text:'Valorisation', color: primaryColor } },
+          y2: { type:'linear', position:'right', suggestedMin: cmin - cm, suggestedMax: cmax + cm, ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' }, border:{ color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, title:{ display:true, text:'Cumul mouvements', color:'#ff6b6b' } }
+        }, plugins:{ legend:{ display:true } }
+      }
+    });
+  }
+  function applyRange1(r){
+    if (r==='all') { drawChart1(labels, valo, cum); return; }
+    const n = parseInt(r,10); const end = labels.length; const start = Math.max(0, end - n);
+    drawChart1(labels.slice(start), valo.slice(start), cum.slice(start));
+  }
+  drawChart1(labels, valo, cum);
+  document.querySelectorAll('.rangeBtn').forEach(b=> b.addEventListener('click', ()=> applyRange1(b.dataset.range)));
+
+  // Chart 2: annuel perf/vol (barres) sur une seule échelle
+  const ctx2 = document.getElementById('chartAnnuel').getContext('2d');
+  const annPerfPct = (annPerf||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
+  const annVolPct = (annVol||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
+  const ann = new Chart(ctx2, {
+    type: 'bar',
+    data: { labels: (years||[]).map(String), datasets: [
+      { label: 'Perf 52s (%)', data: annPerfPct, backgroundColor: primaryColor },
+      { label: 'Volatilité (%)', data: annVolPct, backgroundColor: '#ff6b6b' },
+    ]},
+    options: { responsive:true, scales:{ y:{ position:'left', ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color: primaryColor, formatter:(v)=> (Number(v).toFixed(2)+' %'), font:{ size:10 } } } }
+  });
+
+  // Chart 3: SICAV comparatif (aligné sur dates de l'affaire)
+  const ctx3 = document.getElementById('chartSicav').getContext('2d');
+  const colors = ['#ff6b6b']; // allocations en rouge
+  let chart3;
+  let currentRange3 = 'all';
+  function filterRangeByEnd(list, range){
+    if (range === 'all') return list;
+    const n = parseInt(range, 10);
+    if (!isFinite(n) || !list.length) return list;
+    const end = list.length;
+    const start = Math.max(0, end - n);
+    return list.slice(start);
+  }
+  function drawChart3(selected){
+    if (chart3) chart3.destroy();
+    const affMap = new Map((affaireSicav||[]).map(p=> [p.date, parseFloat(p.sicav)]));
+    const affKeys = new Set(Array.from(affMap.keys()));
+    // Dates présentes dans toutes les allocations (union)
+    const allAllocDates = new Set();
+    Object.values(allocSeries||{}).forEach(arr => (arr||[]).forEach(p => { if (p && p.date) allAllocDates.add(p.date); }));
+    function intersect(a,b){ const res=new Set(); a.forEach(v=>{ if(b.has(v)) res.add(v); }); return res; }
+    let allowed;
+    const sel = selected||[];
+    if (sel.length > 0) {
+      // Intersection des dates de l'affaire avec les dates de chaque allocation sélectionnée
+      allowed = new Set(affKeys);
+      sel.forEach(name => {
+        const s = new Set(((allocSeries&&allocSeries[name])||[]).map(p=> p.date));
+        allowed = intersect(allowed, s);
+      });
+    } else {
+      // Pas de sélection → restreindre aux dates présentes dans au moins une allocation
+      allowed = intersect(affKeys, allAllocDates);
+    }
+    const allLabels = Array.from(allowed).sort();
+    const labels = filterRangeByEnd(allLabels, currentRange3);
+    if (!labels.length) {
+      chart3 = new Chart(ctx3, { type:'line', data:{ labels: [], datasets: [] }, options:{ responsive:true } });
+      return;
+    }
+    function normalizeSeries(map, labelsArr){
+      const vals = labelsArr.map(d => map.get(d));
+      let base = vals.find(v => isFinite(v) && Math.abs(v) > 0);
+      if (!isFinite(base)) base = vals.find(v => isFinite(v));
+      if (!isFinite(base)) return labelsArr.map(_=> null);
+      if (base === 0) return vals.map(_ => 100);
+      return vals.map(v => isFinite(v) ? (v / base) * 100 : null);
+    }
+    const datasets = [];
+    datasets.push({ label:'{{ affaire.ref if affaire else "Affaire" }} (base 100)', data: normalizeSeries(affMap, labels), borderColor:(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#2456a6').trim(), fill:false, pointRadius:0, pointHoverRadius:0 });
+    (selected||[]).forEach((name, idx)=>{
+      const arr = allocSeries[name] || [];
+      const map = new Map(arr.map(p=> [p.date, parseFloat(p.sicav)]));
+      datasets.push({ label:name+' (base 100)', data: normalizeSeries(map, labels), borderColor: '#ff6b6b', fill:false, pointRadius:0, pointHoverRadius:0 });
+    });
+    chart3 = new Chart(ctx3, { type:'line', data:{ labels, datasets }, options:{ responsive:true, scales:{ y:{ ticks:{ callback:v=> v.toFixed(0) } } }, plugins:{ legend:{ display:true } } } });
+  }
+  // Remplir le select d'allocations
+  const sel = document.getElementById('allocSelect');
+  Object.keys(allocSeries).forEach(name=>{ const opt=document.createElement('option'); opt.value=name; opt.textContent=name; sel.appendChild(opt); });
+  sel.addEventListener('change', function(){ drawChart3(this.value ? [this.value] : []); });
+  document.querySelectorAll('.rangeBtnCmp').forEach(btn => btn.addEventListener('click', function(){ currentRange3 = this.dataset.range || 'all'; drawChart3(sel.value ? [sel.value] : []); }));
+  drawChart3([]);
+
+{% endif %}
+</script>
+
+<!-- jQuery + DataTables for supports table + Buttons -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+<script>
+  $(function(){
+    var table = $('#supportsTableContract').DataTable({
+        searching: false,
+      dom: 'Bfrtip',
+      buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'supports_affaire_{{ affaire.ref }}' } ],
+      order: [[6, 'desc']],
+      pageLength: 25,
+      fixedHeader: true,
+      columnDefs: [
+        { targets: [3], className: 'right', render: $.fn.dataTable.render.number(' ', ',', 2, '') },
+        { targets: [4,5], className: 'right', render: $.fn.dataTable.render.number(' ', ',', 2, '') },
+        { targets: [6], className: 'right', render: $.fn.dataTable.render.number(' ', ',', 0, '') },
+        { targets: [2], className: 'dt-center' }
+      ]
+    });
+    // Aggregation bar chart by category
+    var supportsData = {{ supports | tojson }};
+    var catCtx = document.getElementById('supportsCatChart').getContext('2d');
+    var geoCtx = document.getElementById('supportsGeoChart').getContext('2d');
+    var catChart, geoChart;
+    function buildCatBar(field){
+      var map = new Map();
+      (supportsData||[]).forEach(function(s){
+        var key = (s[field] || 'Non renseigné');
+        var v = parseFloat(s.valo) || 0;
+        map.set(key, (map.get(key)||0) + v);
+      });
+      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
+      var catLabels = entries.map(function(e){return e[0];});
+      var catValuesAbs = entries.map(function(e){return e[1];});
+      var totalCat = catValuesAbs.reduce(function(a,b){return a + (isFinite(b)? b:0);}, 0) || 0;
+      var catValues = catValuesAbs.map(function(v){ return totalCat>0 ? +(v/totalCat*100).toFixed(1) : 0; });
+      // hauteur contrôlée par l'attribut height du canvas (pas de redimension dynamique)
+      if (catChart) catChart.destroy();
+      var primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
+      catChart = new Chart(catCtx, {
+        type: 'bar',
+        data: { labels: catLabels, datasets: [{ data: catValues, backgroundColor: primaryColor, borderColor: primaryColor, borderWidth: 1 }] },
+        options: {
+          responsive:true,
+          maintainAspectRatio: false,
+          plugins:{ legend:{ display:false } },
+          layout: { padding: { top: 10, bottom: 36, right: 12, left: 12 } },
+          scales:{
+            x:{ ticks:{ font:{ size: 10 }, autoSkip: false, maxTicksLimit: 20, padding: 6, maxRotation: 0, minRotation: 0 } },
+            y:{ beginAtZero:true, suggestedMax: 100, ticks:{ callback: function(v){ return v + ' %'; } } }
+          },
+          datasets: { bar: { categoryPercentage: 0.7, barPercentage: 0.8, maxBarThickness: 24 } },
+          onHover: function(evt, elements){ if (elements && elements.length){ var idx = elements[0].index; var label = catLabels[idx]; buildGeoBar(field, label); } }
+        }
+      });
+      // initial geo: consolidated if nothing is hovered
+      buildGeoBar(field, null);
+      // reset to consolidated when leaving the pie
+      catCtx.canvas.addEventListener('mouseleave', function(){ buildGeoBar(field, null); });
+    }
+    function buildGeoBar(field, catValue){
+      var map = new Map();
+      (supportsData||[]).forEach(function(s){
+        var cat = (s[field] || 'Non renseigné');
+        if (catValue !== null && catValue !== undefined && String(cat) !== String(catValue)) return;
+        var key = (s['cat_geo'] || 'Non renseigné');
+        var v = Number(s.valo) || 0;
+        map.set(key, (map.get(key)||0) + v);
+      });
+      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
+      var geoLabels = entries.map(function(e){return e[0];});
+      var geoValuesAbs = entries.map(function(e){return e[1];});
+      var totalGeo = geoValuesAbs.reduce(function(a,b){return a + (isFinite(b)? b:0);}, 0) || 0;
+      var geoValues = geoValuesAbs.map(function(v){ return totalGeo>0 ? +(v/totalGeo*100).toFixed(1) : 0; });
+      // hauteur fixée par attribut height du canvas
+      if (geoChart) geoChart.destroy();
+      var teal = '#2a9d8f';
+      geoChart = new Chart(geoCtx, {
+        type:'bar',
+        data:{ labels: geoLabels, datasets:[{ data: geoValues, backgroundColor: teal, borderColor: teal, borderWidth: 1 }] },
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          layout: { padding: { top: 10, bottom: 36, right: 12, left: 12 } },
+          scales:{ x:{ ticks:{ font:{ size:10 }, autoSkip: false, maxTicksLimit: 20, padding: 6, maxRotation: 0, minRotation: 0 } }, y:{ beginAtZero:true, suggestedMax: 100, ticks:{ callback: function(v){ return v + ' %'; } } } },
+          datasets: { bar: { categoryPercentage: 0.7, barPercentage: 0.8, maxBarThickness: 24 } }
+        }
+      });
+    }
+    buildCatBar('cat_gene');
+    document.querySelectorAll('.dim-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.querySelectorAll('.dim-btn').forEach(b=> b.classList.remove('active'));
+        this.classList.add('active');
+        buildCatBar(this.dataset.field);
+      });
+    });
+  });
+  </script>
+
+  <script>
+    function openMovementPopup(affId, avisId){
+      try {
+        var baseW = 1100, baseH = 800;
+        var w = Math.floor(baseW * 1.15), h = Math.floor(baseH * 1.15);
+        var maxW = (screen.availWidth || screen.width || w);
+        var maxH = (screen.availHeight || screen.height || h);
+        if (w > maxW) w = Math.floor(maxW);
+        if (h > maxH) h = Math.floor(maxH);
+        var left = Math.max(0, Math.floor((maxW - w) / 2));
+        var top = Math.max(0, Math.floor((maxH - h) / 2));
+        var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+        var url = '/dashboard/mouvements?affaire_id=' + encodeURIComponent(affId||'') + '&avis_id=' + encodeURIComponent(avisId||'');
+        var win = window.open(url, 'mouvements_'+(affId||'')+'_'+(avisId||''), feat);
+        if (win && win.focus) { try { win.focus(); } catch(e){} }
+      } catch(e){}
+    }
+  </script>
+
+  <!-- Modal Avis d'opération -->
+  <style>
+    #avisModal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999; }
+    #avisModal .modal-card { background:#fff; border-radius:12px; width: 1000px; max-width: 96vw; max-height: 92vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    #avisModal .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom:1px solid var(--border); }
+    #avisModal .modal-body { padding: 12px 14px; }
+    #avisModal table th, #avisModal table td { white-space: nowrap; }
+    #avisModal table td:nth-child(2) { max-width: 60ch; white-space: normal; }
+  </style>
+  <div id="avisModal" onclick="if(event.target===this) closeAvisModal()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="margin:0;"><i class="fa-solid fa-clipboard-list" style="margin-right:8px;"></i>Avis d'opération</h3>
+        <button type="button" class="btn" onclick="closeAvisModal()">Fermer</button>
+      </div>
+      <div class="modal-body">
+        <table id="avisModalTable" class="display" style="width:100%">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Référence</th>
+              <th>Étape</th>
+              <th style="text-align:right;">Entrée</th>
+              <th style="text-align:right;">Sortie</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in avis_affaire %}
+            <tr>
+              <td>{{ a.date or '' }}</td>
+              <td>{{ a.reference or '' }}</td>
+              <td>{{ a.etape or '' }}</td>
+              <td style="text-align:right;">{{ a.entree_str or '' }}</td>
+              <td style="text-align:right;">{{ a.sortie_str or '' }}</td>
+              <td><button type="button" class="btn btn-choice" title="Voir mouvement" onclick="openMovementPopup({{ affaire.id }}, {{ a.avis_id }})"><i class="fa-solid fa-eye"></i></button></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openAvisModal(){ var el=document.getElementById('avisModal'); if(el){ el.style.display='flex'; } }
+    function closeAvisModal(){ var el=document.getElementById('avisModal'); if(el){ el.style.display='none'; } }
+  </script>
+
+{% endblock %}

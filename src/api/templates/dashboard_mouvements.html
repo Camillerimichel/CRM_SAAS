@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Mouvements{% endblock %}
+{% block header_title %}<i class="fa-solid fa-right-left" style="margin-right:8px;"></i>Mouvements{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <h3 style="margin:0 0 8px 0;">Mouvements positifs</h3>
+      <button type="button" class="btn" onclick="try{window.close()}catch(e){window.history.back()}"><i class="fa-solid fa-xmark" style="margin-right:6px;"></i>Fermer</button>
+    </div>
+    <div class="muted" style="margin-bottom:8px; font-size:.9rem;">
+      {% if affaire_id %}<span>Affaire: #{{ affaire_id }}</span>{% endif %}
+      {% if avis_id %}<span style="margin-left:8px;">Avis: #{{ avis_id }}</span>{% endif %}
+    </div>
+    <div class="table-wrap"><table id="mvTablePos" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Règle</th>
+          <th>Support</th>
+          <th style="text-align:right;">Montant</th>
+          <th style="text-align:right;">Frais</th>
+          <th style="text-align:right;">VL</th>
+          <th style="text-align:right;">Nb UC</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in items_pos %}
+        <tr>
+          <td>{{ m.date or '' }}</td>
+          <td>{{ m.regle or '' }}</td>
+          <td>{{ m.support or '' }}</td>
+          <td style="text-align:right;">{{ m.montant or '' }}</td>
+          <td style="text-align:right;">{{ m.frais or '' }}</td>
+          <td style="text-align:right;">{{ m.vl or '' }}</td>
+          <td style="text-align:right;">{{ m.nb_uc or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3" style="text-align:right;">Sous-total</th>
+          <th style="text-align:right;">{{ tot_pos_montant }}</th>
+          <th style="text-align:right;">{{ tot_pos_frais }}</th>
+          <th></th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table></div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <h3 style="margin:0 0 8px 0;">Mouvements négatifs</h3>
+    <div class="table-wrap"><table id="mvTableNeg" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Règle</th>
+          <th>Support</th>
+          <th style="text-align:right;">Montant</th>
+          <th style="text-align:right;">Frais</th>
+          <th style="text-align:right;">VL</th>
+          <th style="text-align:right;">Nb UC</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in items_neg %}
+        <tr>
+          <td>{{ m.date or '' }}</td>
+          <td>{{ m.regle or '' }}</td>
+          <td>{{ m.support or '' }}</td>
+          <td style="text-align:right;">{{ m.montant or '' }}</td>
+          <td style="text-align:right;">{{ m.frais or '' }}</td>
+          <td style="text-align:right;">{{ m.vl or '' }}</td>
+          <td style="text-align:right;">{{ m.nb_uc or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3" style="text-align:right;">Sous-total</th>
+          <th style="text-align:right;">{{ tot_neg_montant }}</th>
+          <th style="text-align:right;">{{ tot_neg_frais }}</th>
+          <th></th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table></div>
+  </div>
+
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+  <script>
+    $(function(){
+      try { $('#mvTablePos').DataTable({
+        destroy: true,
+        paging: false,
+        info: false,
+        searching: false,
+        ordering: false,
+        autoWidth: false,
+        responsive: false,
+        scrollX: false,
+        dom: 'Brt',
+        buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV (+)', title: 'mouvements_positifs', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+        order: [],
+        columnDefs: [ { targets: [3,4,5], className: 'right' } ]
+      }); } catch(e) {}
+      try { $('#mvTableNeg').DataTable({
+        destroy: true,
+        paging: false,
+        info: false,
+        searching: false,
+        ordering: false,
+        autoWidth: false,
+        responsive: false,
+        scrollX: false,
+        dom: 'Brt',
+        buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV (-)', title: 'mouvements_negatifs', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+        order: [],
+        columnDefs: [ { targets: [3,4,5], className: 'right' } ]
+      }); } catch(e) {}
+    });
+  </script>
+  <style>
+    /* Table propre, sans éléments DataTables superflus */
+    .table-wrap { width:100%; overflow-x:auto; }
+    #mvTablePos, #mvTableNeg { table-layout: fixed; width: 100%; }
+    /* Date plus compacte */
+    #mvTablePos th:nth-child(1), #mvTablePos td:nth-child(1),
+    #mvTableNeg th:nth-child(1), #mvTableNeg td:nth-child(1) { width: 9ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Règle (plus compacte) */
+    #mvTablePos th:nth-child(2), #mvTablePos td:nth-child(2),
+    #mvTableNeg th:nth-child(2), #mvTableNeg td:nth-child(2) { width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Support (peut être long) → autoriser le retour à la ligne et agrandir (un peu moins large) */
+    #mvTablePos th:nth-child(3), #mvTablePos td:nth-child(3),
+    #mvTableNeg th:nth-child(3), #mvTableNeg td:nth-child(3) { width: auto; min-width: 56ch; white-space: normal; word-break: break-word; }
+    /* Valeurs numériques à droite */
+    /* Colonne Montant un peu plus large pour éviter la troncature du sous-total */
+    #mvTablePos th:nth-child(4), #mvTablePos td:nth-child(4),
+    #mvTableNeg th:nth-child(4), #mvTableNeg td:nth-child(4) { white-space: nowrap; width: 14ch; }
+    /* Autres numériques compacts */
+    #mvTablePos th:nth-child(5), #mvTablePos td:nth-child(5),
+    #mvTablePos th:nth-child(6), #mvTablePos td:nth-child(6),
+    #mvTablePos th:nth-child(7), #mvTablePos td:nth-child(7),
+    #mvTableNeg th:nth-child(5), #mvTableNeg td:nth-child(5),
+    #mvTableNeg th:nth-child(6), #mvTableNeg td:nth-child(6),
+    #mvTableNeg th:nth-child(7), #mvTableNeg td:nth-child(7) { white-space: nowrap; width: 10ch; }
+    /* Cacher filtres/pagination DataTables */
+    div.dataTables_wrapper .dataTables_length,
+    div.dataTables_wrapper .dataTables_filter,
+    div.dataTables_wrapper .dataTables_info,
+    div.dataTables_wrapper .dataTables_paginate { display: none !important; }
+  </style>
+{% endblock %}

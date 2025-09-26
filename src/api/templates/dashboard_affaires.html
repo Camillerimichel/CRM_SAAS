@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Affaires{% endblock %}
+{% block header_title %}<i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Affaires{% endblock %}
+
+{% block content %}
+<style>
+    .main-container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        padding: 2rem;
+        margin: 2rem auto;
+    }
+    .header-section {
+        background: var(--primary);
+        color: #fff;
+        padding: 1.2rem;
+        border-radius: 10px;
+        margin-bottom: 1.2rem;
+        text-align: center;
+        box-shadow: var(--shadow-sm);
+    }
+    .top-row {
+        display: flex;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+    .srri-info {
+        flex: 1;
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+    }
+    .srri-chart {
+        flex: 1;
+        background: #fff;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+    /* En-têtes de tableau héritent du style global (base.html) */
+    thead input, thead select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 13px;
+    }
+    tbody td {
+        padding: 10px 8px;
+    }
+    .pagination-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .clear-btn {
+        background: #ff6b6b;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    /* Mise en évidence des lignes avec date clé présente */
+    .highlight-cle {
+        background: #ffe5e5 !important; /* rouge très clair */
+    }
+    .srri-calc {
+        margin-left: 6px;
+        font-size: 11px;
+        color: #666;
+        vertical-align: middle;
+    }
+    .badge-closed {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #b00020;
+        background: #ffd6d6;
+        border: 1px solid #ffb3b3;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    /* Barre outils + chips (harmonisé) */
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
+    .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+</style>
+
+<div class="main-container">
+    <div class="header-section">
+        <p><strong>Total affaires :</strong> {{ total_affaires }}</p>
+    </div>
+
+    <!-- Ligne avec SRRI texte + graphique -->
+    <div class="top-row">
+        <div class="srri-info">
+            <h3>Répartition SRRI (barres)</h3>
+            <canvas id="srriBarChart"></canvas>
+        </div>
+        <div class="srri-chart">
+            <h3>Contrats vs risque (barres)</h3>
+            <canvas id="compareBarChart"></canvas>
+            <div style="margin-top:8px; font-size: 13px;">
+                Au-dessus: <strong>{{ srri_compare_counts.above }}</strong> |
+                Identique: <strong>{{ srri_compare_counts.equal }}</strong> |
+                En-dessous: <strong>{{ srri_compare_counts.below }}</strong>
+            </div>
+        </div>
+    </div>
+
+    <h2>Liste des affaires</h2>
+    <div class="table-container">
+        <div id="quickToggleAff" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+            <span class="chevron">▾</span>
+        </div>
+        <div id="quickSectionAff" style="display:none;">
+            <div class="toolbar">
+                <div class="chips">
+                    <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
+                    <a class="chip" href="#" onclick="return chipRiskAff('all')">Risque: Tous</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('🔥')">🔥 Au‑dessus</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('🙏')">🙏 Identique</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('❄️')">❄️ En‑dessous</a>
+                </div>
+            </div>
+        </div>
+        <table id="affairesTable" class="display nowrap" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Contrat / Client</th>
+                    <th>SRRI</th>
+                    <th>Date début</th>
+                    <th>Frais courtier (€)</th>
+                    <th>Montant</th>
+                    <th>Perf 52 sem. (%)</th>
+                    <th>Volatilité 52 sem. (%)</th>
+                </tr>
+                <tr>
+                    <th><input type="text" id="contrat-filter" placeholder="Filtrer..."></th>
+                    <th>
+                        <select id="srri-icon-filter">
+                            <option value=""></option>
+                            <option value="❄️">❄️</option>
+                            <option value="🙏">🙏</option>
+                            <option value="🔥">🔥</option>
+                        </select>
+                    </th>
+                    <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ"></th>
+                    <th></th>
+                    <th></th>
+                    <th><input type="text" id="perf-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="volat-filter" placeholder="Filtrer..."></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in affaires %}
+                <tr class="{% if a.date_cle %}highlight-cle{% endif %}">
+                    <td>
+                        <a href="/dashboard/affaires/{{ a.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
+                          {{ a.ref }} - {{ a.client_nom }} {{ a.client_prenom }}
+                        </a>
+                        {% if a.date_cle %}<span class="badge-closed">Le contrat est clôturé ({{ (a.date_cle|string)[:10] }})</span>{% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        {% if a.srri_icon == 'fire' %}🔥{% elif a.srri_icon == 'hands-praying' %}🙏{% elif a.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
+                    </td>
+                    <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
+                    <td style="text-align:right;" data-order="{{ a.frais_courtier if a.frais_courtier is not none else '' }}">{{ a.frais_courtier if a.frais_courtier is not none else '' }}</td>
+                    <td style="text-align:right;">{{ a.last_valo }}</td>
+                    <td style="text-align:right;">{{ a.last_perf }}</td>
+                    <td style="text-align:right;">{{ a.last_volat }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination-container">
+        <div id="results-info"></div>
+        <button class="btn btn-danger" onclick="clearFilters()">🗑️ Effacer</button>
+    </div>
+</div>
+
+<!-- jQuery + DataTables -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+<!-- FixedHeader -->
+<link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
+<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+// Chart.js: couleur par défaut (axes/labels) = bleu CSS
+try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+$(document).ready(function () {
+    var table = $('#affairesTable').DataTable({
+        order: [[4, "desc"]], // trier sur le montant
+        pageLength: 25,
+        fixedHeader: true,
+        columnDefs: [
+          {
+            targets: 3,
+            render: function (data, type) {
+              if (data === null || data === undefined || data === '') {
+                return type === 'display' ? '' : null;
+              }
+              var normalized = String(data).replace(/\s+/g, '').replace(',', '.');
+              var n = parseFloat(normalized);
+              if (isNaN(n)) {
+                return data;
+              }
+              if (type === 'display' || type === 'filter') {
+                return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+              }
+              return n;
+            }
+          },
+          { targets: 4, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
+          { targets: 5, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
+          { targets: 6, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }
+        ]
+    });
+
+    // filtres texte
+    $('#contrat-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); });
+    $('#date-debut-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
+    $('#perf-filter').on('keyup change', function () { table.column(5).search(this.value).draw(); });
+    $('#volat-filter').on('keyup change', function () { table.column(6).search(this.value).draw(); });
+
+    // filtre par icône SRRI (colonne 1) — recherche par emoji
+    $('#srri-icon-filter').on('change', function(){
+        var val = $(this).val();
+        table.column(1).search(val).draw();
+        try { var params=new URLSearchParams(window.location.search); if(val) params.set('risk', val); else params.delete('risk'); var u=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', u);} catch(e) {}
+    });
+
+    // bouton effacer (réinitialise aussi le filtre SRRI)
+    window.clearFilters = function() {
+        $('#contrat-filter, #date-debut-filter, #perf-filter, #volat-filter').val('');
+        $('#srri-icon-filter').val('');
+        table.search('');
+        for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
+        table.draw();
+    };
+
+    // Préfiltre via ?risk= (above/equal/below) ou emoji/icon
+    (function(){
+      try {
+        const params = new URLSearchParams(window.location.search);
+        let risk = params.get('risk');
+        if (!risk) return;
+        // Revenir au mapping précédent: Au‑dessus = 🔥, En‑dessous = ❄️, Équivalent = 🙏
+        const map = { 'above':'🔥', 'equal':'🙏', 'below':'❄️', 'fire':'🔥', 'hands-praying':'🙏', 'snowflake':'❄️', '🔥':'🔥', '🙏':'🙏', '❄️':'❄️' };
+        const icon = map[String(risk).toLowerCase ? String(risk).toLowerCase() : risk] || map[risk];
+        if (!icon) return;
+        const sel = document.getElementById('srri-icon-filter');
+        if (sel) { sel.value = icon; sel.dispatchEvent(new Event('change')); }
+      } catch(e) { /* ignore */ }
+    })();
+
+    // Chips Risque (émoticônes)
+    window.chipRiskAff = function(val){ var sel=document.getElementById('srri-icon-filter'); if(val==='all'){ sel.value=''; } else { sel.value=val; } sel.dispatchEvent(new Event('change')); return false; };
+
+    // Accordéon Filtres rapides (persistant)
+    (function(){ try { var t=document.getElementById('quickToggleAff'), s=document.getElementById('quickSectionAff'); if(!t||!s) return; function setOpen(o){ s.style.display=o?'':'none'; t.classList.toggle('collapsed', !o); localStorage.setItem('aff_quick_open', o?'1':''); } var saved=localStorage.getItem('aff_quick_open')==='1'; setOpen(saved); t.addEventListener('click', function(){ setOpen(s.style.display==='none'); }); } catch(e) {} })();
+
+    // Chart.js données depuis Jinja
+    var ctx = document.getElementById('srriBarChart').getContext('2d');
+    var srriData = {
+        labels: [{% for item in srri_chart %}"SRRI {{ item.srri }}",{% endfor %}],
+        datasets: [{
+            label: 'Nombre',
+            data: [{% for item in srri_chart %}{{ item.nb }},{% endfor %}],
+            backgroundColor: '#667eea'
+        }]
+    };
+    new Chart(ctx, {
+        type: 'bar',
+        data: srriData,
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, ticks: { precision:0 } }
+            }
+        }
+    });
+
+    // Bar chart compare (au-dessus / identique / en-dessous)
+    var ctx2 = document.getElementById('compareBarChart').getContext('2d');
+    var cmp = {{ srri_compare_counts | tojson }};
+    new Chart(ctx2, {
+        type: 'bar',
+        data: {
+            labels: ['Au-dessus', 'Identique', 'En-dessous'],
+            datasets: [{
+                data: [cmp.above || 0, cmp.equal || 0, cmp.below || 0],
+                backgroundColor: ['#e63946', '#2a9d8f', '#457b9d']
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision:0 } } }
+        }
+    });
+});
+</script>
+
+{% endblock %}

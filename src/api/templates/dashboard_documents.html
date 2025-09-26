@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block title %}Documents{% endblock %}
+{% block header_title %}<i class="fa-solid fa-file" style="margin-right:8px;"></i>Documents{% endblock %}
+
+{% block content %}
+<style>
+  .main-container { background: #fff; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 2rem; margin: 2rem auto; }
+  .header-section { background: var(--primary); color: #fff; padding: 1.2rem; border-radius: 10px; margin-bottom: 1.2rem; text-align: center; box-shadow: var(--shadow-sm); }
+  table { width: 100%; border-collapse: collapse; background: white; }
+  /* En-têtes de tableau héritent du style global (base.html) */
+  thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+  tbody td { padding: 10px 8px; }
+  /* Centrer la colonne Obsolescence (6) */
+  #docsTable thead th:nth-child(6),
+  #docsTable tbody td:nth-child(6) {
+    text-align: center;
+  }
+  /* Barre outils */
+  .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 1rem 0; }
+  .toolbar-actions { display:flex; gap:8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
+  .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+  .quick-search { padding:7px 10px; border:1px solid #ccc; border-radius:8px; font-size:13px; min-width:240px; }
+  /* Badges obsolescence */
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .badge-obsolete { color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; }
+  .badge-ok { color:#155724; background:#d4edda; border:1px solid #c3e6cb; }
+</style>
+
+<div class="main-container">
+  <div class="header-section">
+    <p>Total: {{ total_documents }}</p>
+    <p>
+      Obsolescences par niveau:
+      {% for x in obs_by_niveau %}
+        <strong>{{ x.niveau or 'N/A' }}</strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
+      {% endfor %}
+    </p>
+    <p>
+      Obsolescences par risques:
+      {% for x in obs_by_risque %}
+        <strong>{{ x.risque or 'N/A' }}</strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
+      {% endfor %}
+    </p>
+  </div>
+
+  <div class="table-container">
+    <div id="quickToggleDocs" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+      <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="quickSectionDocs" style="display:none;">
+    <div class="toolbar">
+      <div class="chips">
+        <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
+        <a class="chip" href="#" onclick="return quickFilter('niveau','Important')">Niveau: Important</a>
+        <a class="chip" href="#" onclick="return quickFilter('niveau','Réglementaire')">Niveau: Réglementaire</a>
+        <a class="chip" href="#" onclick="return quickFilter('risque','Moyen')">Risque: Moyen</a>
+        <a class="chip" href="#" onclick="return quickFilter('risque','RC Pro')">Risque: RC Pro</a>
+        <a class="chip" href="#" onclick="return quickFilterObso(true)">Obsolescence: Oui</a>
+        <a class="chip" href="#" onclick="return quickFilterObso(false)">Obsolescence: Non</a>
+        <a class="chip" href="#" onclick="return quickFilterObso('all')">Obsolescence: Tous</a>
+        <a class="chip" href="#" onclick="return quickFilterAll('niveau')">Niveau: Tous</a>
+        <a class="chip" href="#" onclick="return quickFilterAll('risque')">Risque: Tous</a>
+      </div>
+      <div class="toolbar-actions">
+        <input id="doc-quick-search" class="quick-search" type="text" placeholder="Rechercher un document..." />
+        <button class="btn btn-primary" onclick="exportDocsCSV()">⬇️ Export CSV</button>
+        <button class="btn btn-danger" onclick="clearDocsFilters()">🗑️ Effacer</button>
+      </div>
+    </div>
+    </div>
+    <table id="docsTable" class="display nowrap" style="width:100%">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Prénom</th>
+          <th>Document</th>
+          <th>Niveau</th>
+          <th>Risque</th>
+          <th>Obsolescence</th>
+        </tr>
+        <tr>
+          <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
+          <th><input type="text" id="prenom-filter" placeholder="Filtrer..."></th>
+          <th><input type="text" id="doc-filter" placeholder="Filtrer..."></th>
+          <th><select id="niveau-filter"><option value="">Tous</option></select></th>
+          <th><select id="risque-filter"><option value="">Tous</option></select></th>
+          <th><select id="obs-filter"><option value="">Tous</option></select></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documents %}
+        <tr>
+          <td>{% if d.client_id %}<a href="/dashboard/clients/{{ d.client_id }}" style="text-decoration:underline; color:inherit;">{{ d.nom }}</a>{% else %}{{ d.nom }}{% endif %}</td>
+          <td>{% if d.client_id %}<a href="/dashboard/clients/{{ d.client_id }}" style="text-decoration:underline; color:inherit;">{{ d.prenom }}</a>{% else %}{{ d.prenom }}{% endif %}</td>
+          <td>{{ d.document }}</td>
+          <td>{{ d.niveau }}</td>
+          <td>{{ d.risque }}</td>
+          <td>
+            {% if d.obsolescence %}
+              <span class="badge badge-obsolete">{{ d.obsolescence }}</span>
+            {% else %}
+              <span class="badge badge-ok">À jour</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- jQuery + DataTables -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+<script>
+$(document).ready(function () {
+  var table = $('#docsTable').DataTable({
+    // Tri par défaut: Obsolescence (obsolète d'abord), puis Niveau, puis Risque
+    order: [[5, 'desc'], [3, 'asc'], [4, 'asc']],
+    pageLength: 25,
+    fixedHeader: true,
+    columnDefs: [
+      {
+        targets: 5, // Obsolescence
+        render: function(data, type, row){
+          if (type === 'sort' || type === 'type'){
+            var text = $('<div>').html(data).text().trim();
+            return (text && text.toLowerCase() !== 'à jour') ? 1 : 0;
+          }
+          return data;
+        }
+      }
+    ],
+    initComplete: function () {
+      var api = this.api();
+      // Remplir selects à partir des colonnes Niveau (3), Risque (4), Obsolescence (5)
+      [3,4,5].forEach(function(idx){
+        var select = $('#docsTable thead tr:eq(1) th').eq(idx).find('select');
+        api.column(idx).data().unique().sort().each(function (d) {
+          if (d) select.append('<option value="'+d+'">'+d+'</option>');
+        });
+        select.on('change', function(){
+          var val = $(this).val();
+          api.column(idx).search(val ? '^'+$.fn.dataTable.util.escapeRegex(val)+'$' : '', true, false).draw();
+          // Màj URL
+          try {
+            var params = new URLSearchParams(window.location.search);
+            var key = (idx===3?'niveau':(idx===4?'risque':'obsolescence'));
+            if (val) params.set(key, val); else params.delete(key);
+            var newUrl = window.location.pathname + '?' + params.toString();
+            window.history.replaceState({}, '', newUrl);
+          } catch(e) {}
+        });
+      });
+    }
+  });
+
+  // Filtres texte
+  $('#nom-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); });
+  $('#prenom-filter').on('keyup change', function () { table.column(1).search(this.value).draw(); });
+  $('#doc-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
+  $('#doc-quick-search').on('keyup change', function(){
+    var val = $(this).val();
+    $('#doc-filter').val(val);
+    table.column(2).search(val).draw();
+  });
+
+  // Accordéon Filtres rapides (persistant)
+  (function(){
+    try{
+      var t = document.getElementById('quickToggleDocs');
+      var s = document.getElementById('quickSectionDocs');
+      if(!t||!s) return;
+      function setOpen(open){ s.style.display = open? '': 'none'; t.classList.toggle('collapsed', !open); localStorage.setItem('docs_quick_open', open? '1':''); }
+      var saved = localStorage.getItem('docs_quick_open') === '1'; setOpen(saved);
+      t.addEventListener('click', function(){ setOpen(s.style.display==='none'); });
+    }catch(e){}
+  })();
+
+  // Bouton effacer
+  window.clearDocsFilters = function() {
+    try {
+      $('#nom-filter, #prenom-filter, #doc-filter, #doc-quick-search').val('');
+      $('#niveau-filter, #risque-filter, #obs-filter').val('').trigger('change');
+      table.search('');
+      for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
+      table.draw();
+      try {
+        var params = new URLSearchParams(window.location.search);
+        ['niveau','risque','obsolescence'].forEach(k=>params.delete(k));
+        var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
+        window.history.replaceState({}, '', newUrl);
+      } catch(e) {}
+    } catch(e) {}
+  };
+
+  // Raccourcis: applique et conserve l'URL
+  window.quickFilter = function(type, value){
+    try {
+      var sel = (type==='niveau') ? '#niveau-filter' : (type==='risque' ? '#risque-filter' : '#obs-filter');
+      var found = false; var lower = (value||'').toString().toLowerCase();
+      $(sel+' option').each(function(){
+        var v = (this.value||'').toString();
+        if (v.toLowerCase() === lower){ found = v; return false; }
+      });
+      if (!found){
+        $(sel+' option').each(function(){
+          var v = (this.value||'').toString();
+          if (v.toLowerCase().indexOf(lower) !== -1){ found = v; return false; }
+        });
+      }
+      if (found){
+        $(sel).val(found).trigger('change');
+      }
+      return false;
+    } catch(e){ return false; }
+  }
+
+  // Raccourci: réinitialiser un filtre select (niveau/risque)
+  window.quickFilterAll = function(type){
+    try {
+      var sel = (type==='niveau') ? '#niveau-filter' : '#risque-filter';
+      $(sel).val('').trigger('change');
+      var params = new URLSearchParams(window.location.search);
+      params.delete(type);
+      var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
+      window.history.replaceState({}, '', newUrl);
+      return false;
+    } catch(e){ return false; }
+  }
+
+  // Raccourcis obsolescence (oui/non)
+  window.quickFilterObso = function(isObsolete){
+    try {
+      if (isObsolete === 'all'){
+        table.column(5).search('', true, false).draw();
+        $('#obs-filter').val('');
+        var params0 = new URLSearchParams(window.location.search);
+        params0.delete('obsolescence');
+        var newUrl0 = window.location.pathname + (params0.toString()?('?'+params0.toString()):'');
+        window.history.replaceState({}, '', newUrl0);
+      } else if (isObsolete){
+        table.column(5).search('^(?!\\s*À jour\\s*$).+', true, false).draw();
+        var params = new URLSearchParams(window.location.search);
+        params.set('obsolescence', 'oui');
+        var newUrl = window.location.pathname + '?' + params.toString();
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        table.column(5).search('^\\s*À jour\\s*$', true, false).draw();
+        $('#obs-filter').val('À jour');
+        var params2 = new URLSearchParams(window.location.search);
+        params2.set('obsolescence', 'non');
+        var newUrl2 = window.location.pathname + '?' + params2.toString();
+        window.history.replaceState({}, '', newUrl2);
+      }
+      return false;
+    } catch(e){ return false; }
+  }
+
+  // Export CSV des lignes filtrées
+  window.exportDocsCSV = function(){
+    try {
+      var headers = [];
+      $('#docsTable thead tr').first().find('th').each(function(){ headers.push($(this).text().trim()); });
+      var rows = [];
+      table.rows({ search: 'applied' }).every(function(){
+        var data = this.data();
+        rows.push(data.map(function(cell){
+          var text = $('<div>').html(cell).text();
+          if (text.indexOf(',') !== -1 || text.indexOf('"') !== -1 || text.indexOf('\n') !== -1){
+            text = '"' + text.replace(/"/g,'""') + '"';
+          }
+          return text;
+        }).join(','));
+      });
+      var csv = headers.join(',') + '\n' + rows.join('\n');
+      var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'documents_export.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(e) {}
+  }
+
+  // Préfiltre via paramètre d'URL ?obsolescence=... (accepte oui/non)
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var obs = params.get('obsolescence');
+    if (obs) {
+      var low = obs.toString().toLowerCase();
+      if (low === 'oui' || low === 'true' || low === '1'){
+        table.column(5).search('^(?!\\s*À jour\\s*$).+', true, false).draw();
+      } else if (low === 'non' || low === 'false' || low === '0'){
+        table.column(5).search('^\\s*À jour\\s*$', true, false).draw();
+        $('#obs-filter').val('À jour');
+      } else {
+        var match = null;
+        $('#obs-filter option').each(function(){
+          var v = (this.value || '').toString();
+          if (v && v.toLowerCase() === low) { match = v; return false; }
+        });
+        if (!match) {
+          $('#obs-filter option').each(function(){
+            var v = (this.value || '').toString();
+            if (v && v.toLowerCase().indexOf(low) !== -1) { match = v; return false; }
+          });
+        }
+        if (match) { $('#obs-filter').val(match).trigger('change'); }
+      }
+    }
+    // Préfiltres additionnels: ?niveau=... et ?risque=...
+    function applySelectPrefilter(paramName, selectId) {
+      var val = params.get(paramName);
+      if (!val) return;
+      var match = null;
+      var lower = val.toString().toLowerCase();
+      $(selectId + ' option').each(function(){
+        var v = (this.value || '').toString();
+        if (v && v.toLowerCase() === lower) { match = v; return false; }
+      });
+      if (!match) {
+        $(selectId + ' option').each(function(){
+          var v = (this.value || '').toString();
+          if (v && v.toLowerCase().indexOf(lower) !== -1) { match = v; return false; }
+        });
+      }
+      if (match) { $(selectId).val(match).trigger('change'); }
+    }
+    applySelectPrefilter('niveau', '#niveau-filter');
+    applySelectPrefilter('risque', '#risque-filter');
+  } catch (e) { /* ignore */ }
+});
+</script>
+
+{% endblock %}

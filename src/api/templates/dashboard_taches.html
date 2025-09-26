@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}Tâches / Événements{% endblock %}
+{% block header_title %}🗂️ Tâches / Événements{% endblock %}
+{% block header_subtitle %}Suivi des actions, communications et réclamations{% endblock %}
+
+{% block content %}
+  <div class="card" style="margin-bottom: 1rem;">
+    <button type="button" class="accordion-toggle" onclick="toggleTacheAccordion()" style="width:100%; display:flex; align-items:center;">
+      <span style="flex:1; text-align:center;"><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</span>
+      <i id="tache_acc_icon" class="fa-solid fa-chevron-down" style="position:absolute; right:16px;"></i>
+    </button>
+
+    <div id="tache_accordion_body" class="task-block" style="display:none; margin-top:.8rem;">
+    <form id="form-create-tache" method="post" action="/dashboard/taches">
+      <!-- Ligne 1: Client / Affaire / Responsable -->
+      <div class="form-row" style="margin-bottom:.6rem;">
+        <div class="field">
+          <label>Client (Nom Prénom)</label>
+          <input type="text" name="client_fullname" list="clients_list" placeholder="Dupont Alice" />
+        </div>
+        <div class="field">
+          <label>Affaire (Référence)</label>
+          <input type="text" name="affaire_ref" list="affaires_list" placeholder="REF-0001" />
+        </div>
+        <div class="field">
+          <label>Responsable</label>
+          <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+        </div>
+      </div>
+
+      <!-- Ligne 2: Catégorie -> Type + option communication -->
+      <div class="form-row" style="margin-bottom:.6rem;">
+        <div class="field">
+          <label>Catégorie</label>
+          <select class="select-choice" name="categorie" id="categorie_select">
+            <option value="">-- choisir --</option>
+            {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Type</label>
+          <select class="select-choice" name="type_libelle" id="type_select">
+            <option value="">-- choisir une catégorie --</option>
+          </select>
+        </div>
+        <div class="field" style="align-self:center;">
+          <label>&nbsp;</label>
+          <button type="button" id="comm_btn" class="btn btn-choice" onclick="toggleCommBtn()">Préparer une communication</button>
+          <input type="hidden" id="comm_toggle" name="comm_toggle" value="0" />
+        </div>
+      </div>
+
+      <!-- Bloc communication (caché par défaut) -->
+      <div id="comm_block" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
+        <div class="form-row" style="margin-bottom:.6rem;">
+          <div class="field">
+            <label>Canal</label>
+            <select class="select-choice" name="comm_canal">
+              <option value="email">email</option>
+              <option value="courrier">courrier</option>
+              <option value="sms">sms</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Destinataire</label>
+            <input class="input-large" type="text" name="comm_destinataire" placeholder="email ou adresse" />
+          </div>
+          <div class="field">
+            <label>Objet</label>
+            <input class="input-large" type="text" name="comm_objet" placeholder="Objet du message" />
+          </div>
+        </div>
+        <div>
+          <label>Contenu</label>
+          <textarea class="input-large" name="comm_contenu" rows="3" placeholder="Contenu du message..." style="width:100%;"></textarea>
+        </div>
+      </div>
+
+      <!-- Commentaire (3 lignes) -->
+      <div style="margin-bottom:.6rem;">
+        <label>Commentaire</label>
+        <textarea name="commentaire" rows="3" placeholder="Détails / notes…" style="width:100%;"></textarea>
+      </div>
+
+      <!-- Statut + Créer -->
+      <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
+        <div style="flex:1 1 100%;">
+          <label>Statut initial</label>
+          <div id="initial_status_group" style="display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;">
+            {% for s in status_ui %}
+              <button type="button" class="btn btn-choice" data-sid="{{ s.id }}" data-key="{{ s.key }}" onclick="selectInitialStatus(this)">{{ s.label }}</button>
+            {% endfor %}
+            {% if en_cours_id %}
+              <button type="button" id="btn_initial_en_cours" class="btn btn-choice" style="display:none; background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;" data-sid="{{ en_cours_id }}" onclick="selectInitialStatus(this)">en cours</button>
+            {% endif %}
+            <input type="hidden" name="statut_id" id="initial_statut_id" value="" />
+          </div>
+        </div>
+      </div>
+      <div class="create-btn-container">
+        <button class="btn btn-primary btn-choice" style="min-width:160px;" type="submit"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Créer</button>
+      </div>
+
+      <datalist id="clients_list">
+        {% for c in clients_suggest %}
+          <option value="{{ ((c.nom or '') ~ ' ' ~ (c.prenom or '')) | trim }}"></option>
+        {% endfor %}
+      </datalist>
+      <datalist id="affaires_list">
+        {% for a in affaires_suggest %}
+          <option value="{{ a.ref }}">{{ a.ref }} — {{ a.client }}</option>
+        {% endfor %}
+      </datalist>
+    </form>
+
+    <script>
+      function toggleTacheAccordion(){
+        const body = document.getElementById('tache_accordion_body');
+        const icn = document.getElementById('tache_acc_icon');
+        const isOpen = body.style.display === 'block';
+        body.style.display = isOpen ? 'none' : 'block';
+        icn.className = isOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+      }
+      const TYPES = [
+        {% for t in types %}
+          { id: {{ t.id }}, libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
+        {% endfor %}
+      ];
+      const AFFAIRES = [
+        {% for a in affaires_suggest %}
+          { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
+        {% endfor %}
+      ];
+      function populateTypes(cat) {
+        const sel = document.getElementById('type_select');
+        sel.innerHTML = '';
+        if (!cat) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '-- choisir une catégorie --';
+          sel.appendChild(opt);
+          return;
+        }
+        const opts = TYPES.filter(t => t.categorie === cat).map(t => t.libelle);
+        for (const lib of opts) {
+          const o = document.createElement('option');
+          o.value = lib; o.textContent = lib; sel.appendChild(o);
+        }
+        // Auto-select first available type if present
+        if (opts.length > 0) sel.value = opts[0];
+      }
+      const catSel = document.getElementById('categorie_select');
+      catSel.addEventListener('change', (e) => populateTypes(e.target.value));
+      // Initialize on load if category already chosen
+      if (catSel && catSel.value) { populateTypes(catSel.value); }
+      function toggleCommBtn() {
+        const hidden = document.getElementById('comm_toggle');
+        const btn = document.getElementById('comm_btn');
+        const on = hidden.value === '1' ? false : true;
+        hidden.value = on ? '1' : '0';
+        document.getElementById('comm_block').style.display = on ? 'block' : 'none';
+        btn.classList.toggle('btn-choice-active', on);
+      }
+      function normalizeName(s){
+        if(!s) return '';
+        return String(s).trim().replace(/\s+/g,' ').toLowerCase();
+      }
+      function updateAffairesDatalist(){
+        const clientInput = document.querySelector('input[name="client_fullname"]');
+        const clientVal = normalizeName(clientInput ? clientInput.value : '');
+        const dl = document.getElementById('affaires_list');
+        if(!dl) return;
+        dl.innerHTML = '';
+        const rows = (clientVal ? AFFAIRES.filter(a => normalizeName(a.client) === clientVal) : AFFAIRES);
+        for(const a of rows){
+          const opt = document.createElement('option');
+          opt.value = a.ref;
+          opt.textContent = `${a.ref} — ${a.client}`;
+          dl.appendChild(opt);
+        }
+      }
+      (function initLinking(){
+        const clientInput = document.querySelector('input[name="client_fullname"]');
+        if(clientInput){
+          clientInput.addEventListener('input', updateAffairesDatalist);
+          clientInput.addEventListener('change', updateAffairesDatalist);
+        }
+        updateAffairesDatalist();
+      })();
+      function selectInitialStatus(btn){
+        const sid = btn.getAttribute('data-sid');
+        const key = btn.getAttribute('data-key');
+        document.getElementById('initial_statut_id').value = sid;
+        // Visual state
+        const group = document.getElementById('initial_status_group');
+        const peers = group.querySelectorAll('button');
+        peers.forEach(b => { b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');});
+        btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active');
+        // Toggle 'en cours' button visibility: show only when selected key in ['a faire','en attente']
+        const ec = document.getElementById('btn_initial_en_cours');
+        if (ec) {
+          if (key === 'a faire' || key === 'en attente') {
+            ec.style.display = 'inline-block';
+          } else {
+            ec.style.display = 'none';
+          }
+        }
+      }
+    </script>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom:.6rem;">Liste des tâches</h2>
+    <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
+      <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list" style="margin-right:6px;"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun" style="margin-right:6px;"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>En retard <span class="badge">{{ counts.late }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé"><i class="fa-solid fa-bell" style="margin-right:6px;"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire"><i class="fa-regular fa-square" style="margin-right:6px;"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente"><i class="fa-regular fa-clock" style="margin-right:6px;"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours"><i class="fa-solid fa-play" style="margin-right:6px;"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=termin%C3%A9"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Terminées <span class="badge">{{ counts.termine }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9"><i class="fa-solid fa-xmark" style="margin-right:6px;"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
+    </div>
+    <form method="get" action="/dashboard/taches">
+      <table id="tasksTable" class="display nowrap" style="width:100%">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Client</th>
+            <th>Affaire</th>
+            <th>Intervenants</th>
+            <th>Commentaire</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in items %}
+            <tr>
+              <td><span class="js-local-dt" data-iso="{{ r.date_evenement }}">{{ r.date_evenement }}</span></td>
+              <td>{{ r.type_evenement }}</td>
+              <td>
+                {% set nom_cli = r.nom_client or r.client_nom or r.client_name or r.client or r.client_fullname %}
+                {% if r.client_id and nom_cli %}
+                  <a href="/dashboard/clients/{{ r.client_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ nom_cli }}</a>
+                {% elif r.client_id %}
+                  <a href="/dashboard/clients/{{ r.client_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ r.client_id }}</a>
+                {% else %}-{% endif %}
+              </td>
+              <td>
+                {% set ref_aff = r.affaire_ref or r.ref_affaire or r.affaire or r.affaire_name %}
+                {% if r.affaire_id and ref_aff %}
+                  <a href="/dashboard/affaires/{{ r.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ ref_aff }}</a>
+                {% elif r.affaire_id %}
+                  <a href="/dashboard/affaires/{{ r.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ r.affaire_id }}</a>
+                {% else %}-{% endif %}
+              </td>
+              <td>{{ r.intervenants or '' }}</td>
+              <td>
+                {% set full = r.commentaire or '' %}
+                {% set short = full[:180] %}
+                <div id="cmt-short-{{ r.evenement_id }}" style="white-space: pre-wrap; {{ 'display:none;' if (full|length) <= 180 else '' }}">{{ short }}{% if (full|length) > 180 %}…{% endif %}</div>
+                <div id="cmt-full-{{ r.evenement_id }}" style="white-space: pre-wrap; {{ '' if (full|length) <= 180 else 'display:none;' }}">{{ full }}</div>
+                {% if (full|length) > 180 %}
+                  <div><a href="#" onclick="return toggleComment({{ r.evenement_id }})" style="font-size:12px;">Voir plus</a></div>
+                {% endif %}
+              </td>
+              <td>
+                {% set statut_label = (r.statut or 'à faire')|lower %}
+                {% set btn_class = 'btn-choice' %}
+                {% if statut_label == 'en cours' %}
+                  {% set btn_style = 'background:#16a34a; color:#fff; border-color:#16a34a;' %}
+                {% elif statut_label == 'en attente' %}
+                  {% set btn_style = 'background:#f59e0b; color:#fff; border-color:#f59e0b;' %}
+                {% elif statut_label in ['terminé','termine'] %}
+                  {% set btn_style = 'background:#4b5563; color:#fff; border-color:#4b5563;' %}
+                {% elif statut_label in ['annulé','annule'] %}
+                  {% set btn_style = 'background:#b91c1c; color:#fff; border-color:#b91c1c;' %}
+                {% else %}
+                  {% set btn_style = '' %}
+                {% endif %}
+                <a class="btn {{ btn_class }}" href="/dashboard/taches/{{ r.evenement_id }}" style="padding:2px 6px; font-size:11px; border-radius:4px; {{ btn_style }}">{{ r.statut or 'à faire' }}</a>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="center muted">Aucune tâche</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+      <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
+      <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+      <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+      <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+      <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+      <script>
+        $(function(){
+          try { if (window.tasksDT) { window.tasksDT.destroy(); } } catch(e) {}
+          try {
+            window.tasksDT = $('#tasksTable').DataTable({
+              destroy: true,
+              paging: true,
+              pageLength: 25,
+              fixedHeader: false,
+              dom: 'Bfrtip',
+              buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'taches', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+              order: [[0,'desc']],
+              columnDefs: [
+                { targets: [0,1,2,3,4,6], className: 'nowrap' },
+              ]
+            });
+          } catch(e) {}
+        });
+      </script>
+
+      <!-- Navigation vers une page d'édition dédiée via le lien Statut -->
+    </form>
+  </div>
+  <script>
+    function toggleComment(id){
+      var s = document.getElementById('cmt-short-'+id);
+      var f = document.getElementById('cmt-full-'+id);
+      if(!s || !f) return false;
+      var isShortVisible = s.style.display !== 'none';
+      s.style.display = isShortVisible ? 'none' : '';
+      f.style.display = isShortVisible ? '' : 'none';
+      var link = event.target;
+      if(link && link.tagName.toLowerCase() === 'a'){
+        link.textContent = isShortVisible ? 'Voir moins' : 'Voir plus';
+      }
+      return false;
+    }
+  </script>
+{% endblock %}

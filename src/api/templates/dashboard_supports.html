@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Supports{% endblock %}
+{% block header_title %}<i class="fa-solid fa-chart-pie" style="margin-right:8px;"></i>Supports{% endblock %}
+{% block content %}
+
+<style>
+    .main-container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        padding: 2rem;
+        margin: 2rem auto;
+    }
+    .header-section {
+        background: var(--primary);
+        color: #fff;
+        padding: 1.2rem;
+        border-radius: 10px;
+        margin-bottom: 1.2rem;
+        text-align: center;
+        box-shadow: var(--shadow-sm);
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        table-layout: fixed; /* respecter les largeurs de colonnes */
+    }
+    /* En-têtes de tableau héritent du style global (base.html) */
+    thead input, thead select {
+        width: 100%;
+        padding: 4px 6px; /* champs plus compacts */
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 12px; /* police réduite */
+    }
+    tbody td {
+        padding: 6px 6px; /* cellules plus compactes */
+        line-height: 1.2;
+        font-size: 12px;
+        white-space: nowrap; /* évite les retours à la ligne */
+    }
+
+    /* Ajustement des largeurs de colonnes pour mieux répartir l'espace */
+    /* Colonnes: 1=ISIN, 2=Nom, 3=Catégorie, 4=Zone, 5=SRRI, 6=Valo */
+    #supportsTable th:nth-child(1),
+    #supportsTable td:nth-child(1) { /* Code ISIN */
+        width: 14%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #supportsTable th:nth-child(2),
+    #supportsTable td:nth-child(2) { /* Nom */
+        width: 26%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #supportsTable th:nth-child(4),
+    #supportsTable td:nth-child(4) { /* Zone géo */
+        width: 20%;
+    }
+    #supportsTable th:nth-child(5),
+    #supportsTable td:nth-child(5) { /* SRRI */
+        width: 10%;
+        text-align: center;
+    }
+    .valo-amount {
+        font-weight: 600;
+        color: #28a745;
+        text-align: right;
+        font-family: monospace;
+    }
+    .pagination-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .restore-note { display:none; font-size:12px; color:#666; margin: 2px 0 6px 0; }
+    .restore-note .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2f7; border:1px solid #dde3ea; color:#445; font-weight:600; }
+    .restore-note .badge a.close { margin-left:6px; text-decoration:none; color:#445; font-weight:700; cursor:pointer; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
+    .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+    .clear-btn {
+        background: #ff6b6b;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+</style>
+
+<div class="main-container">
+    <div class="header-section">
+        <p><strong>Date:</strong> <span class="js-local-dt" data-iso="{{ last_date }}">{{ last_date }}</span> | <strong>Total:</strong> {{ total_supports }} supports</p>
+    </div>
+
+    <div class="table-container">
+        <div id="restoreSupports" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredSupports()">×</a></span></div>
+        <div id="quickToggleSup" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+            <span class="chevron">▾</span>
+        </div>
+        <div id="quickSectionSup" style="display:none;">
+        <div class="toolbar">
+            <div class="chips" id="supportChips">
+                <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
+                <a class="chip" href="#" onclick="return chipSrri('')">SRRI: Tous</a>
+                <a class="chip" href="#" onclick="return chipSrri('1')">SRRI: 1</a>
+                <a class="chip" href="#" onclick="return chipSrri('2')">SRRI: 2</a>
+                <a class="chip" href="#" onclick="return chipSrri('3')">SRRI: 3</a>
+                <a class="chip" href="#" onclick="return chipSrri('4')">SRRI: 4</a>
+                <a class="chip" href="#" onclick="return chipSrri('5')">SRRI: 5</a>
+                <a class="chip" href="#" onclick="return chipSrri('6')">SRRI: 6</a>
+                <a class="chip" href="#" onclick="return chipSrri('7')">SRRI: 7</a>
+            </div>
+        </div>
+        </div>
+        <table id="supportsTable" class="display nowrap" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Code ISIN</th>
+                    <th>Nom</th>
+                    <th>Catégorie</th>
+                    <th>Zone Géo</th>
+                    <th>SRRI</th>
+                    <th style="text-align:right;">Valo Total</th>
+                </tr>
+                <tr>
+                    <th><input type="text" id="isin-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
+                    <th><select id="categorie-filter" multiple size="6"><option value="">Aucun</option></select></th>
+                    <th><select id="zone-filter" multiple size="6"><option value="">Aucun</option></select></th>
+                    <th><select id="srri-filter" multiple size="6"><option value="">Aucun</option></select></th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in supports %}
+                <tr>
+                    <td>{{ s.code_isin }}</td>
+                    <td>{{ s.nom }}</td>
+                    <td>{{ s.categorie }}</td>
+                    <td>{{ s.zone_geo }}</td>
+                    <td>{{ s.SRRI }}</td>
+                    <td class="valo-amount">{{ s.total_valo }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination-container">
+        <div id="results-info">Astuce: maintenez Ctrl/Cmd pour une sélection multiple dans les listes.</div>
+        <button class="clear-btn" onclick="clearFilters()">🗑️ Effacer</button>
+    </div>
+</div>
+
+<!-- jQuery + DataTables -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+<!-- FixedHeader -->
+<link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
+<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
+
+<script>
+$(document).ready(function () {
+    var table = $('#supportsTable').DataTable({
+        order: [[5, "desc"]],
+        pageLength: 25,
+        fixedHeader: true,
+        columnDefs: [
+            {
+                targets: 5, // colonne Valo Total
+                render: $.fn.dataTable.render.number(' ', ',', 0, '')
+            }
+        ],
+        initComplete: function () {
+            var api = this.api();
+
+            // remplir selects avec valeurs uniques et filtrage multi
+            api.columns([2,3,4]).every(function () {
+                var column = this;
+                var idx = column.index();
+                var select = $('#supportsTable thead tr:eq(1) th').eq(idx).find('select');
+
+                // option 'Aucun'
+                if (select.find('option[value=""]').length === 0) {
+                    select.append('<option value="">Aucun</option>');
+                }
+                column.data().unique().sort().each(function (d) {
+                    if (d) select.append('<option value="'+d+'">'+d+'</option>');
+                });
+
+                // Permet de sélectionner/désélectionner plusieurs options par simple clic (sans Ctrl/Cmd)
+                select.on('mousedown', 'option', function(e){
+                    e.preventDefault();
+                    var $opt = $(this);
+                    var $sel = $opt.parent();
+                    var wasSelected = $opt.prop('selected');
+                    if ($opt.val() === '') {
+                        // Si 'Aucun' est cliqué: on vide tout et on ne garde que 'Aucun'
+                        $sel.find('option').prop('selected', false);
+                        $opt.prop('selected', true);
+                    } else {
+                        // Si une vraie valeur est cliquée: on enlève 'Aucun' et on toggle cette valeur
+                        $sel.find('option[value=""]').prop('selected', false);
+                        $opt.prop('selected', !wasSelected);
+                    }
+                    $sel.trigger('change');
+                    return false;
+                });
+
+                select.on('change', function () {
+                    var vals = $(this).val() || [];
+                    // Si 'Aucun' est sélectionné, on nettoie le filtre
+                    if (vals.length === 0 || (vals.length === 1 && vals[0] === '')) {
+                        column.search('').draw();
+                    } else {
+                        var pattern = vals.map($.fn.dataTable.util.escapeRegex).join('|');
+                        column.search(pattern, true, false).draw();
+                    }
+                    // Mettre à jour l'URL
+                    try {
+                        var params = new URLSearchParams(window.location.search);
+                        var key = (idx===2?'categorie':(idx===3?'zone':'srri'));
+                        var filtered = (vals||[]).filter(v=>v && v!=='');
+                        if (filtered.length) params.set(key, filtered.join(',')); else params.delete(key);
+                        var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
+                        window.history.replaceState({}, '', newUrl);
+                    } catch(e) {}
+                    // Sauver état
+                    try { saveSupportsState(); } catch(e) {}
+                });
+            });
+
+            // Injecter chips dynamiques pour Catégorie/Zone après remplissage
+            try {
+                var chips = document.getElementById('supportChips');
+                function addChip(label, handler){ var a=document.createElement('a'); a.className='chip'; a.href='#'; a.textContent=label; a.onclick=function(){ return handler(); }; chips.appendChild(a); }
+                addChip('Catégorie: Tous', function(){ $('#categorie-filter').val(['']).trigger('change'); return false; });
+                $('#categorie-filter option').each(function(){ var v=$(this).val(); if(v){ addChip('Catégorie: '+v, function(){ $('#categorie-filter').val([v]).trigger('change'); return false; }); }});
+                addChip('Zone: Tous', function(){ $('#zone-filter').val(['']).trigger('change'); return false; });
+                $('#zone-filter option').each(function(){ var v=$(this).val(); if(v){ addChip('Zone: '+v, function(){ $('#zone-filter').val([v]).trigger('change'); return false; }); }});
+            } catch(e) {}
+
+            // Préfiltres via URL ?srri=1,2&categorie=...&zone=...; sinon restaurer depuis localStorage
+            (function(){
+              try {
+                var params = new URLSearchParams(window.location.search);
+                function applyMulti(param, sel){ var val=params.get(param); if(!val) return false; var list=val.split(',').map(s=>s.trim()).filter(Boolean); if(!list.length) return false; var found=[]; $(sel+' option').each(function(){ var v=$(this).val(); if(v && list.indexOf(v)!==-1){ found.push(v);} }); if(found.length){ $(sel).val(found).trigger('change'); return true; } return false; }
+                var used=false; used = applyMulti('srri', '#srri-filter') || used; used = applyMulti('categorie', '#categorie-filter') || used; used = applyMulti('zone', '#zone-filter') || used;
+                if (!used){
+                  var raw = localStorage.getItem('supports_filters');
+                  if (raw){
+                    var st = JSON.parse(raw);
+                    if (st){
+                      var restored=false;
+                      if (st.isin) { $('#isin-filter').val(st.isin).trigger('change'); restored=true; }
+                      if (st.nom) { $('#nom-filter').val(st.nom).trigger('change'); restored=true; }
+                      if (Array.isArray(st.categorie) && st.categorie.length) { $('#categorie-filter').val(st.categorie).trigger('change'); restored=true; }
+                      if (Array.isArray(st.zone) && st.zone.length) { $('#zone-filter').val(st.zone).trigger('change'); restored=true; }
+                      if (Array.isArray(st.srri) && st.srri.length) { $('#srri-filter').val(st.srri).trigger('change'); restored=true; }
+                      if (restored) { try{ document.getElementById('restoreSupports').style.display='block'; }catch(e){} }
+                    }
+                  }
+                }
+              } catch(e) {}
+            })();
+        }
+    });
+
+    // filtres texte multiples (séparés par virgule ou espace)
+    function multiTextSearch(value, columnIdx) {
+        var terms = (value || '').split(/[ ,]+/).filter(Boolean);
+        if (terms.length === 0) {
+            table.column(columnIdx).search('').draw();
+        } else {
+            var pattern = terms.map($.fn.dataTable.util.escapeRegex).join('|');
+            table.column(columnIdx).search(pattern, true, false).draw();
+        }
+    }
+    function saveSupportsState(){
+      try {
+        var st = {
+          isin: $('#isin-filter').val() || '',
+          nom: $('#nom-filter').val() || '',
+          categorie: ($('#categorie-filter').val()||[]).filter(v=>v&&v!==''),
+          zone: ($('#zone-filter').val()||[]).filter(v=>v&&v!==''),
+          srri: ($('#srri-filter').val()||[]).filter(v=>v&&v!==''),
+        };
+        localStorage.setItem('supports_filters', JSON.stringify(st));
+      } catch(e) {}
+    }
+    $('#isin-filter').on('keyup change', function () { multiTextSearch(this.value, 0); saveSupportsState(); });
+    $('#nom-filter').on('keyup change', function () { multiTextSearch(this.value, 1); saveSupportsState(); });
+
+    // chips SRRI
+    window.chipSrri = function(val){ if(val===''){ $('#srri-filter').val(['']).trigger('change'); } else { $('#srri-filter').val([val]).trigger('change'); } return false; };
+
+    // bouton effacer
+    window.clearFilters = function() {
+        $('#isin-filter, #nom-filter').val('');
+        // Réinitialise les sélecteurs sur 'Aucun'
+        $('#categorie-filter, #zone-filter, #srri-filter').each(function(){
+            $(this).find('option').prop('selected', false);
+            $(this).find('option[value=""]').prop('selected', true);
+            $(this).trigger('change');
+        });
+        table.search('').columns().search('').draw();
+        try { var params=new URLSearchParams(window.location.search); ['categorie','zone','srri'].forEach(k=>params.delete(k)); var newUrl=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', newUrl); } catch(e) {}
+        try { localStorage.removeItem('supports_filters'); } catch(e) {}
+        };
+    (function(){try{var t=document.getElementById('quickToggleSup'),s=document.getElementById('quickSectionSup');if(!t||!s)return;function setOpen(o){s.style.display=o?'':'none';t.classList.toggle('collapsed',!o);localStorage.setItem('sup_quick_open',o?'1':'');}var saved=localStorage.getItem('sup_quick_open')==='1';setOpen(saved);t.addEventListener('click',function(){setOpen(s.style.display==='none');});}catch(e){}})();
+
+    // reset depuis le badge restauré
+    window.resetRestoredSupports = function(){ try{ document.getElementById('restoreSupports').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
+});
+</script>
+
+{% endblock %}

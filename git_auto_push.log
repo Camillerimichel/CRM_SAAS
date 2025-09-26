@@ -1,0 +1,127 @@
+[0;34m[2025-09-26 14:41:16] === Début du script de sauvegarde ===[0m
+[0;34mDossier de travail: /users/michelcamilleri_1/crm_saas[0m
+[0;34m[2025-09-26 14:41:16] Vérification des prérequis...[0m
+[0;32m✅ Tous les prérequis sont OK[0m
+[0;34m[2025-09-26 14:41:16] Configuration Git...[0m
+[0;32m✅ Configuration Git mise à jour[0m
+[1;33m📋 Backup de l'ancien schema créé[0m
+[0;34m[2025-09-26 14:41:16] Export de la structure MariaDB...[0m
+[0;32m✅ Export MariaDB réussi (31162 bytes)[0m
+[0;34m[2025-09-26 14:41:16] Vérification des changements Git...[0m
+[0;34m📋 Changements détectés:[0m
+  git_auto_push.log                |  10 +
+  git_auto_push.sh                 |  29 ---
+  git_auto_push_V2.sh              | 224 +++++++++++++++++++
+  schema.sql                       |  10 +-
+  src/api/dashboard.py             | 463 ++++++++++++++++++++++++++++++++++++++-
+  src/api/templates/dashboard.html | 278 ++++++++++++++++++++++-
+  6 files changed, 982 insertions(+), 32 deletions(-)
+[0;34m[2025-09-26 14:41:17] Création du commit...[0m
+[0;32m✅ Commit créé avec succès[0m
+[0;34m[2025-09-26 14:41:17] Push vers GitHub...[0m
+remote: error: Trace: 332f125576ea5324eab53f75b1f5f7760454f3923fbdac46fe456dc4f0f8176e        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 1/3). Nouvelle tentative dans 5s...[0m
+remote: error: Trace: 0e9495297df73e2604484d7256ba9707273b8814d60760a57b3dad622120fb2a        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 2/3). Nouvelle tentative dans 5s...[0m
+[0;34m[2025-09-26 14:43:39] === Début du script de push Git ===[0m
+[0;34mDossier de travail: /users/michelcamilleri_1/crm_saas[0m
+[0;34m[2025-09-26 14:43:39] Vérification des prérequis...[0m
+[0;32m✅ Tous les prérequis sont OK[0m
+[0;34m[2025-09-26 14:43:39] Configuration Git...[0m
+[0;32m✅ Configuration Git mise à jour[0m
+[0;34m[2025-09-26 14:43:39] Vérification des changements Git...[0m
+[0;34m📋 Changements détectés:[0m
+  .gitignore          |  3 ++
+  git_auto_push.log   | 34 +++++++++++++++++++++
+  git_auto_push_V2.sh | 87 ++++++-----------------------------------------------
+  3 files changed, 47 insertions(+), 77 deletions(-)
+[0;34m[2025-09-26 14:43:39] Création du commit...[0m
+[0;32m✅ Commit créé avec succès[0m
+[0;34m[2025-09-26 14:43:39] Push vers GitHub...[0m
+remote: error: Trace: 1a86bdd654f693acd076415716a59528837d927b8ccd9813f9531f317715fe38        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 1/3). Nouvelle tentative dans 5s...[0m
+remote: error: Trace: 76778bd1b4e518a79af8881d0e4c1a30c9402656a207f1160d21265b7bb4c899        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 2/3). Nouvelle tentative dans 5s...[0m
+[0;34m🔧 Tentative de résolution automatique...[0m
+[0;34m[2025-09-26 14:47:02] === Début du script de push Git ===[0m
+[0;34mDossier de travail: /users/michelcamilleri_1/crm_saas[0m
+[0;34m[2025-09-26 14:47:02] Vérification des prérequis...[0m
+[0;32m✅ Tous les prérequis sont OK[0m
+[0;34m[2025-09-26 14:47:02] Configuration Git...[0m
+[0;32m✅ Configuration Git mise à jour[0m
+[0;34m[2025-09-26 14:47:02] Vérification des changements Git...[0m
+[0;34m📋 Changements détectés:[0m
+  .gitignore          |  4 ++++
+  git_auto_push.log   | 32 ++++++++++++++++++++++++++++++++
+  git_auto_push_V2.sh |  1 +
+  3 files changed, 37 insertions(+)
+[0;34m[2025-09-26 14:47:02] Création du commit...[0m
+[0;32m✅ Commit créé avec succès[0m
+[0;34m[2025-09-26 14:47:02] Push vers GitHub...[0m
+remote: error: Trace: 80576c6e2ad6e4623f93e63f43ac25514fffa23bfe30a7d5552a27ae458c4d46        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 1/3). Nouvelle tentative dans 5s...[0m
+remote: error: Trace: daeee234d1136f7a0dfb0ed8bcd49f39b39ef4071efd8126b88504b566e17210        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 2/3). Nouvelle tentative dans 5s...[0m
+[0;34m🔧 Tentative de résolution automatique...[0m
+[0;34m[2025-09-26 14:48:31] === Début du script de push Git ===[0m
+[0;34mDossier de travail: /users/michelcamilleri_1/crm_saas[0m
+[0;34m[2025-09-26 14:48:31] Vérification des prérequis...[0m
+[0;32m✅ Tous les prérequis sont OK[0m
+[0;34m[2025-09-26 14:48:31] Configuration Git...[0m
+[0;32m✅ Configuration Git mise à jour[0m
+[0;34m[2025-09-26 14:48:31] Vérification des changements Git...[0m
+[1;33m⚠️ Fichiers SQL détectés dans Git, suppression en cours...[0m
+[0;32m✅ Fichiers SQL supprimés de l'index Git[0m
+[0;34m📋 Changements détectés:[0m
+  dump.sql            | 1423 ---------------------------------------------------
+  git_auto_push.log   |   34 ++
+  git_auto_push_V2.sh |   20 +-
+  schema.sql          |  769 ----------------------------
+  4 files changed, 50 insertions(+), 2196 deletions(-)
+[0;34m[2025-09-26 14:48:35] Création du commit...[0m
+[0;32m✅ Commit créé avec succès[0m
+[0;34m[2025-09-26 14:48:36] Push vers GitHub...[0m
+remote: error: Trace: bcd9eab807aef7016f1ff3f8a02e84f820fb74ef61dda2e21412ab873835353a        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File dump.sql is 361.58 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/Camillerimichel/CRM_SAAS.git
+ ! [remote rejected] main -> main (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.git'
+[1;33m⚠️ Échec du push (tentative 1/3). Nouvelle tentative dans 5s...[0m

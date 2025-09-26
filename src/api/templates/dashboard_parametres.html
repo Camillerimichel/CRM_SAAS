@@ -1,0 +1,951 @@
+{% extends "base.html" %}
+{% block title %}Paramètres{% endblock %}
+{% block header_title %}<i class="fa-solid fa-gear" style="margin-right:8px;"></i>Paramètres{% endblock %}
+
+{% block content %}
+<style>
+  #paramContainer #assureursPanel,
+  #paramContainer #contratsPanel {
+    padding: 0.75rem 0 1.25rem;
+    background: var(--surface);
+  }
+  #paramContainer #assureursPanel > .accordion-subtoggle,
+  #paramContainer #contratsPanel > .accordion-subtoggle {
+    margin: 0 1.25rem 0.75rem;
+    padding: 0.75rem 1rem 0.75rem 2.5rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--primary-100);
+    box-shadow: none;
+  }
+  #paramContainer .accordion-subtoggle:hover {
+    background: #dbe6fb;
+  }
+  #paramContainer .accordion-subtoggle span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #paramContainer .accordion-subtoggle .chevron {
+    color: var(--primary-600);
+  }
+  #paramContainer .btn-list {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 9px;
+    font-size: 0.8rem;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  #paramContainer .btn-list i {
+    margin-right: 0 !important;
+    font-size: 0.85rem;
+  }
+  #paramContainer table .btn-list {
+    margin: 0 2px;
+  }
+  #paramContainer .btn-list-primary {
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    background: var(--surface);
+  }
+  #paramContainer .btn-list-primary:hover {
+    background: var(--primary);
+    color: #fff;
+  }
+  #paramContainer .btn-list-danger {
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    background: var(--surface);
+  }
+  #paramContainer .btn-list-danger:hover {
+    background: #ef4444;
+    color: #fff;
+  }
+  #paramContainer .btn-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  #paramContainer .btn-add:hover,
+  #paramContainer .btn-add.active {
+    background: var(--primary);
+    color: #fff;
+  }
+  #paramContainer .create-block {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    background: #f9fbff;
+  }
+  #paramContainer .create-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+  }
+  #paramContainer .create-body {
+    display: none;
+  }
+  #paramContainer .create-body.active {
+    display: block;
+  }
+  #paramContainer .support-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  #paramContainer .support-toolbar .support-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: flex-end;
+  }
+  #paramContainer .support-toolbar label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  #paramContainer .support-toolbar input[type="text"],
+  #paramContainer .support-toolbar select {
+    width: 180px;
+  }
+  #supportFilterContrat {
+    min-width: 240px;
+  }
+  #paramContainer .support-toolbar .support-actions {
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-end;
+  }
+  #paramContainer .support-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  #paramContainer .support-pagination button {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  #paramContainer .support-pagination button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  #paramContainer .support-rate-input {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  #paramContainer .support-rate-input input {
+    width: 80px;
+    text-align: right;
+  }
+  #paramContainer .support-sort {
+    cursor: pointer;
+    user-select: none;
+  }
+  #paramContainer .support-sort::after {
+    content: ' \25B4\25BE';
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  #paramContainer .support-sort[data-order="asc"]::after {
+    content: ' \25B4';
+  }
+  #paramContainer .support-sort[data-order="desc"]::after {
+    content: ' \25BE';
+  }
+</style>
+<div class="container" id="paramContainer">
+  <div class="card" style="margin-bottom:1rem;">
+    <h2>Administration des référentiels</h2>
+    <p class="muted" style="margin-top:.35rem;">Configurer les sociétés, contrats génériques et supports financiers proposés aux clients.</p>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div class="accordion" id="accordionWrapper">
+      <div class="accordion-toggle" data-target="contratsPanel" data-level="root">
+        <span><i class="fa-solid fa-file-contract" style="margin-right:6px;"></i> Contrats d'assurance vie</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="contratsPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" data-target="contratGeneriquesPanel" data-group="contratsSub">
+          <span><i class="fa-solid fa-file-contract" style="margin-right:6px;"></i> Contrats génériques</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="contratGeneriquesPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Contrats génériques</h3>
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width: 220px; width: 28%;">Nom</th>
+                <th style="min-width: 240px; width: 32%;">Assureur</th>
+                <th style="min-width: 220px; width: 26%;">Catégorie</th>
+                <th class="right" style="width: 9%; white-space: nowrap;">FG<br>Ass.</th>
+                <th class="right" style="width: 11%; white-space: nowrap;">FG<br>Courtier</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in contrats_generiques %}
+              <tr>
+                <td><input form="contrat-{{ c.id }}" type="text" name="nom_contrat" value="{{ c.nom_contrat or '' }}" /></td>
+                <td style="min-width: 240px;">
+                  <select form="contrat-{{ c.id }}" name="id_societe" required>
+                    {% for s in societes %}
+                      <option value="{{ s.id }}" {% if s.id == c.id_societe %}selected{% endif %}>{{ s.nom }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td style="min-width: 220px;">
+                  <select form="contrat-{{ c.id }}" name="id_ctg" required>
+                    {% for ctg in contrat_categories %}
+                      <option value="{{ ctg.id }}" {% if ctg.id == c.id_ctg %}selected{% endif %}>{{ ctg.libelle }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="right"><input form="contrat-{{ c.id }}" type="text" name="frais_gestion_assureur" value="{{ c.frais_gestion_assureur or '' }}" style="max-width: 7ch;" /></td>
+                <td class="right"><input form="contrat-{{ c.id }}" type="text" name="frais_gestion_courtier" value="{{ c.frais_gestion_courtier or '' }}" style="max-width: 7ch;" /></td>
+                <td class="center">
+                  <form id="contrat-{{ c.id }}" method="post" action="/dashboard/parametres/contrats_generiques/{{ c.id }}?open=contrats" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="contrat-{{ c.id }}"><i class="fa-solid fa-floppy-disk"></i>Enregistrer</button>
+                  <form method="post" action="/dashboard/parametres/contrats_generiques/{{ c.id }}/delete?open=contrats" style="display:inline;" onsubmit="return confirm('Supprimer ce contrat ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit"><i class="fa-solid fa-trash"></i>Supprimer</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="muted center">Aucun contrat générique enregistré.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="contratGeneriqueCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="contratGeneriqueCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/contrats_generiques?open=contrats" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field">
+                    <label>Nom du contrat</label>
+                    <input type="text" name="nom_contrat" required placeholder="Himalia" />
+                  </div>
+                  <div class="field">
+                    <label>Assureur</label>
+                    <select name="id_societe" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for s in societes %}
+                        <option value="{{ s.id }}">{{ s.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Catégorie</label>
+                    <select name="id_ctg" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for ctg in contrat_categories %}
+                        <option value="{{ ctg.id }}">{{ ctg.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="field">
+                    <label>Frais gestion assureur (%)</label>
+                    <input type="text" name="frais_gestion_assureur" placeholder="0.60" />
+                  </div>
+                  <div class="field">
+                    <label>Frais gestion courtier (%)</label>
+                    <input type="text" name="frais_gestion_courtier" placeholder="0.40" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter le contrat</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion-toggle accordion-subtoggle" data-target="contratCatsPanel" data-group="contratsSub">
+          <span><i class="fa-solid fa-list" style="margin-right:6px;"></i> Typologie</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="contratCatsPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Typologie</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Libellé</th>
+                <th>Description</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ctg in contrat_categories %}
+              <tr>
+                <td><input form="contrat-ctg-{{ ctg.id }}" type="text" name="libelle" value="{{ ctg.libelle or '' }}" /></td>
+                <td><input form="contrat-ctg-{{ ctg.id }}" type="text" name="description" value="{{ ctg.description or '' }}" /></td>
+                <td class="center">
+                  <form id="contrat-ctg-{{ ctg.id }}" method="post" action="/dashboard/parametres/contrats_generiques_ctg/{{ ctg.id }}?open=contrats" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="contrat-ctg-{{ ctg.id }}"><i class="fa-solid fa-floppy-disk"></i>Enregistrer</button>
+                  <form method="post" action="/dashboard/parametres/contrats_generiques_ctg/{{ ctg.id }}/delete?open=contrats" style="display:inline;" onsubmit="return confirm('Supprimer cette catégorie ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit"><i class="fa-solid fa-trash"></i>Supprimer</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3" class="muted center">Aucune catégorie enregistrée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="contratCatCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="contratCatCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/contrats_generiques_ctg?open=contrats" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field">
+                    <label>Libellé</label>
+                    <input type="text" name="libelle" required placeholder="Assurance-vie" />
+                  </div>
+                  <div class="field">
+                    <label>Description</label>
+                    <input type="text" name="description" placeholder="Optionnel" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter la catégorie</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-toggle" data-target="assureursPanel" data-level="root">
+        <span><i class="fa-solid fa-building" style="margin-right:6px;"></i> Compagnies d'assurance</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="assureursPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" data-target="societesPanel" data-group="assureursSub">
+          <span><i class="fa-solid fa-building-columns" style="margin-right:6px;"></i> Compagnies</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="societesPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Compagnies</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Catégorie</th>
+                <th>Contact</th>
+                <th>Téléphone</th>
+                <th>Email</th>
+                <th>Commentaire</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in societes %}
+              <tr>
+                <td><input form="societe-{{ s.id }}" type="text" name="nom" value="{{ s.nom or '' }}" /></td>
+                <td>
+                  <select form="societe-{{ s.id }}" name="id_ctg" required>
+                    {% for cat in societe_categories %}
+                      <option value="{{ cat.id }}" {% if cat.id == s.id_ctg %}selected{% endif %}>{{ cat.libelle }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td><input form="societe-{{ s.id }}" type="text" name="contact" value="{{ s.contact or '' }}" /></td>
+                <td><input form="societe-{{ s.id }}" type="text" name="telephone" value="{{ s.telephone or '' }}" /></td>
+                <td><input form="societe-{{ s.id }}" type="email" name="email" value="{{ s.email or '' }}" /></td>
+                <td><input form="societe-{{ s.id }}" type="text" name="commentaire" value="{{ s.commentaire or '' }}" /></td>
+                <td class="center">
+                  <form id="societe-{{ s.id }}" method="post" action="/dashboard/parametres/societes/{{ s.id }}?open=societes" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="societe-{{ s.id }}"><i class="fa-solid fa-floppy-disk"></i>Enregistrer</button>
+                  <form method="post" action="/dashboard/parametres/societes/{{ s.id }}/delete?open=societes" style="display:inline;" onsubmit="return confirm('Supprimer cette société ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit"><i class="fa-solid fa-trash"></i>Supprimer</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="muted center">Aucune société enregistrée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="societeCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="societeCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/societes?open=societes" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field">
+                    <label>Nom de la société</label>
+                    <input type="text" name="nom" required placeholder="Generali" />
+                  </div>
+                  <div class="field">
+                    <label>Catégorie</label>
+                    <select name="id_ctg" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for cat in societe_categories %}
+                        <option value="{{ cat.id }}">{{ cat.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="field">
+                    <label>Contact / Référence</label>
+                    <input type="text" name="contact" placeholder="Nom du contact" />
+                  </div>
+                  <div class="field">
+                    <label>Téléphone</label>
+                    <input type="text" name="telephone" placeholder="01 23 45 67 89" />
+                  </div>
+                  <div class="field">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="contact@compagnie.fr" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Commentaire</label>
+                  <textarea name="commentaire" rows="2" placeholder="Informations complémentaires"></textarea>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter la société</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion-toggle accordion-subtoggle" data-target="societeCatsPanel" data-group="assureursSub">
+          <span><i class="fa-solid fa-list" style="margin-right:6px;"></i> Typologie</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="societeCatsPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Typologie</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Libellé</th>
+                <th>Description</th>
+                <th class="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cat in societe_categories %}
+              <tr>
+                <td><input form="soc-cat-{{ cat.id }}" type="text" name="libelle" value="{{ cat.libelle or '' }}" /></td>
+                <td><input form="soc-cat-{{ cat.id }}" type="text" name="description" value="{{ cat.description or '' }}" /></td>
+                <td class="center">
+                  <form id="soc-cat-{{ cat.id }}" method="post" action="/dashboard/parametres/societe_ctg/{{ cat.id }}?open=societes" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="soc-cat-{{ cat.id }}"><i class="fa-solid fa-floppy-disk"></i>Enregistrer</button>
+                  <form method="post" action="/dashboard/parametres/societe_ctg/{{ cat.id }}/delete?open=societes" style="display:inline;" onsubmit="return confirm('Supprimer cette catégorie ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit"><i class="fa-solid fa-trash"></i>Supprimer</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3" class="muted center">Aucune catégorie enregistrée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="societeCatCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="societeCatCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/societe_ctg?open=societes" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field">
+                    <label>Libellé</label>
+                    <input type="text" name="libelle" required placeholder="Assureur" />
+                  </div>
+                  <div class="field">
+                    <label>Description</label>
+                    <input type="text" name="description" placeholder="Optionnel" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter la catégorie</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-toggle" data-target="supportPanel" data-level="root">
+        <span><i class="fa-solid fa-layer-group" style="margin-right:6px;"></i> Supports financiers & rétrocessions</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="supportPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+        <div class="support-toolbar">
+          <div class="support-filters">
+            <div>
+              <label for="supportFilterContrat">Contrat</label>
+              <select id="supportFilterContrat">
+                <option value="">Tous les contrats</option>
+                {% for c in contrats_generiques %}
+                  <option value="{{ c.id }}">{{ c.nom_contrat }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="supportFilterSupport">Support</label>
+              <input type="text" id="supportFilterSupport" placeholder="Rechercher support ou ISIN" />
+            </div>
+          </div>
+          <div class="support-actions">
+            <div>
+              <label for="supportPageSize">Lignes</label>
+              <select id="supportPageSize">
+                <option value="5">5</option>
+                <option value="10" selected>10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="all">Toutes</option>
+              </select>
+            </div>
+            <button type="button" class="btn btn-add" id="supportCsvExport"><i class="fa-solid fa-download"></i><span>Exporter CSV</span></button>
+          </div>
+        </div>
+        <div class="support-pagination">
+          <button type="button" id="supportPrev">‹</button>
+          <span id="supportPageInfo">0-0 sur 0</span>
+          <button type="button" id="supportNext">›</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th class="support-sort" data-sort="support" title="Trier par support">Support</th>
+              <th class="support-sort" data-sort="categorie" title="Trier par catégorie">Catégorie</th>
+              <th class="support-sort" data-sort="zone" title="Trier par zone géo">Zone géo</th>
+              <th class="support-sort" data-sort="promoteur" title="Trier par promoteur">Promoteur</th>
+              <th class="support-sort" data-sort="taux" title="Trier par taux" style="width: 8%;">Taux (%)</th>
+              <th class="center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="supportTableBody">
+            {% for cs in contrat_supports %}
+            <tr>
+              <td>{{ cs.support_nom or '—' }}{% if cs.code_isin %}<br><span class="muted" style="font-size:.8rem;">{{ cs.code_isin }}</span>{% endif %}</td>
+              <td>{{ cs.cat_gene or '—' }}</td>
+              <td>{{ cs.cat_geo or '—' }}</td>
+              <td>{{ cs.promoteur or '—' }}</td>
+              <td class="right">
+                <div class="support-rate-input">
+                  <input form="support-{{ cs.id }}" type="text" name="taux_retro" value="{{ ('%.2f' % ((cs.taux_retro or 0.0) * 100)) }}" inputmode="decimal" />
+                  <span class="muted">%</span>
+                </div>
+              </td>
+              <td class="center">
+                <form id="support-{{ cs.id }}" method="post" action="/dashboard/parametres/contrat_supports/{{ cs.id }}?open=supports" style="display:inline;"></form>
+                <button class="btn btn-list btn-list-primary" type="submit" form="support-{{ cs.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                <form method="post" action="/dashboard/parametres/contrat_supports/{{ cs.id }}/delete?open=supports" style="display:inline;" onsubmit="return confirm('Supprimer ce support du contrat ?');">
+                  <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted center">Sélectionnez un contrat pour afficher les supports.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="create-block">
+          <div class="create-header">
+            <button type="button" class="btn btn-add" data-toggle-form="supportCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+          </div>
+          <div id="supportCreate" class="create-body">
+            <form method="post" action="/dashboard/parametres/contrat_supports?open=supports" class="card" style="margin:0;">
+              <div class="form-row">
+                <div class="field">
+                  <label>Contrat</label>
+                  <select name="id_affaire_generique" required>
+                    <option value="" disabled selected>Choisir…</option>
+                    {% for c in contrats_generiques %}
+                      <option value="{{ c.id }}">{{ c.nom_contrat }} ({{ c.societe_nom }})</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Support financier</label>
+                  <select name="id_support" required>
+                    <option value="" disabled selected>Choisir…</option>
+                    {% for s in supports %}
+                      <option value="{{ s.id }}">{{ s.nom }}{% if s.code_isin %} ({{ s.code_isin }}){% endif %}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Taux de rétrocession (%)</label>
+                  <input type="text" name="taux_retro" placeholder="2.00" required />
+                </div>
+              </div>
+              <div class="create-btn-container">
+                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter le support au contrat</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function setPanelState(panel, btn, expanded){
+    panel.style.display = expanded ? '' : 'none';
+    const chevron = btn.querySelector('.chevron');
+    if (chevron){
+      chevron.textContent = expanded ? '▴' : '▾';
+    }
+    btn.classList.toggle('collapsed', !expanded);
+  }
+
+  const toggles = Array.from(document.querySelectorAll('.accordion-toggle[data-target]'));
+
+  toggles.forEach(btn => {
+    const panel = document.getElementById(btn.dataset.target);
+    if (!panel){
+      return;
+    }
+    btn.addEventListener('click', () => {
+      const willOpen = panel.style.display === 'none';
+      if (!willOpen){
+        setPanelState(panel, btn, false);
+        return;
+      }
+      if (btn.dataset.level === 'root'){
+        toggles.forEach(other => {
+          if (other === btn || other.dataset.level !== 'root'){
+            return;
+          }
+          const otherPanel = document.getElementById(other.dataset.target);
+          if (otherPanel && otherPanel.style.display !== 'none'){
+            setPanelState(otherPanel, other, false);
+          }
+        });
+      }
+      if (btn.dataset.group){
+        toggles.forEach(other => {
+          if (other === btn || other.dataset.group !== btn.dataset.group){
+            return;
+          }
+          const otherPanel = document.getElementById(other.dataset.target);
+          if (otherPanel && otherPanel.style.display !== 'none'){
+            setPanelState(otherPanel, other, false);
+          }
+        });
+      }
+      setPanelState(panel, btn, true);
+    });
+  });
+
+  const open = '{{ open_section or '' }}';
+  if (open){
+    const mapping = {
+      'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
+      'societes_categories': ['assureursPanel','societeCatsPanel'],
+      'societes_compagnies': ['assureursPanel','societesPanel'],
+      'contrats': ['contratsPanel','contratCatsPanel','contratGeneriquesPanel'],
+      'contrats_categories': ['contratsPanel','contratCatsPanel'],
+      'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
+      'supports': ['supportPanel']
+    };
+    const panels = mapping[open];
+    if (panels){
+      panels.forEach(id => {
+        const btn = document.querySelector(`.accordion-toggle[data-target="${id}"]`);
+        const panel = document.getElementById(id);
+        if (btn && panel){
+          setPanelState(panel, btn, true);
+        }
+      });
+    }
+  }
+
+  document.querySelectorAll('[data-toggle-form]').forEach(btn => {
+    const targetId = btn.getAttribute('data-toggle-form');
+    const body = document.getElementById(targetId);
+    if (!body){
+      return;
+    }
+    btn.dataset.closedLabel = btn.innerHTML;
+    btn.dataset.openLabel = '<i class="fa-solid fa-xmark"></i><span>Fermer</span>';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.addEventListener('click', () => {
+      const willShow = !body.classList.contains('active');
+      body.classList.toggle('active', willShow);
+      btn.classList.toggle('active', willShow);
+      btn.setAttribute('aria-expanded', String(willShow));
+      btn.innerHTML = willShow ? btn.dataset.openLabel : btn.dataset.closedLabel;
+      if (willShow){
+        const focusable = body.querySelector('input, select, textarea, button');
+        if (focusable){
+          focusable.focus({ preventScroll: false });
+        }
+      }
+    });
+  });
+
+  const supportTable = document.getElementById('supportTableBody');
+  const supportDataRaw = supportTable ? {{ contrat_supports|tojson|safe }} : [];
+  if (supportTable && Array.isArray(supportDataRaw)){
+    const selectContrat = document.getElementById('supportFilterContrat');
+    const filterSupport = document.getElementById('supportFilterSupport');
+    const pageSizeSelect = document.getElementById('supportPageSize');
+    const csvBtn = document.getElementById('supportCsvExport');
+    const pageInfo = document.getElementById('supportPageInfo');
+    const prevBtn = document.getElementById('supportPrev');
+    const nextBtn = document.getElementById('supportNext');
+
+    let filteredSupports = [];
+    let currentPage = 1;
+    let sortField = 'support';
+    let sortDirection = 'asc';
+
+    const htmlEscape = (value) => {
+      if (value === null || value === undefined){
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    const formatPercent = (value) => {
+      const num = Number(value);
+      if (!Number.isFinite(num)){
+        return '';
+      }
+      return (num * 100).toLocaleString('fr-FR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    };
+
+    const getPageSize = () => {
+      const raw = pageSizeSelect.value;
+      return raw === 'all' ? -1 : parseInt(raw, 10) || 10;
+    };
+
+    const applyFilters = () => {
+      const contratId = selectContrat.value;
+      const supportTerm = filterSupport.value.trim().toLowerCase();
+      if (!contratId){
+        filteredSupports = [];
+        currentPage = 1;
+        renderSupports();
+        return;
+      }
+      filteredSupports = supportDataRaw.filter(item => {
+        if (String(item.id_affaire_generique) !== contratId){
+          return false;
+        }
+        if (!supportTerm){
+          return true;
+        }
+        return [item.support_nom, item.code_isin]
+          .some(val => val && val.toLowerCase().includes(supportTerm));
+      });
+      currentPage = 1;
+      renderSupports();
+    };
+
+    const compareStrings = (a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' });
+    const getSorter = () => {
+      switch (sortField){
+        case 'support':
+          return (a, b) => compareStrings(a.support_nom || '', b.support_nom || '');
+        case 'categorie':
+          return (a, b) => compareStrings(a.cat_gene || '', b.cat_gene || '');
+        case 'zone':
+          return (a, b) => compareStrings(a.cat_geo || '', b.cat_geo || '');
+        case 'promoteur':
+          return (a, b) => compareStrings(a.promoteur || '', b.promoteur || '');
+        case 'taux':
+          return (a, b) => (a.taux_retro || 0) - (b.taux_retro || 0);
+        default:
+          return null;
+      }
+    };
+
+    const updateSortIndicators = () => {
+      document.querySelectorAll('.support-sort').forEach(th => {
+        if (th.dataset.sort === sortField){
+          th.setAttribute('data-order', sortDirection);
+        } else {
+          th.removeAttribute('data-order');
+        }
+      });
+    };
+
+    const renderSupports = () => {
+      updateSortIndicators();
+      const pageSize = getPageSize();
+      const sorter = getSorter();
+      const working = sorter ? [...filteredSupports].sort((a, b) => {
+        const result = sorter(a, b);
+        return sortDirection === 'desc' ? -result : result;
+      }) : [...filteredSupports];
+
+      const total = working.length;
+      let pageCount = 1;
+      let pageItems = working;
+
+      if (pageSize > 0){
+        pageCount = Math.max(1, Math.ceil(total / pageSize));
+        if (currentPage > pageCount){
+          currentPage = pageCount;
+        }
+        const start = (currentPage - 1) * pageSize;
+        pageItems = working.slice(start, start + pageSize);
+      } else {
+        currentPage = 1;
+        pageCount = 1;
+      }
+
+      const rowsHtml = pageItems.map(item => {
+        const support = htmlEscape(item.support_nom || '—');
+        const isin = item.code_isin ? `<br><span class=\"muted\" style=\"font-size:.8rem;\">${htmlEscape(item.code_isin)}</span>` : '';
+        const categorie = htmlEscape(item.cat_gene || '—');
+        const zoneGeo = htmlEscape(item.cat_geo || '—');
+        const promoteur = htmlEscape(item.promoteur || '—');
+        const taux = htmlEscape(formatPercent(item.taux_retro));
+        return `
+          <tr>
+            <td>${support}${isin}</td>
+            <td>${categorie}</td>
+            <td>${zoneGeo}</td>
+            <td>${promoteur}</td>
+            <td class="right">
+              <div class="support-rate-input">
+                <input form="support-${item.id}" type="text" name="taux_retro" value="${taux}" inputmode="decimal" />
+                <span class="muted">%</span>
+              </div>
+            </td>
+          <td class="center">
+            <form id="support-${item.id}" method="post" action="/dashboard/parametres/contrat_supports/${item.id}?open=supports" style="display:inline;"></form>
+            <button class="btn btn-list btn-list-primary" type="submit" form="support-${item.id}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+            <form method="post" action="/dashboard/parametres/contrat_supports/${item.id}/delete?open=supports" style="display:inline;" onsubmit="return confirm('Supprimer ce support du contrat ?');">
+              <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>`;
+      }).join('');
+
+      const emptyMessage = selectContrat.value
+        ? 'Aucun support trouvé pour ce contrat.'
+        : 'Sélectionnez un contrat pour afficher les supports.';
+      supportTable.innerHTML = rowsHtml || `<tr><td colspan="6" class="muted center">${emptyMessage}</td></tr>`;
+
+      const startIdx = total === 0 ? 0 : (pageSize > 0 ? (currentPage - 1) * pageSize + 1 : 1);
+      const endIdx = pageSize > 0 ? Math.min(currentPage * pageSize, total) : total;
+      pageInfo.textContent = `${startIdx}-${endIdx} sur ${total}`;
+
+      prevBtn.disabled = currentPage <= 1;
+      nextBtn.disabled = pageSize <= 0 || currentPage >= pageCount;
+    };
+
+    const exportCsv = () => {
+      if (!filteredSupports.length){
+        return;
+      }
+      const header = ['Contrat', 'Société', 'Support', 'ISIN', 'Catégorie', 'Zone géo', 'Promoteur', 'Taux (%)'];
+      const rows = filteredSupports.map(item => [
+        item.contrat_nom || '',
+        item.societe_nom || '',
+        item.support_nom || '',
+        item.code_isin || '',
+        item.cat_gene || '',
+        item.cat_geo || '',
+        item.promoteur || '',
+        `${formatPercent(item.taux_retro)}%`
+      ]);
+      const csvContent = [header, ...rows]
+        .map(row => row.map(value => {
+          const str = String(value ?? '');
+          return `"${str.replace(/"/g, '""')}"`;
+        }).join(';'))
+        .join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `supports_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    selectContrat.addEventListener('change', applyFilters);
+    filterSupport.addEventListener('input', applyFilters);
+    pageSizeSelect.addEventListener('change', () => {
+      currentPage = 1;
+      renderSupports();
+    });
+    prevBtn.addEventListener('click', () => {
+      if (currentPage > 1){
+        currentPage -= 1;
+        renderSupports();
+      }
+    });
+    nextBtn.addEventListener('click', () => {
+      currentPage += 1;
+      renderSupports();
+    });
+    csvBtn.addEventListener('click', exportCsv);
+
+    document.querySelectorAll('.support-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.dataset.sort;
+        if (sortField === field){
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortField = field;
+          sortDirection = 'asc';
+        }
+        updateSortIndicators();
+        renderSupports();
+      });
+    });
+
+    updateSortIndicators();
+    renderSupports();
+  }
+})();
+</script>
+{% endblock %}

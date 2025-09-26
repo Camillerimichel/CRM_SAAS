@@ -1,0 +1,29 @@
+{
+  "name": "crm-saas",
+  "version": "1.0.0",
+  "description": "- Fichier unique `Base.sqlite` - Tables recréées et propres :     - `mariadb_clients`     - `mariadb_affaires`     - `Documents`     - `Documents_client`     - `mariadb_support`     - `mariadb_historique_affaire_w`     - `mariadb_historique_personne_w`     - `mariadb_historique_support_w`     - `Allocations`",
+  "main": "src/index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.13"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "5.0.1"
+  }
+}

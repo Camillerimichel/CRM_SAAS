@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Allocations{% endblock %}
+{% block header_title %}<i class="fa-solid fa-coins" style="margin-right:8px;"></i>Allocations{% endblock %}
+
+{% block content %}
+<style>
+    .main-container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        padding: 2rem;
+        margin: 2rem auto;
+    }
+    .header-section {
+        background: var(--primary);
+        color: #fff;
+        padding: 1.2rem;
+        border-radius: 10px;
+        margin-bottom: 1.2rem;
+        text-align: center;
+        box-shadow: var(--shadow-sm);
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+    /* En-têtes de tableau héritent du style global (base.html) */
+    thead input {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 13px;
+    }
+    tbody td {
+        padding: 10px 8px;
+    }
+    /* Centre Date (3), Perf (4), Volatilité (5) */
+    #allocationsTable thead th:nth-child(3),
+    #allocationsTable tbody td:nth-child(3),
+    #allocationsTable thead th:nth-child(4),
+    #allocationsTable tbody td:nth-child(4),
+    #allocationsTable thead th:nth-child(5),
+    #allocationsTable tbody td:nth-child(5) {
+        text-align: center;
+    }
+    .valo-amount {
+        font-weight: 600;
+        color: #28a745;
+        text-align: right;
+        font-family: monospace;
+    }
+    .pagination-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 15px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
+    .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+    .quick-search { padding:7px 10px; border:1px solid #ccc; border-radius:8px; font-size:13px; min-width:240px; }
+    .restore-note { display:none; font-size:12px; color:#666; margin: 2px 0 6px 0; }
+    .restore-note .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2f7; border:1px solid #dde3ea; color:#445; font-weight:600; }
+    .clear-btn {
+        background: #ff6b6b;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+</style>
+
+<div class="main-container">
+
+    <div class="table-container">
+        <div id="restoreAllocations" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredAllocations()">×</a></span></div>
+        <div id="quickToggleAlloc" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+            <span class="chevron">▾</span>
+        </div>
+        <div id="quickSectionAlloc" style="display:none;">
+        <div class="toolbar">
+            <div class="chips">
+                <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
+                <a class="chip" href="#" onclick="return chipPerf('all')">Perf: Tous</a>
+                <a class="chip" href="#" onclick="return chipPerf('pos')">Perf: Positif</a>
+                <a class="chip" href="#" onclick="return chipPerf('neg')">Perf: Négatif</a>
+                <a class="chip" href="#" onclick="return chipVol('all')">Vol: Tous</a>
+                <a class="chip" href="#" onclick="return chipVol('lt10')">Vol: < 10%</a>
+                <a class="chip" href="#" onclick="return chipVol('10-20')">Vol: 10–20%</a>
+                <a class="chip" href="#" onclick="return chipVol('gt20')">Vol: > 20%</a>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <input id="alloc-quick-search" class="quick-search" type="text" placeholder="Rechercher un nom..." />
+                <button class="btn btn-danger" onclick="clearFilters()">🗑️ Effacer</button>
+            </div>
+        </div>
+        </div>
+        <table id="allocationsTable" class="display nowrap" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Choix</th>
+                    <th>Nom</th>
+                    <th>Date</th>
+                    <th>Perf 52 sem. (%)</th>
+                    <th>Volatilité (%)</th>
+                </tr>
+                <tr>
+                    <th></th>
+                    <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="date-filter" placeholder="AAAA-MM-JJ"></th>
+                    <th><input type="text" id="perf-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="volat-filter" placeholder="Filtrer..."></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in allocations %}
+                <tr>
+                    <td><button class="seeBtn" data-nom="{{ a.nom }}">Choix</button></td>
+                    <td>{{ a.nom }}</td>
+                    <td>{{ (a.date|string)[:10] if a.date else '' }}</td>
+                    <td>{{ a.perf_sicav_52 }}</td>
+                    <td>{{ a.volat }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+        <h3>Performance et Volatilité</h3>
+        <canvas id="sicavChart" height="140"></canvas>
+    </div>
+    
+    <div class="pagination-container">
+        <div id="results-info"></div>
+        <button class="clear-btn" onclick="clearFilters()">🗑️ Effacer</button>
+    </div>
+</div>
+
+<!-- jQuery + DataTables -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Chart.js: couleur par défaut (axes/labels) = bleu CSS
+try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+</script>
+
+<!-- FixedHeader -->
+<link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
+<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
+
+<script>
+$(document).ready(function () {
+    var table = $('#allocationsTable').DataTable({
+        order: [[1, "asc"], [2, "asc"]],
+        pageLength: 25,
+        fixedHeader: true,
+        columnDefs: [
+            {
+                targets: 3, // Perf 52 sem.
+                render: function (data) {
+                    if (data === null || data === undefined || data === '') return '';
+                    var num = parseFloat(String(data).replace(',', '.'));
+                    if (isNaN(num)) return data;
+                    // si stocké en fraction (ex: 0.12), convertir en %
+                    if (Math.abs(num) <= 1) num = num * 100;
+                    return num.toFixed(2) + ' %';
+                }
+            },
+            {
+                targets: 4, // Volatilité
+                render: function (data) {
+                    if (data === null || data === undefined || data === '') return '';
+                    var num = parseFloat(String(data).replace(',', '.'));
+                    if (isNaN(num)) return data;
+                    if (Math.abs(num) <= 1) num = num * 100;
+                    return num.toFixed(2) + ' %';
+                }
+            }
+        ]
+    });
+
+    // filtres texte
+    function saveAllocState(){ try{ var st={ nom: $('#alloc-quick-search').val()||'', date: $('#date-filter').val()||'', perf: $('#perf-filter').val()||'', volat: $('#volat-filter').val()||'', chipPerf: (typeof perfFilter!=='undefined'?perfFilter:'all'), chipVol: (typeof volFilter!=='undefined'?volFilter:'all') }; localStorage.setItem('allocations_filters', JSON.stringify(st)); }catch(e){} }
+    $('#nom-filter').on('keyup change', function () { table.column(1).search(this.value).draw(); saveAllocState(); });
+    $('#alloc-quick-search').on('keyup change', function(){ var v=$(this).val(); $('#nom-filter').val(v); table.column(1).search(v).draw(); try{ var p=new URLSearchParams(window.location.search); if(v) p.set('nom', v); else p.delete('nom'); var u=window.location.pathname + (p.toString()?('?'+p.toString()):''); window.history.replaceState({}, '', u);}catch(e){} saveAllocState(); });
+    $('#date-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); saveAllocState(); });
+    $('#perf-filter').on('keyup change', function () { table.column(3).search(this.value).draw(); saveAllocState(); });
+    $('#volat-filter').on('keyup change', function () { table.column(4).search(this.value).draw(); saveAllocState(); });
+
+    // bouton effacer
+    window.clearFilters = function() {
+        $('#nom-filter, #date-filter, #perf-filter, #volat-filter').val('');
+        $('#alloc-quick-search').val('');
+        table.search('').columns().search('').draw();
+        try{ var p=new URLSearchParams(window.location.search); ['nom','perf','volat'].forEach(k=>p.delete(k)); var u=window.location.pathname + (p.toString()?('?'+p.toString()):''); window.history.replaceState({}, '', u);}catch(e){}
+        try{ localStorage.removeItem('allocations_filters'); }catch(e){}
+    };
+
+    // Filtres chips via filtre personnalisé DataTables
+    var perfFilter = 'all';
+    var volFilter = 'all';
+    $.fn.dataTable.ext.search.push(function(settings, data){
+        if (settings.nTable.id !== 'allocationsTable') return true;
+        function parsePct(txt){ if(!txt) return null; var m=String(txt).match(/-?\d+(?:[\.,]\d+)?/); if(!m) return null; var n=parseFloat(m[0].replace(',', '.')); return isFinite(n)?n:null; }
+        var perf = parsePct(data[3]);
+        var vol = parsePct(data[4]);
+        var okPerf = true, okVol = true;
+        if (perfFilter==='pos') okPerf = (perf!==null && perf>0);
+        else if (perfFilter==='neg') okPerf = (perf!==null && perf<0);
+        if (volFilter==='lt10') okVol = (vol!==null && vol<10);
+        else if (volFilter==='10-20') okVol = (vol!==null && vol>=10 && vol<=20);
+        else if (volFilter==='gt20') okVol = (vol!==null && vol>20);
+        return okPerf && okVol;
+    });
+
+    window.chipPerf = function(val){ perfFilter = val||'all'; try{ var p=new URLSearchParams(window.location.search); if(val && val!=='all') p.set('perf', val); else p.delete('perf'); var u=window.location.pathname + (p.toString()?('?'+p.toString()):''); window.history.replaceState({}, '', u);}catch(e){} table.draw(); saveAllocState(); return false; };
+    window.chipVol = function(val){ volFilter = val||'all'; try{ var p=new URLSearchParams(window.location.search); if(val && val!=='all') p.set('volat', val); else p.delete('volat'); var u=window.location.pathname + (p.toString()?('?'+p.toString()):''); window.history.replaceState({}, '', u);}catch(e){} table.draw(); saveAllocState(); return false; };
+
+    // Préfiltres via URL
+    try { var params=new URLSearchParams(window.location.search); var pn=params.get('nom'); var used=false; if(pn){ $('#alloc-quick-search').val(pn).trigger('change'); used=true; } var pf=params.get('perf'); if(pf){ chipPerf(pf); used=true; } var vf=params.get('volat'); if(vf){ chipVol(vf); used=true; } if(!used){ var raw=localStorage.getItem('allocations_filters'); if(raw){ var st=JSON.parse(raw); if(st){ var restored=false; if(st.nom){ $('#alloc-quick-search').val(st.nom).trigger('change'); restored=true; } if(st.date){ $('#date-filter').val(st.date).trigger('change'); restored=true; } if(st.perf){ $('#perf-filter').val(st.perf).trigger('change'); restored=true; } if(st.volat){ $('#volat-filter').val(st.volat).trigger('change'); restored=true; } if(st.chipPerf){ chipPerf(st.chipPerf); restored=true; } if(st.chipVol){ chipVol(st.chipVol); restored=true; } if (restored){ try{ document.getElementById('restoreAllocations').style.display='block'; }catch(e){} } } } } } catch(e) {}
+
+    // reset depuis le badge restauré
+    (function(){try{var t=document.getElementById('quickToggleAlloc'),s=document.getElementById('quickSectionAlloc');if(!t||!s)return;function setOpen(o){s.style.display=o?'':'none';t.classList.toggle('collapsed',!o);localStorage.setItem('alloc_quick_open',o?'1':'');}var saved=localStorage.getItem('alloc_quick_open')==='1';setOpen(saved);t.addEventListener('click',function(){setOpen(s.style.display==='none');});}catch(e){}})();
+    window.resetRestoredAllocations = function(){ try{ document.getElementById('restoreAllocations').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
+
+    // Chart.js combiné perf (gauche) + volat (droite)
+    var sicavCtx = document.getElementById('sicavChart').getContext('2d');
+    var sicavChart;
+    var fullData2 = { labels: [], sicav: [], volat: [] };
+    var seriesData = {{ series_data | tojson }};
+
+    function toPercent(x){
+        var n = parseFloat(String(x).replace(',', '.'));
+        if (!isFinite(n)) return null;
+        if (Math.abs(n) <= 1) n = n * 100; // 0,14 => 14%
+        return parseFloat(n.toFixed(2));
+    }
+
+    function buildSeriesForNom(nom) {
+        var data = (seriesData[nom] || []).slice();
+        data = data.filter(d => d && d.date).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+        fullData2.labels = data.map(d => d.date);
+        // sicav est une valeur, pas un %, on ne convertit pas
+        fullData2.sicav = data.map(d => {
+            var n = parseFloat(String(d.sicav).replace(',', '.'));
+            return isFinite(n) ? n : null;
+        }).filter(v => v !== null);
+        fullData2.volat = data.map(d => toPercent(d.vol)).filter(v => v !== null);
+        drawSicavChart(fullData2.labels, fullData2.sicav, fullData2.volat);
+    }
+
+    function applyRange(range) {
+        if (!fullData2.labels.length) return;
+        if (range === 'all') {
+            if (fullData2.labels.length) {
+                drawSicavChart(fullData2.labels, fullData2.sicav, fullData2.volat);
+            }
+            return;
+        }
+        var n = parseInt(range, 10);
+        if (fullData2.labels.length) {
+            var end2 = fullData2.labels.length;
+            var start2 = Math.max(0, end2 - n);
+            drawSicavChart(fullData2.labels.slice(start2), fullData2.sicav.slice(start2), fullData2.volat.slice(start2));
+        }
+    }
+
+    function drawSicavChart(labels, sicav, vol) {
+        var primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
+        if (sicavChart) sicavChart.destroy();
+        // auto-ajustement axes selon min/max
+        var smin = Math.min.apply(null, sicav), smax = Math.max.apply(null, sicav);
+        var vmin = Math.min.apply(null, vol), vmax = Math.max.apply(null, vol);
+        var smargin = (smax - smin) * 0.1 || 1;
+        var vmargin = (vmax - vmin) * 0.1 || 1;
+
+        sicavChart = new Chart(sicavCtx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'SICAV', data: sicav, borderColor: primaryColor, yAxisID: 'y1', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+                    { label: 'Volatilité (%)', data: vol, borderColor: '#ff6b6b', yAxisID: 'y2', fill: false, pointRadius: 0, pointHoverRadius: 0 }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                stacked: false,
+                scales: {
+                    y1: {
+                        type: 'linear', position: 'left',
+                        ticks: { callback: v => (Number(v).toLocaleString('fr-FR')) , color: primaryColor },
+                        border: { color: primaryColor },
+                        title: { display: true, text: 'SICAV', color: primaryColor },
+                        suggestedMin: smin - smargin, suggestedMax: smax + smargin
+                    },
+                    y2: {
+                        type: 'linear', position: 'right',
+                        ticks: { callback: v => v + ' %', color: '#ff6b6b' },
+                        border: { color: '#ff6b6b' },
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Volatilité (%)', color: '#ff6b6b' },
+                        suggestedMin: vmin - vmargin, suggestedMax: vmax + vmargin
+                    }
+                },
+                plugins: { legend: { display: true } }
+            }
+        });
+    }
+
+    // Actions Voir + boutons de fenêtre
+    $(document).on('click', '.seeBtn', function(){
+        var nom = $(this).data('nom');
+        buildSeriesForNom(nom);
+    });
+    $('.rangeBtn').on('click', function(){ applyRange($(this).data('range')); });
+});
+</script>
+
+{% endblock %}

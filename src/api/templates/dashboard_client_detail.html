@@ -1,0 +1,1282 @@
+{% extends "base.html" %}
+
+{% block title %}{% if client %}Suivi client – {{ client.prenom }} {{ client.nom }}{% else %}Suivi client{% endif %}{% endblock %}
+{% block header_title %}
+  {% if client %}
+    <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span><i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client – {{ client.prenom }} {{ client.nom }}</span>
+      <span style="display:inline-flex; gap:6px;">
+        {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
+          <button type="button" class="btn" style="background:#16a34a; color:#fff; border:1px solid #16a34a; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('nonreg')">{{ msgs_nonreg_count }} message{{ 's' if msgs_nonreg_count>1 }} en cours</button>
+        {% endif %}
+        {% if msgs_reg_count and msgs_reg_count > 0 %}
+          <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
+        {% endif %}
+      </span>
+    </span>
+  {% else %}
+    <i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<style>
+  .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .muted { color: #666; font-size: 0.9rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+  th { background: #f8f9fa; text-align: left; font-size: 0.8rem; }
+  .valo { font-weight: 600; color: #28a745; font-family: monospace; font-size: 1.05rem; }
+  .kpi { font-size: 1rem; }
+  .kpi-small { font-size: 0.95rem; color:#333; }
+  .srri-icon { font-size: 0.7rem; vertical-align: middle; margin-left: 6px; }
+  /* Override base .card i selector that makes icons large */
+  .card .srri-icon { font-size: 0.7rem !important; margin-bottom: 0 !important; }
+  .valo-positive { color: #28a745; }
+  .valo-negative { color: #c0392b; }
+  table i.fa-solid { font-size: 0.9rem !important; }
+  .center { text-align: center; }
+  /* Bouton Voir compact */
+  .btn-view { display:inline-block; padding: 2px 6px; font-size: 0.65rem; border-radius: 4px; background: var(--primary); color: #fff; text-decoration: none; }
+  /* Réduire la marge haute du bloc contrats */
+  #invSection { padding-top: 8px; }
+  #invSection h3 { margin: 4px 0 8px; }
+  #invSection table { margin-top: 0; }
+  .kpi-mini { font-size: 0.9rem; color: #333; line-height: 1.2; }
+  /* Neutralize big button style from base for table links */
+  .card table a, #contractsTable a { 
+    display: inline !important; 
+    background: transparent !important; 
+    padding: 0 !important; 
+    margin: 0 !important; 
+    color: var(--primary) !important; 
+    font-weight: normal !important; 
+    border-radius: 0 !important; 
+    text-decoration: none;
+  }
+  .card table a:hover, #contractsTable a:hover { text-decoration: underline; }
+  /* Supports consolidés table */
+  #supportsClient { table-layout: fixed; margin-top: 10px; }
+  #supportsClient th, #supportsClient td { padding: 6px 8px; }
+  #supportsClient th:nth-child(1), #supportsClient td:nth-child(1) { width: 14%; }
+  #supportsClient th:nth-child(2), #supportsClient td:nth-child(2) { width: 22%; overflow: hidden; text-overflow: ellipsis; }
+  #supportsClient th:nth-child(3), #supportsClient td:nth-child(3) { width: 6%; text-align:center; }
+  #supportsClient th:nth-child(4), #supportsClient td:nth-child(4) { width: 10%; text-align:right; }
+  #supportsClient th:nth-child(5), #supportsClient td:nth-child(5) { width: 10%; text-align:right; }
+  #supportsClient th:nth-child(6), #supportsClient td:nth-child(6) { width: 12%; text-align:right; }
+  #supportsClient th:nth-child(7), #supportsClient td:nth-child(7) { width: 4%; text-align:center; }
+  #supportsClient th:nth-child(8), #supportsClient td:nth-child(8) { width: 4%; text-align:center; }
+  #supportsClient th:nth-child(9), #supportsClient td:nth-child(9) { width: 4%; text-align:center; }
+  /* Charts block (embedded inside a card → keep it light) */
+  .pie-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; align-items: stretch; }
+  .pie-card { background: transparent; border-radius: 0; padding: 0; box-shadow: none; display:flex; flex-direction:column; }
+  .pie-card canvas { flex:1 1 auto; height: 220px !important; }
+  .pie-card .chart-title { margin: 0 0 6px 0; font-size: 0.95rem; }
+  .dim-btn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; }
+  .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
+  /* Boutons de période */
+  .rangeBtn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; margin-right:4px; }
+  .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
+  
+  /* Contrats table tighter */
+  #contractsTable { border-collapse: collapse; }
+  #contractsTable th, #contractsTable td { padding: 2px 6px; line-height: 1.1; vertical-align: middle; margin: 0; }
+  #contractsTable .badge-closed { padding: 1px 6px; font-size: 10px; }
+  /* Alignements d'en-têtes */
+  #contractsTable thead th:nth-child(2),
+  #contractsTable thead th:nth-child(3) { text-align: center; }
+  #contractsTable thead th:nth-child(4),
+  #contractsTable thead th:nth-child(5),
+  #contractsTable thead th:nth-child(6) { text-align: right; }
+  /* Priorisation des largeurs: Contrat, Date, Montant */
+  #contractsTable thead th:nth-child(1) { width: 28%; }
+  #contractsTable thead th:nth-child(2) { width: 8%; }
+  #contractsTable thead th:nth-child(3) { width: 15%; }
+  #contractsTable thead th:nth-child(4) { width: 14%; }
+  #contractsTable thead th:nth-child(5) { width: 14%; }
+  #contractsTable thead th:nth-child(6) { width: 14%; }
+  /* Accordions */
+  .accordion-toggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; border-left:4px solid var(--primary); cursor:pointer; }
+  .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
+  .badge-closed { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; vertical-align:middle; white-space:nowrap; }
+  .highlight-cle { background: #ffe5e5 !important; }
+</style>
+
+
+
+{% if client %}
+  <div class="grid">
+    <div class="card">
+      <div class="muted">Synthèse</div>
+      <div class="kpi-small"><strong>Contrats ouverts:</strong> {{ nb_contrats_ouverts }}</div>
+      <div class="kpi-small"><strong>Contrats fermés:</strong> {{ nb_contrats_fermes }}</div>
+      <div class="kpi-small"><strong>Durée historique:</strong> {{ duree_historique_str }}</div>
+    </div>
+    <div class="card">
+      <div class="muted">Valorisation</div>
+      <div class="kpi valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</div>
+      <div class="kpi-mini" style="margin-top:6px;"><strong>Versements:</strong> {{ depots_str }}</div>
+      <div class="kpi-mini"><strong>Retraits:</strong> {{ retraits_str }}</div>
+      <div class="kpi-mini"><strong>Solde:</strong> {{ solde_str }}</div>
+    </div>
+    <div class="card">
+      <div class="muted">Indicateurs</div>
+      <div class="kpi-mini"><strong>Perf 52 semaines:</strong> {% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</div>
+      <div class="kpi-mini"><strong>Volatilité:</strong> {% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</div>
+      <div class="kpi-mini"><strong>SRRI client / actuel:</strong>
+        {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
+        {% if header_srri_icon %}
+          {% if header_srri_icon == 'fire' %}🔥{% elif header_srri_icon == 'hands-praying' %}🙏{% elif header_srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
+        {% endif %}
+      </div>
+      <div class="kpi-mini"><strong>Perf annualisée (depuis début):</strong>
+        {% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
+  <style>
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
+    .modal-card { background: #fff; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .modal-header h3 { margin: 0; font-size: 1.05rem; }
+    .modal-body { padding: 12px 14px; }
+    .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+    /* Harmonisation colonnes pop-up Messages */
+    #clientMsgsTable { table-layout: fixed; width: 100%; }
+    #clientMsgsTable th:nth-child(1), #clientMsgsTable td:nth-child(1) { width: 12%; }
+    #clientMsgsTable th:nth-child(2), #clientMsgsTable td:nth-child(2) { width: 16%; }
+    #clientMsgsTable th:nth-child(3), #clientMsgsTable td:nth-child(3) { width: 14%; }
+    #clientMsgsTable th:nth-child(4), #clientMsgsTable td:nth-child(4) { width: 12%; }
+    #clientMsgsTable th:nth-child(5), #clientMsgsTable td:nth-child(5) { width: 12%; }
+    #clientMsgsTable th:nth-child(6), #clientMsgsTable td:nth-child(6) { width: 26%; }
+    #clientMsgsTable th:nth-child(7), #clientMsgsTable td:nth-child(7) { width: 8%; text-align:center; }
+    #clientMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #clientMsgsTable td:nth-child(6) { white-space: normal; word-break: break-word; }
+  </style>
+  <div id="clientMsgsModal" class="modal-overlay" onclick="if(event.target===this) closeClientMsgs()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="clientMsgsTitle"><i class="fa-solid fa-envelope" style="margin-right:8px;"></i>Messages</h3>
+        <button class="modal-close" onclick="closeClientMsgs()">✕</button>
+      </div>
+      <div class="modal-body">
+        <table id="clientMsgsTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Catégorie</th>
+              <th>Statut</th>
+              <th>Contrat</th>
+              <th>Commentaire</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tâches: accordéon local -->
+  <div id="clientTasksToggle" class="card accordion-toggle" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
+  
+  <!-- KYC: accordéon (ouvre des pop-ups dédiées) -->
+  <div id="kycToggle" class="card accordion-toggle" style="margin-top:12px; display:flex; align-items:center; justify-content:center; gap:8px;">
+    <h3 style="margin:0;">KYC</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="kycSection" class="card" style="display:none;">
+    <h3 style="margin:0 0 8px 0;">Informations KYC</h3>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+      <button type="button" class="btn btn-choice" onclick="openKycCivil()"><i class="fa-solid fa-id-card" style="margin-right:6px;"></i>État‑civil</button>
+      <button type="button" class="btn btn-choice" onclick="openKycMatrimonial()"><i class="fa-solid fa-people-arrows" style="margin-right:6px;"></i>Situation matrimoniale</button>
+      <button type="button" class="btn btn-choice" onclick="openKycPatrimonial()"><i class="fa-solid fa-piggy-bank" style="margin-right:6px;"></i>Situation patrimoniale</button>
+    </div>
+  </div>
+
+  <!-- Modales KYC -->
+  <style>
+    .kyc-modal { position: fixed; inset:0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999; }
+    .kyc-card { background:#fff; border-radius:12px; width: 900px; max-width: 95vw; max-height: 92vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .kyc-header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); }
+    .kyc-body { padding: 12px 14px; }
+  </style>
+  <div id="kycCivilModal" class="kyc-modal" onclick="if(event.target===this) closeKycCivil()">
+    <div class="kyc-card">
+      <div class="kyc-header"><h3 style="margin:0;">État‑civil</h3><button class="btn" onclick="closeKycCivil()">Fermer</button></div>
+      <div class="kyc-body">Développement en cours…</div>
+    </div>
+  </div>
+  <div id="kycMatrimonialModal" class="kyc-modal" onclick="if(event.target===this) closeKycMatrimonial()">
+    <div class="kyc-card">
+      <div class="kyc-header"><h3 style="margin:0;">Situation matrimoniale</h3><button class="btn" onclick="closeKycMatrimonial()">Fermer</button></div>
+      <div class="kyc-body">Développement en cours…</div>
+    </div>
+  </div>
+  <div id="kycPatrimonialModal" class="kyc-modal" onclick="if(event.target===this) closeKycPatrimonial()">
+    <div class="kyc-card">
+      <div class="kyc-header"><h3 style="margin:0;">Situation patrimoniale</h3><button class="btn" onclick="closeKycPatrimonial()">Fermer</button></div>
+      <div class="kyc-body">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:8px;">
+          <button type="button" class="btn btn-choice" id="kycPatriBtnActifs" onclick="openKycActifs()">Actifs</button>
+          <button type="button" class="btn btn-choice" id="kycPatriBtnPassif" onclick="setKycPatriTab('passif')">Passif</button>
+          <button type="button" class="btn btn-choice" id="kycPatriBtnRecettes" onclick="setKycPatriTab('recettes')">Recettes</button>
+          <button type="button" class="btn btn-choice" id="kycPatriBtnCharges" onclick="setKycPatriTab('charges')">Charges</button>
+        </div>
+        <div id="kycPatriContent" class="card" style="padding:10px;">Développement en cours…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pop-up Actifs -->
+  <div id="kycActifsModal" class="kyc-modal" onclick="if(event.target===this) closeKycActifs()">
+    <div class="kyc-card" style="width:1200px; max-width:98vw;">
+      <div class="kyc-header"><h3 style="margin:0;">Actifs du client</h3><div><button class="btn" onclick="closeKycActifs()">Fermer</button></div></div>
+      <div class="kyc-body">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;"><button class="btn btn-choice" onclick="openKycActifAdd()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter</button></div>
+        <table id="kycActifsTable" class="display" style="width:100%">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Intitulé</th>
+              <th>Date acquis.</th>
+              <th style="text-align:right;">Valeur init.</th>
+              <th>Date éval.</th>
+              <th style="text-align:right;">Valeur actuelle</th>
+              <th>Devise</th>
+              <th style="text-align:center;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in kyc_actifs %}
+            <tr>
+              <td>{{ a.type or '' }}</td>
+              <td>{{ a.intitule or '' }}</td>
+              <td>{{ a.date_acquisition or '' }}</td>
+              <td style="text-align:right;">{{ a.valeur_initiale or '' }}</td>
+              <td>{{ a.date_eval or '' }}</td>
+              <td style="text-align:right;">{{ a.valeur or '' }}</td>
+              <td>{{ a.devise or '' }}</td>
+              <td style="text-align:center;">
+                <button type="button" class="btn btn-choice" title="Modifier" onclick="editKycActif({{ a.id }})" style="padding:2px 6px; font-size:11px; border-radius:4px;"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="btn btn-choice" title="Supprimer" onclick="deleteKycActif({{ a.id }})" style="padding:2px 6px; font-size:11px; border-radius:4px; margin-left:4px;"><i class="fa-solid fa-trash"></i></button>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="muted">Aucun actif saisi.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pop-up Ajout Actif -->
+  <div id="kycActifAddModal" class="kyc-modal" onclick="if(event.target===this) closeKycActifAdd()">
+    <div class="kyc-card" style="width:600px; max-width:90vw;">
+      <div class="kyc-header"><h3 style="margin:0;">Ajouter un actif</h3><button class="btn" onclick="closeKycActifAdd()">Fermer</button></div>
+      <div class="kyc-body">
+        <form method="post" action="/dashboard/clients/{{ client.id }}/actifs">
+          <!-- Ligne 1: Intitulé pleine largeur -->
+          <div class="field" style="margin-bottom:.6rem;">
+            <label>Intitulé</label>
+            <input type="text" name="intitule" placeholder="ex: Compte titres ABC" required style="width:100%;" />
+          </div>
+          <!-- Ligne 2: Type (1/3) + Devise à droite -->
+          <div class="form-row" style="margin-bottom:.6rem; grid-template-columns: 2fr 1fr;">
+            <div class="field">
+              <label>Type d'actif</label>
+              <select name="id_type_actif" required style="width:100%; height: 2.4rem;">
+                <option value="" disabled selected>Choisir…</option>
+                {% for t in kyc_types_actifs %}
+                  <option value="{{ t.id }}">{{ t.libelle }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field" style="max-width: 12ch;">
+              <label>Devise</label>
+              <input type="text" name="devise" placeholder="EUR" />
+            </div>
+          </div>
+          <!-- Ligne 3: Date d'acquisition (12ch) & Valeur initiale (input) -->
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Date acquis.</label>
+              <input type="date" name="date_acquisition" style="width:12ch;" />
+            </div>
+            <div class="field">
+              <label>Valeur init.</label>
+              <input type="text" name="valeur_initiale" inputmode="decimal" placeholder="100000.00" pattern="^\\d*(?:[\\.,]\\d+)?$" title="Nombre positif, décimales acceptées" oninput="this.value=this.value.replace(/[^0-9.,]/g,'').replace(/^\-+/,'')" />
+            </div>
+          </div>
+          <!-- Ligne 4: Date éval (12ch) & Valeur actuelle (input) -->
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Date éval.</label>
+              <input type="date" name="date_eval" style="width:12ch;" />
+            </div>
+            <div class="field">
+              <label>Valeur actuelle</label>
+              <input type="text" name="valeur" inputmode="decimal" placeholder="100000.00" pattern="^\\d*(?:[\\.,]\\d+)?$" title="Nombre positif, décimales acceptées" oninput="this.value=this.value.replace(/[^0-9.,]/g,'').replace(/^\-+/,'')" />
+            </div>
+          </div>
+          <!-- Ligne 6: Commentaire -->
+          <div class="field" style="margin-bottom:.6rem;"><label>Commentaire</label><textarea name="commentaire" rows="3" placeholder="Notes…" style="width:100%;"></textarea></div>
+          <div class="create-btn-container"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Enregistrer</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popup temporaire de création de tâche -->
+  <style>
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
+    .modal-card { background: #fff; border-radius: 12px; width: 640px; max-width: 92vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .modal-header h3 { margin: 0; font-size: 1.05rem; }
+    .modal-body { padding: 12px 14px; }
+    .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+  </style>
+  <div id="taskModal" class="modal-overlay" onclick="if(event.target===this) closeTaskPopup()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
+        <button class="modal-close" onclick="closeTaskPopup()">✕</button>
+      </div>
+      <div class="modal-body task-block">
+        <form method="post" action="/dashboard/clients/{{ client.id }}/taches">
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Client (Nom Prénom)</label>
+              <input type="text" name="client_fullname" list="clients_list_client_modal" placeholder="Nom Prénom" value="{{ client_fullname_default or '' }}" />
+            </div>
+            <div class="field">
+              <label>Affaire (Référence)</label>
+              <input type="text" name="affaire_ref" list="affaires_list_client_modal" placeholder="REF-0001" />
+            </div>
+            <div class="field">
+              <label>Responsable</label>
+              <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+            </div>
+          </div>
+
+          <div class="form-row" style="margin-bottom:.6rem;">
+            <div class="field">
+              <label>Catégorie</label>
+              <select class="select-choice" name="categorie" id="client_cat_select_modal">
+                <option value="">-- choisir --</option>
+                {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Type</label>
+              <select class="select-choice" name="type_libelle" id="client_type_select_modal">
+                <option value="">-- choisir une catégorie --</option>
+              </select>
+            </div>
+            <div class="field" style="align-self:center;">
+              <label>&nbsp;</label>
+              <button type="button" id="client_comm_btn_modal" class="btn btn-choice" onclick="toggleClientCommModal()">Préparer une communication</button>
+              <input type="hidden" id="client_comm_toggle_modal" name="comm_toggle" value="0" />
+            </div>
+          </div>
+
+          <div id="client_comm_block_modal" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
+            <div class="form-row" style="margin-bottom:.6rem;">
+              <div class="field">
+                <label>Canal</label>
+                <select class="select-choice" name="comm_canal">
+                  <option value="email">email</option>
+                  <option value="courrier">courrier</option>
+                  <option value="sms">sms</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Destinataire</label>
+                <input class="input-large" type="text" name="comm_destinataire" placeholder="email ou adresse" />
+              </div>
+              <div class="field">
+                <label>Objet</label>
+                <input class="input-large" type="text" name="comm_objet" placeholder="Objet du message" />
+              </div>
+            </div>
+            <div>
+              <label>Contenu</label>
+              <textarea class="input-large" name="comm_contenu" rows="3" placeholder="Contenu du message..." style="width:100%;"></textarea>
+            </div>
+          </div>
+
+          <div style="margin-bottom:.6rem;">
+            <label>Commentaire</label>
+            <textarea name="commentaire" rows="3" placeholder="Détails / notes…"></textarea>
+          </div>
+
+          <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
+            <div style="flex:1 1 100%;">
+              <label>Statut initial</label>
+              <div id="client_initial_status_modal" style="display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;">
+                {% for s in status_ui %}
+                  <button type="button" class="btn btn-choice" data-sid="{{ s.id }}" data-key="{{ s.key }}" onclick="clientSelectStatusModal(this)">{{ s.label }}</button>
+                {% endfor %}
+                {% if en_cours_id %}
+                  <button type="button" id="client_en_cours_btn_modal" class="btn btn-choice" style="display:none; background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;" data-sid="{{ en_cours_id }}" onclick="clientSelectStatusModal(this)">en cours</button>
+                {% endif %}
+                <input type="hidden" name="statut_id" id="client_statut_id_modal" value="" />
+              </div>
+            </div>
+          </div>
+          <div class="create-btn-container">
+            <button class="btn btn-primary btn-choice" style="min-width:160px;" type="submit"><i class="fa-solid fa-plus"></i>Créer</button>
+          </div>
+
+          <datalist id="clients_list_client_modal">
+            {% for c in clients_suggest %}
+              <option value="{{ ((c.nom or '') ~ ' ' ~ (c.prenom or '')) | trim }}"></option>
+            {% endfor %}
+          </datalist>
+          <datalist id="affaires_list_client_modal"></datalist>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Messages header buttons & modal ---
+    const CLIENT_EVENTS_OPEN = {{ client_events_open | tojson }};
+    function _normCat(s){ if(!s) return ''; return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c'); }
+    function openClientMsgs(kind){
+      const modal = document.getElementById('clientMsgsModal');
+      const tbody = modal.querySelector('tbody');
+      tbody.innerHTML = '';
+      const isReg = (kind === 'reg');
+      const title = document.getElementById('clientMsgsTitle');
+      title.innerHTML = (isReg ? '<i class="fa-solid fa-envelope"></i>Messages réglementaires' : '<i class="fa-solid fa-envelope"></i>Messages non réglementaires');
+      const rows = (CLIENT_EVENTS_OPEN||[]).filter(ev => {
+        const cat = _normCat(ev.type_categorie);
+        const reg = (cat === 'reglementaire');
+        return isReg ? reg : !reg;
+      });
+      function statusStyle(label){
+        const s = (label||'').toLowerCase();
+        if (s === 'en cours') return 'background:#16a34a; color:#fff; border-color:#16a34a;';
+        if (s === 'en attente') return 'background:#f59e0b; color:#fff; border-color:#f59e0b;';
+        if (s === 'terminé' || s === 'termine') return 'background:#4b5563; color:#fff; border-color:#4b5563;';
+        if (s === 'annulé' || s === 'annule') return 'background:#b91c1c; color:#fff; border-color:#b91c1c;';
+        return '';
+      }
+      function openTaskEditPopup(id){
+        try {
+          var w = 1100, h = 800;
+          var left = Math.max(0, Math.floor(((screen.availWidth||screen.width||w) - w) / 2));
+          var top = Math.max(0, Math.floor(((screen.availHeight||screen.height||h) - h) / 2));
+          var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+          var win = window.open('/dashboard/taches/'+id, 'taskEdit'+id, feat);
+          if (win && win.focus) { try { win.focus(); } catch(e){} }
+        } catch(e){}
+      }
+      rows.forEach(ev => {
+        const tr = document.createElement('tr');
+        // helpers
+        function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
+        function tdEl(el){ const td = document.createElement('td'); td.appendChild(el); return td; }
+        // date, type, catégorie
+        tr.appendChild(td(ev.date_evenement||''));
+        tr.appendChild(td(ev.type_libelle||''));
+        tr.appendChild(td(ev.type_categorie||''));
+        // statut cliquable -> nouvelle fenêtre d'édition
+        const sb = document.createElement('a');
+        sb.className = 'btn btn-choice';
+        sb.textContent = ev.statut || 'à faire';
+        sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
+        sb.href = '/dashboard/taches/' + (ev.id||'');
+        sb.target = '_blank';
+        sb.rel = 'noopener noreferrer';
+        tr.appendChild(tdEl(sb));
+        // contrat (ref)
+        tr.appendChild(td(ev.affaire_ref||''));
+        // commentaire avec voir plus/moins
+        const ctd = document.createElement('td');
+        const full = String(ev.commentaire||'');
+        const short = full.slice(0, 180);
+        const sid = 'ccli-short-' + (ev.id||Math.random());
+        const fid = 'ccli-full-' + (ev.id||Math.random());
+        const sdiv = document.createElement('div');
+        sdiv.id = sid; sdiv.style.whiteSpace='pre-wrap';
+        if (full.length <= 180) sdiv.style.display='none';
+        sdiv.textContent = short + (full.length>180 ? '…' : '');
+        const fdiv = document.createElement('div');
+        fdiv.id = fid; fdiv.style.whiteSpace='pre-wrap';
+        if (full.length > 180) fdiv.style.display='none';
+        fdiv.textContent = full;
+        ctd.appendChild(sdiv); ctd.appendChild(fdiv);
+        if (full.length > 180){
+          const a = document.createElement('a'); a.href='#'; a.style.fontSize='12px'; a.textContent='Voir plus';
+          a.addEventListener('click', function(e){ e.preventDefault(); const sh=document.getElementById(sid); const fl=document.getElementById(fid); const isShort = sh.style.display !== 'none'; sh.style.display = isShort? 'none':''; fl.style.display = isShort? '':'none'; this.textContent = isShort? 'Voir moins':'Voir plus'; });
+          const wrap = document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);
+        }
+        tr.appendChild(ctd);
+        // action Modifier
+        const actionTd = document.createElement('td');
+        const editBtn = document.createElement('button');
+        editBtn.type='button'; editBtn.className='btn btn-choice'; editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
+        editBtn.textContent = 'Modifier';
+        editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
+        actionTd.appendChild(editBtn);
+        tr.appendChild(actionTd);
+        // dblclick ligne
+        tr.addEventListener('dblclick', function(){ openTaskEditPopup(ev.id); });
+        tbody.appendChild(tr);
+      });
+      // DataTable avec export CSV
+      try {
+        if (window.clientMsgsDT) { window.clientMsgsDT.destroy(); }
+      } catch(e) {}
+      try {
+        window.clientMsgsDT = $('#clientMsgsTable').DataTable({
+          destroy: true,
+          paging: true,
+          pageLength: 25,
+          fixedHeader: false,
+          dom: 'Bfrtip',
+          buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'messages_client_{{ client.id }}', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
+          order: [[0,'desc']],
+          columnDefs: [ { targets: [0,1,2,3,4], className: 'nowrap' } ]
+        });
+      } catch(e) {}
+      modal.style.display = 'flex';
+    }
+    function closeClientMsgs(){ document.getElementById('clientMsgsModal').style.display = 'none'; }
+
+    function openTaskPopup(){ document.getElementById('taskModal').style.display='flex'; }
+    function closeTaskPopup(){ document.getElementById('taskModal').style.display='none'; }
+    function toggleClientCommModal(){ const h=document.getElementById('client_comm_toggle_modal'); const on=h.value==='1'?false:true; h.value=on?'1':'0'; document.getElementById('client_comm_block_modal').style.display=on?'block':'none'; document.getElementById('client_comm_btn_modal').classList.toggle('btn-choice-active', on); }
+    function normName(s){ return (s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
+    function updateClientAffairesModal(){ const inp=document.querySelector('#taskModal input[name="client_fullname"]'); const val=normName(inp?inp.value:''); const dl=document.getElementById('affaires_list_client_modal'); if(!dl) return; dl.innerHTML=''; const data = [
+      {% for a in affaires_suggest %}
+        { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
+      {% endfor %}
+    ]; (val? data.filter(a=>normName(a.client)===val): data).forEach(a=>{ const o=document.createElement('option'); o.value=a.ref; o.textContent=`${a.ref} — ${a.client}`; dl.appendChild(o); }); }
+    (function initTaskModal(){
+      const inp=document.querySelector('#taskModal input[name="client_fullname"]'); if(inp){ inp.addEventListener('input', updateClientAffairesModal); inp.addEventListener('change', updateClientAffairesModal); }
+      updateClientAffairesModal();
+      const types = [
+        {% for t in types %}
+          { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
+        {% endfor %}
+      ];
+      const cat=document.getElementById('client_cat_select_modal'); const typ=document.getElementById('client_type_select_modal');
+      function sync(){ typ.innerHTML=''; if(!cat.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o); return; } const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle); list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); }); if(list.length>0) typ.value=list[0]; }
+      if (cat){ cat.addEventListener('change', sync); if(cat.value) sync(); }
+    })();
+    function clientSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('client_statut_id_modal').value=sid; const peers=document.getElementById('client_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('client_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
+
+    // KYC modals open/close helpers
+    function openKycCivil(){ document.getElementById('kycCivilModal').style.display='flex'; }
+    function closeKycCivil(){ document.getElementById('kycCivilModal').style.display='none'; }
+    function openKycMatrimonial(){ document.getElementById('kycMatrimonialModal').style.display='flex'; }
+    function closeKycMatrimonial(){ document.getElementById('kycMatrimonialModal').style.display='none'; }
+    function openKycPatrimonial(){ document.getElementById('kycPatrimonialModal').style.display='flex'; setKycPatriTab('actifs'); }
+    function closeKycPatrimonial(){ document.getElementById('kycPatrimonialModal').style.display='none'; }
+    function setKycPatriTab(tab){
+      var ids = ['Actifs','Passif','Recettes','Charges'];
+      ids.forEach(function(n){ var b=document.getElementById('kycPatriBtn'+n); if(b){ b.classList.remove('btn-choice-active'); }});
+      var map = { actifs:'Actifs', passif:'Passif', recettes:'Recettes', charges:'Charges' };
+      var sel = map[tab] || 'Actifs';
+      var btn = document.getElementById('kycPatriBtn'+sel);
+      if (btn) btn.classList.add('btn-choice-active');
+      var cont = document.getElementById('kycPatriContent');
+      if (!cont) return;
+      var labels = { actifs:'Liste des actifs (développement en cours…) ', passif:'Liste des dettes / passif (développement en cours…)', recettes:'Liste des recettes (développement en cours…)', charges:'Liste des charges (développement en cours…)' };
+      cont.textContent = labels[tab] || labels['actifs'];
+    }
+    // Actifs modal open/close + DataTables init
+    function openKycActifs(){
+      var el = document.getElementById('kycActifsModal'); if (el) el.style.display='flex';
+      try {
+        if (!window._kycActifsDT){
+          window._kycActifsDT = $('#kycActifsTable').DataTable({
+            destroy:true,
+            paging:true,
+            pageLength:25,
+            autoWidth:false,
+            responsive:false,
+            scrollX:false,
+            dom:'Bfrtip',
+            buttons:[{extend:'csvHtml5', text:'Exporter CSV', title:'actifs_client_{{ client.id }}', bom:true, charset:'utf-8', fieldSeparator:';'}],
+            order:[[0,'desc']]
+          });
+        }
+      } catch(e){}
+    }
+    function closeKycActifs(){ var el=document.getElementById('kycActifsModal'); if (el) el.style.display='none'; }
+    function openKycActifAdd(){ document.getElementById('kycActifAddModal').style.display='flex'; }
+    function closeKycActifAdd(){ document.getElementById('kycActifAddModal').style.display='none'; }
+    function editKycActif(id){ alert('Édition actif #'+id+' — développement en cours…'); }
+    function deleteKycActif(id){ if(confirm('Supprimer l\'actif #'+id+' ?')){ alert('Suppression — développement en cours…'); } }
+  </script>
+
+  <style>
+    /* Mise en page lisible pour le tableau des actifs (sans défilement horizontal) */
+    #kycActifsTable { table-layout: fixed; width: 100%; }
+    /* Type */
+    #kycActifsTable th:nth-child(1), #kycActifsTable td:nth-child(1) { width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Intitulé (large et retour à la ligne) */
+    #kycActifsTable th:nth-child(2), #kycActifsTable td:nth-child(2) { min-width: 44ch; white-space: normal; word-break: break-word; }
+    /* Date acquisition */
+    #kycActifsTable th:nth-child(3), #kycActifsTable td:nth-child(3) { width: 12ch; white-space: nowrap; }
+    /* Valeur initiale */
+    #kycActifsTable th:nth-child(4), #kycActifsTable td:nth-child(4) { width: 16ch; white-space: nowrap; }
+    /* Date eval */
+    #kycActifsTable th:nth-child(5), #kycActifsTable td:nth-child(5) { width: 10ch; white-space: nowrap; }
+    /* Valeur actuelle */
+    #kycActifsTable th:nth-child(6), #kycActifsTable td:nth-child(6) { width: 16ch; white-space: nowrap; }
+    /* Devise */
+    #kycActifsTable th:nth-child(7), #kycActifsTable td:nth-child(7) { width: 6ch; white-space: nowrap; }
+    /* Actions */
+    #kycActifsTable th:nth-child(8), #kycActifsTable td:nth-child(8) { width: 9ch; white-space: nowrap; text-align:center; }
+  </style>
+  <style>
+    /* Sélection visuelle des lignes dans la pop-up Messages */
+    #clientMsgsTable tbody tr:hover { background: #f3f6ff; }
+    #clientMsgsTable tbody tr.row-selected { background: #e9f0ff; border-left: 3px solid var(--primary); }
+  </style>
+  <!-- Accordéons vides pour structurer la page (à compléter comme pour Affaires) -->
+  <div id="invToggle" class="card accordion-toggle"><h3 style="margin:0;">Investissements</h3><span class="chevron">▾</span></div>
+  <div id="invSection" class="card" style="display:none;">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <h3 style="margin:4px 8px 8px 0;">Contrats du client</h3>
+      {% if available_dates %}
+        <label for="asOfSelect" class="muted" style="font-size:0.85rem;">Date effective:</label>
+        <select id="asOfSelect" style="padding:4px 8px; font-size:0.9rem;">
+          {% for d in available_dates %}
+            <option value="{{ d }}" {% if d == as_of_effective %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
+    </div>
+    <table id="contractsTable">
+      <thead>
+        <tr>
+          <th>Contrat</th>
+          <th>SRRI</th>
+          <th>Date début</th>
+          <th>Montant</th>
+          <th>Perf. 52s</th>
+          <th>Volat. 52s</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in client_affaires %}
+        <tr class="{% if a.date_cle %}highlight-cle{% endif %}">
+          <td>
+            <a href="/dashboard/affaires/{{ a.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ a.ref }}</a>
+            {% if a.date_cle %}<span class="badge-closed">Le contrat est clôturé ({{ (a.date_cle|string)[:10] }})</span>{% endif %}
+          </td>
+          <td style="text-align:center;">
+            {{ a.SRRI }}
+            {% if a.srri_icon %}
+              {% if a.srri_icon == 'fire' %}🔥{% elif a.srri_icon == 'hands-praying' %}🙏{% elif a.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
+              <span class="srri-calc" style="margin-left:6px; font-size:11px; color:#666;">{{ a.srri_calc }}</span>
+            {% endif %}
+          </td>
+          <td class="center">{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
+          <td style="text-align:right;">{{ a.last_valo_str }}</td>
+          <td style="text-align:right;">{% if a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:14px;">Supports consolidés (tous contrats)</h3>
+    <table id="supportsClient">
+      <thead>
+        <tr>
+          <th>ISIN</th>
+          <th>Support</th>
+          <th>SRRI</th>
+          <th>Nb UC</th>
+          <th>PRMP</th>
+          <th>Valorisation</th>
+          <th>E</th>
+          <th>S</th>
+          <th>G</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in client_supports %}
+        <tr>
+          <td>{{ s.code_isin or '' }}</td>
+          <td>{{ s.nom or '' }}</td>
+          <td class="center">{{ s.srri_support or '' }}</td>
+          <td style="text-align:right;">{{ s.nbuc_str }}</td>
+          <td style="text-align:right;">{{ s.prmp_str }}</td>
+          <td style="text-align:right;">{{ s.valo_str }}</td>
+          <td class="center">{{ s.noteE or '' }}</td>
+          <td class="center">{{ s.noteS or '' }}</td>
+          <td class="center">{{ s.noteG or '' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not client_supports %}
+        <tr><td colspan="9" class="muted">Aucun support consolidé trouvé.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <div class="pie-grid" style="margin-top:8px;">
+      <div class="pie-card">
+        <h3 class="chart-title">Répartition par catégorie</h3>
+        <div class="dim-buttons" style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+          <button type="button" class="dim-btn active" data-field="cat_gene">Catégorie générale</button>
+          <button type="button" class="dim-btn" data-field="cat_principale">Catégorie principale</button>
+          <button type="button" class="dim-btn" data-field="cat_det">Catégorie détaillée</button>
+        </div>
+        <canvas id="clientCatChart" height="220"></canvas>
+      </div>
+      <div class="pie-card">
+        <h3 class="chart-title">Répartition géographique du secteur</h3>
+        <canvas id="clientGeoChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="graphsToggle" class="card accordion-toggle"><h3 style="margin:0;">Graphiques</h3><span class="chevron">▾</span></div>
+  <div id="graphsSection" style="display:none;">
+    <div class="card">
+      <h3>Historique de valorisation et cumul des mouvements</h3>
+      <canvas id="valoChart" height="120"></canvas>
+    </div>
+    <div class="card" style="margin-top:12px;">
+      <h3>Performances et volatilité annuelles</h3>
+      <canvas id="clientAnnuelChart" height="120"></canvas>
+    </div>
+    <div class="card" style="margin-top:12px;">
+      <h3>Évolution des allocations (SICAV)</h3>
+      <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
+        <div>
+          <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
+          <select id="allocSelectClient"></select>
+        </div>
+        <div>
+          <label class="muted" style="font-size:0.85rem;">Période</label><br>
+          <button class="rangeBtn" data-range="all">Tout</button>
+          <button class="rangeBtn" data-range="365">1 an</button>
+          <button class="rangeBtn" data-range="180">6 mois</button>
+          <button class="rangeBtn" data-range="90">3 mois</button>
+          <button class="rangeBtn" data-range="30">1 mois</button>
+        </div>
+      </div>
+      <canvas id="clientAllocChart" height="120"></canvas>
+    </div>
+    
+    
+  </div>
+
+  <!-- Cadre indépendant: Performances et volatilité annuelles -->
+
+  <div id="reportToggle" class="card accordion-toggle" style="border-left-color: var(--primary);"><h3 style="margin:0;">Reportings pluriannuels</h3><span class="chevron">▾</span></div>
+  <div id="reportSection" class="card" style="display:none;">
+    {% if reporting_years %}
+    <table style="font-size:12px;">
+      <thead>
+        <tr>
+          <th>Année</th>
+          <th style="text-align:right;">Versements</th>
+          <th style="text-align:right;">Retraits</th>
+          <th style="text-align:right;">Solde annuel</th>
+          <th style="text-align:right;">Solde cumulé</th>
+          <th style="text-align:right;">Valo fin d'année</th>
+          <th style="text-align:right;">Perf fin d'année</th>
+          <th style="text-align:right;">Cumul perf</th>
+          <th style="text-align:right;">Perf annualisée</th>
+          <th style="text-align:right;">Vol. 52s (fin)</th>
+          <th style="text-align:right;">Vol. moyenne</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reporting_years %}
+        <tr>
+          <td style="text-align:center;">{{ r.year }}</td>
+          <td style="text-align:right;">{{ r.versements_str }}</td>
+          <td style="text-align:right;">{{ r.retraits_str }}</td>
+          <td style="text-align:right;">{{ r.solde_str }}</td>
+          <td style="text-align:right;">{{ r.solde_cum_str }}</td>
+          <td style="text-align:right;">{{ r.last_valo_str }}</td>
+          <td style="text-align:right;">{% if r.last_perf_pct is not none %}{{ '%.2f'|format(r.last_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.cum_perf_pct is not none %}{{ '%.2f'|format(r.cum_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.ann_perf_pct is not none %}{{ '%.2f'|format(r.ann_perf_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.last_vol_pct is not none %}{{ '%.2f'|format(r.last_vol_pct) }} %{% endif %}</td>
+          <td style="text-align:right;">{% if r.avg_vol_pct is not none %}{{ '%.2f'|format(r.avg_vol_pct) }} %{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="muted" style="margin-top:6px; font-size:12px;">
+      <div>Les pourcentages sont exprimés en % (valeurs décimales converties).</div>
+      <div>La performance annualisée correspond à la performance cumulée observée à la date, ramenée en taux annuel fixe (CAGR).</div>
+    </div>
+    {% else %}
+      <div class="muted">Aucune donnée annuelle disponible.</div>
+    {% endif %}
+  </div>
+
+  <!-- (section Graphiques fusionnée ci-dessus) -->
+
+  <!-- Documents accordion -->
+  <div id="docsToggle" class="card accordion-toggle"><h3 style="margin:0;">Documents</h3><span class="chevron">▾</span></div>
+  <div id="docsSection" class="card" style="display:none;">
+    <h3>Documents du client</h3>
+    <form id="addDocForm" style="margin-bottom:12px; display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;">
+      <div>
+        <label>Type de document</label>
+        <div>
+          <select id="document_base_select" required>
+            <option value="" disabled selected>Choisir…</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Nom document</label>
+        <input type="text" id="nom_document" placeholder="ex: Pièce identité" />
+      </div>
+      <div>
+        <label>Date création</label>
+        <input type="date" id="date_creation" />
+      </div>
+      <div>
+        <label>Date obsolescence</label>
+        <input type="date" id="date_obsolescence" />
+      </div>
+      <div>
+        <label>Statut</label>
+        <input type="text" id="obsolescence" placeholder="valide / expiré" />
+      </div>
+      <div>
+        <button type="submit">Ajouter</button>
+      </div>
+    </form>
+
+    <table id="clientDocs" class="display nowrap" style="width:100%">
+      <thead>
+        <tr>
+          <th>Type (base)</th><th>Nom (libellé)</th><th>Date création</th><th>Date obsolescence</th><th>Statut</th><th>Action</th>
+        </tr>
+        <tr>
+          <th><input type="text" id="cd-type-filter" placeholder="Filtrer..."></th>
+          <th><input type="text" id="cd-nom-filter" placeholder="Filtrer..."></th>
+          <th><input type="text" id="cd-cr-filter" placeholder="AAAA-MM-JJ"></th>
+          <th><input type="text" id="cd-obsdate-filter" placeholder="AAAA-MM-JJ"></th>
+          <th><select id="cd-status-filter"><option value="">Tous</option></select></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in documents_client %}
+        <tr>
+          <td>{{ d.base_name or '-' }}</td>
+          <td>{{ d.nom_document or '-' }}</td>
+          <td>{{ (d.date_creation|string)[:10] if d.date_creation else '-' }}</td>
+          <td>{{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '-' }}</td>
+          <td>{{ d.obsolescence or '-' }}</td>
+          <td><button class="delBtn" data-id="{{ d.id }}">Supprimer</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="card">Client introuvable.</div>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Chart.js: couleur par défaut (axes/labels) = bleu CSS
+try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+</script>
+<!-- jQuery + DataTables for client docs table and messages export -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+<script>
+  // Accordéons mutualisés: un seul ouvert à la fois et possibilité de tout fermer
+  (function(){
+    var groups = [
+      { key:'kyc', toggleId:'kycToggle', sectionId:'kycSection' },
+      { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
+      { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
+      { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
+      { key:'docs', toggleId:'docsToggle', sectionId:'docsSection' },
+    ];
+    function byId(id){ return document.getElementById(id); }
+    function setOpen(key){
+      groups.forEach(function(g){
+        var t = byId(g.toggleId), s = byId(g.sectionId);
+        if (!t || !s) return;
+        if (key && g.key === key){ s.style.display = ''; t.classList.remove('collapsed'); }
+        else { s.style.display = 'none'; t.classList.add('collapsed'); }
+      });
+      try { localStorage.setItem('client_detail_open', key || ''); } catch(e) {}
+    }
+    // Restore last open
+    var saved = '';
+    try { saved = localStorage.getItem('client_detail_open') || ''; } catch(e) {}
+    if (saved) setOpen(saved);
+    // Wire clicks
+    groups.forEach(function(g){
+      var t = byId(g.toggleId), s = byId(g.sectionId);
+      if (!t || !s) return;
+      t.addEventListener('click', function(){
+        var isOpen = s.style.display !== 'none';
+        if (isOpen) { setOpen(''); }
+        else { setOpen(g.key); try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {} }
+      });
+    });
+  })();
+
+  // Auto-sélection du type selon catégorie (client)
+  (function(){
+    try {
+      const CTYPES = [
+        {% for t in types %}
+          { id: {{ t.id }}, libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
+        {% endfor %}
+      ];
+      const catSel = document.getElementById('client_cat_select');
+      const typeSel = document.getElementById('client_type_select');
+      if (!catSel || !typeSel) return;
+      function syncTypes(){
+        const cat = catSel.value;
+        typeSel.innerHTML='';
+        if(!cat){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typeSel.appendChild(o); return; }
+        const list = CTYPES.filter(t=>t.categorie===cat).map(t=>t.libelle);
+        list.forEach(lib=>{ const o=document.createElement('option'); o.value=lib; o.textContent=lib; typeSel.appendChild(o); });
+        if (list.length>0) typeSel.value = list[0];
+      }
+      catSel.addEventListener('change', syncTypes);
+      if (catSel.value) syncTypes();
+    } catch(e) {}
+  })();
+
+  // Changement de date effective -> recharge avec param ?as_of=YYYY-MM-DD
+  (function(){
+    var sel = document.getElementById('asOfSelect');
+    if (!sel) return;
+    sel.addEventListener('change', function(){
+      var v = this.value;
+      var url = new URL(window.location.href);
+      url.searchParams.set('as_of', v);
+      window.location.href = url.toString();
+    });
+  })();
+
+  // Charts de répartition basés sur supports consolidés
+  (function(){
+    var supportsData = {{ client_supports | tojson }};
+    var catCtx = document.getElementById('clientCatChart');
+    var geoCtx = document.getElementById('clientGeoChart');
+    if (!catCtx || !geoCtx) return;
+    catCtx = catCtx.getContext('2d');
+    geoCtx = geoCtx.getContext('2d');
+    var catChart, geoChart;
+    function buildCatBar(field){
+      var map = new Map();
+      (supportsData||[]).forEach(function(s){
+        var key = (s[field] || 'Non renseigné');
+        var v = parseFloat(s.valo) || 0;
+        map.set(key, (map.get(key)||0) + v);
+      });
+      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
+      var labels = entries.map(function(e){return e[0];});
+      var values = entries.map(function(e){return e[1];});
+      if (catChart) catChart.destroy();
+      catChart = new Chart(catCtx, {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ data: values, backgroundColor: 'var(--primary)' }] },
+        options: { indexAxis: 'y', responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          layout:{ padding:{ top:10, bottom:6, right:8, left:8 } },
+          scales:{ x:{ display:false, beginAtZero:true }, y:{ ticks:{ font:{ size:10 }, autoSkip:false, maxTicksLimit:20 } } },
+          datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.8, maxBarThickness:18 } },
+          onHover: function(evt, els){ if (els && els.length){ var idx=els[0].index; var label=labels[idx]; buildGeoBar(field, label); } }
+        }
+      });
+      buildGeoBar(field, null);
+      catCtx.canvas.addEventListener('mouseleave', function(){ buildGeoBar(field, null); });
+    }
+    function buildGeoBar(field, catValue){
+      var map = new Map();
+      (supportsData||[]).forEach(function(s){
+        var cat = (s[field] || 'Non renseigné');
+        if (catValue !== null && catValue !== undefined && String(cat) !== String(catValue)) return;
+        var key = (s['cat_geo'] || 'Non renseigné');
+        var v = Number(s.valo) || 0;
+        map.set(key, (map.get(key)||0) + v);
+      });
+      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
+      var labels = entries.map(function(e){return e[0];});
+      var values = entries.map(function(e){return e[1];});
+      if (geoChart) geoChart.destroy();
+      geoChart = new Chart(geoCtx, {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ data: values, backgroundColor:'#2a9d8f' }] },
+        options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          layout:{ padding:{ top:10, bottom:6, right:8, left:8 } },
+          scales:{ x:{ display:false, beginAtZero:true }, y:{ ticks:{ font:{ size:10 }, autoSkip:false, maxTicksLimit:20 } } },
+          datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.8, maxBarThickness:18 } }
+        }
+      });
+    }
+    buildCatBar('cat_gene');
+    document.querySelectorAll('.dim-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.querySelectorAll('.dim-btn').forEach(function(b){ b.classList.remove('active'); });
+        this.classList.add('active');
+        buildCatBar(this.dataset.field);
+      });
+    });
+  })();
+
+  const labels = [{% for d in labels %}'{{ d }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+  const data = [{% for v in serie_valo %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+  const movs = [{% for v in serie_mov_cum %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+  const movsRaw = [{% for v in serie_mov_raw %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+  const ctx = document.getElementById('valoChart').getContext('2d');
+  const normLabels = labels.map(d => (d||'').toString().slice(0,10));
+  function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
+  // Echelle unique simple comme version d'origine
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels: normLabels, datasets: [
+      { label: 'Valorisation', data, borderColor: 'var(--primary)', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+      { label: 'Cumul mouvements', data: movs, borderColor: '#ff6b6b', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+    ] },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      stacked: false,
+      scales: { y: { beginAtZero: false, ticks: { callback: (v)=> euro(v) } } },
+      plugins: {
+        legend: { display: true },
+        tooltip: {
+          callbacks: {
+            label: function(ctx){
+              const y = ctx.parsed.y;
+              if (ctx.dataset.label === 'Cumul mouvements'){
+                const idx = ctx.dataIndex;
+                const delta = movsRaw[idx] || 0;
+                return ctx.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
+              }
+              return ctx.dataset.label+': '+euro(y);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Graphique annuel: performances et volatilité (barres)
+  (function(){
+    const yearsClient = {{ years_client | tojson }};
+    const annPerfClient = {{ ann_perf_client | tojson }};
+    const annVolClient = {{ ann_vol_client | tojson }};
+    const el = document.getElementById('clientAnnuelChart');
+    if (!el) return;
+    const ctxA = el.getContext('2d');
+    const perfPct = (annPerfClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
+    const volPct = (annVolClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
+    new Chart(ctxA, {
+      type: 'bar',
+      data: { labels: (yearsClient||[]).map(String), datasets: [
+        { label: 'Perf 52s (%)', data: perfPct, backgroundColor: 'var(--primary)' },
+        { label: 'Volatilité (%)', data: volPct, backgroundColor: '#ff6b6b' },
+      ]},
+      options: { responsive:true, scales:{ y:{ ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true } } }
+    });
+  })();
+
+  // Graphique allocations (lignes) avec sélection et échelle ajustée
+  (function(){
+    // Couleur par défaut pour Chart.js (axes/labels) = bleu CSS
+    try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+    const allocSeries = {{ alloc_series | tojson }};
+    const clientSicav = {{ client_sicav | tojson }};
+    const sel = document.getElementById('allocSelectClient');
+    if (!sel) return;
+    // Remplir le sélecteur
+    Object.keys(allocSeries||{}).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    function toMap(arr){ const m = new Map(); (arr||[]).forEach(p=>{ if(p&&p.date!=null){ m.set(String(p.date).slice(0,10), parseFloat(p.sicav)); } }); return m; }
+    const clientMap = toMap(clientSicav);
+    // Intersect dates across selected allocations and client
+    function buildLabels(selected){
+      function toSetDates(name){ const s=new Set(); (allocSeries[name]||[]).forEach(p=>{ if(p&&p.date) s.add(String(p.date).slice(0,10)); }); return s; }
+      // start with client dates
+      let allowed = new Set(Array.from(clientMap.keys()));
+      (selected||[]).forEach(name=>{
+        const s = toSetDates(name);
+        const inter = new Set();
+        allowed.forEach(d=>{ if (s.has(d)) inter.add(d); });
+        allowed = inter;
+      });
+      return Array.from(allowed).sort();
+    }
+    // Filtre de période basé sur la dernière date disponible (fin de série), pas sur aujourd'hui
+    function filterRangeByEnd(labels, range){
+      if (range==='all') return labels;
+      const n = parseInt(range, 10);
+      if (!isFinite(n) || !labels.length) return labels;
+      // Prendre la dernière date visible comme date de fin
+      const end = new Date(labels[labels.length - 1]);
+      const start = new Date(end);
+      start.setDate(start.getDate() - n);
+      return labels.filter(d => new Date(d) >= start && new Date(d) <= end);
+    }
+    function normalize(map, labels){
+      if (!labels.length) return [];
+      // base = première valeur non nulle/non NaN de la période
+      let base = null;
+      for (let i=0;i<labels.length;i++){ const v = map.get(labels[i]); if (isFinite(v) && v!==0){ base = v; break; } }
+      if (base === null) base = 1; // fallback
+      return labels.map(d => { const v = map.get(d); return isFinite(v) ? +(v/base*100).toFixed(2) : null; });
+    }
+    const colors = ['#1d4ed8','#e76f51','#2a9d8f','#f4a261','#264653','#43aa8b','#e9c46a','#577590','#f94144','#277da1'];
+    let chartAlloc;
+    let currentRange = 'all';
+    function drawAlloc(selected){
+      if (chartAlloc) { chartAlloc.destroy(); chartAlloc = null; }
+      if (!selected || !selected.length) return;
+      let labels = buildLabels(selected);
+      labels = filterRangeByEnd(labels, currentRange);
+      if (!labels.length) return;
+      const datasets = [];
+      let allVals = [];
+      // Client series first, normalized to base 100
+      const clientData = normalize(clientMap, labels);
+      datasets.push({ label: 'Client (base 100)', data: clientData, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6', fill:false, pointRadius:0, pointHoverRadius:0 });
+      allVals = allVals.concat(clientData.filter(v=> v!=null && isFinite(v)));
+      selected.forEach((name, idx)=>{
+        const map = toMap(allocSeries[name]);
+        const data = normalize(map, labels);
+        datasets.push({ label: name+' (base 100)', data, borderColor: colors[idx%colors.length], fill:false, pointRadius:0, pointHoverRadius:0 });
+        allVals = allVals.concat(data.filter(v=> v!=null && isFinite(v)));
+      });
+      if (!allVals.length) return;
+      const min = Math.min.apply(null, allVals);
+      const max = Math.max.apply(null, allVals);
+      const pad = ((max - min) || 1) * 0.1;
+      const ctxA = document.getElementById('clientAllocChart').getContext('2d');
+      chartAlloc = new Chart(ctxA, {
+        type: 'line',
+        data: { labels, datasets },
+        options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{ y:{ suggestedMin: min - pad, suggestedMax: max + pad } }, plugins:{ legend:{ display:true } } }
+      });
+    }
+    sel.addEventListener('change', function(){
+      const selected = this.value ? [this.value] : [];
+      drawAlloc(selected);
+    });
+    document.querySelectorAll('.rangeBtn').forEach(btn => btn.addEventListener('click', function(){ currentRange = this.dataset.range || 'all'; const selected = sel.value ? [sel.value] : []; drawAlloc(selected); }));
+  })();
+</script>
+
+<script>
+  // Charger la liste des documents de base pour le select
+  (async function loadDocuments() {
+    try {
+      const res = await fetch('/documents/');
+      if (!res.ok) return;
+      const docs = await res.json();
+      const sel = document.getElementById('document_base_select');
+      sel._allOptions = [];
+      docs.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id_document_base;
+        opt.textContent = d.documents || `Document ${d.id_document_base}`;
+        sel._allOptions.push(opt);
+      });
+      function renderOptions(filter) {
+        sel.innerHTML = '<option value="" disabled selected>Choisir…</option>';
+        (sel._allOptions || []).forEach(opt => {
+          if (!filter) { sel.appendChild(opt.cloneNode(true)); return; }
+          const t = (opt.textContent||'').toLowerCase();
+          if (t.includes(filter.toLowerCase())) sel.appendChild(opt.cloneNode(true));
+        });
+      }
+      renderOptions('');
+      document.getElementById('doc_filter').addEventListener('input', function(){
+        renderOptions(this.value);
+      });
+    } catch (e) { /* ignore */ }
+  })();
+
+  // Ajout document-client via API
+  document.getElementById('addDocForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const payload = {
+      id_client: {{ client.id }},
+      id_document_base: parseInt(document.getElementById('document_base_select').value, 10),
+      nom_document: document.getElementById('nom_document').value || null,
+      date_creation: document.getElementById('date_creation').value || null,
+      date_obsolescence: document.getElementById('date_obsolescence').value || null,
+      obsolescence: document.getElementById('obsolescence').value || null,
+    };
+
+    const res = await fetch('/documents_clients/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      location.reload();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert('Erreur: ' + (err.detail || res.status));
+    }
+  });
+
+  // Suppression document-client
+  document.querySelectorAll('.delBtn').forEach(btn => {
+    btn.addEventListener('click', async function () {
+      const id = this.dataset.id;
+      if (!confirm('Supprimer ce document ?')) return;
+      const res = await fetch(`/document_client/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        location.reload();
+      } else {
+        alert('Suppression impossible');
+      }
+    });
+  });
+
+  // DataTable + filtres pour la table Documents client
+  (function(){
+    try {
+      var table = $('#clientDocs').DataTable({ order:[[0,'asc']], pageLength:25, fixedHeader:true, lengthChange:false, searching:false, dom:'rtip' });
+      // Remplir le select Statut (colonne 4)
+      var sel = document.getElementById('cd-status-filter');
+      table.column(4).data().unique().sort().each(function (d) { if (d) { var o=document.createElement('option'); o.value=d; o.textContent=d; sel.appendChild(o);} });
+      // Filtres texte
+      $('#cd-type-filter').on('keyup change', function(){ table.column(0).search(this.value).draw(); });
+      $('#cd-nom-filter').on('keyup change', function(){ table.column(1).search(this.value).draw(); });
+      $('#cd-cr-filter').on('keyup change', function(){ table.column(2).search(this.value).draw(); });
+      $('#cd-obsdate-filter').on('keyup change', function(){ table.column(3).search(this.value).draw(); });
+      $('#cd-status-filter').on('change', function(){ var v=this.value; table.column(4).search(v? '^'+$.fn.dataTable.util.escapeRegex(v)+'$':'' , true, false).draw(); });
+    } catch(e) { /* ignore */ }
+  })();
+</script>
+
+{% endblock %}

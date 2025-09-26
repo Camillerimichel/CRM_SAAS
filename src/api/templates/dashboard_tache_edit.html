@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Modifier tâche{% endblock %}
+{% block header_title %}<i class="fa-solid fa-pen-to-square" style="margin-right:8px;"></i>Modifier la tâche{% if evenement_id %} #{{ evenement_id }}{% endif %}{% endblock %}
+
+{% block content %}
+  {% if error %}
+    <div class="card">{{ error }}</div>
+  {% else %}
+    <div class="card" style="margin-bottom:12px;">
+      <h3 style="margin:0 0 8px 0;">Détails</h3>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:8px;">
+        <div><strong>Date:</strong> {{ ev.date_evenement }}</div>
+        <div><strong>Type:</strong> {{ ev.type_libelle }} <span class="badge">{{ ev.type_categorie }}</span></div>
+        <div><strong>Client:</strong>
+          {% if ev.client_id %}
+            <a href="/dashboard/clients/{{ ev.client_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ nom_client or ('#' ~ ev.client_id) }}</a>
+          {% else %}-{% endif %}
+        </div>
+        <div><strong>Affaire:</strong>
+          {% if ev.affaire_id %}
+            <a href="/dashboard/affaires/{{ ev.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ ref_affaire or ('#' ~ ev.affaire_id) }}</a>
+          {% else %}-{% endif %}
+        </div>
+      </div>
+      <div style="margin-top:8px;"><strong>Commentaires:</strong>
+        {% if comment_entries and comment_entries|length > 0 %}
+          <div style="margin-top:6px;">
+            {% for c in comment_entries %}
+              <div style="padding:8px 10px; border-left:3px solid var(--border); background:#f9fafb; border-radius:6px; margin-bottom:8px;">
+                {% if c.ts %}<div class="muted" style="font-size:.85rem; margin-bottom:4px;">[{{ c.ts }}]</div>{% endif %}
+                <pre style="white-space: pre-wrap; margin:0;">{{ c.text }}</pre>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="muted" style="margin-top:4px;">-</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">Changer le statut</h3>
+      <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" class="status-actions" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        {% for s in status_ui %}
+          <button name="statut_id" value="{{ s.id }}" class="btn btn-choice {% if s.label == ev.statut %}btn-primary btn-choice-active{% endif %}">{{ s.label }}</button>
+        {% endfor %}
+        {% if en_cours_id %}
+          <button name="statut_id" value="{{ en_cours_id }}" class="btn btn-choice" style="background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;">en cours</button>
+        {% endif %}
+        <input type="hidden" name="utilisateur_responsable" value="web" />
+        <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">Ajouter un commentaire</h3>
+      <form id="commentForm" method="post" action="/dashboard/taches/{{ evenement_id }}/statut">
+        <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;"></textarea>
+        <div class="create-btn-container" style="margin-top:.6rem;">
+          <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Mise à jour</button>
+        </div>
+        <input type="hidden" name="utilisateur_responsable" value="web" />
+        <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
+      </form>
+      <div class="muted" style="margin-top:6px; font-size:.85rem;">La date-heure sera automatiquement préfixée à votre commentaire.</div>
+    </div>
+
+    
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function closeAndRefresh(){
+    try {
+      if (window.opener && !window.opener.closed){
+        try { window.opener.location.reload(); } catch(e) {}
+      }
+    } finally {
+      try { window.close(); } catch(e) {}
+    }
+  }
+</script>
+<div style="margin-top:8px;">
+  <a href="/dashboard/taches" class="btn"><i class="fa-solid fa-arrow-left" style="margin-right:6px;"></i>Retour</a>
+</div>
+{% endblock %}

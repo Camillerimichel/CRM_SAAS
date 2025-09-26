@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        /* ===== Thème institutionnel (sobre, accessible) ===== */
+        :root {
+            --bg: #f5f7fb;
+            --surface: #ffffff;
+            --text: #1f2937;           /* gris anthracite */
+            --muted: #6b7280;          /* gris moyen */
+            --primary: #2456a6;        /* bleu corporate */
+            --primary-600: #1e4b93;
+            --primary-100: #e7eefb;
+            --accent: #0ea5e9;         /* accent discret */
+            --success: #1b8f3b;
+            --danger: #c0392b;
+            --warning: #b45309;
+            --border: #e5e7eb;         /* gris clair */
+            --radius: 12px;
+            --shadow: 0 6px 16px rgba(0,0,0,0.08);
+            --shadow-sm: 0 3px 10px rgba(0,0,0,0.06);
+        }
+
+        html, body {
+            height: 100%;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+            font-size: 16px;
+            line-height: 1.45;
+        }
+        h1, h2, h3 { margin: 0; font-weight: 600; color: var(--text); }
+        h1 { font-size: 1.75rem; }
+        h2 { font-size: 1.25rem; }
+        h3 { font-size: 1.05rem; }
+        .muted { color: var(--muted); }
+
+        /* ===== En-tête ===== */
+        .header { 
+            background: linear-gradient(180deg, var(--primary) 0%, var(--primary-600) 100%);
+            color: #fff;
+            padding: 1.2rem 2rem;
+            text-align: center;
+        }
+        .header h1 { font-size: 1.6rem; color: #fff; }
+        .header p { margin-top: .25rem; font-size: .95rem; opacity: .95; color: #fff; }
+
+        /* ===== Navigation ===== */
+        nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: .75rem 1.25rem;
+            display: flex;
+            justify-content: center;
+            gap: 1.25rem;
+        }
+        nav a {
+            text-decoration: none;
+            color: var(--primary);
+            font-weight: 600;
+            padding: .35rem .6rem;
+            border-radius: 8px;
+            transition: background-color .2s ease, color .2s ease;
+        }
+        nav a:hover { background: var(--primary-100); color: var(--primary-600); }
+
+        /* ===== Mise en page ===== */
+        .container { max-width: 1200px; margin: 1.5rem auto 2rem; padding: 0 1rem; }
+
+        /* ===== Cartes ===== */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            padding: 1.25rem;
+        }
+        .card:hover { box-shadow: var(--shadow); }
+        .card i { font-size: 1.6rem; color: var(--primary); }
+
+        /* ===== Boutons (utilitaires) ===== */
+        .btn { display: inline-block; padding: .5rem .9rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; cursor: pointer; transition: all .2s ease; }
+        .btn:hover { background: #f8fafc; }
+        .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn-primary:hover { background: var(--primary-600); }
+        .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+        .btn-danger:hover { background:#dc2626; }
+        .btn-choice { height: 44px; padding: .6rem .9rem; font-size: 1rem; border-radius: 10px; text-transform: capitalize; }
+        .btn-choice-active { background: var(--primary); color:#fff; border-color: var(--primary); }
+        /* Harmonisation blocs définition de tâches (typo proche KPI) */
+        .task-block label { font-size: .95rem; font-weight: 600; color: var(--text); }
+        .task-block .btn-choice { height: 44px; font-size: .95rem; }
+        .task-block .select-choice { height: 44px; font-size: .95rem; }
+        .task-block .input-large { font-size: 1.05rem; }
+
+        /* ===== Formulaires ===== */
+        input[type="text"], input[type="date"] {
+            width: 100%;
+            padding: .5rem .6rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: .95rem;
+            box-sizing: border-box;
+        }
+        .input-large { font-size: 1.05rem; }
+        textarea {
+            width: 100%;
+            padding: .6rem .7rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 1.05rem; /* texte commentaire plus lisible */
+            line-height: 1.45;
+            box-sizing: border-box;
+        }
+        /* Menus déroulants harmonisés comme les filtres Documents */
+        select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        /* Sélecteurs mis en avant (semblables à des boutons) */
+        .select-choice {
+            padding: .6rem .8rem;
+            height: 44px;
+            border: 1.5px solid var(--primary);
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-transform: capitalize; /* majuscule en début de mot */
+        }
+        .select-choice option { text-transform: capitalize; }
+        input::placeholder { color: #9aa3af; }
+
+        /* ===== Grille responsive pour formulaires ===== */
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: .6rem;
+            align-items: end;
+        }
+        .field label { display:block; margin-bottom: .25rem; }
+        .field input, .field select, .field textarea { width:100%; box-sizing: border-box; }
+
+        /* ===== Tableaux ===== */
+        table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); margin-top: 1rem; }
+        thead th { background: var(--primary); color: #fff; font-weight: 600; text-transform: uppercase; font-size: .8rem; letter-spacing: .02em; padding: .65rem .6rem; border-right: 1px solid rgba(255,255,255,.2); }
+        thead th:last-child { border-right: none; }
+        tbody td { border-top: 1px solid var(--border); padding: .6rem .6rem; font-size: .9rem; }
+        /* Champs de filtre en en-tête de tableau (uniformisés) */
+        table thead input, table thead select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 13px;
+            background: #fff;
+            color: var(--text);
+        }
+        tbody tr:nth-child(odd) td { background: #fcfdff; }
+        tbody tr:hover td { background: #f8fbff; }
+        th, td { text-align: left; }
+
+        /* ===== Utilitaires ===== */
+        .right { text-align: right; }
+        .center { text-align: center; }
+        .badge { display:inline-block; padding:.15rem .5rem; font-size:.75rem; border-radius:999px; border:1px solid var(--border); background:#f9fafb; color: var(--text); }
+
+        /* ===== Accordéons génériques ===== */
+        .accordion-toggle { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: .8rem 1rem; font-size: 1rem; font-weight: 600; position: relative; }
+        .accordion-toggle:hover { box-shadow: var(--shadow); }
+
+        /* Centrage pour boutons Créer */
+        .create-btn-container {
+            display: flex;
+            width: 100%;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            margin-top: .6rem;
+        }
+        .create-btn-container .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding-left: 2.2rem; /* space for leading icon */
+        }
+        .create-btn-container .btn i {
+            position: absolute;
+            left: 12px;
+            margin-right: 0 !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header global -->
+    <div class="header">
+        <h1>{% block header_title %}📊 CRM Dashboard{% endblock %}</h1>
+        <p>{% block header_subtitle %}Application de suivi et de gestion{% endblock %}</p>
+    </div>
+
+    <!-- Navigation unifiée -->
+    <nav>
+        <a href="/dashboard/"><i class="fa-solid fa-house" style="margin-right:6px;"></i>Accueil</a>
+        <a href="/dashboard/clients"><i class="fa-solid fa-users" style="margin-right:6px;"></i>Clients</a>
+        <a href="/dashboard/affaires"><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i>Affaires</a>
+        <a href="/dashboard/supports"><i class="fa-solid fa-chart-pie" style="margin-right:6px;"></i>Supports</a>
+        <a href="/dashboard/allocations"><i class="fa-solid fa-coins" style="margin-right:6px;"></i>Allocations</a>
+        <a href="/dashboard/documents"><i class="fa-solid fa-file" style="margin-right:6px;"></i>Documents</a>
+        <a href="/dashboard/taches"><i class="fa-solid fa-list-check" style="margin-right:6px;"></i>Tâches</a>
+        <a href="/dashboard/parametres"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Paramètres</a>
+    </nav>
+
+    <!-- Contenu spécifique -->
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+      // Convert ISO datetimes to local timezone on the client
+      (function () {
+        function applyLocalDates() {
+          var nodes = document.querySelectorAll('.js-local-dt');
+          nodes.forEach(function (el) {
+            var iso = el.getAttribute('data-iso') || (el.textContent || '').trim();
+            if (!iso) return;
+            // Ensure a format parsable by Date
+            // If missing timezone, treat as UTC to avoid local double-offsets
+            var s = iso;
+            if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) {
+              s = s.replace(' ', 'T') + 'Z';
+            }
+            var d = new Date(s);
+            if (isNaN(d)) return;
+            // Render using the user's locale
+            el.textContent = d.toLocaleString();
+          });
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', applyLocalDates);
+        } else {
+          applyLocalDates();
+        }
+      })();
+    </script>
+</body>
+</html>
