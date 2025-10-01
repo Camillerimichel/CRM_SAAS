@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, Field, AliasChoices, field_validator
+from pydantic import BaseModel, Field, AliasChoices, field_validator, computed_field
 
 from .validators import format_date  # réutilisable
 
@@ -12,7 +12,13 @@ class AffaireSchema(BaseModel):
     date_debut: str | None = None
     date_cle: str | None = None
     SRRI: int | None = None
-    frais_courtier: float | None = None
+    frais_negocies: float | None = None
+
+    # Compat sortie: exposer aussi l'ancien nom "frais_courtier"
+    @computed_field
+    @property
+    def frais_courtier(self) -> float | None:
+        return self.frais_negocies
 
     class Config:
         from_attributes = True
@@ -36,9 +42,14 @@ class AffaireCreateSchema(BaseModel):
         default=None,
         validation_alias=AliasChoices("date_cle", "dateCle"),
     )
-    frais_courtier: float | None = Field(
+    frais_negocies: float | None = Field(
         default=None,
-        validation_alias=AliasChoices("frais_courtier", "Frais_courtier"),
+        validation_alias=AliasChoices(
+            "frais_negocies",
+            "Frais_negocies",
+            "frais_courtier",
+            "Frais_courtier",
+        ),
     )
 
     class Config:
@@ -51,7 +62,7 @@ class AffaireCreateSchema(BaseModel):
             return None
         return v
 
-    @field_validator("frais_courtier", mode="before")
+    @field_validator("frais_negocies", mode="before")
     @classmethod
     def parse_decimal(cls, v):
         if v in ("", None):

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}KYC{% endblock %}
+{% block header_title %}<i class="fa-solid fa-id-card" style="margin-right:8px;"></i>KYC{% endblock %}
+{% block content %}
+<div class="card" style="max-width:640px; margin: 1rem auto; text-align:center;">
+  <h2>Accéder au KYC d’un client</h2>
+  <p class="muted" style="margin:.35rem 0 1rem 0;">Saisissez l’identifiant du client pour ouvrir sa fiche KYC.</p>
+  <form method="get" action="/dashboard/clients/kyc" style="display:flex; gap:.5rem; justify-content:center;">
+    <input type="text" name="id" placeholder="ID client" style="max-width:160px; text-align:center;" inputmode="numeric" />
+    <button class="btn btn-primary" type="submit"><i class="fa-solid fa-arrow-right"></i>&nbsp;Ouvrir</button>
+  </form>
+  <div class="muted" style="margin-top:1rem;">Ou parcourez la liste des <a href="/dashboard/clients">clients</a> et ouvrez le KYC depuis la fiche.</div>
+  <div class="muted" style="margin-top:.75rem;">Lien direct: <code>/dashboard/clients/kyc/&lt;id_client&gt;</code></div>
+  <div style="margin-top:1.25rem;">
+    <a class="btn" href="/dashboard/"><i class="fa-solid fa-house"></i>&nbsp;Retour</a>
+  </div>
+  
+</div>
+{% endblock %}
+

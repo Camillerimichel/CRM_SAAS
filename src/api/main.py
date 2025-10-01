@@ -161,7 +161,7 @@ def create_new_affaire(payload: AffaireCreateSchema, db: Session = Depends(get_d
         payload.srri,
         payload.date_debut,
         payload.date_cle,
-        payload.frais_courtier,
+        payload.frais_negocies,
     )
 
 @app.delete("/affaires/{affaire_id}/", response_model=AffaireSchema)

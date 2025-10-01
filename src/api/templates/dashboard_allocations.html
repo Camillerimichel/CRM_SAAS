@@ -127,7 +127,7 @@
                 <tr>
                     <td><button class="seeBtn" data-nom="{{ a.nom }}">Choix</button></td>
                     <td>{{ a.nom }}</td>
-                    <td>{{ (a.date|string)[:10] if a.date else '' }}</td>
+                    <td>{% if a.date %}<span class="js-local-dt" data-iso="{{ a.date }}">{{ a.date }}</span>{% endif %}</td>
                     <td>{{ a.perf_sicav_52 }}</td>
                     <td>{{ a.volat }}</td>
                 </tr>

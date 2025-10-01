@@ -620,7 +620,7 @@
 </div>
 
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
   function setPanelState(panel, btn, expanded){
     panel.style.display = expanded ? '' : 'none';
     const chevron = btn.querySelector('.chevron');
@@ -946,6 +946,6 @@
     updateSortIndicators();
     renderSupports();
   }
-})();
+});
 </script>
 {% endblock %}

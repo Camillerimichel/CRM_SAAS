@@ -27,7 +27,7 @@
       <tbody>
         {% for m in items_pos %}
         <tr>
-          <td>{{ m.date or '' }}</td>
+          <td><span class="js-local-dt" data-iso="{{ m.date }}">{{ m.date }}</span></td>
           <td>{{ m.regle or '' }}</td>
           <td>{{ m.support or '' }}</td>
           <td style="text-align:right;">{{ m.montant or '' }}</td>
@@ -66,7 +66,7 @@
       <tbody>
         {% for m in items_neg %}
         <tr>
-          <td>{{ m.date or '' }}</td>
+          <td><span class="js-local-dt" data-iso="{{ m.date }}">{{ m.date }}</span></td>
           <td>{{ m.regle or '' }}</td>
           <td>{{ m.support or '' }}</td>
           <td style="text-align:right;">{{ m.montant or '' }}</td>

@@ -22,7 +22,7 @@ def create_affaire(
     srri: int | None = None,
     date_debut=None,
     date_cle=None,
-    frais_courtier=None,
+    frais_negocies=None,
 ):
     affaire = Affaire(
         id_personne=id_personne,
@@ -30,7 +30,7 @@ def create_affaire(
         SRRI=srri,
         date_debut=date_debut,
         date_cle=date_cle,
-        frais_courtier=frais_courtier,
+        frais_negocies=frais_negocies,
     )
     db.add(affaire)
     db.commit()

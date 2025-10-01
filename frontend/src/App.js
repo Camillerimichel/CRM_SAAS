@@ -5,18 +5,27 @@ import Affaires from "./pages/Affaires";
 import Allocations from "./pages/Allocations";
 import Tasks from "./pages/Tasks";
 import Supports from "./pages/Supports";
+import QuestionnaireRisque from "./pages/QuestionnaireRisque"; // ✅ ajout
 
 function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
 
   const renderTab = () => {
     switch (activeTab) {
-      case "clients": return <Clients />;
-      case "affaires": return <Affaires />;
-      case "allocations": return <Allocations />;
-      case "supports": return <Supports />;
-      case "tasks": return <Tasks />;
-      default: return <Dashboard />;
+      case "clients":
+        return <Clients />;
+      case "affaires":
+        return <Affaires />;
+      case "allocations":
+        return <Allocations />;
+      case "supports":
+        return <Supports />;
+      case "tasks":
+        return <Tasks />;
+      case "risque":
+        return <QuestionnaireRisque />; // ✅ affichage questionnaire
+      default:
+        return <Dashboard />;
     }
   };
 
@@ -29,6 +38,7 @@ function App() {
         <button onClick={() => setActiveTab("allocations")}>Allocations</button>
         <button onClick={() => setActiveTab("supports")}>Supports</button>
         <button onClick={() => setActiveTab("tasks")}>Tâches</button>
+        <button onClick={() => setActiveTab("risque")}>📊 Questionnaire Risque</button> {/* ✅ nouvel onglet */}
       </nav>
       {renderTab()}
     </div>

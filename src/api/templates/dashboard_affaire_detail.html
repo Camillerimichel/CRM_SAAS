@@ -39,7 +39,6 @@
   #supportsTableContract th, #supportsTableContract td { padding: 6px 8px; }
   #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 14%; }
   #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 15%; overflow:hidden; text-overflow: ellipsis; }
-  #supportsTableContract td:nth-child(2) { font-size: 11px; }
   #supportsTableContract th:nth-child(3), #supportsTableContract td:nth-child(3) { width: 5%; text-align: center; }
   /* Numeric columns (Nb UC, VL, PRMP, Valorisation) widths */
   #supportsTableContract th:nth-child(4), #supportsTableContract td:nth-child(4) { width: 8%; }
@@ -49,7 +48,7 @@
   /* ESG columns ultra-compact */
   #supportsTableContract th:nth-child(8), #supportsTableContract td:nth-child(8),
   #supportsTableContract th:nth-child(9), #supportsTableContract td:nth-child(9),
-  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px 4px; font-size: 10px; }
+  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px 4px; }
   /* Right-align headers for Nb UC, PRMP, Valorisation */
   #supportsTableContract th:nth-child(4), #supportsTableContract th:nth-child(6), #supportsTableContract th:nth-child(7) { text-align: right; }
   /* DataTables center alignment helper */
@@ -146,7 +145,7 @@
     <div class="muted">Synthèse</div>
     <div class="kpi-mini"><strong>Statut:</strong>
       {% if affaire and affaire.date_cle %}
-        Clôturé ({{ (affaire.date_cle|string)[:10] }})
+        Clôturé (<span class="js-local-dt" data-iso="{{ affaire.date_cle }}">{{ affaire.date_cle }}</span>)
       {% else %}
         Ouvert
       {% endif %}
@@ -167,14 +166,7 @@
     <div class="muted">Indicateurs</div>
     <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
     <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
-    <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span>
-      <span class="kv">
-        {{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}
-        {% if srri_icon_aff %}
-          {% if srri_icon_aff == 'fire' %}🔥{% elif srri_icon_aff == 'hands-praying' %}🙏{% elif srri_icon_aff == 'snowflake' %}❄️{% else %}{% endif %}
-        {% endif %}
-      </span>
-    </div>
+    <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
     <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
   </div>
 
@@ -416,7 +408,7 @@
       <tbody>
         {% for a in avis_affaire %}
         <tr>
-          <td>{{ a.date or '' }}</td>
+          <td><span class="js-local-dt" data-iso="{{ a.date }}">{{ a.date }}</span></td>
           <td>{{ a.reference or '' }}</td>
           <td>{{ a.etape or '' }}</td>
           <td style="text-align:right;">{{ a.entree_str or '' }}</td>
@@ -960,7 +952,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           <tbody>
             {% for a in avis_affaire %}
             <tr>
-              <td>{{ a.date or '' }}</td>
+              <td><span class="js-local-dt" data-iso="{{ a.date }}">{{ a.date }}</span></td>
               <td>{{ a.reference or '' }}</td>
               <td>{{ a.etape or '' }}</td>
               <td style="text-align:right;">{{ a.entree_str or '' }}</td>

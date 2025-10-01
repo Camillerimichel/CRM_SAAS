@@ -12,7 +12,7 @@
     "react-router-dom": "^7.9.1",
     "react-scripts": "^0.0.0",
     "react-select": "^5.10.2",
-    "recharts": "^3.2.0",
+    "recharts": "^3.2.1",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

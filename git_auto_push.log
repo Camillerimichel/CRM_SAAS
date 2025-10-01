@@ -132,3 +132,18 @@ error: failed to push some refs to 'https://github.com/Camillerimichel/CRM_SAAS.
 [0;34m[2025-09-26 14:54:18] Configuration Git...[0m
 [0;32m✅ Configuration Git mise à jour[0m
 [0;34m[2025-09-26 14:54:18] Vérification des changements Git...[0m
+[0;34m📋 Changements détectés:[0m
+  git_auto_push.log | 7 +++++++
+  1 file changed, 7 insertions(+)
+[0;34m[2025-09-26 14:54:18] Création du commit...[0m
+[0;32m✅ Commit créé avec succès[0m
+[0;34m[2025-09-26 14:54:18] Push vers GitHub...[0m
+To https://github.com/Camillerimichel/CRM_SAAS.git
+   76913e9..efb93c2  main -> main
+[0;32m✅ Push réussi vers GitHub[0m
+[0;34m[2025-09-26 14:54:19] === Résumé de l'opération ===[0m
+[0;32m✅ Push terminé avec succès[0m
+📁 Dossier: /users/michelcamilleri_1/crm_saas
+📝 Message: Auto-commit du 2025-09-26 14:54:19
+🚀 Repository mis à jour sur GitHub
+[0;34m[2025-09-26 14:54:19] === Fin du script ===[0m

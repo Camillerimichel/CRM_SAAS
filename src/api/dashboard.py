@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta
+from decimal import Decimal, InvalidOperation
+from collections import defaultdict
 from urllib.parse import urlencode
 
 
@@ -67,6 +69,474 @@ def _align_to_friday(value):
         return None
     offset = (4 - value.weekday()) % 7
     return value + timedelta(days=offset)
+
+
+# ---------------- Paramètres (référentiels) ----------------
+@router.get("/parametres", response_class=HTMLResponse)
+def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
+    """Affiche la page Paramètres. Données minimales pour l'accès à la page.
+
+    Les actions de création/mise à jour/suppression référencées par le template
+    (/dashboard/parametres/...) ne sont pas encore implémentées ici. Cette route
+    permet au moins d'accéder à la page, en attendant les endpoints POST.
+    """
+    open_section = request.query_params.get("open") or None
+
+    # Valeurs par défaut pour garantir le rendu même si certaines tables manquent
+    contrats_generiques: list[dict] = []
+    societes: list[dict] = []
+    contrat_categories: list[dict] = []
+    societe_categories: list[dict] = []
+    contrat_supports: list[dict] = []
+    supports: list[dict] = []
+
+    # Chargement des données si les tables existent
+    from sqlalchemy import text as _text
+    try:
+        societes = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT id, nom, id_ctg, contact, telephone, email, commentaire
+                    FROM mariadb_societe
+                    ORDER BY nom
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        societes = []
+
+    try:
+        # Typologies des contrats: table mariadb_affaires_generique_ctg
+        contrat_categories = rows_to_dicts(
+            db.execute(
+                _text(
+                    "SELECT id, libelle, description FROM mariadb_affaires_generique_ctg ORDER BY libelle"
+                )
+            ).fetchall()
+        )
+    except Exception:
+        contrat_categories = []
+
+    try:
+        societe_categories = rows_to_dicts(
+            db.execute(
+                _text(
+                    "SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle"
+                )
+            ).fetchall()
+        )
+    except Exception:
+        societe_categories = []
+
+    try:
+        contrats_generiques = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT g.id,
+                           g.nom_contrat,
+                           g.id_societe,
+                           g.id_ctg,
+                           g.frais_gestion_assureur,
+                           g.frais_gestion_courtier,
+                           s.nom AS societe_nom
+                    FROM mariadb_affaires_generique g
+                    LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                    WHERE COALESCE(g.actif, 1) = 1
+                    ORDER BY s.nom, g.nom_contrat
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        contrats_generiques = []
+
+    try:
+        supports = rows_to_dicts(
+            db.execute(
+                _text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")
+            ).fetchall()
+        )
+    except Exception:
+        supports = []
+
+    try:
+        # Carte des supports par contrat (avec enrichissements nécessaires au tableau/CSV)
+        contrat_supports = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT cs.id,
+                           cs.id_affaire_generique,
+                           cs.id_support,
+                           cs.taux_retro,
+                           s.nom AS support_nom,
+                           s.code_isin,
+                           s.cat_gene,
+                           s.cat_geo,
+                           s.promoteur,
+                           g.nom_contrat AS contrat_nom,
+                           so.nom AS societe_nom
+                    FROM mariadb_contrat_supports cs
+                    JOIN mariadb_support s ON s.id = cs.id_support
+                    JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique
+                    LEFT JOIN mariadb_societe so ON so.id = g.id_societe
+                    ORDER BY g.nom_contrat, s.nom
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        contrat_supports = []
+
+    return templates.TemplateResponse(
+        "dashboard_parametres.html",
+        {
+            "request": request,
+            "open_section": open_section,
+            "contrats_generiques": contrats_generiques,
+            "societes": societes,
+            "contrat_categories": contrat_categories,
+            "societe_categories": societe_categories,
+            "contrat_supports": contrat_supports,
+            "supports": supports,
+        },
+    )
+
+
+# ---------------- KYC index (sélection client) ----------------
+@router.get("/client/kyc", response_class=HTMLResponse)
+@router.get("/clients/kyc", response_class=HTMLResponse)
+def dashboard_kyc_index(request: Request):
+    raw_id = (request.query_params.get("id") or request.query_params.get("client_id") or "").strip()
+    if raw_id.isdigit():
+        return RedirectResponse(url=f"/dashboard/clients/kyc/{int(raw_id)}", status_code=303)
+    return templates.TemplateResponse(
+        "dashboard_kyc_index.html",
+        {"request": request},
+    )
+
+
+def _as_float(value: str | None, default: float | None = None) -> float | None:
+    if value is None:
+        return default
+    try:
+        s = str(value).strip().replace(",", ".")
+        if s == "":
+            return default
+        return float(s)
+    except Exception:
+        return default
+
+
+def _redirect_back(request: Request, fallback_open: str) -> RedirectResponse:
+    target_open = request.query_params.get("open") or fallback_open
+    return RedirectResponse(url=f"/dashboard/parametres?open={target_open}", status_code=303)
+
+
+# ---- Contrats génériques ----
+@router.post("/parametres/contrats_generiques", response_class=HTMLResponse)
+async def create_contrat_generique(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "nom_contrat": (form.get("nom_contrat") or "").strip(),
+        "id_societe": int(form.get("id_societe") or 0) or None,
+        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "fga": _as_float(form.get("frais_gestion_assureur")),
+        "fgc": _as_float(form.get("frais_gestion_courtier")),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text(
+                """
+                INSERT INTO mariadb_affaires_generique
+                    (nom_contrat, id_societe, id_ctg, frais_gestion_assureur, frais_gestion_courtier, actif)
+                VALUES (:nom_contrat, :id_societe, :id_ctg, :fga, :fgc, 1)
+                """
+            ),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+@router.post("/parametres/contrats_generiques/{contrat_id}", response_class=HTMLResponse)
+async def update_contrat_generique(contrat_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "id": contrat_id,
+        "nom_contrat": (form.get("nom_contrat") or "").strip(),
+        "id_societe": int(form.get("id_societe") or 0) or None,
+        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "fga": _as_float(form.get("frais_gestion_assureur")),
+        "fgc": _as_float(form.get("frais_gestion_courtier")),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text(
+                """
+                UPDATE mariadb_affaires_generique
+                SET nom_contrat = :nom_contrat,
+                    id_societe = :id_societe,
+                    id_ctg = :id_ctg,
+                    frais_gestion_assureur = :fga,
+                    frais_gestion_courtier = :fgc
+                WHERE id = :id
+                """
+            ),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+@router.post("/parametres/contrats_generiques/{contrat_id}/delete", response_class=HTMLResponse)
+async def delete_contrat_generique(contrat_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text("DELETE FROM mariadb_affaires_generique WHERE id = :id"), {"id": contrat_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+# ---- Catégories de contrats génériques ----
+@router.post("/parametres/contrats_generiques_ctg", response_class=HTMLResponse)
+async def create_contrat_ctg(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "libelle": (form.get("libelle") or "").strip(),
+        "description": (form.get("description") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text("INSERT INTO mariadb_affaires_generique_ctg (libelle, description) VALUES (:libelle, :description)"),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+@router.post("/parametres/contrats_generiques_ctg/{ctg_id}", response_class=HTMLResponse)
+async def update_contrat_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "id": ctg_id,
+        "libelle": (form.get("libelle") or "").strip(),
+        "description": (form.get("description") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text("UPDATE mariadb_affaires_generique_ctg SET libelle = :libelle, description = :description WHERE id = :id"),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+@router.post("/parametres/contrats_generiques_ctg/{ctg_id}/delete", response_class=HTMLResponse)
+async def delete_contrat_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text("DELETE FROM mariadb_affaires_generique_ctg WHERE id = :id"), {"id": ctg_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "contrats")
+
+
+# ---- Sociétés (assureurs) ----
+@router.post("/parametres/societes", response_class=HTMLResponse)
+async def create_societe(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "nom": (form.get("nom") or "").strip(),
+        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "contact": (form.get("contact") or None),
+        "telephone": (form.get("telephone") or None),
+        "email": (form.get("email") or None),
+        "commentaire": (form.get("commentaire") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text(
+                """
+                INSERT INTO mariadb_societe (nom, id_ctg, contact, telephone, email, commentaire)
+                VALUES (:nom, :id_ctg, :contact, :telephone, :email, :commentaire)
+                """
+            ),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+@router.post("/parametres/societes/{soc_id}", response_class=HTMLResponse)
+async def update_societe(soc_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "id": soc_id,
+        "nom": (form.get("nom") or "").strip(),
+        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "contact": (form.get("contact") or None),
+        "telephone": (form.get("telephone") or None),
+        "email": (form.get("email") or None),
+        "commentaire": (form.get("commentaire") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text(
+                """
+                UPDATE mariadb_societe
+                SET nom = :nom,
+                    id_ctg = :id_ctg,
+                    contact = :contact,
+                    telephone = :telephone,
+                    email = :email,
+                    commentaire = :commentaire
+                WHERE id = :id
+                """
+            ),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+@router.post("/parametres/societes/{soc_id}/delete", response_class=HTMLResponse)
+async def delete_societe(soc_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text("DELETE FROM mariadb_societe WHERE id = :id"), {"id": soc_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+# ---- Catégories de sociétés ----
+@router.post("/parametres/societe_ctg", response_class=HTMLResponse)
+async def create_societe_ctg(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "libelle": (form.get("libelle") or "").strip(),
+        "description": (form.get("description") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text("INSERT INTO mariadb_societe_ctg (libelle, description) VALUES (:libelle, :description)"),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+@router.post("/parametres/societe_ctg/{ctg_id}", response_class=HTMLResponse)
+async def update_societe_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    params = {
+        "id": ctg_id,
+        "libelle": (form.get("libelle") or "").strip(),
+        "description": (form.get("description") or None),
+    }
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text("UPDATE mariadb_societe_ctg SET libelle = :libelle, description = :description WHERE id = :id"),
+            params,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+@router.post("/parametres/societe_ctg/{ctg_id}/delete", response_class=HTMLResponse)
+async def delete_societe_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text("DELETE FROM mariadb_societe_ctg WHERE id = :id"), {"id": ctg_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "societes")
+
+
+# ---- Supports par contrat (mapping + taux) ----
+@router.post("/parametres/contrat_supports", response_class=HTMLResponse)
+async def create_contrat_support(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    id_affaire_generique = int(form.get("id_affaire_generique") or 0) or None
+    id_support = int(form.get("id_support") or 0) or None
+    taux_percent = _as_float(form.get("taux_retro"), 0.0) or 0.0
+    taux_value = taux_percent / 100.0
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text(
+                """
+                INSERT INTO mariadb_contrat_supports (id_affaire_generique, id_support, taux_retro)
+                VALUES (:id_affaire_generique, :id_support, :taux_retro)
+                """
+            ),
+            {"id_affaire_generique": id_affaire_generique, "id_support": id_support, "taux_retro": taux_value},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "supports")
+
+
+@router.post("/parametres/contrat_supports/{row_id}", response_class=HTMLResponse)
+async def update_contrat_support(row_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    taux_percent = _as_float(form.get("taux_retro"), 0.0) or 0.0
+    taux_value = taux_percent / 100.0
+    from sqlalchemy import text as _text
+    try:
+        db.execute(
+            _text("UPDATE mariadb_contrat_supports SET taux_retro = :t WHERE id = :id"),
+            {"id": row_id, "t": taux_value},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "supports")
+
+
+@router.post("/parametres/contrat_supports/{row_id}/delete", response_class=HTMLResponse)
+async def delete_contrat_support(row_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text("DELETE FROM mariadb_contrat_supports WHERE id = :id"), {"id": row_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return _redirect_back(request, "supports")
 
 
 # ---------------- Accueil ----------------
@@ -875,6 +1345,2460 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/clients/kyc/{client_id}", response_class=HTMLResponse)
+@router.post("/clients/kyc/{client_id}", response_class=HTMLResponse)
+async def dashboard_client_kyc(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return templates.TemplateResponse(
+            "dashboard_client_kyc.html",
+            {"request": request, "error": "Client introuvable."},
+        )
+
+    etat_success: str | None = None
+    etat_error: str | None = None
+    adresse_success: str | None = None
+    adresse_error: str | None = None
+    matrimonial_success: str | None = None
+    matrimonial_error: str | None = None
+    professionnel_success: str | None = None
+    professionnel_error: str | None = None
+    passif_success: str | None = None
+    passif_error: str | None = None
+    revenu_success: str | None = None
+    revenu_error: str | None = None
+    charge_success: str | None = None
+    charge_error: str | None = None
+    actif_success: str | None = None
+    actif_error: str | None = None
+    objectifs_success: str | None = None
+    objectifs_error: str | None = None
+    active_objectif_id: int | None = None
+    active_section: str = "etat_civil"
+    esg_success: str | None = None
+    esg_error: str | None = None
+
+    def _fmt_amount(v):
+        if v is None:
+            return "-"
+        try:
+            return "{:,.2f}".format(float(v)).replace(",", " ")
+        except Exception:
+            return str(v)
+
+    def _safe_text(value):
+        if value is None:
+            return ""
+        return str(value)
+
+    def _fmt_date(value):
+        if value is None:
+            return None
+        try:
+            if hasattr(value, "strftime"):
+                return value.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        return str(value)
+
+    if request.method == "POST":
+        form = await request.form()
+        action = (form.get("form_action") or "").strip().lower()
+
+        if action == "etat_civil":
+            payload = {k: (form.get(k) or None) for k in [
+                "civilite",
+                "date_naissance",
+                "lieu_naissance",
+                "nationalite",
+                "commentaire",
+            ]}
+            rec_id = form.get("id") or None
+            try:
+                existing = db.execute(
+                    text("SELECT id FROM etat_civil_client WHERE id_client = :cid ORDER BY id LIMIT 1"),
+                    {"cid": client_id},
+                ).fetchone()
+                record_id = rec_id or (existing[0] if existing else None)
+
+                if record_id:
+                    params = payload | {"id": record_id}
+                    db.execute(
+                        text(
+                            """
+                            UPDATE etat_civil_client
+                            SET civilite = :civilite,
+                                date_naissance = :date_naissance,
+                                lieu_naissance = :lieu_naissance,
+                                nationalite = :nationalite,
+                                commentaire = :commentaire
+                            WHERE id = :id
+                            """
+                        ),
+                        params,
+                    )
+                else:
+                    db.execute(
+                        text(
+                            """
+                            INSERT INTO etat_civil_client (
+                                id_client,
+                                civilite,
+                                date_naissance,
+                                lieu_naissance,
+                                nationalite,
+                                commentaire
+                            ) VALUES (
+                                :cid,
+                                :civilite,
+                                :date_naissance,
+                                :lieu_naissance,
+                                :nationalite,
+                                :commentaire
+                            )
+                            """
+                        ),
+                        payload | {"cid": client_id},
+                    )
+                db.commit()
+                etat_success = "Etat civil sauvegardé avec succès."
+            except Exception as exc:
+                db.rollback()
+                etat_error = "Impossible d'enregistrer les informations d'état civil."
+                logger.debug("Dashboard KYC client: erreur état civil: %s", exc, exc_info=True)
+            active_section = "etat_civil"
+
+        elif action == "adresse_save":
+            adresse_id = form.get("adresse_id") or None
+            type_id = form.get("type_adresse_id") or None
+            rue = (form.get("rue") or "").strip()
+            complement = (form.get("complement") or "").strip() or None
+            code_postal = (form.get("code_postal") or "").strip()
+            ville = (form.get("ville") or "").strip()
+            pays = (form.get("pays") or "").strip()
+            date_saisie = (form.get("date_saisie") or None) or None
+            date_expiration = (form.get("date_expiration") or None) or None
+
+            if not type_id or not rue or not code_postal or not ville or not pays:
+                adresse_error = "Veuillez renseigner le type d'adresse et les champs obligatoires."
+            else:
+                try:
+                    params = {
+                        "cid": client_id,
+                        "type_id": int(type_id),
+                        "rue": rue,
+                        "complement": complement,
+                        "code_postal": code_postal,
+                        "ville": ville,
+                        "pays": pays,
+                        "date_saisie": date_saisie,
+                        "date_expiration": date_expiration,
+                    }
+                    if adresse_id:
+                        params["id"] = int(adresse_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Adresse
+                                SET type_adresse_id = :type_id,
+                                    rue = :rue,
+                                    complement = :complement,
+                                    code_postal = :code_postal,
+                                    ville = :ville,
+                                    pays = :pays,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Adresse (
+                                    client_id,
+                                    type_adresse_id,
+                                    rue,
+                                    complement,
+                                    code_postal,
+                                    ville,
+                                    pays,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :type_id,
+                                    :rue,
+                                    :complement,
+                                    :code_postal,
+                                    :ville,
+                                    :pays,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                    db.commit()
+                    adresse_success = "Adresse enregistrée."
+                except Exception as exc:
+                    db.rollback()
+                    adresse_error = "Impossible d'enregistrer l'adresse."
+                    logger.debug("Dashboard KYC client: erreur adresse save: %s", exc, exc_info=True)
+            active_section = "adresse"
+
+        elif action == "adresse_delete":
+            adresse_id = form.get("adresse_id") or None
+            if not adresse_id:
+                adresse_error = "Adresse introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Adresse WHERE id = :id AND client_id = :cid"),
+                        {"id": int(adresse_id), "cid": client_id},
+                    )
+                    db.commit()
+                    adresse_success = "Adresse supprimée."
+                except Exception as exc:
+                    db.rollback()
+                    adresse_error = "Impossible de supprimer l'adresse."
+                    logger.debug("Dashboard KYC client: erreur adresse delete: %s", exc, exc_info=True)
+            active_section = "adresse"
+
+        elif action == "matrimonial_save":
+            matrimonial_id = form.get("matrimonial_id") or None
+            situation_id = form.get("situation_id") or None
+            convention_id = form.get("convention_id") or None
+            nb_enfants_raw = form.get("nb_enfants") or "0"
+            date_saisie = form.get("date_saisie") or None
+            date_expiration = form.get("date_expiration") or None
+
+            try:
+                nb_enfants = int(nb_enfants_raw or 0)
+                if nb_enfants < 0:
+                    nb_enfants = 0
+            except Exception:
+                nb_enfants = 0
+
+            if not situation_id:
+                matrimonial_error = "Veuillez sélectionner une situation matrimoniale."
+            else:
+                try:
+                    params = {
+                        "cid": client_id,
+                        "situation_id": int(situation_id),
+                        "nb_enfants": nb_enfants,
+                        "convention_id": int(convention_id) if convention_id else None,
+                        "date_saisie": date_saisie,
+                        "date_expiration": date_expiration,
+                    }
+                    if matrimonial_id:
+                        params["id"] = int(matrimonial_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Situation_Matrimoniale
+                                SET situation_id = :situation_id,
+                                    nb_enfants = :nb_enfants,
+                                    convention_id = :convention_id,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Situation_Matrimoniale (
+                                    client_id,
+                                    situation_id,
+                                    nb_enfants,
+                                    convention_id,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :situation_id,
+                                    :nb_enfants,
+                                    :convention_id,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                    db.commit()
+                    matrimonial_success = "Situation matrimoniale enregistrée."
+                except Exception as exc:
+                    db.rollback()
+                    matrimonial_error = "Impossible d'enregistrer la situation matrimoniale."
+                    logger.debug("Dashboard KYC client: erreur situation matrimoniale save: %s", exc, exc_info=True)
+            active_section = "matrimonial"
+
+        elif action == "matrimonial_delete":
+            matrimonial_id = form.get("matrimonial_id") or None
+            if not matrimonial_id:
+                matrimonial_error = "Situation matrimoniale introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Situation_Matrimoniale WHERE id = :id AND client_id = :cid"),
+                        {"id": int(matrimonial_id), "cid": client_id},
+                    )
+                    db.commit()
+                    matrimonial_success = "Situation matrimoniale supprimée."
+                except Exception as exc:
+                    db.rollback()
+                    matrimonial_error = "Impossible de supprimer la situation matrimoniale."
+                    logger.debug("Dashboard KYC client: erreur situation matrimoniale delete: %s", exc, exc_info=True)
+            active_section = "matrimonial"
+
+        elif action == "professionnel_save":
+            professionnel_id = form.get("professionnel_id") or None
+            profession = (form.get("profession") or "").strip()
+            secteur_id = form.get("secteur_id") or None
+            statut_id = form.get("statut_id") or None
+            employeur = (form.get("employeur") or "").strip() or None
+            anciennete_raw = form.get("anciennete_annees") or ""
+            date_saisie = form.get("date_saisie") or None
+            date_expiration = form.get("date_expiration") or None
+
+            try:
+                anciennete = int(anciennete_raw or 0)
+                if anciennete < 0:
+                    anciennete = 0
+            except Exception:
+                anciennete = 0
+
+            if not profession or not secteur_id or not statut_id:
+                professionnel_error = "Veuillez renseigner la profession, le secteur et le statut professionnel."
+            else:
+                try:
+                    params = {
+                        "cid": client_id,
+                        "profession": profession,
+                        "secteur_id": int(secteur_id),
+                        "employeur": employeur,
+                        "anciennete": anciennete,
+                        "statut_id": int(statut_id),
+                        "date_saisie": date_saisie,
+                        "date_expiration": date_expiration,
+                    }
+                    if professionnel_id:
+                        params["id"] = int(professionnel_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Situation_Professionnelle
+                                SET profession = :profession,
+                                    secteur_id = :secteur_id,
+                                    employeur = :employeur,
+                                    anciennete_annees = :anciennete,
+                                    statut_id = :statut_id,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Situation_Professionnelle (
+                                    client_id,
+                                    profession,
+                                    secteur_id,
+                                    employeur,
+                                    anciennete_annees,
+                                    statut_id,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :profession,
+                                    :secteur_id,
+                                    :employeur,
+                                    :anciennete,
+                                    :statut_id,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                    db.commit()
+                    professionnel_success = "Situation professionnelle enregistrée."
+                except Exception as exc:
+                    db.rollback()
+                    professionnel_error = "Impossible d'enregistrer la situation professionnelle."
+                    logger.debug("Dashboard KYC client: erreur situation professionnelle save: %s", exc, exc_info=True)
+            active_section = "professionnel"
+
+        elif action == "professionnel_delete":
+            professionnel_id = form.get("professionnel_id") or None
+            if not professionnel_id:
+                professionnel_error = "Situation professionnelle introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Situation_Professionnelle WHERE id = :id AND client_id = :cid"),
+                        {"id": int(professionnel_id), "cid": client_id},
+                    )
+                    db.commit()
+                    professionnel_success = "Situation professionnelle supprimée."
+                except Exception as exc:
+                    db.rollback()
+                    professionnel_error = "Impossible de supprimer la situation professionnelle."
+                    logger.debug("Dashboard KYC client: erreur situation professionnelle delete: %s", exc, exc_info=True)
+            active_section = "professionnel"
+
+        elif action == "actif_save":
+            actif_id = form.get("id") or None
+            type_id = form.get("type_actif_id") or None
+            description = (form.get("description") or "").strip() or None
+            valeur_raw = form.get("valeur")
+            date_expiration = (form.get("date_expiration") or None) or None
+
+            if not type_id:
+                actif_error = "Veuillez sélectionner un type d'actif."
+            valeur_decimal: Decimal | None = None
+            if not actif_error:
+                if valeur_raw in (None, ""):
+                    actif_error = "Veuillez renseigner la valeur de l'actif."
+                else:
+                    try:
+                        valeur_decimal = Decimal(str(valeur_raw).replace(",", "."))
+                        if valeur_decimal < 0:
+                            actif_error = "La valeur de l'actif doit être positive."
+                    except (InvalidOperation, ValueError):
+                        actif_error = "Valeur d'actif invalide."
+
+            type_id_int: int | None = None
+            if not actif_error and type_id:
+                try:
+                    type_id_int = int(type_id)
+                except (TypeError, ValueError):
+                    actif_error = "Type d'actif invalide."
+
+            valeur_float: float | None = None
+            if not actif_error:
+                today_str = datetime.utcnow().date().isoformat()
+                if valeur_decimal is not None:
+                    try:
+                        valeur_float = float(valeur_decimal)
+                    except (TypeError, ValueError):
+                        actif_error = "Valeur d'actif invalide."
+
+            if not actif_error:
+                today_str = datetime.utcnow().date().isoformat()
+                params = {
+                    "cid": client_id,
+                    "type_id": type_id_int,
+                    "description": description,
+                    "valeur": valeur_float,
+                    "date_saisie": today_str,
+                    "date_expiration": date_expiration,
+                }
+                try:
+                    if actif_id:
+                        params["id"] = int(actif_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Actif
+                                SET type_actif_id = :type_id,
+                                    description = :description,
+                                    valeur = :valeur,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                        actif_success = "Actif mis à jour."
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Actif (
+                                    client_id,
+                                    type_actif_id,
+                                    description,
+                                    valeur,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :type_id,
+                                    :description,
+                                    :valeur,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                        actif_success = "Actif enregistré."
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    actif_error = "Impossible d'enregistrer l'actif."
+                    logger.debug("Dashboard KYC client: erreur actif save: %s", exc, exc_info=True)
+            active_section = "patrimoine"
+
+        elif action == "actif_delete":
+            actif_id = form.get("actif_id") or form.get("id") or None
+            if not actif_id:
+                actif_error = "Actif introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Actif WHERE id = :id AND client_id = :cid"),
+                        {"id": int(actif_id), "cid": client_id},
+                    )
+                    db.commit()
+                    actif_success = "Actif supprimé."
+                except Exception as exc:
+                    db.rollback()
+                    actif_error = "Impossible de supprimer l'actif."
+                    logger.debug("Dashboard KYC client: erreur actif delete: %s", exc, exc_info=True)
+            active_section = "patrimoine"
+
+        elif action == "passif_save":
+            passif_id = form.get("id") or None
+            type_id = form.get("type_passif_id") or None
+            description = (form.get("description") or "").strip() or None
+            montant_raw = form.get("montant")
+            date_expiration = (form.get("date_expiration") or None) or None
+
+            if not type_id:
+                passif_error = "Veuillez sélectionner un type de passif."
+
+            montant_decimal: Decimal | None = None
+            if not passif_error:
+                if montant_raw in (None, ""):
+                    passif_error = "Veuillez renseigner le montant restant dû."
+                else:
+                    try:
+                        montant_decimal = Decimal(str(montant_raw).replace(",", "."))
+                        if montant_decimal < 0:
+                            passif_error = "Le montant de passif doit être positif."
+                    except (InvalidOperation, ValueError):
+                        passif_error = "Montant de passif invalide."
+
+            type_id_int: int | None = None
+            if not passif_error and type_id:
+                try:
+                    type_id_int = int(type_id)
+                except (TypeError, ValueError):
+                    passif_error = "Type de passif invalide."
+
+            montant_float: float | None = None
+            if not passif_error and montant_decimal is not None:
+                try:
+                    montant_float = float(montant_decimal)
+                except (TypeError, ValueError):
+                    passif_error = "Montant de passif invalide."
+
+            if not passif_error:
+                today_str = datetime.utcnow().date().isoformat()
+                params = {
+                    "cid": client_id,
+                    "type_id": type_id_int,
+                    "description": description,
+                    "montant": montant_float,
+                    "date_saisie": today_str,
+                    "date_expiration": date_expiration,
+                }
+                try:
+                    if passif_id:
+                        params["id"] = int(passif_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Passif
+                                SET type_passif_id = :type_id,
+                                    description = :description,
+                                    montant_rest_du = :montant,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                        passif_success = "Passif mis à jour."
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Passif (
+                                    client_id,
+                                    type_passif_id,
+                                    description,
+                                    montant_rest_du,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :type_id,
+                                    :description,
+                                    :montant,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                        passif_success = "Passif enregistré."
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    passif_error = "Impossible d'enregistrer le passif."
+                    logger.debug("Dashboard KYC client: erreur passif save: %s", exc, exc_info=True)
+            active_section = "passif"
+
+        elif action == "passif_delete":
+            passif_id = form.get("passif_id") or form.get("id") or None
+            if not passif_id:
+                passif_error = "Passif introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Passif WHERE id = :id AND client_id = :cid"),
+                        {"id": int(passif_id), "cid": client_id},
+                    )
+                    db.commit()
+                    passif_success = "Passif supprimé."
+                except Exception as exc:
+                    db.rollback()
+                    passif_error = "Impossible de supprimer le passif."
+                    logger.debug("Dashboard KYC client: erreur passif delete: %s", exc, exc_info=True)
+            active_section = "passif"
+
+        elif action == "revenu_save":
+            revenu_id = form.get("id") or None
+            type_id = form.get("type_revenu_id") or None
+            montant_raw = form.get("montant")
+            date_expiration = (form.get("date_expiration") or None) or None
+
+            if not type_id:
+                revenu_error = "Veuillez sélectionner un type de revenu."
+
+            montant_decimal: Decimal | None = None
+            if not revenu_error:
+                if montant_raw in (None, ""):
+                    revenu_error = "Veuillez renseigner le montant annuel." 
+                else:
+                    try:
+                        montant_decimal = Decimal(str(montant_raw).replace(",", "."))
+                        if montant_decimal < 0:
+                            revenu_error = "Le montant doit être positif."
+                    except (InvalidOperation, ValueError):
+                        revenu_error = "Montant invalide."
+
+            type_id_int: int | None = None
+            if not revenu_error and type_id:
+                try:
+                    type_id_int = int(type_id)
+                except (TypeError, ValueError):
+                    revenu_error = "Type de revenu invalide."
+
+            montant_float: float | None = None
+            if not revenu_error and montant_decimal is not None:
+                try:
+                    montant_float = float(montant_decimal)
+                except (TypeError, ValueError):
+                    revenu_error = "Montant invalide."
+
+            if not revenu_error:
+                today_str = datetime.utcnow().date().isoformat()
+                params = {
+                    "cid": client_id,
+                    "type_id": type_id_int,
+                    "montant": montant_float,
+                    "date_saisie": today_str,
+                    "date_expiration": date_expiration,
+                }
+                try:
+                    if revenu_id:
+                        params["id"] = int(revenu_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Revenus
+                                SET type_revenu_id = :type_id,
+                                    montant_annuel = :montant,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                        revenu_success = "Revenu mis à jour."
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Revenus (
+                                    client_id,
+                                    type_revenu_id,
+                                    montant_annuel,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :type_id,
+                                    :montant,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                        revenu_success = "Revenu enregistré."
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    revenu_error = "Impossible d'enregistrer le revenu."
+                    logger.debug("Dashboard KYC client: erreur revenu save: %s", exc, exc_info=True)
+            active_section = "recettes"
+
+        elif action == "revenu_delete":
+            revenu_id = form.get("revenu_id") or form.get("id") or None
+            if not revenu_id:
+                revenu_error = "Revenu introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Revenus WHERE id = :id AND client_id = :cid"),
+                        {"id": int(revenu_id), "cid": client_id},
+                    )
+                    db.commit()
+                    revenu_success = "Revenu supprimé."
+                except Exception as exc:
+                    db.rollback()
+                    revenu_error = "Impossible de supprimer le revenu."
+                    logger.debug("Dashboard KYC client: erreur revenu delete: %s", exc, exc_info=True)
+            active_section = "recettes"
+
+        elif action == "charge_save":
+            charge_id = form.get("id") or None
+            type_id = form.get("type_charge_id") or None
+            montant_raw = form.get("montant")
+            date_expiration = (form.get("date_expiration") or None) or None
+
+            if not type_id:
+                charge_error = "Veuillez sélectionner un type de charge."
+
+            montant_decimal: Decimal | None = None
+            if not charge_error:
+                if montant_raw in (None, ""):
+                    charge_error = "Veuillez renseigner le montant annuel." 
+                else:
+                    try:
+                        montant_decimal = Decimal(str(montant_raw).replace(",", "."))
+                        if montant_decimal < 0:
+                            charge_error = "Le montant doit être positif."
+                    except (InvalidOperation, ValueError):
+                        charge_error = "Montant invalide."
+
+            type_id_int: int | None = None
+            if not charge_error and type_id:
+                try:
+                    type_id_int = int(type_id)
+                except (TypeError, ValueError):
+                    charge_error = "Type de charge invalide."
+
+            montant_float: float | None = None
+            if not charge_error and montant_decimal is not None:
+                try:
+                    montant_float = float(montant_decimal)
+                except (TypeError, ValueError):
+                    charge_error = "Montant invalide."
+
+            if not charge_error:
+                today_str = datetime.utcnow().date().isoformat()
+                params = {
+                    "cid": client_id,
+                    "type_id": type_id_int,
+                    "montant": montant_float,
+                    "date_saisie": today_str,
+                    "date_expiration": date_expiration,
+                }
+                try:
+                    if charge_id:
+                        params["id"] = int(charge_id)
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Charges
+                                SET type_charge_id = :type_id,
+                                    montant_annuel = :montant,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                        charge_success = "Charge mise à jour."
+                    else:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO KYC_Client_Charges (
+                                    client_id,
+                                    type_charge_id,
+                                    montant_annuel,
+                                    date_saisie,
+                                    date_expiration
+                                ) VALUES (
+                                    :cid,
+                                    :type_id,
+                                    :montant,
+                                    :date_saisie,
+                                    :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                        charge_success = "Charge enregistrée."
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    charge_error = "Impossible d'enregistrer la charge."
+                    logger.debug("Dashboard KYC client: erreur charge save: %s", exc, exc_info=True)
+            active_section = "charges"
+
+        elif action == "charge_delete":
+            charge_id = form.get("charge_id") or form.get("id") or None
+            if not charge_id:
+                charge_error = "Charge introuvable."
+            else:
+                try:
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Charges WHERE id = :id AND client_id = :cid"),
+                        {"id": int(charge_id), "cid": client_id},
+                    )
+                    db.commit()
+                    charge_success = "Charge supprimée."
+                except Exception as exc:
+                    db.rollback()
+                    charge_error = "Impossible de supprimer la charge."
+                    logger.debug("Dashboard KYC client: erreur charge delete: %s", exc, exc_info=True)
+            active_section = "charges"
+
+        elif action == "objectifs_save":
+            active_section = "objectifs"
+            objectif_id_raw = form.get("objectif_id")
+            link_id_raw = form.get("link_id")
+            horizon = (form.get("horizon_investissement") or "").strip() or None
+            niveau_id_raw = form.get("niveau_id")
+            commentaire = (form.get("commentaire") or "").strip() or None
+            date_expiration = (form.get("date_expiration") or "").strip() or None
+
+            objectif_id: int | None = None
+            try:
+                if objectif_id_raw:
+                    objectif_id = int(objectif_id_raw)
+                    active_objectif_id = objectif_id
+                else:
+                    objectifs_error = "Veuillez sélectionner un objectif."
+            except (TypeError, ValueError):
+                objectifs_error = "Identifiant d'objectif invalide."
+
+            niveau_id: int | None = None
+            if not objectifs_error:
+                if not niveau_id_raw:
+                    objectifs_error = "Veuillez renseigner le niveau de priorité."
+                else:
+                    try:
+                        niveau_id = int(niveau_id_raw)
+                    except (TypeError, ValueError):
+                        objectifs_error = "Niveau de priorité invalide."
+
+            if not objectifs_error and objectif_id is not None and niveau_id is not None:
+                params = {
+                    "cid": client_id,
+                    "objectif_id": objectif_id,
+                    "horizon": horizon,
+                    "niveau_id": niveau_id,
+                    "commentaire": commentaire,
+                    "date_expiration": date_expiration or None,
+                }
+                try:
+                    link_id: int | None = None
+                    if link_id_raw:
+                        try:
+                            link_id = int(link_id_raw)
+                        except (TypeError, ValueError):
+                            link_id = None
+
+                    if link_id:
+                        params["id"] = link_id
+                        db.execute(
+                            text(
+                                """
+                                UPDATE KYC_Client_Objectifs
+                                SET horizon_investissement = :horizon,
+                                    niveau_id = :niveau_id,
+                                    commentaire = :commentaire,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params,
+                        )
+                        db.commit()
+                        objectifs_success = "Objectif mis à jour."
+                    else:
+                        duplicate = db.execute(
+                            text(
+                                "SELECT id FROM KYC_Client_Objectifs WHERE client_id = :cid AND objectif_id = :objectif_id"
+                            ),
+                            {"cid": client_id, "objectif_id": objectif_id},
+                        ).fetchone()
+                        if duplicate:
+                            objectifs_error = "Cet objectif est déjà enregistré pour ce client."
+                        else:
+                            db.execute(
+                                text(
+                                    """
+                                    INSERT INTO KYC_Client_Objectifs (
+                                        client_id,
+                                        objectif_id,
+                                        horizon_investissement,
+                                        niveau_id,
+                                        commentaire,
+                                        date_expiration
+                                    ) VALUES (
+                                        :cid,
+                                        :objectif_id,
+                                        :horizon,
+                                        :niveau_id,
+                                        :commentaire,
+                                        :date_expiration
+                                    )
+                                    """
+                                ),
+                                params,
+                            )
+                            db.commit()
+                            objectifs_success = "Objectif enregistré."
+                except Exception as exc:
+                    db.rollback()
+                    objectifs_error = "Impossible d'enregistrer l'objectif."
+                    logger.debug("Dashboard KYC client: erreur objectif save: %s", exc, exc_info=True)
+
+        elif action == "objectifs_delete":
+            active_section = "objectifs"
+            link_id_raw = form.get("link_id")
+            objectif_id_raw = form.get("objectif_id")
+            if objectif_id_raw:
+                try:
+                    active_objectif_id = int(objectif_id_raw)
+                except (TypeError, ValueError):
+                    active_objectif_id = None
+            if not link_id_raw:
+                objectifs_error = "Objectif introuvable."
+            else:
+                try:
+                    link_id = int(link_id_raw)
+                    db.execute(
+                        text("DELETE FROM KYC_Client_Objectifs WHERE id = :id AND client_id = :cid"),
+                        {"id": link_id, "cid": client_id},
+                    )
+                    db.commit()
+                    objectifs_success = "Objectif supprimé."
+                    active_objectif_id = None
+                except Exception as exc:
+                    db.rollback()
+                    objectifs_error = "Impossible de supprimer l'objectif."
+                    logger.debug("Dashboard KYC client: erreur objectif delete: %s", exc, exc_info=True)
+
+        elif action == "esg_save":
+            # Sauvegarde du questionnaire ESG
+            from sqlalchemy import text as _text
+            active_section = "esg"
+            allowed = {"oui", "non", "indifférent"}
+
+            def _pick(name: str):
+                v = (form.get(name) or "").strip().lower()
+                # normaliser au jeu autorisé avec accent
+                if v == "indifferent":
+                    v = "indifférent"
+                if v in allowed:
+                    return v
+                return None
+
+            env_importance = _pick("env_importance")
+            env_ges_reduc = _pick("env_ges_reduc")
+            soc_droits_humains = _pick("soc_droits_humains")
+            soc_parite = _pick("soc_parite")
+            gov_transparence = _pick("gov_transparence")
+            gov_controle_ethique = _pick("gov_controle_ethique")
+
+            excl_ids = []
+            ind_ids = []
+            try:
+                if hasattr(form, "getlist"):
+                    excl_ids = [int(x) for x in form.getlist("exclusions") if str(x).isdigit()]
+                    ind_ids = [int(x) for x in form.getlist("indicators") if str(x).isdigit()]
+            except Exception:
+                excl_ids = []
+                ind_ids = []
+
+            if not all([env_importance, env_ges_reduc, soc_droits_humains, soc_parite, gov_transparence, gov_controle_ethique]):
+                esg_error = "Veuillez renseigner toutes les réponses ESG."
+            else:
+                from datetime import datetime, timedelta
+                now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                # Obsolescence à 2 ans
+                obso = (datetime.utcnow() + timedelta(days=730)).strftime("%Y-%m-%d %H:%M:%S")
+                base_params = {
+                    "client_ref": str(client_id),
+                    "saisie_at": now,
+                    "obsolescence_at": obso,
+                    "env_importance": env_importance,
+                    "env_ges_reduc": env_ges_reduc,
+                    "soc_droits_humains": soc_droits_humains,
+                    "soc_parite": soc_parite,
+                    "gov_transparence": gov_transparence,
+                    "gov_controle_ethique": gov_controle_ethique,
+                }
+                try:
+                    row = db.execute(
+                        _text("SELECT id FROM esg_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+                        {"r": str(client_id)},
+                    ).fetchone()
+                    qid = row[0] if row else None
+                    if qid:
+                        params = base_params | {"id": qid}
+                        db.execute(
+                            _text(
+                                """
+                                UPDATE esg_questionnaire
+                                SET saisie_at = :saisie_at,
+                                    obsolescence_at = :obsolescence_at,
+                                    env_importance = :env_importance,
+                                    env_ges_reduc = :env_ges_reduc,
+                                    soc_droits_humains = :soc_droits_humains,
+                                    soc_parite = :soc_parite,
+                                    gov_transparence = :gov_transparence,
+                                    gov_controle_ethique = :gov_controle_ethique
+                                WHERE id = :id
+                                """
+                            ),
+                            params,
+                        )
+                        db.execute(_text("DELETE FROM esg_questionnaire_exclusion WHERE questionnaire_id = :id"), {"id": qid})
+                        db.execute(_text("DELETE FROM esg_questionnaire_indicator WHERE questionnaire_id = :id"), {"id": qid})
+                    else:
+                        db.execute(
+                            _text(
+                                """
+                                INSERT INTO esg_questionnaire (
+                                  client_ref, saisie_at, obsolescence_at,
+                                  env_importance, env_ges_reduc,
+                                  soc_droits_humains, soc_parite,
+                                  gov_transparence, gov_controle_ethique
+                                ) VALUES (
+                                  :client_ref, :saisie_at, :obsolescence_at,
+                                  :env_importance, :env_ges_reduc,
+                                  :soc_droits_humains, :soc_parite,
+                                  :gov_transparence, :gov_controle_ethique
+                                )
+                                """
+                            ),
+                            base_params,
+                        )
+                        qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                    # (ré)insérer les associations
+                    for oid in excl_ids:
+                        db.execute(
+                            _text("INSERT OR IGNORE INTO esg_questionnaire_exclusion (questionnaire_id, option_id) VALUES (:q, :o)"),
+                            {"q": qid, "o": oid},
+                        )
+                    for oid in ind_ids:
+                        db.execute(
+                            _text("INSERT OR IGNORE INTO esg_questionnaire_indicator (questionnaire_id, option_id) VALUES (:q, :o)"),
+                            {"q": qid, "o": oid},
+                        )
+                    db.commit()
+                    esg_success = "Préférences ESG enregistrées."
+                except Exception as exc:
+                    db.rollback()
+                    esg_error = "Impossible d'enregistrer les préférences ESG."
+                    logger.debug("Dashboard KYC client: erreur esg_save: %s", exc, exc_info=True)
+
+        elif action == "risque_save":
+            # Sauvegarde du questionnaire Connaissance financière
+            from sqlalchemy import text as _text
+            active_section = "knowledge"
+            try:
+                # Charger les référentiels nécessaires localement (pour éviter toute dépendance d'ordre)
+                risque_opts_local = {}
+                for name, query in [
+                    ("niveaux", "SELECT id, code, label FROM risque_connaissance_niveau_option ORDER BY id"),
+                    ("perte", "SELECT id, code, label FROM risque_perte_option ORDER BY id"),
+                    ("patrimoine_part", "SELECT id, code, label FROM risque_patrimoine_part_option ORDER BY id"),
+                    ("disponibilite", "SELECT id, code, label FROM risque_disponibilite_option ORDER BY id"),
+                    ("duree", "SELECT id, code, label FROM risque_duree_option ORDER BY id"),
+                    ("objectifs", "SELECT id, code, label FROM risque_objectif_option ORDER BY id"),
+                ]:
+                    try:
+                        rows = db.execute(_text(query)).fetchall()
+                        risque_opts_local[name] = [dict(r._mapping) for r in rows]
+                    except Exception:
+                        risque_opts_local[name] = []
+                conso = (form.get("connaissance_adequate") or "").strip().lower()  # 'oui'/'non'
+                # map produits -> niveaux
+                prod_levels: dict[int,int] = {}
+                for k, v in form.multi_items() if hasattr(form, 'multi_items') else form.items():
+                    if k.startswith("connaissance_") and k.endswith("_niveau_id"):
+                        try:
+                            pid = int(k.split("_")[1])
+                            nid = int(v)
+                            prod_levels[pid] = nid
+                        except Exception:
+                            pass
+                perte_id = int(form.get("perte_option_id") or 0) or None
+                patr_id = int(form.get("patrimoine_part_option_id") or 0) or None
+                disp_id = int(form.get("disponibilite_option_id") or 0) or None
+                duree_id = int(form.get("duree_option_id") or 0) or None
+                obj_ids = []
+                if hasattr(form, 'getlist'):
+                    obj_ids = [int(x) for x in form.getlist("objectif_ids") if str(x).isdigit()]
+                autre_detail = (form.get("objectif_autre_detail") or "").strip() or None
+                revenus_ct_accept = (form.get("revenus_ct_accept") or "").strip().lower()  # 'oui'/'non'
+                offre_personnelle = form.get("offre_personnelle_niveau_id")
+                accept_offre_calculee = (form.get("accept_offre_calculee") or "").strip().lower()  # 'oui'/'non'
+                motivation_refus = (form.get("motivation_refus") or "").strip() or None
+                try:
+                    offre_personnelle_id = int(offre_personnelle) if offre_personnelle else None
+                except Exception:
+                    offre_personnelle_id = None
+
+                # Compute base offer
+                def clamp(n, lo, hi):
+                    return max(lo, min(hi, n))
+
+                OFFRE = {"court_terme":1, "prudente":2, "equilibree":3, "dynamique":4, "offensif":5}
+                offre_calc = 1
+                if conso == "non":
+                    offre_calc = OFFRE["court_terme"]
+                else:
+                    # counts from niveaux id → need codes; map nid->code
+                    niveaux_map = {int(x["id"]): x["code"] for x in risque_opts_local.get("niveaux", [])}
+                    c_f, c_m, c_i = 0,0,0
+                    for nid in prod_levels.values():
+                        code = niveaux_map.get(int(nid))
+                        if code == "faible": c_f += 1
+                        elif code == "moyen": c_m += 1
+                        elif code == "important": c_i += 1
+                    if c_f == 4:
+                        offre_calc = OFFRE["court_terme"]
+                    elif c_i >= 3:
+                        offre_calc = OFFRE["offensif"]
+                    elif c_m == 4 and c_f == 0:
+                        offre_calc = OFFRE["equilibree"]
+                    elif c_f == 2:
+                        offre_calc = OFFRE["prudente"]
+                    elif c_f == 1:
+                        offre_calc = OFFRE["equilibree"]
+                    elif c_m == 2 and c_i == 2:
+                        offre_calc = OFFRE["dynamique"]
+                    else:
+                        offre_calc = OFFRE["equilibree"]
+
+                # Adjustments
+                # Perte
+                if perte_id is not None:
+                    perte_code = next((x["code"] for x in risque_opts_local.get("perte", []) if int(x["id"])==perte_id), None)
+                    if perte_code == "p5":
+                        offre_calc = OFFRE["prudente"]
+                    elif perte_code == "p5_10":
+                        offre_calc = OFFRE["equilibree"]
+                    elif perte_code == "p10_15":
+                        pass  # no change
+
+                # Patrimoine
+                if patr_id is not None:
+                    patr_code = next((x["code"] for x in risque_opts_local.get("patrimoine_part", []) if int(x["id"])==patr_id), None)
+                    if patr_code == "m25":
+                        pass
+                    elif patr_code == "25_50":
+                        offre_calc = max(OFFRE["prudente"], offre_calc - 1)
+                    elif patr_code == "50_75":
+                        offre_calc = max(OFFRE["prudente"], offre_calc - 2)
+                    elif patr_code == "p75":
+                        offre_calc = OFFRE["prudente"]
+
+                # Disponibilité
+                if disp_id is not None:
+                    disp_code = next((x["code"] for x in risque_opts_local.get("disponibilite", []) if int(x["id"])==disp_id), None)
+                    if disp_code in ("court_terme", "tres_liquide"):
+                        # Cap maximum = prudent
+                        offre_calc = min(offre_calc, OFFRE["prudente"])
+                    # "autres_economies": aucun changement
+
+                # Durée (cap maximum)
+                if duree_id is not None:
+                    duree_code = next((x["code"] for x in risque_opts_local.get("duree", []) if int(x["id"])==duree_id), None)
+                    caps = {
+                        "1_3": OFFRE["court_terme"],
+                        "3_5": OFFRE["prudente"],
+                        "5_8": OFFRE["equilibree"],
+                    }
+                    if duree_code in caps:
+                        offre_calc = min(offre_calc, caps[duree_code])
+
+                # Objectifs (cap prudent if epargne de précaution)
+                if any(int(x)==obj_id for x in obj_ids for obj_id in [
+                    next((o["id"] for o in risque_opts_local.get("objectifs", []) if o["code"]=="epargne_precaution"), None)
+                ]):
+                    offre_calc = min(offre_calc, OFFRE["prudente"])
+
+                # Revenus court-terme objective handling
+                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme","revenus")), None)
+
+                # Persist
+                from datetime import datetime, timedelta
+                now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                obso = (datetime.utcnow() + timedelta(days=730)).strftime("%Y-%m-%d %H:%M:%S")
+                # Toujours créer un nouveau questionnaire (historisation)
+                # On lit éventuellement l'ancien pour information, mais on n'update plus.
+                row = db.execute(
+                    _text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+                    {"r": str(client_id)},
+                ).fetchone()
+                last_rqid = row[0] if row else None
+                # Déterminer l'offre finale selon acceptation et cas revenus CT
+                final_offer = int(offre_calc)
+                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme", "revenus")), None)
+                if rev_ct_id and rev_ct_id in (obj_ids or []):
+                    if revenus_ct_accept == "oui":
+                        final_offer = 1  # Court Terme
+                    elif revenus_ct_accept == "non" and offre_personnelle_id in (1,2,3,4,5):
+                        final_offer = int(offre_personnelle_id)
+
+                # Acceptation générale de l'offre calculée
+                if accept_offre_calculee == "oui":
+                    final_offer = int(offre_calc)
+                elif accept_offre_calculee == "non" and offre_personnelle_id in (1,2,3,4,5):
+                    final_offer = int(offre_personnelle_id)
+
+                params_main = {
+                    "client_ref": str(client_id),
+                    "saisie_at": now,
+                    "obsolescence_at": obso,
+                    "connaissance_adequate": conso if conso in ("oui","non") else "non",
+                    "decharge_responsabilite": 0,
+                    "perte_option_id": perte_id,
+                    "patrimoine_part_option_id": patr_id,
+                    "disponibilite_option_id": disp_id,
+                    "duree_option_id": duree_id,
+                    "offre_calculee_niveau_id": int(offre_calc),
+                    "offre_finale_niveau_id": final_offer,
+                    "objectif_autre_detail": autre_detail,
+                }
+                # Décharge si l'offre finale diffère de l'offre calculée suite à un refus
+                if accept_offre_calculee == "non" and params_main["offre_finale_niveau_id"] != int(offre_calc):
+                    params_main["decharge_responsabilite"] = 1
+                # Insertion systématique d'un nouveau questionnaire
+                db.execute(
+                    _text(
+                        """
+                        INSERT INTO risque_questionnaire (
+                          client_ref, saisie_at, obsolescence_at,
+                          connaissance_adequate, decharge_responsabilite,
+                          perte_option_id, patrimoine_part_option_id,
+                          disponibilite_option_id, duree_option_id,
+                          offre_calculee_niveau_id, offre_finale_niveau_id,
+                          objectif_autre_detail
+                        ) VALUES (
+                          :client_ref, :saisie_at, :obsolescence_at,
+                          :connaissance_adequate, :decharge_responsabilite,
+                          :perte_option_id, :patrimoine_part_option_id,
+                          :disponibilite_option_id, :duree_option_id,
+                          :offre_calculee_niveau_id, :offre_finale_niveau_id,
+                          :objectif_autre_detail
+                        )
+                        """
+                    ),
+                    params_main,
+                )
+                rqid = db.execute(_text("SELECT last_insert_rowid()" )).fetchone()[0]
+                # insert children
+                for pid, nid in prod_levels.items():
+                    db.execute(
+                        _text("INSERT INTO risque_questionnaire_connaissance (questionnaire_id, produit_id, niveau_id) VALUES (:q,:p,:n)"),
+                        {"q": rqid, "p": int(pid), "n": int(nid)},
+                    )
+                for oid in obj_ids:
+                    db.execute(
+                        _text("INSERT OR IGNORE INTO risque_questionnaire_objectif (questionnaire_id, option_id) VALUES (:q,:o)"),
+                        {"q": rqid, "o": int(oid)},
+                    )
+                # Upsert risque_decision_client
+                try:
+                    dec_row = db.execute(_text("SELECT id FROM risque_decision_client WHERE questionnaire_id = :q"), {"q": rqid}).fetchone()
+                    decision = 'accepte' if accept_offre_calculee == 'oui' else 'refuse'
+                    dec_params = {
+                        'questionnaire_id': rqid,
+                        'saisie_at': now,
+                        'obsolescence_at': obso,
+                        'decision': decision,
+                        'message': 'Notre proposition est validée' if decision == 'accepte' else 'Le client refuse le risque proposé',
+                        'niveau_client_id': None,
+                        'motivation_refus': motivation_refus if decision == 'refuse' else None,
+                    }
+                    if decision == 'refuse' and offre_personnelle_id in (1,2,3,4,5):
+                        dec_params['niveau_client_id'] = int(offre_personnelle_id)
+                    if dec_row:
+                        db.execute(
+                            _text(
+                                """
+                                UPDATE risque_decision_client
+                                SET saisie_at=:saisie_at,
+                                    obsolescence_at=:obsolescence_at,
+                                    decision=:decision,
+                                    message=:message,
+                                    niveau_client_id=:niveau_client_id,
+                                    motivation_refus=:motivation_refus
+                                WHERE questionnaire_id=:questionnaire_id
+                                """
+                            ),
+                            dec_params,
+                        )
+                    else:
+                        db.execute(
+                            _text(
+                                """
+                                INSERT INTO risque_decision_client (
+                                  questionnaire_id, saisie_at, obsolescence_at,
+                                  decision, message, niveau_client_id, motivation_refus
+                                ) VALUES (
+                                  :questionnaire_id, :saisie_at, :obsolescence_at,
+                                  :decision, :message, :niveau_client_id, :motivation_refus
+                                )
+                                """
+                            ),
+                            dec_params,
+                        )
+                except Exception as exc:
+                    logger.debug("risque_decision_client upsert error: %s", exc, exc_info=True)
+                db.commit()
+                # set to show panel
+                active_section = "knowledge"
+            except Exception as exc:
+                db.rollback()
+                logger.debug("Dashboard KYC client: erreur risque_save: %s", exc, exc_info=True)
+
+        elif action == "lcbft_save":
+            from sqlalchemy import text as _text
+            active_section = "lcbft"
+            lcbft_success = None
+            lcbft_error = None
+            try:
+                form = await request.form()
+                def _i(name):
+                    v = form.get(name)
+                    if v is None or v == "":
+                        return None
+                    try:
+                        return int(v)
+                    except Exception:
+                        return None
+                now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                from datetime import timedelta as _td
+                obso = (datetime.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
+                params = {
+                    "client_ref": str(client_id),
+                    "created_at": now,
+                    "updated_at": obso,
+                    "relation_mode": (form.get("relation_mode") or None),
+                    "relation_since": (form.get("relation_since") or None),
+                    "has_existing_contracts": _i("has_existing_contracts"),
+                    "existing_with_our_insurer": _i("existing_with_our_insurer"),
+                    "existing_contract_ref": (form.get("existing_contract_ref") or None),
+                    "reason_new_contract": (form.get("reason_new_contract") or None),
+                    "ppe_self": _i("ppe_self"),
+                    "ppe_self_fonction": (form.get("ppe_self_fonction") or None),
+                    "ppe_self_pays": (form.get("ppe_self_pays") or None),
+                    "ppe_family": _i("ppe_family"),
+                    "ppe_family_fonction": (form.get("ppe_family_fonction") or None),
+                    "ppe_family_pays": (form.get("ppe_family_pays") or None),
+                    # Flags comportement/opération/modalités (oui=1/non=0)
+                    "flag_1a": _i("flag_1a"),
+                    "flag_1b": _i("flag_1b"),
+                    "flag_1c": _i("flag_1c"),
+                    "flag_1d": _i("flag_1d"),
+                    "flag_2a": _i("flag_2a"),
+                    "flag_2b": _i("flag_2b"),
+                    "flag_3a": _i("flag_3a"),
+                    # Profession / exposition
+                    "prof_profession": (form.get("prof_profession") or None),
+                    "prof_statut_professionnel_id": _i("prof_statut_professionnel_id"),
+                    "prof_secteur_id": _i("prof_secteur_id"),
+                    "prof_self_ppe": _i("prof_self_ppe"),
+                    "prof_self_ppe_fonction": (form.get("prof_self_ppe_fonction") or None),
+                    "prof_self_ppe_pays": (form.get("prof_self_ppe_pays") or None),
+                    "prof_family_ppe": _i("prof_family_ppe"),
+                    "prof_family_ppe_fonction": (form.get("prof_family_ppe_fonction") or None),
+                    "prof_family_ppe_pays": (form.get("prof_family_ppe_pays") or None),
+                    # Objet / montants
+                    "operation_objet": (form.get("operation_objet") or None),
+                    "montant": (float(form.get("montant") or 0) or None),
+                    "patrimoine_pct": (float(form.get("patrimoine_pct") or 0) or None),
+                    # Justificatifs textes
+                    "just_fonds": (form.get("just_fonds") or None),
+                    "just_destination": (form.get("just_destination") or None),
+                    "just_finalite": (form.get("just_finalite") or None),
+                    "just_produits": (form.get("just_produits") or None),
+                }
+                # Calcul niveau de risque (1..4)
+                risk = 1
+                f = lambda k: (params.get(k) or 0) == 1
+                if f("flag_1a") or f("flag_1c") or f("flag_1d") or f("flag_2b") or f("flag_3a"):
+                    risk = 4
+                elif f("flag_2a"):
+                    risk = 3
+                elif f("flag_1b") or (params.get("ppe_self") == 1) or (params.get("ppe_family") == 1):
+                    risk = 2
+                else:
+                    risk = 1
+                params["computed_risk_level"] = risk
+                db.execute(
+                    _text(
+                        """
+                        INSERT INTO LCBFT_questionnaire (
+                          client_ref, created_at, updated_at,
+                          relation_mode, relation_since,
+                          has_existing_contracts, existing_with_our_insurer,
+                          existing_contract_ref, reason_new_contract,
+                          ppe_self, ppe_self_fonction, ppe_self_pays,
+                          ppe_family, ppe_family_fonction, ppe_family_pays,
+                          flag_1a, flag_1b, flag_1c, flag_1d,
+                          flag_2a, flag_2b, flag_3a,
+                          computed_risk_level,
+                          prof_profession, prof_statut_professionnel_id, prof_secteur_id,
+                          prof_self_ppe, prof_self_ppe_fonction, prof_self_ppe_pays,
+                          prof_family_ppe, prof_family_ppe_fonction, prof_family_ppe_pays,
+                          operation_objet, montant, patrimoine_pct,
+                          just_fonds, just_destination, just_finalite, just_produits
+                        ) VALUES (
+                          :client_ref, :created_at, :updated_at,
+                          :relation_mode, :relation_since,
+                          :has_existing_contracts, :existing_with_our_insurer,
+                          :existing_contract_ref, :reason_new_contract,
+                          :ppe_self, :ppe_self_fonction, :ppe_self_pays,
+                          :ppe_family, :ppe_family_fonction, :ppe_family_pays,
+                          :flag_1a, :flag_1b, :flag_1c, :flag_1d,
+                          :flag_2a, :flag_2b, :flag_3a,
+                          :computed_risk_level,
+                          :prof_profession, :prof_statut_professionnel_id, :prof_secteur_id,
+                          :prof_self_ppe, :prof_self_ppe_fonction, :prof_self_ppe_pays,
+                          :prof_family_ppe, :prof_family_ppe_fonction, :prof_family_ppe_pays,
+                          :operation_objet, :montant, :patrimoine_pct,
+                          :just_fonds, :just_destination, :just_finalite, :just_produits
+                        )
+                        """
+                    ),
+                    params,
+                )
+                # Vigilance options
+                try:
+                    qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                    # Persist FATCA fields linked to this questionnaire
+                    try:
+                        # Read form values
+                        fatca_contrat_id = _i("fatca_contrat_id")
+                        fatca_pays_residence = (form.get("fatca_pays_residence") or None)
+                        fatca_nif = (form.get("fatca_nif") or None)
+                        fatca_date_operation = (form.get("fatca_date_operation") or None)
+                        # Resolve societe_nom from DB if possible
+                        societe_nom = (form.get("fatca_societe") or None)
+                        if fatca_contrat_id:
+                            try:
+                                row_soc = db.execute(
+                                    _text(
+                                        """
+                                        SELECT COALESCE(s.nom, '') AS societe_nom
+                                        FROM mariadb_affaires_generique g
+                                        LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                                        WHERE g.id = :gid
+                                        """
+                                    ),
+                                    {"gid": fatca_contrat_id},
+                                ).fetchone()
+                                if row_soc:
+                                    societe_nom = row_soc[0]
+                            except Exception:
+                                pass
+                        if not fatca_date_operation:
+                            from datetime import date as _dt_date
+                            fatca_date_operation = _dt_date.today().isoformat()
+                        # Ensure table exists
+                        db.execute(
+                            _text(
+                                """
+                                CREATE TABLE IF NOT EXISTS LCBFT_fatca (
+                                  id INTEGER PRIMARY KEY,
+                                  questionnaire_id INTEGER UNIQUE,
+                                  contrat_id INTEGER NULL,
+                                  societe_nom TEXT NULL,
+                                  date_operation TEXT NULL,
+                                  pays_residence TEXT NULL,
+                                  nif TEXT NULL
+                                )
+                                """
+                            )
+                        )
+                        # Upsert-fatca for this questionnaire
+                        fatca_params = {
+                            "qid": qid,
+                            "contrat_id": fatca_contrat_id,
+                            "societe_nom": societe_nom,
+                            "date_operation": fatca_date_operation,
+                            "pays_residence": fatca_pays_residence,
+                            "nif": fatca_nif,
+                        }
+                        res = db.execute(
+                            _text(
+                                """
+                                UPDATE LCBFT_fatca
+                                SET contrat_id=:contrat_id,
+                                    societe_nom=:societe_nom,
+                                    date_operation=:date_operation,
+                                    pays_residence=:pays_residence,
+                                    nif=:nif
+                                WHERE questionnaire_id=:qid
+                                """
+                            ),
+                            fatca_params,
+                        )
+                        if (getattr(res, 'rowcount', None) or 0) == 0:
+                            db.execute(
+                                _text(
+                                    """
+                                    INSERT INTO LCBFT_fatca (
+                                      questionnaire_id, contrat_id, societe_nom, date_operation, pays_residence, nif
+                                    ) VALUES (
+                                      :qid, :contrat_id, :societe_nom, :date_operation, :pays_residence, :nif
+                                    )
+                                    """
+                                ),
+                                fatca_params,
+                            )
+                    except Exception as _exc_f:
+                        logger.debug("LCBFT_fatca persist error: %s", _exc_f, exc_info=True)
+                    if hasattr(form, 'getlist'):
+                        vids = [int(x) for x in form.getlist('vigilance_ids') if str(x).isdigit()]
+                        for oid in vids:
+                            db.execute(
+                                _text("INSERT OR IGNORE INTO LCBFT_questionnaire_vigilance (questionnaire_id, option_id) VALUES (:q,:o)"),
+                                {"q": qid, "o": oid},
+                            )
+                except Exception:
+                    pass
+                db.commit()
+                lcbft_success = "Questionnaire LCB-FT enregistré."
+            except Exception as exc:
+                db.rollback()
+                lcbft_error = "Impossible d'enregistrer le questionnaire LCB-FT."
+                logger.debug("Dashboard KYC client: erreur lcbft_save: %s", exc, exc_info=True)
+
+
+    etat_civil_row = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id,
+                       civilite,
+                       date_naissance,
+                       lieu_naissance,
+                       nationalite,
+                       situation_familiale,
+                       profession,
+                       commentaire
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            data = row._mapping
+            etat_civil_row = {
+                "id": data.get("id"),
+                "civilite": _safe_text(data.get("civilite")),
+                "date_naissance": _safe_text(data.get("date_naissance")),
+                "lieu_naissance": _safe_text(data.get("lieu_naissance")),
+                "nationalite": _safe_text(data.get("nationalite")),
+                "situation_familiale": _safe_text(data.get("situation_familiale")),
+                "profession": _safe_text(data.get("profession")),
+                "commentaire": _safe_text(data.get("commentaire")),
+            }
+    except Exception:
+        etat_civil_row = None
+
+    actifs: list[dict] = []
+    actifs_total = Decimal("0")
+    try:
+        rows_actifs = db.execute(
+            text(
+                """
+                SELECT a.id,
+                       a.type_actif_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       a.description,
+                       a.valeur,
+                       a.date_saisie,
+                       a.date_expiration
+                FROM KYC_Client_Actif a
+                LEFT JOIN ref_type_actif t ON t.id = a.type_actif_id
+                WHERE a.client_id = :cid
+                ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_actifs:
+            data = row._mapping
+            valeur_num = data.get("valeur")
+            try:
+                if valeur_num is not None:
+                    actifs_total += Decimal(str(valeur_num))
+            except (InvalidOperation, ValueError):
+                pass
+            actifs.append(
+                {
+                    "id": data.get("id"),
+                    "type_actif_id": data.get("type_actif_id"),
+                    "type_libelle": _safe_text(data.get("type_libelle")),
+                    "description": _safe_text(data.get("description")),
+                    "valeur": data.get("valeur"),
+                    "valeur_str": _fmt_amount(data.get("valeur")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        actifs = []
+        actifs_total = Decimal("0")
+
+    actifs_total_str = _fmt_amount(actifs_total)
+
+    passifs: list[dict] = []
+    passifs_total = Decimal("0")
+    try:
+        rows_passifs = db.execute(
+            text(
+                """
+                SELECT p.id,
+                       p.type_passif_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       p.description,
+                       p.montant_rest_du,
+                       p.date_saisie,
+                       p.date_expiration
+                FROM KYC_Client_Passif p
+                LEFT JOIN ref_type_passif t ON t.id = p.type_passif_id
+                WHERE p.client_id = :cid
+                ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_passifs:
+            data = row._mapping
+            montant_num = data.get("montant_rest_du")
+            try:
+                if montant_num is not None:
+                    passifs_total += Decimal(str(montant_num))
+            except (InvalidOperation, ValueError):
+                pass
+            passifs.append(
+                {
+                    "id": data.get("id"),
+                    "type_passif_id": data.get("type_passif_id"),
+                    "type_libelle": _safe_text(data.get("type_libelle")),
+                    "description": _safe_text(data.get("description")),
+                    "montant": data.get("montant_rest_du"),
+                    "montant_str": _fmt_amount(data.get("montant_rest_du")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        passifs = []
+        passifs_total = Decimal("0")
+
+    passifs_total_str = _fmt_amount(passifs_total)
+
+    revenus: list[dict] = []
+    revenus_total = Decimal("0")
+    try:
+        rows_revenus = db.execute(
+            text(
+                """
+                SELECT r.id,
+                       r.type_revenu_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       r.montant_annuel,
+                       r.date_saisie,
+                       r.date_expiration
+                FROM KYC_Client_Revenus r
+                LEFT JOIN ref_type_revenu t ON t.id = r.type_revenu_id
+                WHERE r.client_id = :cid
+                ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_revenus:
+            data = row._mapping
+            montant_num = data.get("montant_annuel")
+            try:
+                if montant_num is not None:
+                    revenus_total += Decimal(str(montant_num))
+            except (InvalidOperation, ValueError):
+                pass
+            revenus.append(
+                {
+                    "id": data.get("id"),
+                    "type_revenu_id": data.get("type_revenu_id"),
+                    "type_libelle": _safe_text(data.get("type_libelle")),
+                    "montant": data.get("montant_annuel"),
+                    "montant_str": _fmt_amount(data.get("montant_annuel")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        revenus = []
+        revenus_total = Decimal("0")
+
+    revenus_total_str = _fmt_amount(revenus_total)
+
+    charges: list[dict] = []
+    charges_total = Decimal("0")
+    try:
+        rows_charges = db.execute(
+            text(
+                """
+                SELECT c.id,
+                       c.type_charge_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       c.montant_annuel,
+                       c.date_saisie,
+                       c.date_expiration
+                FROM KYC_Client_Charges c
+                LEFT JOIN ref_type_charge t ON t.id = c.type_charge_id
+                WHERE c.client_id = :cid
+                ORDER BY c.date_saisie DESC NULLS LAST, c.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_charges:
+            data = row._mapping
+            montant_num = data.get("montant_annuel")
+            try:
+                if montant_num is not None:
+                    charges_total += Decimal(str(montant_num))
+            except (InvalidOperation, ValueError):
+                pass
+            charges.append(
+                {
+                    "id": data.get("id"),
+                    "type_charge_id": data.get("type_charge_id"),
+                    "type_libelle": _safe_text(data.get("type_libelle")),
+                    "montant": data.get("montant_annuel"),
+                    "montant_str": _fmt_amount(data.get("montant_annuel")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        charges = []
+        charges_total = Decimal("0")
+
+    charges_total_str = _fmt_amount(charges_total)
+
+    def _rows_for_chart(rows, label_key, amount_key):
+        bucket: dict[str, Decimal] = defaultdict(Decimal)
+        for row in rows:
+            raw_label = row.get(label_key)
+            label = _safe_text(raw_label) or "Non renseigné"
+            value = row.get(amount_key)
+            if value is None:
+                continue
+            try:
+                bucket[label] += Decimal(str(value))
+            except (InvalidOperation, ValueError):
+                continue
+        dataset: list[dict] = []
+        for label, amount in bucket.items():
+            if amount <= 0:
+                continue
+            try:
+                dataset.append({
+                    "label": label,
+                    "value": float(amount),
+                    "display": f"{amount:,.0f}".replace(",", " ")
+                })
+            except (TypeError, ValueError):
+                continue
+        return dataset
+
+    synth_actifs = _rows_for_chart(actifs, "type_libelle", "valeur")
+    synth_passifs = _rows_for_chart(passifs, "type_libelle", "montant")
+    synth_revenus = _rows_for_chart(revenus, "type_libelle", "montant")
+    synth_charges = _rows_for_chart(charges, "type_libelle", "montant")
+
+    patrimoine_net = actifs_total - passifs_total
+    budget_net = revenus_total - charges_total
+    patrimoine_net_str = _fmt_amount(patrimoine_net)
+    budget_net_str = _fmt_amount(budget_net)
+
+    adresses: list[dict] = []
+    try:
+        rows_adresses = db.execute(
+            text(
+                """
+                SELECT a.id,
+                       a.type_adresse_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       a.rue,
+                       a.complement,
+                       a.code_postal,
+                       a.ville,
+                       a.pays,
+                       a.date_saisie,
+                       a.date_expiration
+                FROM KYC_Client_Adresse a
+                LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
+                WHERE a.client_id = :cid
+                ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_adresses:
+            data = row._mapping
+            date_saisie = data.get("date_saisie")
+            date_expiration = data.get("date_expiration")
+            libelle = _safe_text(data.get("type_libelle"))
+            libelle_lower = libelle.lower()
+            is_primary = "princip" in libelle_lower
+            is_secondary = (not is_primary) and "second" in libelle_lower
+            adresses.append(
+                {
+                    "id": data.get("id"),
+                    "type_adresse_id": data.get("type_adresse_id"),
+                    "type_libelle": libelle,
+                    "is_primary": is_primary,
+                    "is_secondary": is_secondary,
+                    "rue": _safe_text(data.get("rue")),
+                    "complement": _safe_text(data.get("complement")),
+                    "code_postal": _safe_text(data.get("code_postal")),
+                    "ville": _safe_text(data.get("ville")),
+                    "pays": _safe_text(data.get("pays")),
+                    "date_saisie": _fmt_date(date_saisie),
+                    "date_expiration": _fmt_date(date_expiration),
+                }
+            )
+    except Exception:
+        adresses = []
+
+    situations_matrimoniales: list[dict] = []
+    try:
+        rows_matrimonial = db.execute(
+            text(
+                """
+                SELECT m.id,
+                       m.situation_id,
+                       sm.libelle AS situation_libelle,
+                       m.nb_enfants,
+                       m.convention_id,
+                       sc.libelle AS convention_libelle,
+                       m.date_saisie,
+                       m.date_expiration
+                FROM KYC_Client_Situation_Matrimoniale m
+                LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
+                LEFT JOIN ref_situation_matrimoniale_convention sc ON sc.id = m.convention_id
+                WHERE m.client_id = :cid
+                ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_matrimonial:
+            data = row._mapping
+            situations_matrimoniales.append(
+                {
+                    "id": data.get("id"),
+                    "situation_id": data.get("situation_id"),
+                    "situation_libelle": _safe_text(data.get("situation_libelle")),
+                    "nb_enfants": data.get("nb_enfants") or 0,
+                    "convention_id": data.get("convention_id"),
+                    "convention_libelle": _safe_text(data.get("convention_libelle")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        situations_matrimoniales = []
+
+    situations_professionnelles: list[dict] = []
+    try:
+        rows_professionnelles = db.execute(
+            text(
+                """
+                SELECT p.id,
+                       p.profession,
+                       p.secteur_id,
+                       ps.libelle AS secteur_libelle,
+                       p.employeur,
+                       p.anciennete_annees,
+                       p.statut_id,
+                       st.libelle AS statut_libelle,
+                       p.date_saisie,
+                       p.date_expiration
+                FROM KYC_Client_Situation_Professionnelle p
+                LEFT JOIN ref_profession_secteur ps ON ps.id = p.secteur_id
+                LEFT JOIN ref_statut_professionnel st ON st.id = p.statut_id
+                WHERE p.client_id = :cid
+                ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows_professionnelles:
+            data = row._mapping
+            situations_professionnelles.append(
+                {
+                    "id": data.get("id"),
+                    "profession": _safe_text(data.get("profession")),
+                    "secteur_id": data.get("secteur_id"),
+                    "secteur_libelle": _safe_text(data.get("secteur_libelle")),
+                    "employeur": _safe_text(data.get("employeur")),
+                    "anciennete_annees": data.get("anciennete_annees") or 0,
+                    "statut_id": data.get("statut_id"),
+                    "statut_libelle": _safe_text(data.get("statut_libelle")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+    except Exception:
+        situations_professionnelles = []
+
+    try:
+        ref_type_actif_rows = db.execute(
+            text("SELECT id, libelle FROM ref_type_actif ORDER BY libelle")
+        ).fetchall()
+        ref_type_actif = [dict(row._mapping) for row in ref_type_actif_rows]
+    except Exception:
+        ref_type_actif = []
+
+    try:
+        ref_type_passif_rows = db.execute(
+            text("SELECT id, libelle FROM ref_type_passif ORDER BY libelle")
+        ).fetchall()
+        ref_type_passif = [dict(row._mapping) for row in ref_type_passif_rows]
+    except Exception:
+        ref_type_passif = []
+
+    try:
+        ref_type_revenu_rows = db.execute(
+            text("SELECT id, libelle FROM ref_type_revenu ORDER BY libelle")
+        ).fetchall()
+        ref_type_revenu = [dict(row._mapping) for row in ref_type_revenu_rows]
+    except Exception:
+        ref_type_revenu = []
+
+    try:
+        ref_type_charge_rows = db.execute(
+            text("SELECT id, libelle FROM ref_type_charge ORDER BY libelle")
+        ).fetchall()
+        ref_type_charge = [dict(row._mapping) for row in ref_type_charge_rows]
+    except Exception:
+        ref_type_charge = []
+
+    # ESG: options et questionnaire courant
+    esg_exclusion_options = []
+    esg_indicator_options = []
+    esg_selected_exclusions: list[int] = []
+    esg_selected_indicators: list[int] = []
+    esg_current: dict | None = None
+    try:
+        rows = db.execute(text("SELECT id, code, label FROM esg_exclusion_option ORDER BY label")).fetchall()
+        esg_exclusion_options = [dict(r._mapping) for r in rows]
+    except Exception:
+        esg_exclusion_options = []
+    try:
+        rows = db.execute(text("SELECT id, code, label FROM esg_indicator_option ORDER BY label")).fetchall()
+        esg_indicator_options = [dict(r._mapping) for r in rows]
+    except Exception:
+        esg_indicator_options = []
+    try:
+        row = db.execute(
+            text("SELECT * FROM esg_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+            {"r": str(client_id)},
+        ).fetchone()
+        if row:
+            m = row._mapping
+            qid = m.get("id")
+            esg_current = {
+                "id": qid,
+                "saisie_at": _fmt_date(m.get("saisie_at")),
+                "obsolescence_at": _fmt_date(m.get("obsolescence_at")),
+                "env_importance": m.get("env_importance"),
+                "env_ges_reduc": m.get("env_ges_reduc"),
+                "soc_droits_humains": m.get("soc_droits_humains"),
+                "soc_parite": m.get("soc_parite"),
+                "gov_transparence": m.get("gov_transparence"),
+                "gov_controle_ethique": m.get("gov_controle_ethique"),
+            }
+            try:
+                ids = db.execute(text("SELECT option_id FROM esg_questionnaire_exclusion WHERE questionnaire_id = :q"), {"q": qid}).fetchall()
+                esg_selected_exclusions = [int(x[0]) for x in ids]
+            except Exception:
+                esg_selected_exclusions = []
+            try:
+                ids = db.execute(text("SELECT option_id FROM esg_questionnaire_indicator WHERE questionnaire_id = :q"), {"q": qid}).fetchall()
+                esg_selected_indicators = [int(x[0]) for x in ids]
+            except Exception:
+                esg_selected_indicators = []
+    except Exception:
+        esg_current = None
+
+    # Dates d'affichage ESG: si aucune saisie, proposer date du jour et obsolescence à 2 ans
+    from datetime import date as _date, timedelta as _timedelta
+    if esg_current and esg_current.get("saisie_at") and esg_current.get("obsolescence_at"):
+        esg_display_saisie = esg_current.get("saisie_at")
+        esg_display_obsolescence = esg_current.get("obsolescence_at")
+    else:
+        today = _date.today().isoformat()
+        in2y = (_date.today() + _timedelta(days=730)).isoformat()
+        esg_display_saisie = today
+        esg_display_obsolescence = in2y
+
+    # -------- Bloc Connaissance financière (risque) --------
+    risque_opts = {
+        "produits": [],
+        "niveaux": [],
+        "perte": [],
+        "patrimoine_part": [],
+        "disponibilite": [],
+        "duree": [],
+        "objectifs": [],
+        "niveaux_offre": [],
+    }
+    try:
+        for name, query in [
+            ("produits", "SELECT id, code, label FROM risque_connaissance_produit_option ORDER BY id"),
+            ("niveaux", "SELECT id, code, label FROM risque_connaissance_niveau_option ORDER BY id"),
+            ("perte", "SELECT id, code, label FROM risque_perte_option ORDER BY id"),
+            ("patrimoine_part", "SELECT id, code, label FROM risque_patrimoine_part_option ORDER BY id"),
+            ("disponibilite", "SELECT id, code, label FROM risque_disponibilite_option ORDER BY id"),
+            ("duree", "SELECT id, code, label FROM risque_duree_option ORDER BY id"),
+            ("objectifs", "SELECT id, code, label FROM risque_objectif_option ORDER BY id"),
+            ("niveaux_offre", "SELECT id, code, label FROM risque_niveau ORDER BY id"),
+        ]:
+            rows = db.execute(text(query)).fetchall()
+            risque_opts[name] = [dict(r._mapping) for r in rows]
+    except Exception:
+        pass
+
+    risque_current = None
+    risque_decision = None
+    risque_connaissance_map = {}
+    risque_objectifs_ids: list[int] = []
+    try:
+        row = db.execute(
+            text("SELECT * FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+            {"r": str(client_id)},
+        ).fetchone()
+        if row:
+            m = row._mapping
+            rqid = m.get("id")
+            risque_current = {
+                "id": rqid,
+                "saisie_at": _fmt_date(m.get("saisie_at")),
+                "obsolescence_at": _fmt_date(m.get("obsolescence_at")),
+                "connaissance_adequate": m.get("connaissance_adequate"),
+                "decharge_responsabilite": m.get("decharge_responsabilite"),
+                "perte_option_id": m.get("perte_option_id"),
+                "patrimoine_part_option_id": m.get("patrimoine_part_option_id"),
+                "disponibilite_option_id": m.get("disponibilite_option_id"),
+                "duree_option_id": m.get("duree_option_id"),
+                "offre_calculee_niveau_id": m.get("offre_calculee_niveau_id"),
+                "offre_finale_niveau_id": m.get("offre_finale_niveau_id"),
+                "objectif_autre_detail": m.get("objectif_autre_detail"),
+            }
+            try:
+                rows = db.execute(text("SELECT produit_id, niveau_id FROM risque_questionnaire_connaissance WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
+                risque_connaissance_map = {int(r.produit_id): int(r.niveau_id) for r in rows}
+            except Exception:
+                risque_connaissance_map = {}
+            try:
+                rows = db.execute(text("SELECT option_id FROM risque_questionnaire_objectif WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
+                risque_objectifs_ids = [int(x[0]) for x in rows]
+            except Exception:
+                risque_objectifs_ids = []
+            # Décision client (acceptation/refus) liée au questionnaire
+            try:
+                drow = db.execute(
+                    text("SELECT decision, niveau_client_id, motivation_refus FROM risque_decision_client WHERE questionnaire_id = :q"),
+                    {"q": rqid},
+                ).fetchone()
+                if drow:
+                    dm = drow._mapping
+                    risque_decision = {
+                        "decision": dm.get("decision"),
+                        "niveau_client_id": dm.get("niveau_client_id"),
+                        "motivation_refus": dm.get("motivation_refus"),
+                    }
+            except Exception:
+                risque_decision = None
+    except Exception:
+        risque_current = None
+
+    # Calculer affichage dates
+    if risque_current and risque_current.get("saisie_at") and risque_current.get("obsolescence_at"):
+        risque_display_saisie = risque_current.get("saisie_at")
+        risque_display_obsolescence = risque_current.get("obsolescence_at")
+    else:
+        today = _date.today().isoformat()
+        in2y = (_date.today() + _timedelta(days=730)).isoformat()
+        risque_display_saisie = today
+        risque_display_obsolescence = in2y
+
+    try:
+        ref_niveau_rows = db.execute(
+            text("SELECT id, libelle FROM ref_niveau_risque ORDER BY id")
+        ).fetchall()
+        ref_niveau_risque = [dict(row._mapping) for row in ref_niveau_rows]
+    except Exception:
+        ref_niveau_risque = []
+
+    preselected_objectifs: list[dict] = []
+    preselected_objectifs_ids: list[int] = []
+    try:
+        objectifs_rows = db.execute(
+            text(
+                """
+                SELECT o.id AS link_id,
+                       o.objectif_id,
+                       o.horizon_investissement,
+                       o.niveau_id,
+                       o.commentaire,
+                       o.date_saisie,
+                       o.date_expiration,
+                       ro.libelle AS libelle,
+                       nr.libelle AS niveau_libelle
+                FROM KYC_Client_Objectifs o
+                LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+                LEFT JOIN ref_niveau_risque nr ON nr.id = o.niveau_id
+                WHERE o.client_id = :cid
+                ORDER BY COALESCE(o.niveau_id, 9999), ro.libelle, o.id
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+
+        for row in objectifs_rows:
+            data = row._mapping
+            objectif_id = data.get("objectif_id")
+            if objectif_id is None:
+                continue
+            objectif_id = int(objectif_id)
+            libelle = _safe_text(data.get("libelle")) or f"Objectif {objectif_id}"
+            niveau_source = data.get("niveau_id")
+            niveau_value = int(niveau_source) if niveau_source is not None else None
+            preselected_objectifs.append(
+                {
+                    "id": objectif_id,
+                    "libelle": libelle,
+                    "link_id": data.get("link_id"),
+                    "horizon_investissement": _safe_text(data.get("horizon_investissement")),
+                    "niveau_id": niveau_value,
+                    "niveau_libelle": _safe_text(data.get("niveau_libelle")),
+                    "commentaire": _safe_text(data.get("commentaire")),
+                    "date_saisie": _fmt_date(data.get("date_saisie")),
+                    "date_expiration": _fmt_date(data.get("date_expiration")),
+                }
+            )
+            preselected_objectifs_ids.append(objectif_id)
+    except Exception as exc:
+        preselected_objectifs = []
+        preselected_objectifs_ids = []
+        logger.debug(
+            "Dashboard KYC client: erreur lecture objectifs: %s", exc, exc_info=True
+        )
+
+    try:
+        ref_objectifs_rows = db.execute(
+            text("SELECT id, libelle FROM ref_objectif ORDER BY libelle")
+        ).fetchall()
+        ref_objectifs = [
+            {"id": int(row.id), "libelle": _safe_text(row.libelle)}
+            for row in ref_objectifs_rows
+        ]
+    except Exception as exc:
+        ref_objectifs = []
+        logger.debug(
+            "Dashboard KYC client: erreur lecture ref_objectif: %s", exc, exc_info=True
+        )
+
+    try:
+        ref_type_adresse_rows = db.execute(
+            text("SELECT id, libelle FROM ref_type_adresse ORDER BY libelle")
+        ).fetchall()
+        ref_type_adresse = [dict(row._mapping) for row in ref_type_adresse_rows]
+    except Exception:
+        ref_type_adresse = []
+
+    try:
+        ref_situation_rows = db.execute(
+            text("SELECT id, libelle FROM ref_situation_matrimoniale ORDER BY libelle")
+        ).fetchall()
+        ref_situation_matrimoniale = [dict(row._mapping) for row in ref_situation_rows]
+    except Exception:
+        ref_situation_matrimoniale = []
+
+    try:
+        ref_convention_rows = db.execute(
+            text("SELECT id, libelle FROM ref_situation_matrimoniale_convention ORDER BY libelle")
+        ).fetchall()
+        ref_situation_convention = [dict(row._mapping) for row in ref_convention_rows]
+    except Exception:
+        ref_situation_convention = []
+
+    try:
+        ref_secteur_rows = db.execute(
+            text("SELECT id, libelle FROM ref_profession_secteur ORDER BY libelle")
+        ).fetchall()
+        ref_profession_secteur = [dict(row._mapping) for row in ref_secteur_rows]
+    except Exception:
+        ref_profession_secteur = []
+
+    try:
+        ref_statut_rows = db.execute(
+            text("SELECT id, libelle FROM ref_statut_professionnel ORDER BY libelle")
+        ).fetchall()
+        ref_statut_professionnel = [dict(row._mapping) for row in ref_statut_rows]
+    except Exception:
+        ref_statut_professionnel = []
+
+    # --- LCBFT: lecture du dernier questionnaire + options vigilance ---
+    lcbft_current: dict | None = None
+    lcbft_vigilance_ids: list[int] = []
+    lcbft_vigilance_options: list[dict] = []
+    try:
+        rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
+        lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+    except Exception:
+        lcbft_vigilance_options = []
+    try:
+        row = db.execute(
+            text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+            {"r": str(client_id)},
+        ).fetchone()
+        if row:
+            m = row._mapping
+            qid = m.get("id")
+            lcbft_current = {k: m.get(k) for k in m.keys()}
+            try:
+                ids = db.execute(text("SELECT option_id FROM LCBFT_questionnaire_vigilance WHERE questionnaire_id = :q"), {"q": qid}).fetchall()
+                lcbft_vigilance_ids = [int(x[0]) for x in ids]
+            except Exception:
+                lcbft_vigilance_ids = []
+    except Exception:
+        lcbft_current = None
+
+    # FATCA: contrats disponibles et infos client (pays fiscal, NIF)
+    fatca_contracts: list[dict] = []
+    fatca_client_country: str | None = None
+    fatca_client_nif: str | None = None
+    fatca_today = _date.today().isoformat()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT g.id, g.nom_contrat, COALESCE(s.nom, '') AS societe_nom
+                FROM mariadb_affaires_generique g
+                LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                WHERE COALESCE(g.actif, 1) = 1
+                ORDER BY s.nom, g.nom_contrat
+                """
+            )
+        ).fetchall()
+        fatca_contracts = [dict(r._mapping) for r in rows]
+    except Exception:
+        fatca_contracts = []
+    # Load saved FATCA for latest questionnaire
+    fatca_saved: dict | None = None
+    try:
+        if lcbft_current and lcbft_current.get("id"):
+            qid = lcbft_current.get("id")
+            row = db.execute(
+                text("SELECT contrat_id, societe_nom, date_operation, pays_residence, nif FROM LCBFT_fatca WHERE questionnaire_id = :q"),
+                {"q": qid},
+            ).fetchone()
+            if row:
+                fatca_saved = dict(row._mapping)
+    except Exception:
+        fatca_saved = None
+    # Pays de résidence fiscale: priorité à l'adresse KYC principale, sinon dernière adresse,
+    # sinon tentatives depuis mariadb_clients (colonnes variables selon environnement).
+    try:
+        primary_addr = None
+        if 'adresses' in locals() and adresses:
+            for a in adresses:
+                if a.get('is_primary'):
+                    primary_addr = a
+                    break
+            if not primary_addr:
+                primary_addr = adresses[0]
+        if primary_addr:
+            fatca_client_country = primary_addr.get('pays') or ''
+    except Exception:
+        pass
+    try:
+        crow = db.execute(text("SELECT * FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+        if crow:
+            m = crow._mapping
+            # Recherche souple des clés potentielles
+            lower_map = { (k.lower() if isinstance(k, str) else k): v for k, v in m.items() }
+            if not fatca_client_country:
+                for key in ("adresse_pays", "pays_fiscal", "residence_fiscale", "pays"):
+                    if key in lower_map and lower_map.get(key):
+                        fatca_client_country = lower_map.get(key) or ''
+                        break
+            for key in ("nif", "num_fiscal", "numero_fiscal", "tin"):
+                if key in lower_map and lower_map.get(key):
+                    fatca_client_nif = lower_map.get(key) or ''
+                    break
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(
+        "dashboard_client_kyc.html",
+        {
+            "request": request,
+            "client": client,
+            "client_id": client_id,
+            "kyc_actifs": actifs,
+            "kyc_actifs_total": actifs_total_str,
+            "kyc_passifs": passifs,
+            "kyc_passifs_total": passifs_total_str,
+            "kyc_revenus": revenus,
+            "kyc_revenus_total": revenus_total_str,
+            "kyc_charges": charges,
+            "kyc_charges_total": charges_total_str,
+            "kyc_adresses": adresses,
+            "kyc_situations_matrimoniales": situations_matrimoniales,
+            "kyc_situations_professionnelles": situations_professionnelles,
+            "kyc_etat_civil": etat_civil_row,
+            "etat_success": etat_success,
+            "etat_error": etat_error,
+            "adresse_success": adresse_success,
+            "adresse_error": adresse_error,
+            "matrimonial_success": matrimonial_success,
+            "matrimonial_error": matrimonial_error,
+            "professionnel_success": professionnel_success,
+            "professionnel_error": professionnel_error,
+            "passif_success": passif_success,
+            "passif_error": passif_error,
+            "revenu_success": revenu_success,
+            "revenu_error": revenu_error,
+            "charge_success": charge_success,
+            "charge_error": charge_error,
+            "actif_success": actif_success,
+            "actif_error": actif_error,
+            "ref_type_actif": ref_type_actif,
+            "ref_type_passif": ref_type_passif,
+            "ref_type_revenu": ref_type_revenu,
+            "ref_type_charge": ref_type_charge,
+            "ref_objectifs": ref_objectifs,
+            "preselected_objectifs": preselected_objectifs,
+            "preselected_objectifs_ids": preselected_objectifs_ids,
+            "ref_type_adresse": ref_type_adresse,
+            "ref_situation_matrimoniale": ref_situation_matrimoniale,
+            "ref_situation_convention": ref_situation_convention,
+            "ref_profession_secteur": ref_profession_secteur,
+            "ref_statut_professionnel": ref_statut_professionnel,
+            "active_section": active_section,
+            # LCBFT
+            "lcbft_current": lcbft_current,
+            "lcbft_vigilance_options": lcbft_vigilance_options,
+            "lcbft_vigilance_ids": lcbft_vigilance_ids,
+            # RISK (connaissance financière)
+            "risque_opts": risque_opts,
+            "risque_current": risque_current,
+            "risque_connaissance_map": risque_connaissance_map,
+            "risque_objectifs_ids": risque_objectifs_ids,
+            "risque_decision": risque_decision,
+            "risque_display_saisie": risque_display_saisie,
+            "risque_display_obsolescence": risque_display_obsolescence,
+            # ESG
+            "esg_exclusion_options": esg_exclusion_options,
+            "esg_indicator_options": esg_indicator_options,
+            "esg_selected_exclusions": esg_selected_exclusions,
+            "esg_selected_indicators": esg_selected_indicators,
+            "esg_current": esg_current,
+            "esg_success": esg_success,
+            "esg_error": esg_error,
+            "esg_display_saisie": esg_display_saisie,
+            "esg_display_obsolescence": esg_display_obsolescence,
+            # FATCA block
+            "fatca_contracts": fatca_contracts,
+            "fatca_saved": fatca_saved,
+            "fatca_client_country": fatca_client_country or "",
+            "fatca_client_nif": fatca_client_nif or "",
+            "fatca_today": fatca_today,
+            "summary_data": {
+                "actifs": synth_actifs,
+                "passifs": synth_passifs,
+                "revenus": synth_revenus,
+                "charges": synth_charges,
+            },
+            "patrimoine_net_str": patrimoine_net_str,
+            "budget_net_str": budget_net_str,
+            "patrimoine_net_value": float(patrimoine_net) if patrimoine_net is not None else 0.0,
+            "budget_net_value": float(budget_net) if budget_net is not None else 0.0,
+        },
+    )
+
+
 # ---------------- Clients ----------------
 @router.get("/clients", response_class=HTMLResponse)
 def dashboard_clients(request: Request, db: Session = Depends(get_db)):
@@ -961,6 +3885,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             Affaire.SRRI,
             Affaire.date_debut,
             Affaire.date_cle,
+            Affaire.frais_negocies,
             Client.nom.label("client_nom"),
             Client.prenom.label("client_prenom"),
             HistoriqueAffaire.valo.label("last_valo"),
@@ -1027,6 +3952,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "SRRI": r.SRRI,
             "date_debut": r.date_debut,
             "date_cle": r.date_cle,
+            "frais_negocies": getattr(r, 'frais_negocies', None),
             "client_nom": r.client_nom,
             "client_prenom": r.client_prenom,
             "last_valo": r.last_valo,

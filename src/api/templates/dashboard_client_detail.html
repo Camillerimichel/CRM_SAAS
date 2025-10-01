@@ -28,8 +28,8 @@
   th, td { padding: 6px 8px; border-bottom: 1px solid #eee; }
   th { background: #f8f9fa; text-align: left; font-size: 0.8rem; }
   .valo { font-weight: 600; color: #28a745; font-family: monospace; font-size: 1.05rem; }
-  .kpi { font-size: 1rem; }
-  .kpi-small { font-size: 0.95rem; color:#333; }
+  .kpi { font-size: 0.95rem; font-weight: 700; }
+  .kpi-small { font-size: 0.85rem; color:#333; }
   .srri-icon { font-size: 0.7rem; vertical-align: middle; margin-left: 6px; }
   /* Override base .card i selector that makes icons large */
   .card .srri-icon { font-size: 0.7rem !important; margin-bottom: 0 !important; }
@@ -43,7 +43,10 @@
   #invSection { padding-top: 8px; }
   #invSection h3 { margin: 4px 0 8px; }
   #invSection table { margin-top: 0; }
-  .kpi-mini { font-size: 0.9rem; color: #333; line-height: 1.2; }
+  .kpi-mini { font-size: 0.85rem; color: #333; line-height: 1.2; }
+  .kpi-line { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; }
+  .kpi-line:first-of-type { margin-top:6px; }
+  .kpi-line .kv { font-weight:600; text-align:right; }
   /* Neutralize big button style from base for table links */
   .card table a, #contractsTable a { 
     display: inline !important; 
@@ -117,23 +120,16 @@
     <div class="card">
       <div class="muted">Valorisation</div>
       <div class="kpi valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</div>
-      <div class="kpi-mini" style="margin-top:6px;"><strong>Versements:</strong> {{ depots_str }}</div>
-      <div class="kpi-mini"><strong>Retraits:</strong> {{ retraits_str }}</div>
-      <div class="kpi-mini"><strong>Solde:</strong> {{ solde_str }}</div>
+      <div class="kpi-mini kpi-line"><span>Versements</span><span class="kv">{{ depots_str }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ retraits_str }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Solde</span><span class="kv">{{ solde_str }}</span></div>
     </div>
     <div class="card">
       <div class="muted">Indicateurs</div>
-      <div class="kpi-mini"><strong>Perf 52 semaines:</strong> {% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</div>
-      <div class="kpi-mini"><strong>Volatilité:</strong> {% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</div>
-      <div class="kpi-mini"><strong>SRRI client / actuel:</strong>
-        {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
-        {% if header_srri_icon %}
-          {% if header_srri_icon == 'fire' %}🔥{% elif header_srri_icon == 'hands-praying' %}🙏{% elif header_srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
-        {% endif %}
-      </div>
-      <div class="kpi-mini"><strong>Perf annualisée (depuis début):</strong>
-        {% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}
-      </div>
+      <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
+      <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
+      <div class="kpi-mini kpi-line"><span>SRRI client / actuel</span><span class="kv">{{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
     </div>
   </div>
 
@@ -185,154 +181,6 @@
   <!-- Tâches: accordéon local -->
   <div id="clientTasksToggle" class="card accordion-toggle" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
   
-  <!-- KYC: accordéon (ouvre des pop-ups dédiées) -->
-  <div id="kycToggle" class="card accordion-toggle" style="margin-top:12px; display:flex; align-items:center; justify-content:center; gap:8px;">
-    <h3 style="margin:0;">KYC</h3>
-    <span class="chevron">▾</span>
-  </div>
-  <div id="kycSection" class="card" style="display:none;">
-    <h3 style="margin:0 0 8px 0;">Informations KYC</h3>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
-      <button type="button" class="btn btn-choice" onclick="openKycCivil()"><i class="fa-solid fa-id-card" style="margin-right:6px;"></i>État‑civil</button>
-      <button type="button" class="btn btn-choice" onclick="openKycMatrimonial()"><i class="fa-solid fa-people-arrows" style="margin-right:6px;"></i>Situation matrimoniale</button>
-      <button type="button" class="btn btn-choice" onclick="openKycPatrimonial()"><i class="fa-solid fa-piggy-bank" style="margin-right:6px;"></i>Situation patrimoniale</button>
-    </div>
-  </div>
-
-  <!-- Modales KYC -->
-  <style>
-    .kyc-modal { position: fixed; inset:0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999; }
-    .kyc-card { background:#fff; border-radius:12px; width: 900px; max-width: 95vw; max-height: 92vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .kyc-header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); }
-    .kyc-body { padding: 12px 14px; }
-  </style>
-  <div id="kycCivilModal" class="kyc-modal" onclick="if(event.target===this) closeKycCivil()">
-    <div class="kyc-card">
-      <div class="kyc-header"><h3 style="margin:0;">État‑civil</h3><button class="btn" onclick="closeKycCivil()">Fermer</button></div>
-      <div class="kyc-body">Développement en cours…</div>
-    </div>
-  </div>
-  <div id="kycMatrimonialModal" class="kyc-modal" onclick="if(event.target===this) closeKycMatrimonial()">
-    <div class="kyc-card">
-      <div class="kyc-header"><h3 style="margin:0;">Situation matrimoniale</h3><button class="btn" onclick="closeKycMatrimonial()">Fermer</button></div>
-      <div class="kyc-body">Développement en cours…</div>
-    </div>
-  </div>
-  <div id="kycPatrimonialModal" class="kyc-modal" onclick="if(event.target===this) closeKycPatrimonial()">
-    <div class="kyc-card">
-      <div class="kyc-header"><h3 style="margin:0;">Situation patrimoniale</h3><button class="btn" onclick="closeKycPatrimonial()">Fermer</button></div>
-      <div class="kyc-body">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:8px;">
-          <button type="button" class="btn btn-choice" id="kycPatriBtnActifs" onclick="openKycActifs()">Actifs</button>
-          <button type="button" class="btn btn-choice" id="kycPatriBtnPassif" onclick="setKycPatriTab('passif')">Passif</button>
-          <button type="button" class="btn btn-choice" id="kycPatriBtnRecettes" onclick="setKycPatriTab('recettes')">Recettes</button>
-          <button type="button" class="btn btn-choice" id="kycPatriBtnCharges" onclick="setKycPatriTab('charges')">Charges</button>
-        </div>
-        <div id="kycPatriContent" class="card" style="padding:10px;">Développement en cours…</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up Actifs -->
-  <div id="kycActifsModal" class="kyc-modal" onclick="if(event.target===this) closeKycActifs()">
-    <div class="kyc-card" style="width:1200px; max-width:98vw;">
-      <div class="kyc-header"><h3 style="margin:0;">Actifs du client</h3><div><button class="btn" onclick="closeKycActifs()">Fermer</button></div></div>
-      <div class="kyc-body">
-        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;"><button class="btn btn-choice" onclick="openKycActifAdd()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter</button></div>
-        <table id="kycActifsTable" class="display" style="width:100%">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Intitulé</th>
-              <th>Date acquis.</th>
-              <th style="text-align:right;">Valeur init.</th>
-              <th>Date éval.</th>
-              <th style="text-align:right;">Valeur actuelle</th>
-              <th>Devise</th>
-              <th style="text-align:center;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in kyc_actifs %}
-            <tr>
-              <td>{{ a.type or '' }}</td>
-              <td>{{ a.intitule or '' }}</td>
-              <td>{{ a.date_acquisition or '' }}</td>
-              <td style="text-align:right;">{{ a.valeur_initiale or '' }}</td>
-              <td>{{ a.date_eval or '' }}</td>
-              <td style="text-align:right;">{{ a.valeur or '' }}</td>
-              <td>{{ a.devise or '' }}</td>
-              <td style="text-align:center;">
-                <button type="button" class="btn btn-choice" title="Modifier" onclick="editKycActif({{ a.id }})" style="padding:2px 6px; font-size:11px; border-radius:4px;"><i class="fa-solid fa-pen"></i></button>
-                <button type="button" class="btn btn-choice" title="Supprimer" onclick="deleteKycActif({{ a.id }})" style="padding:2px 6px; font-size:11px; border-radius:4px; margin-left:4px;"><i class="fa-solid fa-trash"></i></button>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="8" class="muted">Aucun actif saisi.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up Ajout Actif -->
-  <div id="kycActifAddModal" class="kyc-modal" onclick="if(event.target===this) closeKycActifAdd()">
-    <div class="kyc-card" style="width:600px; max-width:90vw;">
-      <div class="kyc-header"><h3 style="margin:0;">Ajouter un actif</h3><button class="btn" onclick="closeKycActifAdd()">Fermer</button></div>
-      <div class="kyc-body">
-        <form method="post" action="/dashboard/clients/{{ client.id }}/actifs">
-          <!-- Ligne 1: Intitulé pleine largeur -->
-          <div class="field" style="margin-bottom:.6rem;">
-            <label>Intitulé</label>
-            <input type="text" name="intitule" placeholder="ex: Compte titres ABC" required style="width:100%;" />
-          </div>
-          <!-- Ligne 2: Type (1/3) + Devise à droite -->
-          <div class="form-row" style="margin-bottom:.6rem; grid-template-columns: 2fr 1fr;">
-            <div class="field">
-              <label>Type d'actif</label>
-              <select name="id_type_actif" required style="width:100%; height: 2.4rem;">
-                <option value="" disabled selected>Choisir…</option>
-                {% for t in kyc_types_actifs %}
-                  <option value="{{ t.id }}">{{ t.libelle }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field" style="max-width: 12ch;">
-              <label>Devise</label>
-              <input type="text" name="devise" placeholder="EUR" />
-            </div>
-          </div>
-          <!-- Ligne 3: Date d'acquisition (12ch) & Valeur initiale (input) -->
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Date acquis.</label>
-              <input type="date" name="date_acquisition" style="width:12ch;" />
-            </div>
-            <div class="field">
-              <label>Valeur init.</label>
-              <input type="text" name="valeur_initiale" inputmode="decimal" placeholder="100000.00" pattern="^\\d*(?:[\\.,]\\d+)?$" title="Nombre positif, décimales acceptées" oninput="this.value=this.value.replace(/[^0-9.,]/g,'').replace(/^\-+/,'')" />
-            </div>
-          </div>
-          <!-- Ligne 4: Date éval (12ch) & Valeur actuelle (input) -->
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Date éval.</label>
-              <input type="date" name="date_eval" style="width:12ch;" />
-            </div>
-            <div class="field">
-              <label>Valeur actuelle</label>
-              <input type="text" name="valeur" inputmode="decimal" placeholder="100000.00" pattern="^\\d*(?:[\\.,]\\d+)?$" title="Nombre positif, décimales acceptées" oninput="this.value=this.value.replace(/[^0-9.,]/g,'').replace(/^\-+/,'')" />
-            </div>
-          </div>
-          <!-- Ligne 6: Commentaire -->
-          <div class="field" style="margin-bottom:.6rem;"><label>Commentaire</label><textarea name="commentaire" rows="3" placeholder="Notes…" style="width:100%;"></textarea></div>
-          <div class="create-btn-container"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Enregistrer</button></div>
-        </form>
-      </div>
-    </div>
-  </div>
-
   <!-- Popup temporaire de création de tâche -->
   <style>
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
@@ -575,71 +423,8 @@
     })();
     function clientSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('client_statut_id_modal').value=sid; const peers=document.getElementById('client_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('client_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
 
-    // KYC modals open/close helpers
-    function openKycCivil(){ document.getElementById('kycCivilModal').style.display='flex'; }
-    function closeKycCivil(){ document.getElementById('kycCivilModal').style.display='none'; }
-    function openKycMatrimonial(){ document.getElementById('kycMatrimonialModal').style.display='flex'; }
-    function closeKycMatrimonial(){ document.getElementById('kycMatrimonialModal').style.display='none'; }
-    function openKycPatrimonial(){ document.getElementById('kycPatrimonialModal').style.display='flex'; setKycPatriTab('actifs'); }
-    function closeKycPatrimonial(){ document.getElementById('kycPatrimonialModal').style.display='none'; }
-    function setKycPatriTab(tab){
-      var ids = ['Actifs','Passif','Recettes','Charges'];
-      ids.forEach(function(n){ var b=document.getElementById('kycPatriBtn'+n); if(b){ b.classList.remove('btn-choice-active'); }});
-      var map = { actifs:'Actifs', passif:'Passif', recettes:'Recettes', charges:'Charges' };
-      var sel = map[tab] || 'Actifs';
-      var btn = document.getElementById('kycPatriBtn'+sel);
-      if (btn) btn.classList.add('btn-choice-active');
-      var cont = document.getElementById('kycPatriContent');
-      if (!cont) return;
-      var labels = { actifs:'Liste des actifs (développement en cours…) ', passif:'Liste des dettes / passif (développement en cours…)', recettes:'Liste des recettes (développement en cours…)', charges:'Liste des charges (développement en cours…)' };
-      cont.textContent = labels[tab] || labels['actifs'];
-    }
-    // Actifs modal open/close + DataTables init
-    function openKycActifs(){
-      var el = document.getElementById('kycActifsModal'); if (el) el.style.display='flex';
-      try {
-        if (!window._kycActifsDT){
-          window._kycActifsDT = $('#kycActifsTable').DataTable({
-            destroy:true,
-            paging:true,
-            pageLength:25,
-            autoWidth:false,
-            responsive:false,
-            scrollX:false,
-            dom:'Bfrtip',
-            buttons:[{extend:'csvHtml5', text:'Exporter CSV', title:'actifs_client_{{ client.id }}', bom:true, charset:'utf-8', fieldSeparator:';'}],
-            order:[[0,'desc']]
-          });
-        }
-      } catch(e){}
-    }
-    function closeKycActifs(){ var el=document.getElementById('kycActifsModal'); if (el) el.style.display='none'; }
-    function openKycActifAdd(){ document.getElementById('kycActifAddModal').style.display='flex'; }
-    function closeKycActifAdd(){ document.getElementById('kycActifAddModal').style.display='none'; }
-    function editKycActif(id){ alert('Édition actif #'+id+' — développement en cours…'); }
-    function deleteKycActif(id){ if(confirm('Supprimer l\'actif #'+id+' ?')){ alert('Suppression — développement en cours…'); } }
   </script>
 
-  <style>
-    /* Mise en page lisible pour le tableau des actifs (sans défilement horizontal) */
-    #kycActifsTable { table-layout: fixed; width: 100%; }
-    /* Type */
-    #kycActifsTable th:nth-child(1), #kycActifsTable td:nth-child(1) { width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* Intitulé (large et retour à la ligne) */
-    #kycActifsTable th:nth-child(2), #kycActifsTable td:nth-child(2) { min-width: 44ch; white-space: normal; word-break: break-word; }
-    /* Date acquisition */
-    #kycActifsTable th:nth-child(3), #kycActifsTable td:nth-child(3) { width: 12ch; white-space: nowrap; }
-    /* Valeur initiale */
-    #kycActifsTable th:nth-child(4), #kycActifsTable td:nth-child(4) { width: 16ch; white-space: nowrap; }
-    /* Date eval */
-    #kycActifsTable th:nth-child(5), #kycActifsTable td:nth-child(5) { width: 10ch; white-space: nowrap; }
-    /* Valeur actuelle */
-    #kycActifsTable th:nth-child(6), #kycActifsTable td:nth-child(6) { width: 16ch; white-space: nowrap; }
-    /* Devise */
-    #kycActifsTable th:nth-child(7), #kycActifsTable td:nth-child(7) { width: 6ch; white-space: nowrap; }
-    /* Actions */
-    #kycActifsTable th:nth-child(8), #kycActifsTable td:nth-child(8) { width: 9ch; white-space: nowrap; text-align:center; }
-  </style>
   <style>
     /* Sélection visuelle des lignes dans la pop-up Messages */
     #clientMsgsTable tbody tr:hover { background: #f3f6ff; }

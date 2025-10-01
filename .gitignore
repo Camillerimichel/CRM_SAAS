@@ -17,3 +17,7 @@ schema.sql*
 dump.sql
 dump.sql
 *.sql
+# .gitignore
+.env
+node_modules/
+

@@ -180,6 +180,8 @@
         .right { text-align: right; }
         .center { text-align: center; }
         .badge { display:inline-block; padding:.15rem .5rem; font-size:.75rem; border-radius:999px; border:1px solid var(--border); background:#f9fafb; color: var(--text); }
+        /* Utilitaire: masque un bloc */
+        .step-hidden { display: none !important; }
 
         /* ===== Accordéons génériques ===== */
         .accordion-toggle { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: .8rem 1rem; font-size: 1rem; font-weight: 600; position: relative; }
@@ -233,7 +235,7 @@
     </div>
 
     <script>
-      // Convert ISO datetimes to local timezone on the client
+      // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
       (function () {
         function applyLocalDates() {
           var nodes = document.querySelectorAll('.js-local-dt');
@@ -248,8 +250,13 @@
             }
             var d = new Date(s);
             if (isNaN(d)) return;
-            // Render using the user's locale
-            el.textContent = d.toLocaleString();
+            // Render using fixed Europe/Paris timezone (UTC+1/+2 with DST)
+            try {
+              el.textContent = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+            } catch (e) {
+              // Fallback to default locale if TZ not supported
+              el.textContent = d.toLocaleString();
+            }
           });
         }
         if (document.readyState === 'loading') {
@@ -257,6 +264,84 @@
         } else {
           applyLocalDates();
         }
+      })();
+      // Generic toggle handlers for btn-groups (Oui/Non) and multi-groups
+      (function(){
+        function initGroups(){
+          // Pre-activate single-choice groups from hidden inputs
+          document.querySelectorAll('.btn-group[data-name]').forEach(function(group){
+            var name = group.getAttribute('data-name');
+            var form = group.closest('form') || document;
+            var input = form.querySelector('input[name="'+name+'"]');
+            var current = input && input.value != null ? String(input.value) : '';
+            if (current){
+              group.querySelectorAll('button[data-value]').forEach(function(b){
+                var v = String(b.getAttribute('data-value')||'');
+                b.classList.toggle('btn-choice-active', v === current);
+              });
+            }
+          });
+          // Pre-activate multi-choice groups from existing hidden inputs
+          document.querySelectorAll('.btn-multi-group[data-name]').forEach(function(group){
+            var name = group.getAttribute('data-name');
+            var form = group.closest('form') || document;
+            var selected = new Set();
+            form.querySelectorAll('input[name="'+name+'"]').forEach(function(i){ selected.add(String(i.value)); });
+            group.querySelectorAll('button.btn-choice[data-id]').forEach(function(b){
+              var id = String(b.getAttribute('data-id')||'');
+              if (selected.has(id)) b.classList.add('btn-choice-active');
+            });
+          });
+        }
+        function ensureHiddenContainer(group){
+          var name = group.getAttribute('data-name');
+          var form = group.closest('form') || document.body;
+          var container = form.querySelector('.multi-hidden[data-name="'+name+'"]');
+          if (!container){
+            container = document.createElement('div');
+            container.className = 'multi-hidden';
+            container.setAttribute('data-name', name);
+            form.appendChild(container);
+          }
+          return container;
+        }
+        document.addEventListener('click', function(ev){
+          var btn = ev.target.closest('button');
+          if (!btn) return;
+          var group = btn.closest('.btn-group, .btn-multi-group');
+          if (!group) return;
+          // Single-choice
+          if (group.classList.contains('btn-group') && btn.hasAttribute('data-value')){
+            ev.preventDefault(); ev.stopPropagation();
+            var name = group.getAttribute('data-name');
+            var form = group.closest('form') || document;
+            var input = form.querySelector('input[name="'+name+'"]');
+            if (!input){ input = document.createElement('input'); input.type='hidden'; input.name=name; form.appendChild(input); }
+            var val = String(btn.getAttribute('data-value')||'');
+            input.value = val;
+            group.querySelectorAll('button[data-value]').forEach(function(b){ b.classList.remove('btn-choice-active'); });
+            btn.classList.add('btn-choice-active');
+            return;
+          }
+          // Multi-choice
+          if (group.classList.contains('btn-multi-group') && btn.hasAttribute('data-id')){
+            ev.preventDefault(); ev.stopPropagation();
+            var name = group.getAttribute('data-name');
+            var container = ensureHiddenContainer(group);
+            var id = String(btn.getAttribute('data-id')||'');
+            var active = btn.classList.toggle('btn-choice-active');
+            if (active){
+              var i = document.createElement('input'); i.type='hidden'; i.name=name; i.value=id; container.appendChild(i);
+            } else {
+              var toRemove = container.querySelector('input[name="'+name+'"][value="'+id+'"]');
+              if (toRemove) toRemove.remove();
+            }
+            return;
+          }
+        });
+        if (document.readyState === 'loading'){
+          document.addEventListener('DOMContentLoaded', initGroups);
+        } else { initGroups(); }
       })();
     </script>
 </body>

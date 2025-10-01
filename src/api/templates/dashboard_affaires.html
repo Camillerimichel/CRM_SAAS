@@ -148,7 +148,7 @@
                     <th>Contrat / Client</th>
                     <th>SRRI</th>
                     <th>Date début</th>
-                    <th>Frais courtier (€)</th>
+                    <th>Frais négociés (€)</th>
                     <th>Montant</th>
                     <th>Perf 52 sem. (%)</th>
                     <th>Volatilité 52 sem. (%)</th>
@@ -183,7 +183,7 @@
                         {% if a.srri_icon == 'fire' %}🔥{% elif a.srri_icon == 'hands-praying' %}🙏{% elif a.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
                     </td>
                     <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
-                    <td style="text-align:right;" data-order="{{ a.frais_courtier if a.frais_courtier is not none else '' }}">{{ a.frais_courtier if a.frais_courtier is not none else '' }}</td>
+                    <td style="text-align:right;" data-order="{{ a.frais_negocies if a.frais_negocies is not none else '' }}">{{ a.frais_negocies if a.frais_negocies is not none else '' }}</td>
                     <td style="text-align:right;">{{ a.last_valo }}</td>
                     <td style="text-align:right;">{{ a.last_perf }}</td>
                     <td style="text-align:right;">{{ a.last_volat }}</td>

@@ -1,0 +1,3281 @@
+{% extends "base.html" %}
+
+{% block title %}KYC – {% if client %}{{ client.prenom }} {{ client.nom }}{% else %}Client{% endif %}{% endblock %}
+
+{% block header_title %}
+  <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <span><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</span>
+    {% if client %}
+      <span class="muted" style="font-size:0.9rem;">Client&nbsp;: {{ client.prenom }} {{ client.nom }}</span>
+    {% endif %}
+  </span>
+{% endblock %}
+
+{% block content %}
+{% if error %}
+  <div class="card" style="max-width:720px; margin:0 auto;">
+    {{ error }}
+  </div>
+{% else %}
+  <style>
+  .card { background:#fff; border-radius:12px; padding:14px; box-shadow:0 4px 16px rgba(0,0,0,0.08); margin-bottom:14px; }
+  .muted { color:#666; }
+  .hero-card { display:flex; flex-direction:column; gap:16px; align-items:flex-start; }
+  .kyc-btn-row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; width:100%; }
+  .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:0.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; }
+  .kyc-etat-container { display:none; gap:12px; flex-direction:column; }
+  .kyc-etat-container.open { display:flex; }
+  .kyc-main-btn i { font-size:1rem; color:#fff; }
+  .actifs-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; font-weight:600; }
+  .actifs-summary .value { font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); font-weight:700; color:var(--primary); }
+  .summary-card { width:100%; display:flex; flex-direction:column; gap:16px; }
+  .summary-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; }
+  .summary-pie { background:#fff; border-radius:12px; padding:16px; box-shadow:0 4px 16px rgba(0,0,0,0.08); display:flex; flex-direction:column; gap:8px; }
+  .summary-pie h4 { margin:0; font-size:0.95rem; }
+  .summary-pie .chart-holder { width:100%; height:220px; }
+  .summary-pie .synth-empty { text-align:center; color:#94a3b8; font-size:0.85rem; padding:40px 0; }
+  .summary-balances { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; }
+  .summary-balance { background:#fff; border-radius:12px; padding:18px; box-shadow:0 2px 10px rgba(0,0,0,0.06); display:flex; flex-direction:column; gap:6px; align-items:center; text-align:center; }
+  .summary-balance .label { font-size:0.85rem; color:#555; }
+  .summary-balance .amount { font-size:1.05rem; font-weight:700; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); color: var(--primary); }
+  .objectives-panel { display:flex; flex-wrap:wrap; gap:16px; }
+  .objectives-list { flex:1 1 260px; background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,0.06); }
+  .objectives-list h4 { margin:0 0 12px 0; font-size:0.95rem; }
+  /* Un bouton par ligne pour les objectifs */
+  .objectives-grid { display:flex; flex-direction:column; gap:10px; }
+  .objective-btn { display:inline-flex; align-items:center; justify-content:flex-start; width:100%; padding:10px 14px; border:1px solid var(--primary-200, #c7d2fe); border-radius:10px; background:#fff; color:var(--primary); font-weight:600; font-size:0.9rem; text-align:left; min-height:44px; gap:8px; transition:background .2s ease, color .2s ease, border .2s ease, box-shadow .2s ease; }
+  .objective-btn:hover { background:var(--primary-50, #eef2ff); border-color:var(--primary); }
+  .objective-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 8px 16px rgba(37, 99, 235, 0.25); }
+  .accordion-header-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .objective-add-btn { border:1px solid var(--primary); background:#fff; color:var(--primary); width:36px; height:36px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(67,56,202,0.15); transition:background .2s ease, color .2s ease, opacity .2s ease; }
+  .objective-add-btn:hover { background:var(--primary); color:#fff; }
+  .objective-add-btn:disabled { background:#f1f5f9; color:#94a3b8; border-color:#e0e7ff; cursor:not-allowed; box-shadow:none; }
+  .objective-add-btn:disabled:hover { background:#f1f5f9; color:#94a3b8; }
+  .objective-add-btn i { pointer-events:none; }
+  .objectifs-modal-list { display:flex; flex-direction:column; gap:10px; max-height:300px; overflow:auto; }
+  .objectifs-modal-item { display:flex; align-items:center; gap:8px; padding:6px 0; }
+  .objectifs-modal-item input { margin:0; }
+  .objectives-empty { text-align:center; color:#94a3b8; font-size:0.85rem; padding:6px 0; }
+  .objective-detail-card { flex:2 1 360px; background:#fff; border-radius:12px; padding:18px; box-shadow:0 2px 14px rgba(15,23,42,0.08); display:flex; flex-direction:column; gap:14px; min-height:240px; }
+  .objective-detail-card.empty { justify-content:center; align-items:center; color:#94a3b8; font-size:0.9rem; text-align:center; }
+  .objective-detail-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .objective-detail-title { margin:0; font-size:1.05rem; font-weight:700; color:#1f2b6c; }
+  .objective-detail-meta { font-size:0.8rem; color:#556; display:flex; gap:12px; flex-wrap:wrap; }
+  .objective-detail-meta span { display:inline-flex; align-items:center; gap:6px; }
+  .objective-detail-actions { display:flex; justify-content:flex-end; align-items:center; gap:10px; flex-wrap:wrap; }
+  .objective-detail-actions .spacer { flex:1 1 auto; }
+  .btn-danger { background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; padding:8px 16px; border-radius:8px; cursor:pointer; }
+  .btn-danger:hover { background:#fecaca; }
+
+    .kyc-container { display:none; gap:12px; flex-direction:column; }
+    .kyc-container.open { display:flex; }
+    .accordion { border-radius:10px; overflow:hidden; }
+    .accordion-toggle { display:flex; justify-content:space-between; align-items:center; width:100%; border:none; background:#f5f7ff; color:#1f2b6c; font-weight:600; padding:10px 14px; cursor:pointer; font-size:0.95rem; }
+    .accordion-toggle .chevron { transition:transform .2s ease; }
+    .accordion-toggle.collapsed .chevron { transform:rotate(-90deg); }
+    .accordion-panel { display:none; padding:12px 14px; background:#fff; border:1px solid #eef1ff; border-top:none; }
+    .accordion-panel.active { display:block; }
+    .toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+    .btn-icon { border:none; background:transparent; padding:4px 6px; cursor:pointer; color:var(--primary); }
+    .btn-icon.danger { color:#c62828; }
+    .btn-icon[disabled] { opacity:0.4; cursor:not-allowed; }
+    .btn-icon i { font-size:0.95rem; }
+    table { width:100%; border-collapse:collapse; font-size:0.9rem; }
+    th, td { padding:6px 8px; border-bottom:1px solid #eef1ff; }
+    th { background:#f5f7ff; text-align:left; font-size:0.8rem; color:#1f2b6c; }
+    td.number { text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); }
+    td.actions { text-align:right; white-space:nowrap; }
+    .tag-muted { display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; color:#555; }
+    .tag-muted i { color:var(--primary); }
+    .placeholder { padding:12px; background:#f8f9fb; border:1px dashed #d7dce9; border-radius:10px; color:#6c7793; font-size:0.9rem; }
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:9999; }
+    .modal-card { background:#fff; border-radius:14px; width:520px; max-width:94vw; max-height:92vh; overflow:auto; box-shadow:0 18px 48px rgba(16,24,64,0.18); }
+    .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eef1ff; }
+    .modal-header h3 { margin:0; font-size:1.05rem; }
+    .modal-body { padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:14px 16px; border-top:1px solid #eef1ff; }
+    .modal-close { border:none; background:transparent; font-size:1.2rem; cursor:pointer; color:#4d5875; }
+    .field { display:flex; flex-direction:column; gap:4px; }
+    .field label { font-size:0.8rem; font-weight:600; color:#44528a; }
+    .field input,
+    .field select,
+    .field textarea { border:1px solid #d7dce9; border-radius:8px; padding:8px 10px; font-size:0.9rem; }
+    .field textarea { resize:vertical; min-height:90px; }
+    .field .value-display { border:1px dashed #d7dce9; border-radius:8px; padding:8px 10px; background:#f8f9fb; font-size:0.9rem; color:#2c3e7a; }
+    .btn-primary { background:var(--primary); color:#fff; border:1px solid var(--primary); padding:8px 16px; border-radius:8px; cursor:pointer; }
+    .btn-secondary { background:#f5f7ff; color:#2c3e7a; border:1px solid #d7dce9; padding:8px 16px; border-radius:8px; cursor:pointer; }
+    .btn-ghost { background:transparent; border:none; color:#4d5875; cursor:pointer; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.75rem; background:#eef1ff; color:#1f2b6c; }
+    .badge.success { background:#e3f6ed; color:#256742; }
+    .badge.error { background:#fdecea; color:#a94442; }
+    .badge.primary { background:#dfe8ff; color:#1f2b6c; }
+    .badge.secondary { background:#f1f0ff; color:#3a2f8f; }
+  </style>
+
+  <div class="card hero-card">
+    {% if client %}
+      <div>
+        <strong>Client :</strong> {{ client.prenom }} {{ client.nom }}
+        {% if client_id %}<span class="badge">ID&nbsp;{{ client_id }}</span>{% endif %}
+      </div>
+    {% endif %}
+    <div class="kyc-btn-row">
+      <button type="button" class="kyc-main-btn" id="openEtatCivilBtn">
+        <i class="fa-solid fa-user"></i>
+        Etat civil
+      </button>
+      <button type="button" class="kyc-main-btn" id="openKycBtn">
+        <i class="fa-solid fa-piggy-bank"></i>
+        Patrimoine et revenu
+      </button>
+      <button type="button" class="kyc-main-btn" id="openKnowledgeBtn">
+        <i class="fa-solid fa-graduation-cap"></i>
+        Connaissances financières
+      </button>
+      <button type="button" class="kyc-main-btn" id="openEsgBtn">
+        <i class="fa-solid fa-leaf"></i>
+        Sensibilité ESG
+      </button>
+      <button type="button" class="kyc-main-btn" id="openObjectifsBtn">
+        <i class="fa-solid fa-bullseye"></i>
+        Objectifs
+      </button>
+      <button type="button" class="kyc-main-btn" id="openLcbftBtn">
+        <i class="fa-solid fa-shield-halved"></i>
+        LCB-FT / TRACFIN / FATCA
+      </button>
+    </div>
+    <p class="muted" style="margin:0; font-size:0.85rem; max-width:640px;">
+      Cette page sert d'atelier pour construire le futur module KYC du dashboard client. Les sections ci-dessous sont
+      accessibles uniquement via cette URL tant que le développement est en cours.
+    </p>
+  </div>
+
+  <div class="kyc-etat-container" id="etatContainer">
+      <div class="accordion card">
+        <button class="accordion-toggle" data-target="etatCivilPanel">
+          <span><i class="fa-solid fa-user" style="margin-right:8px;"></i>Etat civil</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-panel" id="etatCivilPanel">
+          {% if etat_success %}
+            <div class="badge" style="background:#e3f6ed; color:#256742; margin-bottom:12px;">{{ etat_success }}</div>
+          {% elif etat_error %}
+            <div class="badge" style="background:#fdecea; color:#a94442; margin-bottom:12px;">{{ etat_error }}</div>
+          {% endif %}
+          <form id="etatForm" method="post" class="etat-form" style="display:flex; flex-direction:column; gap:12px;">
+            <input type="hidden" name="form_action" value="etat_civil" />
+            <input type="hidden" name="id" id="etatId" value="{{ kyc_etat_civil.id if kyc_etat_civil else '' }}" />
+            <div class="field">
+              <label for="etatCivilite">Civilité</label>
+              <select id="etatCivilite" name="civilite">
+                <option value="">-- Choisir --</option>
+                {% for option in ['Monsieur','Madame','Mademoiselle','Autre'] %}
+                  <option value="{{ option }}" {% if kyc_etat_civil and kyc_etat_civil.civilite == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Nom du client</label>
+              <div class="value-display">
+                {% if client %}
+                  {{ client.prenom }} {{ client.nom }}
+                {% else %}
+                  —
+                {% endif %}
+              </div>
+            </div>
+            <div class="field">
+              <label for="etatDateNaissance">Date de naissance</label>
+              <input id="etatDateNaissance" name="date_naissance" type="date" value="{{ kyc_etat_civil.date_naissance if kyc_etat_civil and kyc_etat_civil.date_naissance else '' }}" />
+            </div>
+            <div class="field">
+              <label for="etatLieuNaissance">Lieu de naissance</label>
+              <input id="etatLieuNaissance" name="lieu_naissance" type="text" placeholder="Ville, pays" value="{{ kyc_etat_civil.lieu_naissance if kyc_etat_civil else '' }}" />
+            </div>
+            <div class="field">
+              <label for="etatNationalite">Nationalité</label>
+              <input id="etatNationalite" name="nationalite" type="text" placeholder="Nationalité" value="{{ kyc_etat_civil.nationalite if kyc_etat_civil else '' }}" />
+            </div>
+            <div class="field">
+              <label for="etatCommentaire">Commentaire</label>
+              <textarea id="etatCommentaire" name="commentaire" placeholder="Informations complémentaires">{{ kyc_etat_civil.commentaire if kyc_etat_civil else '' }}</textarea>
+            </div>
+            <div class="modal-footer" style="justify-content:flex-end; padding:0; border:none;">
+              <button type="submit" class="btn-primary" id="etatSubmitBtn" style="display:none;">Valider</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="accordion card">
+        <button class="accordion-toggle collapsed" data-target="etatAdressePanel">
+          <span><i class="fa-solid fa-location-dot" style="margin-right:8px;"></i>Adresse</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-panel" id="etatAdressePanel">
+          {% if adresse_success %}
+            <div class="badge success" style="margin-bottom:12px;">{{ adresse_success }}</div>
+          {% elif adresse_error %}
+            <div class="badge error" style="margin-bottom:12px;">{{ adresse_error }}</div>
+          {% endif %}
+          <div class="toolbar">
+            <button type="button" class="btn-icon" id="addAdresseBtn" title="Ajouter une adresse">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          {% if kyc_adresses %}
+            <table>
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Adresse</th>
+                  <th style="width:10ch;">Code postal</th>
+                  <th style="width:16ch;">Ville</th>
+                  <th style="width:14ch;">Pays</th>
+                  <th style="width:18ch;">Période</th>
+                  <th style="width:9ch; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for adresse in kyc_adresses %}
+                  <tr>
+                    <td>
+                      {{ adresse.type_libelle }}
+                      {% if adresse.is_primary %}
+                        <span class="badge primary" style="margin-left:6px;">Principale</span>
+                      {% elif adresse.is_secondary %}
+                        <span class="badge secondary" style="margin-left:6px;">Secondaire</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <div>{{ adresse.rue or '—' }}</div>
+                      {% if adresse.complement %}
+                        <div class="muted">{{ adresse.complement }}</div>
+                      {% endif %}
+                    </td>
+                    <td>{{ adresse.code_postal or '—' }}</td>
+                    <td>{{ adresse.ville or '—' }}</td>
+                    <td>{{ adresse.pays or '—' }}</td>
+                    <td>
+                      {% set debut = adresse.date_saisie or '—' %}
+                      {% set fin = adresse.date_expiration or '—' %}
+                      {{ debut }} → {{ fin }}
+                    </td>
+                    <td class="actions">
+                      <button type="button" class="btn-icon" title="Voir / modifier"
+                        data-id="{{ adresse.id }}"
+                        data-type-id="{{ adresse.type_adresse_id }}"
+                        data-rue="{{ (adresse.rue or '')|e }}"
+                        data-complement="{{ (adresse.complement or '')|e }}"
+                        data-code-postal="{{ (adresse.code_postal or '')|e }}"
+                        data-ville="{{ (adresse.ville or '')|e }}"
+                        data-pays="{{ (adresse.pays or '')|e }}"
+                        data-date-saisie="{{ adresse.date_saisie or '' }}"
+                        data-date-expiration="{{ adresse.date_expiration or '' }}"
+                        onclick="openAdresseModal('edit', this)">
+                        <i class="fa-solid fa-eye"></i>
+                      </button>
+                      <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ adresse.id }}" onclick="deleteAdresse(this)">
+                        <i class="fa-solid fa-minus"></i>
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="placeholder">Aucune adresse enregistrée pour l'instant.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="accordion card">
+        <button class="accordion-toggle collapsed" data-target="etatMatrimonialPanel">
+          <span><i class="fa-solid fa-people-arrows" style="margin-right:8px;"></i>Situation matrimoniale</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-panel" id="etatMatrimonialPanel">
+          {% if matrimonial_success %}
+            <div class="badge success" style="margin-bottom:12px;">{{ matrimonial_success }}</div>
+          {% elif matrimonial_error %}
+            <div class="badge error" style="margin-bottom:12px;">{{ matrimonial_error }}</div>
+          {% endif %}
+          <div class="toolbar">
+            <button type="button" class="btn-icon" id="addMatrimonialBtn" title="Ajouter une situation matrimoniale">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          {% if kyc_situations_matrimoniales %}
+            <table>
+              <thead>
+                <tr>
+                  <th>Situation</th>
+                  <th style="width:20ch;">Convention</th>
+                  <th style="width:10ch; text-align:right;">Enfants</th>
+                  <th style="width:20ch;">Période</th>
+                  <th style="width:9ch; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sit in kyc_situations_matrimoniales %}
+                  <tr>
+                    <td>{{ sit.situation_libelle or '—' }}</td>
+                    <td>{{ sit.convention_libelle or '—' }}</td>
+                    <td class="number">{{ sit.nb_enfants }}</td>
+                    <td>
+                      {% set debut = sit.date_saisie or '—' %}
+                      {% set fin = sit.date_expiration or '—' %}
+                      {{ debut }} → {{ fin }}
+                    </td>
+                    <td class="actions">
+                      <button type="button" class="btn-icon" title="Voir / modifier"
+                        data-id="{{ sit.id }}"
+                        data-situation-id="{{ sit.situation_id }}"
+                        data-convention-id="{{ sit.convention_id if sit.convention_id is not none else '' }}"
+                        data-nb-enfants="{{ sit.nb_enfants }}"
+                        data-date-saisie="{{ sit.date_saisie or '' }}"
+                        data-date-expiration="{{ sit.date_expiration or '' }}"
+                        onclick="openMatrimonialModal('edit', this)">
+                        <i class="fa-solid fa-eye"></i>
+                      </button>
+                      <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ sit.id }}" onclick="deleteMatrimonial(this)">
+                        <i class="fa-solid fa-minus"></i>
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="placeholder">Aucune situation matrimoniale enregistrée pour l'instant.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="accordion card">
+        <button class="accordion-toggle collapsed" data-target="etatProfessionnelPanel">
+          <span><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Situation professionnelle</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-panel" id="etatProfessionnelPanel">
+          {% if professionnel_success %}
+            <div class="badge success" style="margin-bottom:12px;">{{ professionnel_success }}</div>
+          {% elif professionnel_error %}
+            <div class="badge error" style="margin-bottom:12px;">{{ professionnel_error }}</div>
+          {% endif %}
+          <div class="toolbar">
+            <button type="button" class="btn-icon" id="addProfessionnelBtn" title="Ajouter une situation professionnelle">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          {% if kyc_situations_professionnelles %}
+            <table>
+              <thead>
+                <tr>
+                  <th>Profession</th>
+                  <th style="width:18ch;">Secteur</th>
+                  <th style="width:18ch;">Statut</th>
+                  <th style="width:18ch;">Employeur</th>
+                  <th style="width:10ch; text-align:right;">Ancienneté</th>
+                  <th style="width:18ch;">Période</th>
+                  <th style="width:9ch; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for prof in kyc_situations_professionnelles %}
+                  <tr>
+                    <td>{{ prof.profession or '—' }}</td>
+                    <td>{{ prof.secteur_libelle or '—' }}</td>
+                    <td>{{ prof.statut_libelle or '—' }}</td>
+                    <td>{{ prof.employeur or '—' }}</td>
+                    <td class="number">{{ prof.anciennete_annees }}</td>
+                    <td>
+                      {% set debut = prof.date_saisie or '—' %}
+                      {% set fin = prof.date_expiration or '—' %}
+                      {{ debut }} → {{ fin }}
+                    </td>
+                    <td class="actions">
+                      <button type="button" class="btn-icon" title="Voir / modifier"
+                        data-id="{{ prof.id }}"
+                        data-profession="{{ (prof.profession or '')|e }}"
+                        data-secteur-id="{{ prof.secteur_id if prof.secteur_id is not none else '' }}"
+                        data-employeur="{{ (prof.employeur or '')|e }}"
+                        data-anciennete="{{ prof.anciennete_annees if prof.anciennete_annees is not none else '' }}"
+                        data-statut-id="{{ prof.statut_id if prof.statut_id is not none else '' }}"
+                        data-date-saisie="{{ prof.date_saisie or '' }}"
+                        data-date-expiration="{{ prof.date_expiration or '' }}"
+                        onclick="openProfessionnelModal('edit', this)">
+                        <i class="fa-solid fa-eye"></i>
+                      </button>
+                      <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ prof.id }}" onclick="deleteProfessionnel(this)">
+                        <i class="fa-solid fa-minus"></i>
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="placeholder">Aucune situation professionnelle enregistrée pour l'instant.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  <div class="kyc-container" id="kycContainer">
+    <div class="summary-card">
+      <h3 style="margin:0;">Synthèse</h3>
+      <div class="summary-grid">
+        <div class="summary-pie">
+          <h4>Répartition des actifs</h4>
+          <div class="chart-holder" id="chartSynthActifs"></div>
+        </div>
+        <div class="summary-pie">
+          <h4>Répartition des passifs</h4>
+          <div class="chart-holder" id="chartSynthPassifs"></div>
+        </div>
+        <div class="summary-pie">
+          <h4>Répartition des revenus</h4>
+          <div class="chart-holder" id="chartSynthRevenus"></div>
+        </div>
+        <div class="summary-pie">
+          <h4>Répartition des charges</h4>
+          <div class="chart-holder" id="chartSynthCharges"></div>
+        </div>
+      </div>
+      <div class="summary-balances">
+        <div class="summary-balance">
+          <span class="label">Solde patrimoine (Actifs - Passifs)</span>
+          <span class="amount {{ 'positive' if patrimoine_net_value >= 0 else 'negative' }}">{{ patrimoine_net_str }} €</span>
+        </div>
+        <div class="summary-balance">
+          <span class="label">Solde budget (Recettes - Charges)</span>
+          <span class="amount {{ 'positive' if budget_net_value >= 0 else 'negative' }}">{{ budget_net_str }} €</span>
+        </div>
+      </div>
+    </div>
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="actifsPanel">
+        <span><i class="fa-solid fa-box-open" style="margin-right:8px;"></i>Actifs</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel active" id="actifsPanel">
+        {% if actif_success %}
+          <div class="badge success" style="margin-bottom:12px;">{{ actif_success }}</div>
+        {% elif actif_error %}
+          <div class="badge error" style="margin-bottom:12px;">{{ actif_error }}</div>
+        {% endif %}
+        <div class="actifs-summary">
+          <span>Total des actifs</span>
+          <span class="value">{{ kyc_actifs_total }} €</span>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="btn-icon" id="addActifBtn" title="Ajouter un actif">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        {% if kyc_actifs %}
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Description</th>
+                <th style="width:12ch;">Date saisie</th>
+                <th style="width:12ch;">Expiration</th>
+                <th style="width:12ch; text-align:right;">Valeur</th>
+                <th style="width:9ch; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in kyc_actifs %}
+                <tr>
+                  <td>{{ a.type_libelle }}</td>
+                  <td>{{ a.description or '—' }}</td>
+                  <td>{{ a.date_saisie or '—' }}</td>
+                  <td>{{ a.date_expiration or '—' }}</td>
+                  <td class="number">{{ a.valeur_str }}</td>
+                  <td class="actions">
+                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+                      data-id="{{ a.id }}"
+                      data-type="{{ a.type_actif_id }}"
+                      data-description="{{ (a.description or '')|e }}"
+                      data-valeur="{{ a.valeur if a.valeur is not none else '' }}"
+                      data-date-saisie="{{ a.date_saisie or '' }}"
+                      data-date-expiration="{{ a.date_expiration or '' }}"
+                      onclick="openActifModal('edit', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ a.id }}" onclick="deleteActif(this)">
+                      <i class="fa-solid fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="placeholder">Aucun actif enregistré pour l'instant.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="accordion card">
+      <button class="accordion-toggle collapsed" data-target="passifPanel">
+        <span><i class="fa-solid fa-scale-balanced" style="margin-right:8px;"></i>Passif</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel" id="passifPanel">
+        {% if passif_success %}
+          <div class="badge success" style="margin-bottom:12px;">{{ passif_success }}</div>
+        {% elif passif_error %}
+          <div class="badge error" style="margin-bottom:12px;">{{ passif_error }}</div>
+        {% endif %}
+        <div class="actifs-summary">
+          <span>Total des passifs</span>
+          <span class="value">{{ kyc_passifs_total }} €</span>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="btn-icon" id="addPassifBtn" title="Ajouter un passif">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        {% if kyc_passifs %}
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Description</th>
+                <th style="width:12ch;">Date saisie</th>
+                <th style="width:12ch;">Expiration</th>
+                <th style="width:12ch; text-align:right;">Montant</th>
+                <th style="width:9ch; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in kyc_passifs %}
+                <tr>
+                  <td>{{ p.type_libelle }}</td>
+                  <td>{{ p.description or '—' }}</td>
+                  <td>{{ p.date_saisie or '—' }}</td>
+                  <td>{{ p.date_expiration or '—' }}</td>
+                  <td class="number">{{ p.montant_str }}</td>
+                  <td class="actions">
+                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+                      data-id="{{ p.id }}"
+                      data-type="{{ p.type_passif_id }}"
+                      data-description="{{ (p.description or '')|e }}"
+                      data-montant="{{ p.montant if p.montant is not none else '' }}"
+                      data-date-saisie="{{ p.date_saisie or '' }}"
+                      data-date-expiration="{{ p.date_expiration or '' }}"
+                      onclick="openPassifModal('edit', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ p.id }}" onclick="deletePassif(this)">
+                      <i class="fa-solid fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="placeholder">Aucun passif enregistré pour l'instant.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="accordion card">
+      <button class="accordion-toggle collapsed" data-target="recettesPanel">
+        <span><i class="fa-solid fa-arrow-trend-up" style="margin-right:8px;"></i>Recettes</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel" id="recettesPanel">
+        {% if revenu_success %}
+          <div class="badge success" style="margin-bottom:12px;">{{ revenu_success }}</div>
+        {% elif revenu_error %}
+          <div class="badge error" style="margin-bottom:12px;">{{ revenu_error }}</div>
+        {% endif %}
+        <div class="actifs-summary">
+          <span>Total des revenus annuels</span>
+          <span class="value">{{ kyc_revenus_total }} €</span>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="btn-icon" id="addRevenuBtn" title="Ajouter un revenu">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        {% if kyc_revenus %}
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th style="width:12ch;">Date saisie</th>
+                <th style="width:12ch;">Expiration</th>
+                <th style="width:14ch; text-align:right;">Montant annuel</th>
+                <th style="width:9ch; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in kyc_revenus %}
+                <tr>
+                  <td>{{ r.type_libelle }}</td>
+                  <td>{{ r.date_saisie or '—' }}</td>
+                  <td>{{ r.date_expiration or '—' }}</td>
+                  <td class="number">{{ r.montant_str }}</td>
+                  <td class="actions">
+                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+                      data-id="{{ r.id }}"
+                      data-type="{{ r.type_revenu_id }}"
+                      data-montant="{{ r.montant if r.montant is not none else '' }}"
+                      data-date-saisie="{{ r.date_saisie or '' }}"
+                      data-date-expiration="{{ r.date_expiration or '' }}"
+                      onclick="openRevenuModal('edit', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ r.id }}" onclick="deleteRevenu(this)">
+                      <i class="fa-solid fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="placeholder">Aucun revenu enregistré pour l'instant.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="accordion card">
+      <button class="accordion-toggle collapsed" data-target="chargesPanel">
+        <span><i class="fa-solid fa-arrow-trend-down" style="margin-right:8px;"></i>Charges</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel" id="chargesPanel">
+        {% if charge_success %}
+          <div class="badge success" style="margin-bottom:12px;">{{ charge_success }}</div>
+        {% elif charge_error %}
+          <div class="badge error" style="margin-bottom:12px;">{{ charge_error }}</div>
+        {% endif %}
+        <div class="actifs-summary">
+          <span>Total des charges annuelles</span>
+          <span class="value">{{ kyc_charges_total }} €</span>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="btn-icon" id="addChargeBtn" title="Ajouter une charge">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        {% if kyc_charges %}
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th style="width:12ch;">Date saisie</th>
+                <th style="width:12ch;">Expiration</th>
+                <th style="width:14ch; text-align:right;">Montant annuel</th>
+                <th style="width:9ch; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in kyc_charges %}
+                <tr>
+                  <td>{{ c.type_libelle }}</td>
+                  <td>{{ c.date_saisie or '—' }}</td>
+                  <td>{{ c.date_expiration or '—' }}</td>
+                  <td class="number">{{ c.montant_str }}</td>
+                  <td class="actions">
+                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+                      data-id="{{ c.id }}"
+                      data-type="{{ c.type_charge_id }}"
+                      data-montant="{{ c.montant if c.montant is not none else '' }}"
+                      data-date-saisie="{{ c.date_saisie or '' }}"
+                      data-date-expiration="{{ c.date_expiration or '' }}"
+                      onclick="openChargeModal('edit', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                    <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ c.id }}" onclick="deleteCharge(this)">
+                      <i class="fa-solid fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="placeholder">Aucune charge enregistrée pour l'instant.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="kyc-container" id="knowledgeContainer">
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="knowledgePanel">
+        <span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel active" id="knowledgePanel">
+        <style>
+          /* Pleine largeur pour une meilleure lisibilité */
+          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+          .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
+          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; }
+          .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
+          .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
+          .muted-small { color:#6b7280; font-size:0.85rem; }
+          .offer-pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
+          .step-hidden { display:none; }
+          /* Bandeau sticky en haut du panel */
+          .risk-sticky { position: sticky; top: 0; z-index: 20; background: var(--surface); }
+        </style>
+
+        <form method="post" id="riskForm" style="display:flex; flex-direction:column; gap:12px;">
+          <input type="hidden" name="form_action" value="risque_save" />
+
+          <!-- Bandeau résumé en haut: risque déterminé + dates -->
+          <div class="risk-sticky">
+          <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div class="muted-small">Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></div>
+            <div class="muted-small">
+              Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
+              <span style="margin:0 6px;">|</span>
+              Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+            </div>
+          </div>
+          </div>
+
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>Connaissance générale</h5>
+              <div class="btn-group" data-name="connaissance_adequate">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+              </div>
+              <input type="hidden" name="connaissance_adequate" value="{{ risque_current.connaissance_adequate if risque_current else '' }}" />
+              <div class="muted-small">Si Non: offre Court Terme directement.</div>
+            </div>
+
+            <div class="risk-block step-kn step-hidden" id="riskStepConnaissance">
+              <h5>Niveau par produit</h5>
+              {% for p in risque_opts.produits %}
+                <div class="field" style="margin-bottom:8px;">
+                  <label>{{ p.label }}</label>
+                  <div class="btn-group" data-name="connaissance_{{ p.id }}_niveau_id">
+                    {% for n in risque_opts.niveaux %}
+                      <button type="button" class="btn btn-choice" data-value="{{ n.id }}">{{ n.label }}</button>
+                    {% endfor %}
+                  </div>
+                  <input type="hidden" name="connaissance_{{ p.id }}_niveau_id" value="{{ risque_connaissance_map.get(p.id) if risque_connaissance_map else '' }}" />
+                </div>
+              {% endfor %}
+            </div>
+
+            <div class="risk-block step-other step-hidden" id="riskStepOther1">
+              <h5>Perte acceptée</h5>
+              <div class="btn-group" data-name="perte_option_id">
+                {% for o in risque_opts.perte %}
+                  <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
+                {% endfor %}
+              </div>
+              <input type="hidden" name="perte_option_id" value="{{ risque_current.perte_option_id if risque_current else '' }}" />
+            </div>
+
+            <div class="risk-block step-other step-hidden" id="riskStepOther2">
+              <h5>Part de l’investissement dans le patrimoine</h5>
+              <div class="btn-group" data-name="patrimoine_part_option_id">
+                {% for o in risque_opts.patrimoine_part %}
+                  <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
+                {% endfor %}
+              </div>
+              <input type="hidden" name="patrimoine_part_option_id" value="{{ risque_current.patrimoine_part_option_id if risque_current else '' }}" />
+            </div>
+
+            <div class="risk-block step-other step-hidden" id="riskStepOther3">
+              <h5>Disponibilité</h5>
+              <div class="btn-group" data-name="disponibilite_option_id">
+                {% for o in risque_opts.disponibilite %}
+                  <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
+                {% endfor %}
+              </div>
+              <input type="hidden" name="disponibilite_option_id" value="{{ risque_current.disponibilite_option_id if risque_current else '' }}" />
+            </div>
+
+            <div class="risk-block step-other step-hidden" id="riskStepOther4">
+              <h5>Durée de placement envisagée</h5>
+              <div class="btn-group" data-name="duree_option_id">
+                {% for o in risque_opts.duree %}
+                  <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
+                {% endfor %}
+              </div>
+              <input type="hidden" name="duree_option_id" value="{{ risque_current.duree_option_id if risque_current else '' }}" />
+            </div>
+
+            <div class="risk-block step-other step-hidden" id="riskStepOther5">
+              <h5>Objectifs</h5>
+              <div class="btn-group" data-name="objectif_ids">
+                {% for o in risque_opts.objectifs %}
+                  <button type="button" class="btn btn-choice" data-id="{{ o.id }}">{{ o.label }}</button>
+                {% endfor %}
+              </div>
+              <div class="multi-hidden" data-name="objectif_ids">
+                {% if risque_objectifs_ids %}
+                  {% for oid in risque_objectifs_ids %}
+                    <input type="hidden" name="objectif_ids" value="{{ oid }}" />
+                  {% endfor %}
+                {% endif %}
+              </div>
+              <div class="field" style="margin-top:6px;">
+                <label>Précision (si autre)</label>
+                <input type="text" name="objectif_autre_detail" value="{{ risque_current.objectif_autre_detail if risque_current else '' }}" />
+              </div>
+            </div>
+
+            <!-- Revenus court-terme: acceptation du risque / choix personnel -->
+            <div class="risk-block step-other step-hidden" id="riskStepRevenusCt">
+              <h5>Revenus court-terme: acceptation du risque</h5>
+              <div class="btn-group" data-name="revenus_ct_accept">
+                <button type="button" class="btn btn-choice" data-value="oui">J'accepte le risque Court Terme</button>
+                <button type="button" class="btn btn-choice" data-value="non">Je n'accepte pas</button>
+              </div>
+              <input type="hidden" name="revenus_ct_accept" value="{{ 'non' if risque_decision and risque_decision.decision=='refuse' else ('oui' if risque_decision and risque_decision.decision=='accepte' else '') }}" />
+              <div id="revenusCtPersonalChoice" class="step-hidden" style="margin-top:8px;">
+                <div class="muted-small" style="margin-bottom:6px;">Vous pouvez choisir un niveau de risque personnel. Ce choix n'engage pas la responsabilité du courtier.</div>
+                <div class="btn-group" data-name="offre_personnelle_niveau_id">
+                  {% for n in risque_opts.niveaux_offre %}
+                    <button type="button" class="btn btn-choice" data-value="{{ n.id }}">{{ n.label }}</button>
+                  {% endfor %}
+                </div>
+                <input type="hidden" name="offre_personnelle_niveau_id" value="{{ risque_decision.niveau_client_id if risque_decision and risque_decision.niveau_client_id else '' }}" />
+              </div>
+            </div>
+
+            <div class="risk-block" id="riskAcceptBlock">
+              <h5>Acceptez-vous le risque déterminé ?</h5>
+              <div class="btn-group" data-name="accept_offre_calculee">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+              </div>
+              <input type="hidden" name="accept_offre_calculee" value="{{ 'oui' if risque_decision and risque_decision.decision=='accepte' else ('non' if risque_decision and risque_decision.decision=='refuse' else '') }}" />
+              <div id="acceptPersonalChoice" class="step-hidden" style="margin-top:8px;">
+                <div class="muted-small" style="margin-bottom:6px;">Vous pouvez choisir un niveau de risque personnel. Ce choix n'engage pas la responsabilité du courtier.</div>
+                <div class="btn-group" data-name="offre_personnelle_niveau_id">
+                  {% for n in risque_opts.niveaux_offre %}
+                    <button type="button" class="btn btn-choice" data-value="{{ n.id }}">{{ n.label }}</button>
+                  {% endfor %}
+                </div>
+                <div class="field" style="margin-top:6px;">
+                  <label>Pourquoi ?</label>
+                  <textarea name="motivation_refus" rows="2" placeholder="Expliquez la raison du refus du risque proposé">{{ risque_decision.motivation_refus if risque_decision and risque_decision.motivation_refus else '' }}</textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div class="muted-small">Saisi le {{ risque_display_saisie }}, expire le {{ risque_display_obsolescence }}</div>
+            <div>
+              <span class="muted-small">Offre recommandée:</span> <span id="riskOfferPill" class="offer-pill">—</span>
+              <button type="submit" class="btn-primary" id="riskSaveBtn" style="margin-left:8px;" disabled>Enregistrer</button>
+            </div>
+          </div>
+        </form>
+
+        <script>
+          (function(){
+            const panel = document.getElementById('knowledgePanel');
+            if (!panel) return;
+            const form = document.getElementById('riskForm');
+            const offerPill = document.getElementById('riskOfferPill');
+            // Toggle buttons → hidden inputs
+            function initSingle(group){
+              const name = group.getAttribute('data-name');
+              const input = form.querySelector('input[name="' + name + '"]');
+              const current = (input && input.value) ? String(input.value) : '';
+              group.querySelectorAll('button[data-value]').forEach(function(btn){
+                const v = String(btn.getAttribute('data-value') || '');
+                if (current && current === v){ btn.classList.add('btn-choice-active'); }
+                btn.addEventListener('click', function(ev){
+                  if (ev && ev.preventDefault) ev.preventDefault();
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  if (input){ input.value = v; }
+                  group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active'));
+                  btn.classList.add('btn-choice-active');
+                  updateSteps();
+                  updateOffer();
+                  updateSaveEnabled();
+                });
+              });
+            }
+            function ensureHiddenContainer(name){
+              let c = form.querySelector('.multi-hidden[data-name="' + name + '"]');
+              if (!c){ c = document.createElement('div'); c.className='multi-hidden'; c.setAttribute('data-name', name); form.appendChild(c); }
+              return c;
+            }
+            function initMulti(group){
+              const name = group.getAttribute('data-name');
+              const container = ensureHiddenContainer(name);
+              const selected = new Set();
+              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){
+                const id = btn.getAttribute('data-id');
+                btn.addEventListener('click', function(ev){
+                  if (ev && ev.preventDefault) ev.preventDefault();
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  if (btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id); }
+                  else { btn.classList.add('btn-choice-active'); selected.add(id); }
+                  container.innerHTML='';
+                  Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); });
+                  updateOffer();
+                  updateSaveEnabled();
+                  updateRevenusCtVisibility();
+                });
+              });
+              // pre-select from existing hidden inputs
+              form.querySelectorAll('input[name="' + name + '"]').forEach(function(i){ selected.add(String(i.value)); });
+              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ if (selected.has(String(btn.getAttribute('data-id')))){ btn.classList.add('btn-choice-active'); }});
+            }
+
+            panel.querySelectorAll('.btn-group').forEach(function(g){
+              if (g.querySelector('[data-value]')) initSingle(g);
+              else initMulti(g);
+            });
+
+            // Also init acceptance groups
+            form.querySelectorAll('.btn-group[data-name="accept_offre_calculee"]').forEach(function(g){ initSingle(g); });
+            form.querySelectorAll('.btn-group[data-name="offre_personnelle_niveau_id"]').forEach(function(g){ initSingle(g); });
+
+            function val(name){ const i=form.querySelector('[name="' + name + '"]'); return i? i.value : ''; }
+            function valInt(name){ const v = val(name); const n= parseInt(v,10); return Number.isFinite(n)? n : null; }
+            function selectedIds(name){ return Array.from(form.querySelectorAll('input[name="' + name + '"]')).map(i=>parseInt(i.value,10)).filter(Number.isFinite); }
+
+            function updateSteps(){
+              const conso = (val('connaissance_adequate')||'').toLowerCase();
+              const stepKN = document.getElementById('riskStepConnaissance');
+              const stepPerte = document.getElementById('riskStepOther1');
+              const stepPatr = document.getElementById('riskStepOther2');
+              const stepDisp = document.getElementById('riskStepOther3');
+              const stepDur = document.getElementById('riskStepOther4');
+              const stepObj = document.getElementById('riskStepOther5');
+              const stepRev = document.getElementById('riskStepRevenusCt');
+              const stepAccept = document.getElementById('riskAcceptBlock');
+              if (conso === 'non'){
+                stepKN.classList.add('step-hidden');
+                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
+                return;
+              }
+              if (conso !== 'oui'){
+                stepKN.classList.add('step-hidden');
+                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
+                return;
+              }
+              // conso == 'oui'
+              stepKN.classList.remove('step-hidden');
+              const filled = Array.from(stepKN.querySelectorAll('input[name$="_niveau_id"]')).filter(i=>i.value && i.value !== '').length;
+              const showPerte = filled >= 4;
+              const showPatr = showPerte && !!valInt('perte_option_id');
+              const showDisp = showPatr && !!valInt('patrimoine_part_option_id');
+              const showDur = showDisp && !!valInt('disponibilite_option_id');
+              const showObj = showDur && !!valInt('duree_option_id');
+              if (stepPerte) stepPerte.classList.toggle('step-hidden', !showPerte);
+              if (stepPatr) stepPatr.classList.toggle('step-hidden', !showPatr);
+              if (stepDisp) stepDisp.classList.toggle('step-hidden', !showDisp);
+              if (stepDur) stepDur.classList.toggle('step-hidden', !showDur);
+              if (stepObj) stepObj.classList.toggle('step-hidden', !showObj);
+              // Revenus CT block visibility once objectifs visibles
+              const objectifs = {{ risque_opts.objectifs | tojson | safe }};
+              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const sels = selectedIds('objectif_ids');
+              if (stepRev) stepRev.classList.toggle('step-hidden', !(showObj && rev && sels.includes(rev.id)));
+              // Afficher l'acceptation dès que la durée est renseignée (même si objectifs pas encore saisis)
+              if (stepAccept) stepAccept.classList.toggle('step-hidden', !showDur);
+            }
+
+            function offerLabelFromId(id){
+              const map = {1:'Court Terme',2:'Prudente',3:'Équilibrée',4:'Dynamique',5:'Offensif'};
+              return map[id] || '—';
+            }
+
+            function updateOffer(){
+              // mirror compute on client for UX
+              const OFFRE={court_terme:1, prudente:2, equilibree:3, dynamique:4, offensif:5};
+              const conso = (val('connaissance_adequate')||'').toLowerCase();
+              let offer = OFFRE.court_terme;
+              if (conso === 'non'){
+                offer = OFFRE.court_terme;
+              } else if (conso === 'oui'){
+                // counts
+                const nids = Array.from(form.querySelectorAll('input[name$="_niveau_id"]').values()).map(i=>parseInt(i.value,10)).filter(Number.isFinite);
+                let cF=0,cM=0,cI=0;
+                nids.forEach(n=>{ const code={{ risque_opts.niveaux|tojson|safe }}.find(x=>x.id===n)?.code; if(code==='faible')cF++; else if(code==='moyen')cM++; else if(code==='important')cI++; });
+                if (cF===4) offer=OFFRE.court_terme;
+                else if (cI>=3) offer=OFFRE.offensif;
+                else if (cM===4 && cF===0) offer=OFFRE.equilibree;
+                else if (cF===2) offer=OFFRE.prudente;
+                else if (cF===1) offer=OFFRE.equilibree;
+                else if (cM===2 && cI===2) offer=OFFRE.dynamique;
+                else offer=OFFRE.equilibree;
+                // perte
+                const perteId = valInt('perte_option_id');
+                if (perteId){ const code={{ risque_opts.perte|tojson|safe }}.find(x=>x.id===perteId)?.code; if(code==='p5') offer=OFFRE.prudente; else if(code==='p5_10') offer=OFFRE.equilibree; }
+                // patrimoine
+                const patrId = valInt('patrimoine_part_option_id'); if(patrId){ const code={{ risque_opts.patrimoine_part|tojson|safe }}.find(x=>x.id===patrId)?.code; if(code==='25_50') offer=Math.max(OFFRE.prudente, offer-1); else if(code==='50_75') offer=Math.max(OFFRE.prudente, offer-2); else if(code==='p75') offer=OFFRE.prudente; }
+                // dispo
+                const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.prudente); }
+                // durée
+                const durId = valInt('duree_option_id'); if(durId){ const code={{ risque_opts.duree|tojson|safe }}.find(x=>x.id===durId)?.code; const caps={ '1_3':OFFRE.court_terme, '3_5':OFFRE.prudente, '5_8':OFFRE.equilibree }; if (code && caps[code]) offer=Math.min(offer, caps[code]); }
+                // objectifs
+                const objIds = selectedIds('objectif_ids'); const epargneId = {{ (risque_opts.objectifs|tojson)|safe }}.find(o=>o.code==='epargne_precaution')?.id; if (epargneId && objIds.includes(epargneId)) offer=Math.min(offer, OFFRE.prudente);
+              }
+              const calcPill = document.getElementById('riskOfferCalcPill');
+              const finalPill = document.getElementById('riskOfferFinalPill');
+              if (calcPill) calcPill.textContent = offerLabelFromId(offer);
+              let finalOffer = offer;
+              // Revenus CT priority
+              try {
+                const objectifs = {{ risque_opts.objectifs | tojson | safe }};
+                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                const sels = selectedIds('objectif_ids');
+                const revSelected = rev && sels.includes(rev.id);
+                const revAcc = (val('revenus_ct_accept')||'').toLowerCase();
+                const pers = valInt('offre_personnelle_niveau_id');
+                if (revSelected){
+                  if (revAcc === 'oui') finalOffer = OFFRE.court_terme;
+                  else if (revAcc === 'non' && pers) finalOffer = pers;
+                }
+                const accG = (val('accept_offre_calculee')||'').toLowerCase();
+                if (accG === 'oui') finalOffer = offer;
+                else if (accG === 'non' && pers) finalOffer = pers;
+              } catch(e) {}
+              if (finalPill) finalPill.textContent = offerLabelFromId(finalOffer);
+            }
+
+            function updateSaveEnabled(){
+              const saveBtn = document.getElementById('riskSaveBtn');
+              if (!saveBtn) return;
+              const conso = (val('connaissance_adequate')||'').toLowerCase();
+              if (!conso){ saveBtn.disabled = true; return; }
+              if (conso === 'non'){ saveBtn.disabled = false; return; }
+              const nivInputs = Array.from(form.querySelectorAll('input[name$="_niveau_id"]'));
+              const nivFilled = nivInputs.filter(i=>i.value && i.value !== '').length;
+              const needs = [
+                nivFilled === nivInputs.length && nivInputs.length >= 4,
+                !!valInt('perte_option_id'),
+                !!valInt('patrimoine_part_option_id'),
+                !!valInt('disponibilite_option_id'),
+                !!valInt('duree_option_id'),
+                selectedIds('objectif_ids').length >= 1,
+              ];
+              // Revenus court-terme: si objectif sélectionné, imposer acceptation oui/non; si non, exiger choix personnel
+              try {
+                const objectifs = {{ risque_opts.objectifs | tojson | safe }};
+                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                if (rev){
+                  const sels = selectedIds('objectif_ids');
+                  if (sels.includes(rev.id)){
+                    const acc = (val('revenus_ct_accept')||'').toLowerCase();
+                    if (!acc){ saveBtn.disabled = true; return; }
+                    if (acc === 'non'){
+                      const pers = valInt('offre_personnelle_niveau_id');
+                      if (!pers){ saveBtn.disabled = true; return; }
+                    }
+                  }
+                }
+              } catch(e) {}
+              // Acceptation globale: si Oui → autoriser l'enregistrement immédiatement
+              const accG = (val('accept_offre_calculee')||'').toLowerCase();
+              if (!accG){ saveBtn.disabled = true; return; }
+              if (accG === 'oui'){ saveBtn.disabled = false; return; }
+              if (accG === 'non'){
+                if (!valInt('offre_personnelle_niveau_id')){ saveBtn.disabled = true; return; }
+                const mot = (val('motivation_refus')||'').trim();
+                if (!mot){ saveBtn.disabled = true; return; }
+              }
+              saveBtn.disabled = !needs.every(Boolean);
+            }
+
+            updateSteps();
+            updateOffer();
+            updateSaveEnabled();
+            updateRevenusCtVisibility();
+
+            // Revenus CT: afficher bloc acceptation si objectif sélectionné
+            function updateRevenusCtVisibility(){
+              const block = document.getElementById('riskStepRevenusCt');
+              if (!block) return;
+              const objectifs = {{ risque_opts.objectifs | tojson | safe }};
+              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const selected = selectedIds('objectif_ids');
+              const isSelected = rev && selected.includes(rev.id);
+              block.classList.toggle('step-hidden', !isSelected);
+            }
+
+            // Gérer les boutons simple pour revenus_ct_accept et offre_personnelle_niveau_id
+            form.querySelectorAll('.btn-group[data-name="revenus_ct_accept"]').forEach(function(g){ initSingle(g); });
+            form.querySelectorAll('.btn-group[data-name="offre_personnelle_niveau_id"]').forEach(function(g){ initSingle(g); });
+
+            // Afficher le choix personnel si refus
+            const revAccInput = form.querySelector('input[name="revenus_ct_accept"]');
+            const revPersonalDiv = document.getElementById('revenusCtPersonalChoice');
+            function syncRevPersonal(){
+              if (!revAccInput || !revPersonalDiv) return;
+              revPersonalDiv.classList.toggle('step-hidden', (revAccInput.value||'').toLowerCase() !== 'non');
+            }
+            syncRevPersonal();
+            // Acceptation globale: afficher le choix personnel et la motivation si refus
+            const accInput = form.querySelector('input[name="accept_offre_calculee"]');
+            const accPersonalDiv = document.getElementById('acceptPersonalChoice');
+            function syncAcceptPersonal(){
+              if (!accInput || !accPersonalDiv) return;
+              accPersonalDiv.classList.toggle('step-hidden', (accInput.value||'').toLowerCase() !== 'non');
+            }
+            syncAcceptPersonal();
+            form.addEventListener('click', function(e){
+              const t = e.target;
+              if (!(t instanceof Element)) return;
+              const group = t.closest('.btn-group');
+              if (!group) return;
+              const name = group.getAttribute('data-name')||'';
+              if (name === 'revenus_ct_accept' || name === 'offre_personnelle_niveau_id'){
+                setTimeout(function(){ syncRevPersonal(); updateOffer(); updateSaveEnabled(); }, 0);
+              }
+              if (name === 'accept_offre_calculee' || name === 'offre_personnelle_niveau_id'){
+                setTimeout(function(){ syncAcceptPersonal(); updateOffer(); updateSaveEnabled(); }, 0);
+              }
+            });
+          })();
+        </script>
+        <script>
+          (function(){
+            const sel = document.getElementById('fatcaContractSelect');
+            const soc = document.getElementById('fatcaSociete');
+            if (!sel || !soc) return;
+            function updateSoc(){
+              const opt = sel.options[sel.selectedIndex];
+              soc.value = opt ? (opt.getAttribute('data-societe') || '') : '';
+            }
+            sel.addEventListener('change', updateSoc);
+            updateSoc();
+          })();
+        </script>
+        <script>
+          (function(){
+            const form = document.getElementById('lcbftForm');
+            if (!form) return;
+            function initSingle(group){
+              const name = group.getAttribute('data-name');
+              const input = form.querySelector('input[name="' + name + '"]');
+              const current = (input && input.value) ? String(input.value) : '';
+              group.querySelectorAll('button[data-value]').forEach(function(btn){
+                const v = String(btn.getAttribute('data-value')||'');
+                if (current && current === v){ btn.classList.add('btn-choice-active'); }
+                btn.addEventListener('click', function(ev){
+                  ev.preventDefault(); ev.stopPropagation();
+                  if (input){ input.value=v; }
+                  group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active'));
+                  btn.classList.add('btn-choice-active');
+                  // PPE/Contrats existants: toggle direct pour éviter toute latence
+                  if (name === 'ppe_self'){
+                    const blk = document.getElementById('ppeSelfBlock');
+                    if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
+                  } else if (name === 'ppe_family'){
+                    const blk = document.getElementById('ppeFamilyBlock');
+                    if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
+                  } else if (name === 'has_existing_contracts'){
+                    const blk = document.getElementById('lcbftExistingBlock');
+                    if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
+                  } else {
+                    syncBlocks();
+                  }
+                });
+              });
+            }
+            function ensureHiddenContainer(name){ let c=form.querySelector('.multi-hidden[data-name="'+name+'"]'); if(!c){ c=document.createElement('div'); c.className='multi-hidden'; c.setAttribute('data-name', name); form.appendChild(c);} return c; }
+            function initMulti(group){ const name=group.getAttribute('data-name'); const container=ensureHiddenContainer(name); const selected=new Set(); group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ const id=btn.getAttribute('data-id'); if(btn.getAttribute('data-active')==='1'){ btn.classList.add('btn-choice-active'); selected.add(id);} btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id);} else { btn.classList.add('btn-choice-active'); selected.add(id);} container.innerHTML=''; Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); }); }); }); }
+            Array.from(form.querySelectorAll('.btn-group')).forEach(function(g){ if(g.querySelector('[data-value]')) initSingle(g); });
+            Array.from(form.querySelectorAll('.btn-multi-group')).forEach(function(g){ initMulti(g); });
+            function val(name){ const i=form.querySelector('[name="'+name+'"]'); return i? i.value : ''; }
+            function syncBlocks(){
+              const hasExisting = val('has_existing_contracts');
+              const exBlock = document.getElementById('lcbftExistingBlock');
+              if (exBlock){ exBlock.classList.toggle('step-hidden', !(hasExisting==='1')); }
+              const ppeSelf = val('ppe_self'); const ppeSelfBlock=document.getElementById('ppeSelfBlock'); if(ppeSelfBlock){ ppeSelfBlock.classList.toggle('step-hidden', !(ppeSelf==='1')); }
+              const ppeFam = val('ppe_family'); const ppeFamBlock=document.getElementById('ppeFamilyBlock'); if(ppeFamBlock){ ppeFamBlock.classList.toggle('step-hidden', !(ppeFam==='1')); }
+            }
+            syncBlocks();
+          })();
+        </script>
+      </div>
+    </div>
+  </div>
+
+  <div class="kyc-container" id="esgContainer">
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="esgPanel">
+        <span><i class="fa-solid fa-leaf" style="margin-right:8px;"></i>Sensibilité ESG</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel active" id="esgPanel">
+        {% if esg_success %}
+          <div class="badge success" style="margin-bottom:12px;">{{ esg_success }}</div>
+        {% elif esg_error %}
+          <div class="badge error" style="margin-bottom:12px;">{{ esg_error }}</div>
+        {% endif %}
+
+        <style>
+          /* Boutons de choix ESG (oui / non / indifférent) */
+          .esg-choices { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+          .esg-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
+          .esg-block h5 { margin:0 0 8px 0; font-size:0.95rem; }
+          .btn-toggle-group, .btn-multi-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
+          .btn-toggle-group .btn-choice,
+          .btn-multi-group .btn-choice {
+            min-width: 110px;
+            text-transform: none;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+            height: 34px;
+            min-height: 34px;
+          }
+        </style>
+
+        <form method="post" style="display:flex; flex-direction:column; gap:12px;">
+          <input type="hidden" name="form_action" value="esg_save" />
+
+          <div class="esg-choices">
+            <div class="esg-block">
+              <h5>Importance environnement</h5>
+              <div class="btn-toggle-group" data-name="env_importance">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="env_importance" value="{{ esg_current.env_importance if esg_current else '' }}" />
+            </div>
+            <div class="esg-block">
+              <h5>Réduction des GES</h5>
+              <div class="btn-toggle-group" data-name="env_ges_reduc">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="env_ges_reduc" value="{{ esg_current.env_ges_reduc if esg_current else '' }}" />
+            </div>
+            <div class="esg-block">
+              <h5>Droits humains</h5>
+              <div class="btn-toggle-group" data-name="soc_droits_humains">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="soc_droits_humains" value="{{ esg_current.soc_droits_humains if esg_current else '' }}" />
+            </div>
+            <div class="esg-block">
+              <h5>Parité</h5>
+              <div class="btn-toggle-group" data-name="soc_parite">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="soc_parite" value="{{ esg_current.soc_parite if esg_current else '' }}" />
+            </div>
+            <div class="esg-block">
+              <h5>Transparence</h5>
+              <div class="btn-toggle-group" data-name="gov_transparence">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="gov_transparence" value="{{ esg_current.gov_transparence if esg_current else '' }}" />
+            </div>
+            <div class="esg-block">
+              <h5>Contrôle éthique</h5>
+              <div class="btn-toggle-group" data-name="gov_controle_ethique">
+                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+                <button type="button" class="btn btn-choice" data-value="indifférent">Indifférent</button>
+              </div>
+              <input type="hidden" name="gov_controle_ethique" value="{{ esg_current.gov_controle_ethique if esg_current else '' }}" />
+            </div>
+          </div>
+
+          <div class="esg-choices">
+            <div class="esg-block">
+              <h5>Exclusions</h5>
+              <div class="btn-multi-group" data-name="exclusions">
+                {% for opt in esg_exclusion_options %}
+                  <button type="button" class="btn btn-choice" data-id="{{ opt.id }}" {% if esg_selected_exclusions and opt.id in esg_selected_exclusions %}data-active="1"{% endif %}>{{ opt.label }}</button>
+                {% endfor %}
+                {% if not esg_exclusion_options %}<div class="muted">Aucune option disponible</div>{% endif %}
+              </div>
+              <div class="multi-hidden" data-name="exclusions"></div>
+            </div>
+            <div class="esg-block">
+              <h5>Indicateurs</h5>
+              <div class="btn-multi-group" data-name="indicators">
+                {% for opt in esg_indicator_options %}
+                  <button type="button" class="btn btn-choice" data-id="{{ opt.id }}" {% if esg_selected_indicators and opt.id in esg_selected_indicators %}data-active="1"{% endif %}>{{ opt.label }}</button>
+                {% endfor %}
+                {% if not esg_indicator_options %}<div class="muted">Aucune option disponible</div>{% endif %}
+              </div>
+              <div class="multi-hidden" data-name="indicators"></div>
+            </div>
+          </div>
+          <div class="create-btn-container" style="justify-content:flex-end;">
+            <div class="muted" style="margin-right:auto;">Saisi le {{ esg_display_saisie }}, expire le {{ esg_display_obsolescence }}</div>
+            <button type="submit" class="btn-primary">Enregistrer</button>
+          </div>
+        </form>
+
+        <script>
+          (function(){
+            const panel = document.getElementById('esgPanel');
+            if (!panel) return;
+            function initGroup(group){
+              const name = group.getAttribute('data-name');
+              if (!name) return;
+              const input = panel.querySelector('input[type="hidden"][name="' + name + '"]');
+              if (!input) return;
+              const val = (input.value || '').toLowerCase();
+              group.querySelectorAll('button[data-value]').forEach(function(btn){
+                const v = (btn.getAttribute('data-value') || '').toLowerCase();
+                btn.classList.toggle('btn-choice-active', v === val && val !== '');
+                btn.addEventListener('click', function(){
+                  input.value = btn.getAttribute('data-value') || '';
+                  group.querySelectorAll('button[data-value]').forEach(function(b){ b.classList.remove('btn-choice-active'); });
+                  btn.classList.add('btn-choice-active');
+                });
+              });
+            }
+            panel.querySelectorAll('.btn-toggle-group').forEach(initGroup);
+
+            // Multi-sélection par boutons (exclusions / indicateurs) avec inputs cachés générés
+            function ensureHiddenContainer(name){
+              let container = panel.querySelector('.multi-hidden[data-name="' + name + '"]');
+              if (!container){
+                container = document.createElement('div');
+                container.className = 'multi-hidden';
+                container.setAttribute('data-name', name);
+                panel.appendChild(container);
+              }
+              return container;
+            }
+            function syncHidden(name, ids){
+              const container = ensureHiddenContainer(name);
+              container.innerHTML = '';
+              ids.forEach(function(id){
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = String(id);
+                container.appendChild(input);
+              });
+            }
+            panel.querySelectorAll('.btn-multi-group').forEach(function(group){
+              const name = group.getAttribute('data-name');
+              if (!name) return;
+              // Etat initial depuis attribut data-active
+              const selected = new Set();
+              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){
+                const id = btn.getAttribute('data-id');
+                if (btn.getAttribute('data-active') === '1'){
+                  btn.classList.add('btn-choice-active');
+                  selected.add(id);
+                }
+              });
+              syncHidden(name, Array.from(selected));
+              // Clic: toggle
+              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){
+                btn.addEventListener('click', function(){
+                  const id = btn.getAttribute('data-id');
+                  if (selected.has(id)){
+                    selected.delete(id);
+                    btn.classList.remove('btn-choice-active');
+                  } else {
+                    selected.add(id);
+                    btn.classList.add('btn-choice-active');
+                  }
+                  syncHidden(name, Array.from(selected));
+                });
+              });
+            });
+          })();
+        </script>
+      </div>
+    </div>
+  </div>
+
+  <!-- LCB-FT / TRACFIN -->
+  <div class="kyc-container" id="lcbftContainer">
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="lcbftPanel">
+        <span><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>LCB-FT / TRACFIN / FATCA</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel active" id="lcbftPanel">
+        {% if lcbft_success %}
+          <div class="badge success">{{ lcbft_success }}</div>
+        {% elif lcbft_error %}
+          <div class="badge error">{{ lcbft_error }}</div>
+        {% endif %}
+        <form method="post" id="lcbftForm" style="display:flex; flex-direction:column; gap:12px;">
+          <input type="hidden" name="form_action" value="lcbft_save" />
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>FATCA</h5>
+              <div class="field">
+                <label>Nom du produit</label>
+                <select name="fatca_contrat_id" id="fatcaContractSelect">
+                  <option value="">Sélectionner…</option>
+                  {% for c in fatca_contracts %}
+                    <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field"><label>Compagnie d’assurance</label><input type="text" id="fatcaSociete" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" readonly /></div>
+              <div class="field"><label>Date de l’opération</label><input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly /></div>
+              <div class="field"><label>Pays de résidence fiscale</label><input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" readonly /></div>
+              <div class="field"><label>NIF</label><input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" /></div>
+            </div>
+            <div class="risk-block">
+              <h5>Cartographie client</h5>
+              <div class="field"><label>Entrée en relation</label><textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Depuis quand connaissez-vous le client</label><input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/></div>
+              <div class="field"><label>Contrats similaires déjà souscrits ?</label>
+                <div class="btn-group" data-name="has_existing_contracts">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="has_existing_contracts" value="{{ lcbft_current.has_existing_contracts if lcbft_current and lcbft_current.has_existing_contracts is not none else '0' }}" />
+              </div>
+              <div id="lcbftExistingBlock" class="step-hidden">
+                <div class="field"><label>Auprès de notre société d'assurance ?</label>
+                  <div class="btn-group" data-name="existing_with_our_insurer">
+                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                  </div>
+                  <input type="hidden" name="existing_with_our_insurer" value="{{ lcbft_current.existing_with_our_insurer if lcbft_current and lcbft_current.existing_with_our_insurer is not none else '0' }}" />
+                </div>
+                <div class="field"><label>Référence du contrat</label><input type="text" name="existing_contract_ref" placeholder="REF-..." value="{{ lcbft_current.existing_contract_ref if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
+              </div>
+            </div>
+            <div class="risk-block">
+              <h5>PPE</h5>
+              <div class="muted-small" style="margin-bottom:6px;">Reportez-vous au détail des fonctions PPE ci-après (chef d’État, parlement, haute juridiction, cour des comptes, banque centrale, ambassadeur, officiers supérieurs, entreprise publique, organisation internationale…).</div>
+              <div class="field"><label>Client PPE ?</label>
+                <div class="btn-group" data-name="ppe_self">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
+              </div>
+              <div id="ppeSelfBlock" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_self_fonction" value="{{ lcbft_current.ppe_self_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
+              </div>
+              <div class="field"><label>Un membre de la famille est PPE ?</label>
+                <div class="btn-group" data-name="ppe_family">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
+              </div>
+              <div id="ppeFamilyBlock" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_family_fonction" value="{{ lcbft_current.ppe_family_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_family_pays" value="{{ lcbft_current.ppe_family_pays if lcbft_current else '' }}"/></div>
+              </div>
+            </div>
+          </div>
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>Comportement du client</h5>
+              <div class="field"><label>1.a – Comportement suspect du client, rechigne à fournir les documents demandés au préalable, présente des incohérences dans les propos liminaires de l’étude / audit du patrimoine et des revenus</label><div class="btn-group" data-name="flag_1a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1a" value="{{ lcbft_current.flag_1a if lcbft_current and lcbft_current.flag_1a is not none else '0' }}"/></div>
+              <div class="field"><label>1.b – Est un chef d’entreprise, dirigeant, artisan, commerçant, profession réglementée, profession libérale, français non résident fiscal en France, ou enregistré/établi dans un pays tiers imposant des obligations équivalentes en matière de LAB/FT</label><div class="btn-group" data-name="flag_1b"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1b" value="{{ lcbft_current.flag_1b if lcbft_current and lcbft_current.flag_1b is not none else '0' }}"/></div>
+              <div class="field"><label>1.c – N’est pas présent, se fait représenter par un tiers, agit pour le compte d’un tiers (Bénéficiaire Effectif) inconnu ou difficilement identifiable, ne réside pas en France / réside DOM/TOM, étranger hors EEE résident fiscal en France, ou enregistré/établi dans un pays de l’EEE</label><div class="btn-group" data-name="flag_1c"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1c" value="{{ lcbft_current.flag_1c if lcbft_current and lcbft_current.flag_1c is not none else '0' }}"/></div>
+              <div class="field"><label>1.d – Ne veut pas donner les pièces justificatives quant à l’origine des fonds ou les motifs de paiement, est une PPE, établi/enregistré dans un PTNC (GAFI), pays sous sanctions financières internationales, ou sans adresse clairement identifiée</label><div class="btn-group" data-name="flag_1d"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1d" value="{{ lcbft_current.flag_1d if lcbft_current and lcbft_current.flag_1d is not none else '0' }}"/></div>
+            </div>
+            <div class="risk-block">
+              <h5>Opération souhaitée</h5>
+              <div class="field"><label>2.a – L’opération a des origines de fonds suspectes, versement trop important, incohérence, particulièrement complexe, non justifiée économiquement ou juridiquement, fonds difficilement traçables</label><div class="btn-group" data-name="flag_2a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_2a" value="{{ lcbft_current.flag_2a if lcbft_current and lcbft_current.flag_2a is not none else '0' }}"/></div>
+              <div class="field"><label>2.b – L’opération favorise l’anonymat, a pour unique but l’optimisation fiscale, fait intervenir une fiducie</label><div class="btn-group" data-name="flag_2b"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_2b" value="{{ lcbft_current.flag_2b if lcbft_current and lcbft_current.flag_2b is not none else '0' }}"/></div>
+            </div>
+            <div class="risk-block">
+              <h5>Modalités de paiement</h5>
+              <div class="field"><label>3.a – Modalités de paiement reposant sur des justificatifs présentant des anomalies manifestes (documents incomplets, illisibles, incompréhensibles ou non traduits…)</label><div class="btn-group" data-name="flag_3a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_3a" value="{{ lcbft_current.flag_3a if lcbft_current and lcbft_current.flag_3a is not none else '0' }}"/></div>
+            </div>
+          </div>
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>Profession et exposition personnelle</h5>
+              <div class="field"><label>Profession</label><textarea name="prof_profession" rows="2">{{ lcbft_current.prof_profession if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Activité</label><select name="prof_statut_professionnel_id"><option value=""></option>{% for r in ref_statut_professionnel %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_statut_professionnel_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select></div>
+              <div class="field"><label>Secteur d’activité</label><select name="prof_secteur_id"><option value=""></option>{% for r in ref_profession_secteur %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_secteur_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select></div>
+              
+            </div>
+            <div class="risk-block">
+              <h5>Objet de l’opération</h5>
+              <div class="btn-group" data-name="operation_objet"><button type="button" class="btn btn-choice" data-value="Souscription">Souscription</button><button type="button" class="btn btn-choice" data-value="Rachat">Rachat</button><button type="button" class="btn btn-choice" data-value="Versement">Versement complémentaire</button><button type="button" class="btn btn-choice" data-value="Avance">Avance / remboursement</button><button type="button" class="btn btn-choice" data-value="Garantie">Mise en garantie</button><button type="button" class="btn btn-choice" data-value="Autre">Autre</button></div><input type="hidden" name="operation_objet" value="{{ lcbft_current.operation_objet if lcbft_current else '' }}"/></div>
+              <div class="field"><label>Montant (€)</label><input type="text" name="montant" value="{{ lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else '' }}"/></div>
+              <div class="field"><label>% patrimoine</label><input type="text" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}"/></div>
+            </div>
+          </div>
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>Raisons de vigilance</h5>
+              <div class="btn-multi-group" data-name="vigilance_ids">
+                {% for v in lcbft_vigilance_options %}
+                  <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>
+                {% endfor %}
+              </div>
+              <div class="multi-hidden" data-name="vigilance_ids"></div>
+            </div>
+            <div class="risk-block">
+              <h5>Justificatifs</h5>
+              <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
+            </div>
+          </div>
+          <div class="card" style="display:flex; justify-content:flex-end;">
+            <button type="submit" class="btn-primary">Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      // Initialisation/MAJ du champ compagnie via la sélection du produit FATCA
+      function bindFatca(){
+        const sel = document.getElementById('fatcaContractSelect');
+        const soc = document.getElementById('fatcaSociete');
+        if (!sel || !soc) return;
+        function updateSoc(){
+          const opt = sel.options[sel.selectedIndex];
+          soc.value = opt ? (opt.getAttribute('data-societe') || '') : '';
+        }
+        sel.addEventListener('change', updateSoc);
+        updateSoc();
+      }
+      if (document.readyState === 'loading'){
+        document.addEventListener('DOMContentLoaded', bindFatca);
+      } else {
+        bindFatca();
+      }
+    })();
+  </script>
+
+  <div class="kyc-container" id="objectifsContainer">
+    <div class="accordion card">
+      <div class="accordion-header-actions">
+        <button class="accordion-toggle" data-target="objectifsPanel">
+          <span><i class="fa-solid fa-bullseye" style="margin-right:8px;"></i>Objectifs</span>
+          <span class="chevron">▾</span>
+        </button>
+        <button type="button" class="objective-add-btn" id="addObjectiveBtn"><i class="fa-solid fa-plus"></i></button>
+      </div>
+      <div class="accordion-panel active" id="objectifsPanel">
+        <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
+          <div class="objectives-list">
+            <h4>Objectifs principaux</h4>
+            <div id="objectifsSelected" class="objectives-grid">
+              {% if preselected_objectifs %}
+                {% for obj in preselected_objectifs %}
+                  <button type="button" class="objective-btn" data-id="{{ obj.id }}" data-label="{{ obj.libelle }}"><span>{{ obj.libelle }}</span></button>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div id="objectifsEmpty" class="objectives-empty">{% if preselected_objectifs %}{% else %}Aucun objectif sélectionné pour l'instant.{% endif %}</div>
+            <input type="hidden" id="objectifsSelectedInput" name="objectifs_selected" value="{{ (preselected_objectifs_ids or []) | tojson | safe }}" />
+          </div>
+          <div class="objective-detail-card empty" id="objectifDetailCard">
+            <div class="objective-detail-header">
+              <h4 class="objective-detail-title" id="objectifDetailTitle">Sélectionnez un objectif</h4>
+              <div class="objective-detail-meta" id="objectifDetailMeta"></div>
+            </div>
+            {% if objectifs_success %}
+              <div class="badge success">{{ objectifs_success }}</div>
+            {% elif objectifs_error %}
+              <div class="badge error">{{ objectifs_error }}</div>
+            {% endif %}
+            <form id="objectifDetailForm" method="post" style="display:flex; flex-direction:column; gap:12px;">
+              <input type="hidden" name="form_action" value="objectifs_save" />
+              <input type="hidden" name="link_id" id="objectifFormLinkId" />
+              <input type="hidden" name="objectif_id" id="objectifFormObjectifId" />
+              <div class="field">
+                <label for="objectifFormHorizon">Horizon d'investissement</label>
+                <input type="text" id="objectifFormHorizon" name="horizon_investissement" placeholder="Court, moyen ou long terme..." />
+              </div>
+              <div class="field">
+                <label for="objectifFormNiveau">Niveau de priorité</label>
+                <select id="objectifFormNiveau" name="niveau_id" required>
+                  <option value="">-- Choisir (1..N) --</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="objectifFormCommentaire">Commentaire</label>
+                <textarea id="objectifFormCommentaire" name="commentaire" rows="4" placeholder="Précisions sur l'objectif"></textarea>
+              </div>
+              <div class="field">
+                <label for="objectifFormDateExpiration">Date d'expiration</label>
+                <input type="date" id="objectifFormDateExpiration" name="date_expiration" />
+              </div>
+              <div class="field">
+                <label>Date de saisie</label>
+                <div class="value-display" id="objectifFormDateSaisie">—</div>
+              </div>
+              <div class="objective-detail-actions">
+                <span class="spacer"></span>
+                <button type="button" class="btn-danger" id="objectifDeleteBtn" disabled>Supprimer</button>
+                <button type="submit" class="btn-primary" id="objectifSaveBtn" disabled>Enregistrer</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Objectifs -->
+  <div class="modal-overlay" id="objectifsModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Ajouter des objectifs</h3>
+        <button class="modal-close" type="button" onclick="closeObjectifsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="objectifsModalList" class="objectifs-modal-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeObjectifsModal()">Annuler</button>
+        <button type="button" class="btn-primary" id="objectifsModalSave">Ajouter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Actif (ajout / édition) -->
+  <div class="modal-overlay" id="actifModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="actifModalTitle">Actif</h3>
+        <button class="modal-close" type="button" onclick="closeActifModal()">✕</button>
+      </div>
+      <form id="actifForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" value="actif_save" />
+        <input type="hidden" name="id" id="actifId" />
+        <div class="field">
+          <label for="actifType">Type d'actif</label>
+          <select id="actifType" name="type_actif_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_type_actif %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="actifDescription">Description</label>
+          <textarea id="actifDescription" name="description" placeholder="Description de l'actif"></textarea>
+        </div>
+        <div class="field">
+          <label for="actifValeur">Valeur</label>
+          <input id="actifValeur" name="valeur" type="number" step="0.01" min="0" />
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="field" style="flex:1;">
+            <label for="actifDateSaisie">Date de saisie</label>
+            <input id="actifDateSaisie" name="date_saisie" type="date" readonly />
+          </div>
+          <div class="field" style="flex:1;">
+            <label for="actifDateExpiration">Date d'expiration</label>
+            <input id="actifDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeActifModal()">Fermer</button>
+        <button type="submit" form="actifForm" class="btn-primary" id="actifSubmitBtn">Enregistrer</button>
+      </div>
+  </div>
+  </div>
+
+  <!-- Modal Passif (ajout / édition) -->
+  <div class="modal-overlay" id="passifModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="passifModalTitle">Passif</h3>
+        <button class="modal-close" type="button" onclick="closePassifModal()">✕</button>
+      </div>
+      <form id="passifForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" value="passif_save" />
+        <input type="hidden" name="id" id="passifId" />
+        <div class="field">
+          <label for="passifType">Type de passif</label>
+          <select id="passifType" name="type_passif_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_type_passif %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="passifDescription">Description</label>
+          <textarea id="passifDescription" name="description" placeholder="Description du passif"></textarea>
+        </div>
+        <div class="field">
+          <label for="passifMontant">Montant restant dû</label>
+          <input id="passifMontant" name="montant" type="number" step="0.01" min="0" required />
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="field" style="flex:1;">
+            <label for="passifDateSaisie">Date de saisie</label>
+            <input id="passifDateSaisie" name="date_saisie" type="date" readonly />
+          </div>
+          <div class="field" style="flex:1;">
+            <label for="passifDateExpiration">Date d'expiration</label>
+            <input id="passifDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closePassifModal()">Fermer</button>
+        <button type="submit" form="passifForm" class="btn-primary" id="passifSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="actifDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="actif_delete" />
+    <input type="hidden" name="actif_id" id="actifDeleteId" />
+  </form>
+
+  <form id="passifDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="passif_delete" />
+    <input type="hidden" name="passif_id" id="passifDeleteId" />
+  </form>
+
+  <form id="objectifDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="objectifs_delete" />
+    <input type="hidden" name="link_id" id="objectifDeleteId" />
+    <input type="hidden" name="objectif_id" id="objectifDeleteObjectifId" />
+  </form>
+
+  <!-- Modal Revenu (ajout / édition) -->
+  <div class="modal-overlay" id="revenuModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="revenuModalTitle">Revenu</h3>
+        <button class="modal-close" type="button" onclick="closeRevenuModal()">✕</button>
+      </div>
+      <form id="revenuForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" value="revenu_save" />
+        <input type="hidden" name="id" id="revenuId" />
+        <div class="field">
+          <label for="revenuType">Type de revenu</label>
+          <select id="revenuType" name="type_revenu_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_type_revenu %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="revenuMontant">Montant annuel</label>
+          <input id="revenuMontant" name="montant" type="number" step="0.01" min="0" required />
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="field" style="flex:1;">
+            <label for="revenuDateSaisie">Date de saisie</label>
+            <input id="revenuDateSaisie" name="date_saisie" type="date" readonly />
+          </div>
+          <div class="field" style="flex:1;">
+            <label for="revenuDateExpiration">Date d'expiration</label>
+            <input id="revenuDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeRevenuModal()">Fermer</button>
+        <button type="submit" form="revenuForm" class="btn-primary" id="revenuSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="revenuDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="revenu_delete" />
+    <input type="hidden" name="revenu_id" id="revenuDeleteId" />
+  </form>
+
+  <!-- Modal Charge (ajout / édition) -->
+  <div class="modal-overlay" id="chargeModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="chargeModalTitle">Charge</h3>
+        <button class="modal-close" type="button" onclick="closeChargeModal()">✕</button>
+      </div>
+      <form id="chargeForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" value="charge_save" />
+        <input type="hidden" name="id" id="chargeId" />
+        <div class="field">
+          <label for="chargeType">Type de charge</label>
+          <select id="chargeType" name="type_charge_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_type_charge %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="chargeMontant">Montant annuel</label>
+          <input id="chargeMontant" name="montant" type="number" step="0.01" min="0" required />
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="field" style="flex:1;">
+            <label for="chargeDateSaisie">Date de saisie</label>
+            <input id="chargeDateSaisie" name="date_saisie" type="date" readonly />
+          </div>
+          <div class="field" style="flex:1;">
+            <label for="chargeDateExpiration">Date d'expiration</label>
+            <input id="chargeDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeChargeModal()">Fermer</button>
+        <button type="submit" form="chargeForm" class="btn-primary" id="chargeSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="chargeDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="charge_delete" />
+    <input type="hidden" name="charge_id" id="chargeDeleteId" />
+  </form>
+
+  <script id="synthData" type="application/json">{{ summary_data | tojson | safe }}</script>
+  <script id="objectifsData" type="application/json">{{ ref_objectifs | tojson | safe }}</script>
+  <script id="objectifsSelectedData" type="application/json">{{ preselected_objectifs | tojson | safe }}</script>
+
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+  <!-- Modal Adresse (ajout / édition) -->
+  <div class="modal-overlay" id="adresseModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="adresseModalTitle">Adresse</h3>
+        <button class="modal-close" type="button" onclick="closeAdresseModal()">✕</button>
+      </div>
+      <form id="adresseForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" id="adresseFormAction" value="adresse_save" />
+        <input type="hidden" name="adresse_id" id="adresseId" />
+        <div class="field">
+          <label for="adresseType">Type d'adresse</label>
+          <select id="adresseType" name="type_adresse_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_type_adresse %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="adresseRue">Adresse</label>
+          <textarea id="adresseRue" name="rue" placeholder="Rue et numéro" required rows="2" style="min-height:60px;"></textarea>
+        </div>
+        <div class="field">
+          <label for="adresseComplement">Complément</label>
+          <input id="adresseComplement" name="complement" type="text" placeholder="Bâtiment, étage (optionnel)" />
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="field" style="flex:1 1 120px; min-width:140px;">
+            <label for="adresseCodePostal">Code postal</label>
+            <input id="adresseCodePostal" name="code_postal" type="text" required />
+          </div>
+          <div class="field" style="flex:1 1 180px; min-width:180px;">
+            <label for="adresseVille">Ville</label>
+            <input id="adresseVille" name="ville" type="text" required />
+          </div>
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="adressePays">Pays</label>
+            <input id="adressePays" name="pays" type="text" required />
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="adresseDateSaisie">Date de saisie</label>
+            <input id="adresseDateSaisie" name="date_saisie" type="date" />
+          </div>
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="adresseDateExpiration">Date d'expiration</label>
+            <input id="adresseDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeAdresseModal()">Fermer</button>
+        <button type="submit" form="adresseForm" class="btn-primary" id="adresseSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Situation matrimoniale -->
+  <div class="modal-overlay" id="matrimonialModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="matrimonialModalTitle">Situation matrimoniale</h3>
+        <button class="modal-close" type="button" onclick="closeMatrimonialModal()">✕</button>
+      </div>
+      <form id="matrimonialForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" id="matrimonialFormAction" value="matrimonial_save" />
+        <input type="hidden" name="matrimonial_id" id="matrimonialId" />
+        <div class="field">
+          <label for="matrimonialSituation">Situation</label>
+          <select id="matrimonialSituation" name="situation_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_situation_matrimoniale %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" id="matrimonialConventionField" style="display:none;">
+          <label for="matrimonialConvention">Convention (optionnel)</label>
+          <select id="matrimonialConvention" name="convention_id">
+            <option value="">-- Aucune --</option>
+            {% for ref in ref_situation_convention %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="matrimonialNbEnfants">Nombre d'enfants</label>
+          <input id="matrimonialNbEnfants" name="nb_enfants" type="number" min="0" step="1" value="0" />
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="matrimonialDateSaisie">Date de saisie</label>
+            <input id="matrimonialDateSaisie" name="date_saisie" type="date" />
+          </div>
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="matrimonialDateExpiration">Date d'expiration</label>
+            <input id="matrimonialDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeMatrimonialModal()">Fermer</button>
+        <button type="submit" form="matrimonialForm" class="btn-primary" id="matrimonialSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Situation professionnelle -->
+  <div class="modal-overlay" id="professionnelModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="professionnelModalTitle">Situation professionnelle</h3>
+        <button class="modal-close" type="button" onclick="closeProfessionnelModal()">✕</button>
+      </div>
+      <form id="professionnelForm" method="post" action="#" class="modal-body">
+        <input type="hidden" name="form_action" id="professionnelFormAction" value="professionnel_save" />
+        <input type="hidden" name="professionnel_id" id="professionnelId" />
+        <div class="field">
+          <label for="professionnelProfession">Profession</label>
+          <input id="professionnelProfession" name="profession" type="text" placeholder="Intitulé du poste" required />
+        </div>
+        <div class="field">
+          <label for="professionnelSecteur">Secteur d'activité</label>
+          <select id="professionnelSecteur" name="secteur_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_profession_secteur %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="professionnelStatut">Statut professionnel</label>
+          <select id="professionnelStatut" name="statut_id" required>
+            <option value="">-- Choisir --</option>
+            {% for ref in ref_statut_professionnel %}
+              <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="professionnelEmployeur">Employeur</label>
+          <input id="professionnelEmployeur" name="employeur" type="text" placeholder="Nom de l'employeur" />
+        </div>
+        <div class="field">
+          <label for="professionnelAnciennete">Ancienneté (années)</label>
+          <input id="professionnelAnciennete" name="anciennete_annees" type="number" min="0" step="1" value="0" />
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="professionnelDateSaisie">Date de saisie</label>
+            <input id="professionnelDateSaisie" name="date_saisie" type="date" />
+          </div>
+          <div class="field" style="flex:1 1 160px; min-width:160px;">
+            <label for="professionnelDateExpiration">Date d'expiration</label>
+            <input id="professionnelDateExpiration" name="date_expiration" type="date" />
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeProfessionnelModal()">Fermer</button>
+        <button type="submit" form="professionnelForm" class="btn-primary" id="professionnelSubmitBtn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="adresseDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="adresse_delete" />
+    <input type="hidden" name="adresse_id" id="adresseDeleteId" />
+  </form>
+
+  <form id="matrimonialDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="matrimonial_delete" />
+    <input type="hidden" name="matrimonial_id" id="matrimonialDeleteId" />
+  </form>
+
+  <form id="professionnelDeleteForm" method="post" style="display:none;">
+    <input type="hidden" name="form_action" value="professionnel_delete" />
+    <input type="hidden" name="professionnel_id" id="professionnelDeleteId" />
+  </form>
+
+  <script>
+    (function(){
+      const etatContainer = document.getElementById('etatContainer');
+      const patrimoineContainer = document.getElementById('kycContainer');
+      const knowledgeContainer = document.getElementById('knowledgeContainer');
+      const esgContainer = document.getElementById('esgContainer');
+      const objectifsContainer = document.getElementById('objectifsContainer');
+
+  const sectionContainers = {
+    etat: etatContainer,
+    patrimoine: patrimoineContainer,
+    knowledge: knowledgeContainer,
+    esg: esgContainer,
+    objectifs: objectifsContainer,
+    lcbft: document.getElementById('lcbftContainer'),
+  };
+
+      function openMainSection(sectionKey){
+        Object.values(sectionContainers).forEach(function(el){
+          if (el){ el.classList.remove('open'); }
+        });
+        const target = sectionContainers[sectionKey];
+        if (target){ target.classList.add('open'); }
+      }
+
+      const patrimoineBtn = document.getElementById('openKycBtn');
+      const etatBtn = document.getElementById('openEtatCivilBtn');
+      const knowledgeBtn = document.getElementById('openKnowledgeBtn');
+  const esgBtn = document.getElementById('openEsgBtn');
+  const objBtn = document.getElementById('openObjectifsBtn');
+  const lcbftBtn = document.getElementById('openLcbftBtn');
+
+      if (etatBtn){
+        etatBtn.addEventListener('click', function(){
+          setActivePanel('etatCivilPanel');
+        });
+      }
+
+      if (patrimoineBtn){
+        patrimoineBtn.addEventListener('click', function(){
+          setActivePanel('actifsPanel');
+        });
+      }
+
+      if (knowledgeBtn){
+        knowledgeBtn.addEventListener('click', function(){
+          setActivePanel('knowledgePanel');
+        });
+      }
+
+  if (esgBtn){
+    esgBtn.addEventListener('click', function(){
+      setActivePanel('esgPanel');
+    });
+  }
+  
+  if (objBtn){
+    objBtn.addEventListener('click', function(){
+      setActivePanel('objectifsPanel');
+    });
+  }
+
+  if (lcbftBtn){
+    lcbftBtn.addEventListener('click', function(){
+      openMainSection('lcbft');
+      setActivePanel('lcbftPanel');
+    });
+  }
+
+      document.querySelectorAll('.accordion-toggle').forEach(function(toggle){
+        toggle.addEventListener('click', function(){
+          const targetId = toggle.getAttribute('data-target');
+          if (!targetId) return;
+          const panel = document.getElementById(targetId);
+          if (!panel) return;
+          if (panel.classList.contains('active')){
+            panel.classList.remove('active');
+            toggle.classList.add('collapsed');
+            return;
+          }
+          setActivePanel(targetId);
+        });
+      });
+
+      const addBtn = document.getElementById('addActifBtn');
+      if (addBtn){
+        addBtn.addEventListener('click', function(){ openActifModal('add'); });
+      }
+
+      const addPassifBtn = document.getElementById('addPassifBtn');
+      if (addPassifBtn){
+        addPassifBtn.addEventListener('click', function(){ openPassifModal('add'); });
+      }
+
+      const addChargeBtn = document.getElementById('addChargeBtn');
+      if (addChargeBtn){
+        addChargeBtn.addEventListener('click', function(){ openChargeModal('add'); });
+      }
+
+      const addRevenuBtn = document.getElementById('addRevenuBtn');
+      if (addRevenuBtn){
+        addRevenuBtn.addEventListener('click', function(){ openRevenuModal('add'); });
+      }
+
+
+const objectifsDataEl = document.getElementById('objectifsData');
+const objectifsSelectedDataEl = document.getElementById('objectifsSelectedData');
+const objectifsPanelEl = document.querySelector('.objectives-panel');
+const objectifsSelectedContainer = document.getElementById('objectifsSelected');
+const objectifsEmpty = document.getElementById('objectifsEmpty');
+const objectifsInput = document.getElementById('objectifsSelectedInput');
+const addObjectiveBtn = document.getElementById('addObjectiveBtn');
+const objectifsModal = document.getElementById('objectifsModal');
+const objectifsModalList = document.getElementById('objectifsModalList');
+const objectifsModalSave = document.getElementById('objectifsModalSave');
+const objectifDetailCard = document.getElementById('objectifDetailCard');
+const objectifDetailTitle = document.getElementById('objectifDetailTitle');
+const objectifDetailMeta = document.getElementById('objectifDetailMeta');
+const objectifDetailForm = document.getElementById('objectifDetailForm');
+const objectifFormLinkId = document.getElementById('objectifFormLinkId');
+const objectifFormObjectifId = document.getElementById('objectifFormObjectifId');
+const objectifFormHorizon = document.getElementById('objectifFormHorizon');
+const objectifFormNiveau = document.getElementById('objectifFormNiveau');
+const objectifFormCommentaire = document.getElementById('objectifFormCommentaire');
+const objectifFormDateExpiration = document.getElementById('objectifFormDateExpiration');
+const objectifFormDateSaisie = document.getElementById('objectifFormDateSaisie');
+const objectifSaveBtn = document.getElementById('objectifSaveBtn');
+const objectifDeleteBtn = document.getElementById('objectifDeleteBtn');
+const objectifDeleteForm = document.getElementById('objectifDeleteForm');
+const objectifDeleteIdInput = document.getElementById('objectifDeleteId');
+const objectifDeleteObjectifIdInput = document.getElementById('objectifDeleteObjectifId');
+
+let objectifsRef = [];
+let objectifsSelected = [];
+let currentObjectiveId = null;
+
+function toNumber(value){
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+// Met à jour les options de niveau de priorité 1..N (N = nombre d'objectifs sélectionnés)
+function updatePriorityOptions(preserveValue = true){
+  if (!objectifFormNiveau) return;
+  const oldValue = preserveValue ? toNumber(objectifFormNiveau.value) : null;
+  const n = objectifsSelected.length;
+  const frag = document.createDocumentFragment();
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = '-- Choisir (1..' + (n || 'N') + ') --';
+  frag.appendChild(opt0);
+  for (let i = 1; i <= n; i++){
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = String(i);
+    if (oldValue !== null && oldValue === i){ o.selected = true; }
+    frag.appendChild(o);
+  }
+  objectifFormNiveau.innerHTML = '';
+  objectifFormNiveau.appendChild(frag);
+}
+
+if (objectifsDataEl){
+  try {
+    const parsed = JSON.parse(objectifsDataEl.textContent || '[]') || [];
+    objectifsRef = parsed
+      .map(function(item){
+        const numericId = toNumber(item.id);
+        if (numericId === null) return null;
+        return {
+          id: numericId,
+          libelle: item.libelle || item.label || ('Objectif ' + numericId),
+        };
+      })
+      .filter(Boolean);
+  } catch (e) {
+    objectifsRef = [];
+  }
+}
+
+let serverSelectedList = [];
+if (objectifsSelectedDataEl){
+  try {
+    const parsed = JSON.parse(objectifsSelectedDataEl.textContent || '[]');
+    if (Array.isArray(parsed)){
+      serverSelectedList = parsed;
+    }
+  } catch (e) {
+    serverSelectedList = [];
+  }
+}
+
+const serverSelectedLookup = new Map();
+serverSelectedList.forEach(function(item){
+  const objectifId = toNumber(item.id ?? item.objectif_id);
+  if (objectifId === null) return;
+  serverSelectedLookup.set(objectifId, {
+    id: objectifId,
+    label: item.libelle || item.label || ('Objectif ' + objectifId),
+    linkId: item.link_id ? Number(item.link_id) : null,
+    horizon: item.horizon_investissement || '',
+    niveauId: item.niveau_id !== undefined && item.niveau_id !== null ? Number(item.niveau_id) : null,
+    commentaire: item.commentaire || '',
+    dateExpiration: item.date_expiration || '',
+    dateSaisie: item.date_saisie || '',
+  });
+});
+
+function getObjectifLabel(id){
+  const numericId = toNumber(id);
+  if (numericId === null) return '';
+  const fromServer = serverSelectedLookup.get(numericId);
+  if (fromServer && fromServer.label){
+    return fromServer.label;
+  }
+  const fromRef = objectifsRef.find(function(obj){ return obj.id === numericId; });
+  if (fromRef){
+    return fromRef.libelle;
+  }
+  return 'Objectif ' + numericId;
+}
+
+function buildEmptyObjective(id, label){
+  return {
+    id: id,
+    label: label || getObjectifLabel(id),
+    linkId: null,
+    horizon: '',
+    niveauId: null,
+    commentaire: '',
+    dateExpiration: '',
+    dateSaisie: '',
+  };
+}
+
+function hydrateInitialObjectifs(){
+  const merged = new Map();
+  serverSelectedLookup.forEach(function(value, key){
+    merged.set(key, { ...value });
+  });
+
+  if (objectifsInput && objectifsInput.value){
+    try {
+      const parsed = JSON.parse(objectifsInput.value);
+      const ids = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      ids.forEach(function(rawId){
+        const numericId = toNumber(rawId);
+        if (numericId === null || merged.has(numericId)) return;
+        merged.set(numericId, buildEmptyObjective(numericId));
+      });
+    } catch (e) {
+      /* ignore malformed JSON */
+    }
+  }
+
+  objectifsSelected = Array.from(merged.values());
+}
+
+function getAvailableObjectifs(){
+  const selectedIds = new Set(objectifsSelected.map(function(item){ return toNumber(item.id); }));
+  return objectifsRef.filter(function(obj){ return !selectedIds.has(obj.id); });
+}
+
+function refreshAddObjectiveBtnState(){
+  if (!addObjectiveBtn) return;
+  const available = getAvailableObjectifs();
+  const hasLibrary = objectifsRef.length > 0;
+  const hasAny = available.length > 0;
+  addObjectiveBtn.title = hasAny
+    ? 'Ajouter des objectifs'
+    : (hasLibrary ? 'Tous les objectifs sont déjà ajoutés.' : 'Aucun objectif disponible');
+  addObjectiveBtn.style.opacity = hasAny ? '' : '0.7';
+  addObjectiveBtn.style.cursor = 'pointer';
+}
+
+function updateHiddenInput(){
+  if (!objectifsInput) return;
+  const ids = objectifsSelected
+    .map(function(item){ return toNumber(item.id); })
+    .filter(function(val){ return val !== null; });
+  objectifsInput.value = JSON.stringify(ids);
+}
+
+function highlightObjectiveButtons(){
+  if (!objectifsSelectedContainer) return;
+  objectifsSelectedContainer.querySelectorAll('.objective-btn').forEach(function(btn){
+    const btnId = toNumber(btn.dataset.id);
+    btn.classList.toggle('active', btnId !== null && btnId === currentObjectiveId);
+  });
+}
+
+function getNiveauLabel(value){
+  const numeric = toNumber(value);
+  if (numeric === null || !objectifFormNiveau) return '';
+  const option = objectifFormNiveau.querySelector('option[value="' + numeric + '"]');
+  return option ? option.textContent.trim() : '';
+}
+
+function updateObjectiveMeta(obj){
+  if (!objectifDetailMeta) return;
+  if (!obj){
+    objectifDetailMeta.innerHTML = '';
+    objectifDetailMeta.style.display = 'none';
+    return;
+  }
+  const parts = [];
+  if (obj.linkId){
+    parts.push('<span><i class="fa-solid fa-hashtag"></i> ' + obj.linkId + '</span>');
+  }
+  if (obj.dateSaisie){
+    parts.push('<span><i class="fa-regular fa-calendar-check"></i> ' + obj.dateSaisie + '</span>');
+  }
+  if (obj.niveauId){
+    const niveauLabel = getNiveauLabel(obj.niveauId);
+    if (niveauLabel){
+      parts.push('<span><i class="fa-solid fa-layer-group"></i> ' + niveauLabel + '</span>');
+    }
+  }
+  objectifDetailMeta.innerHTML = parts.join('');
+  objectifDetailMeta.style.display = parts.length ? '' : 'none';
+}
+
+function setDetailFormEnabled(enabled){
+  const fields = [objectifFormHorizon, objectifFormNiveau, objectifFormCommentaire, objectifFormDateExpiration];
+  fields.forEach(function(field){
+    if (field){ field.disabled = !enabled; }
+  });
+  if (objectifSaveBtn){ objectifSaveBtn.disabled = !enabled; }
+  if (objectifDeleteBtn){ objectifDeleteBtn.disabled = !enabled; }
+}
+
+function populateDetailForm(obj){
+  if (!objectifDetailCard) return;
+  const hasObjective = !!obj;
+  objectifDetailCard.classList.toggle('empty', !hasObjective);
+  setDetailFormEnabled(hasObjective);
+
+  if (!hasObjective){
+    if (objectifDetailTitle) objectifDetailTitle.textContent = 'Sélectionnez un objectif';
+    if (objectifFormLinkId) objectifFormLinkId.value = '';
+    if (objectifFormObjectifId) objectifFormObjectifId.value = '';
+    if (objectifFormHorizon) objectifFormHorizon.value = '';
+    if (objectifFormNiveau) objectifFormNiveau.value = '';
+    if (objectifFormCommentaire) objectifFormCommentaire.value = '';
+    if (objectifFormDateExpiration) objectifFormDateExpiration.value = '';
+    if (objectifFormDateSaisie) objectifFormDateSaisie.textContent = '—';
+    updateObjectiveMeta(null);
+    if (objectifDeleteBtn) objectifDeleteBtn.textContent = 'Supprimer';
+    return;
+  }
+
+  const label = obj.label || getObjectifLabel(obj.id);
+  if (objectifDetailTitle) objectifDetailTitle.textContent = label;
+  if (objectifFormLinkId) objectifFormLinkId.value = obj.linkId || '';
+  if (objectifFormObjectifId) objectifFormObjectifId.value = obj.id;
+  if (objectifFormHorizon) objectifFormHorizon.value = obj.horizon || '';
+  if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
+  if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
+  if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';
+  if (objectifFormDateSaisie){
+    objectifFormDateSaisie.textContent = obj.dateSaisie ? obj.dateSaisie : "Enregistré lors de la sauvegarde";
+  }
+  if (objectifDeleteBtn) objectifDeleteBtn.textContent = obj.linkId ? 'Supprimer' : 'Retirer';
+  updateObjectiveMeta(obj);
+}
+
+function getCurrentObjective(){
+  const numericId = toNumber(currentObjectiveId);
+  if (numericId === null) return null;
+  return objectifsSelected.find(function(item){ return toNumber(item.id) === numericId; }) || null;
+}
+
+function ensureCurrentObjective(){
+  if (!objectifsSelected.length){
+    currentObjectiveId = null;
+    return;
+  }
+  const exists = objectifsSelected.some(function(item){ return toNumber(item.id) === toNumber(currentObjectiveId); });
+  if (!exists){
+    currentObjectiveId = toNumber(objectifsSelected[0].id);
+  }
+}
+
+function updateObjectifsUI(){
+  if (!objectifsSelectedContainer) return;
+  // Trier par niveau de priorité (1..N), puis par libellé si égalité; valeurs nulles en fin
+  objectifsSelected.sort(function(a, b){
+    const na = toNumber(a.niveauId);
+    const nb = toNumber(b.niveauId);
+    if (na === null && nb === null){
+      const la = (a.label || getObjectifLabel(a.id) || '').toLowerCase();
+      const lb = (b.label || getObjectifLabel(b.id) || '').toLowerCase();
+      return la.localeCompare(lb);
+    }
+    if (na === null) return 1;
+    if (nb === null) return -1;
+    if (na !== nb) return na - nb;
+    const la = (a.label || getObjectifLabel(a.id) || '').toLowerCase();
+    const lb = (b.label || getObjectifLabel(b.id) || '').toLowerCase();
+    return la.localeCompare(lb);
+  });
+  objectifsSelectedContainer.innerHTML = '';
+  if (!objectifsSelected.length){
+    if (objectifsEmpty){
+      objectifsEmpty.style.display = '';
+      objectifsEmpty.textContent = objectifsRef.length ? "Aucun objectif sélectionné pour l'instant." : "Aucun objectif disponible.";
+    }
+  } else {
+    if (objectifsEmpty) objectifsEmpty.style.display = 'none';
+    objectifsSelected.forEach(function(item){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'objective-btn';
+      btn.dataset.id = item.id;
+      btn.textContent = item.label || getObjectifLabel(item.id);
+      btn.addEventListener('click', function(){ selectObjective(item.id); });
+      objectifsSelectedContainer.appendChild(btn);
+    });
+  }
+  updateHiddenInput();
+  refreshAddObjectiveBtnState();
+  updatePriorityOptions(true);
+  highlightObjectiveButtons();
+}
+
+function selectObjective(id){
+  const numericId = toNumber(id);
+  if (numericId === null) return;
+  const target = objectifsSelected.find(function(item){ return toNumber(item.id) === numericId; });
+  if (!target) return;
+  currentObjectiveId = numericId;
+  highlightObjectiveButtons();
+  populateDetailForm(target);
+}
+
+function openObjectifsModal(){
+  if (!objectifsModal) return;
+  if (addObjectiveBtn) addObjectiveBtn.blur();
+  if (objectifsModalList){
+    objectifsModalList.innerHTML = '';
+    const available = getAvailableObjectifs();
+    if (!available.length){
+      const msg = objectifsRef.length ? 'Tous les objectifs sont déjà ajoutés.' : 'Aucun objectif disponible.';
+      objectifsModalList.innerHTML = '<div class="synth-empty">' + msg + '</div>';
+    } else {
+      available.forEach(function(obj){
+        const wrapper = document.createElement('label');
+        wrapper.className = 'objectifs-modal-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = obj.id;
+        checkbox.dataset.label = obj.libelle || ('Objectif ' + obj.id);
+        const span = document.createElement('span');
+        span.textContent = obj.libelle || ('Objectif ' + obj.id);
+        wrapper.appendChild(checkbox);
+        wrapper.appendChild(span);
+        objectifsModalList.appendChild(wrapper);
+      });
+    }
+  }
+  objectifsModal.style.display = 'flex';
+}
+
+function closeObjectifsModal(){
+  if (objectifsModal) objectifsModal.style.display = 'none';
+}
+
+function removeObjective(id){
+  const numericId = toNumber(id);
+  if (numericId === null) return;
+  const idx = objectifsSelected.findIndex(function(item){ return toNumber(item.id) === numericId; });
+  if (idx === -1) return;
+  objectifsSelected.splice(idx, 1);
+  if (toNumber(currentObjectiveId) === numericId){
+    currentObjectiveId = null;
+  }
+  ensureCurrentObjective();
+  updateObjectifsUI();
+  const next = getCurrentObjective();
+  if (next){
+    selectObjective(next.id);
+  } else {
+    populateDetailForm(null);
+  }
+}
+
+function saveObjectifsFromModal(){
+  if (!objectifsModalList) return;
+  const selected = Array.from(objectifsModalList.querySelectorAll('input[type="checkbox"]:checked'));
+  if (!selected.length){
+    closeObjectifsModal();
+    return;
+  }
+  const newlyAdded = [];
+  selected.forEach(function(input){
+    const id = toNumber(input.value);
+    if (id === null) return;
+    if (objectifsSelected.some(function(item){ return toNumber(item.id) === id; })) return;
+    const label = input.dataset.label || getObjectifLabel(id);
+    const fresh = buildEmptyObjective(id, label);
+    objectifsSelected.push(fresh);
+    newlyAdded.push(fresh);
+  });
+  ensureCurrentObjective();
+  updateObjectifsUI();
+  if (newlyAdded.length){
+    selectObjective(newlyAdded[0].id);
+  }
+  closeObjectifsModal();
+}
+
+function syncCurrentObjectiveFromForm(){
+  const current = getCurrentObjective();
+  if (!current) return;
+  if (objectifFormHorizon) current.horizon = objectifFormHorizon.value || '';
+  if (objectifFormNiveau) current.niveauId = toNumber(objectifFormNiveau.value);
+  if (objectifFormCommentaire) current.commentaire = objectifFormCommentaire.value || '';
+  if (objectifFormDateExpiration) current.dateExpiration = objectifFormDateExpiration.value || '';
+  updateObjectiveMeta(current);
+}
+
+hydrateInitialObjectifs();
+refreshAddObjectiveBtnState();
+
+const preferredObjectiveId = objectifsPanelEl ? toNumber(objectifsPanelEl.dataset.activeId) : null;
+if (preferredObjectiveId !== null && objectifsSelected.some(function(item){ return toNumber(item.id) === preferredObjectiveId; })){
+  currentObjectiveId = preferredObjectiveId;
+}
+
+ensureCurrentObjective();
+updateObjectifsUI();
+
+const initialObjective = getCurrentObjective();
+if (initialObjective){
+  selectObjective(initialObjective.id);
+} else {
+  populateDetailForm(null);
+}
+
+if (addObjectiveBtn){
+  addObjectiveBtn.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    openObjectifsModal();
+  });
+}
+
+if (objectifsModal){
+  objectifsModal.addEventListener('click', function(ev){
+    if (ev.target === objectifsModal){ closeObjectifsModal(); }
+  });
+}
+
+if (objectifsModalSave){
+  objectifsModalSave.addEventListener('click', function(){ saveObjectifsFromModal(); });
+}
+
+if (objectifDeleteBtn){
+  objectifDeleteBtn.addEventListener('click', function(ev){
+    ev.preventDefault();
+    const current = getCurrentObjective();
+    if (!current) return;
+    if (current.linkId && objectifDeleteForm && objectifDeleteIdInput){
+      if (!confirm('Supprimer cet objectif ?')) return;
+      objectifDeleteIdInput.value = current.linkId;
+      if (objectifDeleteObjectifIdInput) objectifDeleteObjectifIdInput.value = current.id;
+      objectifDeleteForm.submit();
+    } else {
+      removeObjective(current.id);
+    }
+  });
+}
+
+if (objectifDetailForm){
+  objectifDetailForm.addEventListener('submit', function(ev){
+    if (!getCurrentObjective()){
+      ev.preventDefault();
+    }
+  });
+}
+
+[objectifFormHorizon, objectifFormCommentaire, objectifFormDateExpiration].forEach(function(field){
+  if (!field) return;
+  field.addEventListener('input', syncCurrentObjectiveFromForm);
+});
+if (objectifFormNiveau){
+  objectifFormNiveau.addEventListener('change', syncCurrentObjectiveFromForm);
+}
+
+      const synthDataEl = document.getElementById('synthData');
+      let synthChartsRendered = false;
+      function ensureSynthCharts(){
+        if (synthChartsRendered) return;
+        if (!synthDataEl || typeof ApexCharts === 'undefined') return;
+        try {
+          const synthData = JSON.parse(synthDataEl.textContent || '{}');
+          const palette = ['#2563eb','#16a34a','#f97316','#facc15','#ec4899','#0ea5e9','#8b5cf6','#f59e0b','#14b8a6','#ef4444'];
+
+          function normalizeData(list){
+            if (!Array.isArray(list) || list.length === 0){
+              return { labels: [], values: [], colors: [], displays: [] };
+            }
+            const labels = [];
+            const values = [];
+            const colors = [];
+            const displays = [];
+            list.forEach(function(item, idx){
+              const val = typeof item.value === 'number' ? item.value : parseFloat(item.value || 0);
+              if (isNaN(val) || val <= 0) return;
+              labels.push(item.label || 'N/A');
+              values.push(val);
+              colors.push(palette[idx % palette.length]);
+              displays.push(item.display || String(val));
+            });
+            return { labels, values, colors, displays };
+          }
+
+          function renderDonut(elementId, dataset){
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const data = normalizeData(dataset || []);
+            if (!data.labels.length){
+              el.innerHTML = '<div class="synth-empty">Aucune donnée</div>';
+              return;
+            }
+            el.innerHTML = '';
+            const chart = new ApexCharts(el, {
+              chart: {
+                type: 'donut',
+                height: 240,
+                animations: { enabled: false }
+              },
+              series: data.values,
+              labels: data.labels,
+              colors: data.colors,
+              legend: { position: 'bottom' },
+              dataLabels: {
+                formatter: function (val, opts) {
+                  const amount = data.displays[opts.seriesIndex] || '';
+                  return amount ? amount + ' €' : val.toFixed(0) + '%';
+                }
+              },
+              tooltip: {
+                y: {
+                  formatter: function (value, opts) {
+                    const amount = data.displays[opts.seriesIndex];
+                    return amount ? amount + ' €' : value;
+                  }
+                }
+              },
+              plotOptions: {
+                pie: {
+                  donut: { size: '65%' }
+                }
+              }
+            });
+            chart.render();
+          }
+
+          renderDonut('chartSynthActifs', synthData.actifs);
+          renderDonut('chartSynthPassifs', synthData.passifs);
+          renderDonut('chartSynthRevenus', synthData.revenus);
+          renderDonut('chartSynthCharges', synthData.charges);
+          synthChartsRendered = true;
+        } catch (err) {
+          console.warn('Synthèse: impossible de charger les données', err);
+        }
+      }
+
+      const addAdresseBtn = document.getElementById('addAdresseBtn');
+      if (addAdresseBtn){
+        addAdresseBtn.addEventListener('click', function(){ openAdresseModal('add'); });
+      }
+
+      const addMatrimonialBtn = document.getElementById('addMatrimonialBtn');
+      if (addMatrimonialBtn){
+        addMatrimonialBtn.addEventListener('click', function(){ openMatrimonialModal('add'); });
+      }
+
+      const addProfessionnelBtn = document.getElementById('addProfessionnelBtn');
+      if (addProfessionnelBtn){
+        addProfessionnelBtn.addEventListener('click', function(){ openProfessionnelModal('add'); });
+      }
+
+      const matrimonialSituationSelect = document.getElementById('matrimonialSituation');
+      if (matrimonialSituationSelect){
+        matrimonialSituationSelect.addEventListener('change', updateMatrimonialConventionVisibility);
+      }
+
+      function setActivePanel(panelId){
+        const panel = panelId ? document.getElementById(panelId) : null;
+        if (!panel) return;
+        const container = panel.closest('.kyc-container') || panel.closest('.kyc-etat-container');
+        if (!container) return;
+        const sectionEntry = Object.entries(sectionContainers).find(function(entry){ return entry[1] === container; });
+        if (sectionEntry){
+          openMainSection(sectionEntry[0]);
+        }
+        container.querySelectorAll('.accordion-panel').forEach(function(p){ p.classList.remove('active'); });
+        container.querySelectorAll('.accordion-toggle').forEach(function(t){ t.classList.add('collapsed'); });
+        panel.classList.add('active');
+        const toggle = container.querySelector('.accordion-toggle[data-target="' + panelId + '"]');
+        if (toggle){
+          toggle.classList.remove('collapsed');
+        }
+        if (container === patrimoineContainer){
+          ensureSynthCharts();
+        }
+      }
+
+      const sectionToPanel = {
+        'etat_civil': 'etatCivilPanel',
+        'adresse': 'etatAdressePanel',
+        'matrimonial': 'etatMatrimonialPanel',
+        'professionnel': 'etatProfessionnelPanel',
+        'patrimoine': 'actifsPanel',
+        'passif': 'passifPanel',
+        'recettes': 'recettesPanel',
+        'charges': 'chargesPanel',
+        'objectifs': 'objectifsPanel',
+        'esg': 'esgPanel',
+      };
+      const activeSection = '{{ active_section | default("etat_civil") }}';
+      if (sectionToPanel[activeSection]){
+        setActivePanel(sectionToPanel[activeSection]);
+      } else {
+        setActivePanel('etatCivilPanel');
+      }
+
+      updateMatrimonialConventionVisibility();
+      if (patrimoineContainer && patrimoineContainer.classList.contains('open')){
+        ensureSynthCharts();
+      }
+
+      const etatForm = document.getElementById('etatForm');
+      const etatSubmitBtn = document.getElementById('etatSubmitBtn');
+      if (etatForm && etatSubmitBtn){
+        const trackedFields = Array.from(etatForm.elements).filter(function(el){
+          if (!el.name) return false;
+          if (el.type === 'hidden') return false;
+          if (el.disabled) return false;
+          return true;
+        });
+        const initialState = new Map();
+        trackedFields.forEach(function(el){
+          const initialValue = (el.value === undefined || el.value === null) ? '' : el.value;
+          initialState.set(el.name, initialValue);
+        });
+
+        function refreshEtatCivilState(){
+          let changed = false;
+          for (const el of trackedFields){
+            const currentValue = (el.value === undefined || el.value === null) ? '' : el.value;
+            const baseline = initialState.has(el.name) ? initialState.get(el.name) : '';
+            if (currentValue !== baseline){
+              changed = true;
+              break;
+            }
+          }
+          etatSubmitBtn.style.display = changed ? '' : 'none';
+          etatSubmitBtn.disabled = !changed;
+        }
+
+        trackedFields.forEach(function(el){
+          el.addEventListener('input', refreshEtatCivilState);
+          el.addEventListener('change', refreshEtatCivilState);
+        });
+
+        refreshEtatCivilState();
+      }
+    })();
+
+    function updateMatrimonialConventionVisibility(){
+      const situationSelect = document.getElementById('matrimonialSituation');
+      const conventionField = document.getElementById('matrimonialConventionField');
+      const conventionSelect = document.getElementById('matrimonialConvention');
+      if (!situationSelect || !conventionField) return;
+      const option = situationSelect.options[situationSelect.selectedIndex];
+      const label = option ? (option.text || '').toLowerCase() : '';
+      const show = label.includes('mari') || label.includes('pacs');
+      conventionField.style.display = show ? '' : 'none';
+      if (!show && conventionSelect){
+        conventionSelect.value = '';
+      }
+    }
+
+    function openActifModal(mode, trigger){
+      const modal = document.getElementById('actifModal');
+      const form = document.getElementById('actifForm');
+      const title = document.getElementById('actifModalTitle');
+      const submitBtn = document.getElementById('actifSubmitBtn');
+      const idInput = document.getElementById('actifId');
+      const typeSelect = document.getElementById('actifType');
+      const descInput = document.getElementById('actifDescription');
+      const valeurInput = document.getElementById('actifValeur');
+      const dateSaisieInput = document.getElementById('actifDateSaisie');
+      const dateExpirationInput = document.getElementById('actifDateExpiration');
+      const actionInput = form ? form.querySelector('input[name="form_action"]') : null;
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter un actif';
+        form.reset();
+        idInput.value = '';
+        typeSelect.disabled = false;
+        descInput.disabled = false;
+        valeurInput.disabled = false;
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.disabled = false;
+        const today = new Date();
+        dateSaisieInput.value = today.toISOString().slice(0, 10);
+        dateExpirationInput.disabled = false;
+        submitBtn.style.display = '';
+        submitBtn.disabled = false;
+      } else {
+        const dataset = trigger.dataset;
+        title.textContent = (mode === 'edit') ? 'Modifier l\'actif' : 'Consulter l\'actif';
+        idInput.value = dataset.id || '';
+        typeSelect.value = dataset.type || '';
+        descInput.value = dataset.description || '';
+        valeurInput.value = dataset.valeur || '';
+        dateSaisieInput.value = dataset.dateSaisie || '';
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.value = dataset.dateExpiration || '';
+        const readOnly = (mode === 'view');
+        [typeSelect, descInput, valeurInput, dateExpirationInput].forEach(function(el){ el.disabled = readOnly; });
+        submitBtn.style.display = readOnly ? 'none' : '';
+        submitBtn.disabled = readOnly;
+      }
+
+      if (actionInput){ actionInput.value = 'actif_save'; }
+      modal.style.display = 'flex';
+    }
+
+    function closeActifModal(){
+      const modal = document.getElementById('actifModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteActif(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer l\'actif #' + id + ' ?')){
+        const form = document.getElementById('actifDeleteForm');
+        const target = document.getElementById('actifDeleteId');
+        if (form && target){
+          target.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openPassifModal(mode, trigger){
+      const modal = document.getElementById('passifModal');
+      const form = document.getElementById('passifForm');
+      const title = document.getElementById('passifModalTitle');
+      const submitBtn = document.getElementById('passifSubmitBtn');
+      const idInput = document.getElementById('passifId');
+      const typeSelect = document.getElementById('passifType');
+      const descInput = document.getElementById('passifDescription');
+      const montantInput = document.getElementById('passifMontant');
+      const dateSaisieInput = document.getElementById('passifDateSaisie');
+      const dateExpirationInput = document.getElementById('passifDateExpiration');
+      const actionInput = form ? form.querySelector('input[name="form_action"]') : null;
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter un passif';
+        form.reset();
+        idInput.value = '';
+        typeSelect.disabled = false;
+        descInput.disabled = false;
+        montantInput.disabled = false;
+        const today = new Date();
+        dateSaisieInput.value = today.toISOString().slice(0, 10);
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.disabled = false;
+        submitBtn.style.display = '';
+        submitBtn.disabled = false;
+      } else {
+        const dataset = trigger.dataset;
+        title.textContent = (mode === 'edit') ? 'Modifier le passif' : 'Consulter le passif';
+        idInput.value = dataset.id || '';
+        typeSelect.value = dataset.type || '';
+        descInput.value = dataset.description || '';
+        montantInput.value = dataset.montant || '';
+        dateSaisieInput.value = dataset.dateSaisie || '';
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.value = dataset.dateExpiration || '';
+        const readOnly = (mode === 'view');
+        [typeSelect, descInput, montantInput, dateExpirationInput].forEach(function(el){ el.disabled = readOnly; });
+        submitBtn.style.display = readOnly ? 'none' : '';
+        submitBtn.disabled = readOnly;
+      }
+
+      if (actionInput){ actionInput.value = 'passif_save'; }
+      modal.style.display = 'flex';
+    }
+
+    function closePassifModal(){
+      const modal = document.getElementById('passifModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deletePassif(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer le passif #' + id + ' ?')){
+        const form = document.getElementById('passifDeleteForm');
+        const target = document.getElementById('passifDeleteId');
+        if (form && target){
+          target.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openChargeModal(mode, trigger){
+      const modal = document.getElementById('chargeModal');
+      const form = document.getElementById('chargeForm');
+      const title = document.getElementById('chargeModalTitle');
+      const submitBtn = document.getElementById('chargeSubmitBtn');
+      const idInput = document.getElementById('chargeId');
+      const typeSelect = document.getElementById('chargeType');
+      const montantInput = document.getElementById('chargeMontant');
+      const dateSaisieInput = document.getElementById('chargeDateSaisie');
+      const dateExpirationInput = document.getElementById('chargeDateExpiration');
+      const actionInput = form ? form.querySelector('input[name="form_action"]') : null;
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter une charge';
+        form.reset();
+        idInput.value = '';
+        typeSelect.disabled = false;
+        montantInput.disabled = false;
+        const today = new Date();
+        dateSaisieInput.value = today.toISOString().slice(0, 10);
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.disabled = false;
+        submitBtn.style.display = '';
+        submitBtn.disabled = false;
+      } else {
+        const dataset = trigger.dataset;
+        title.textContent = (mode === 'edit') ? 'Modifier la charge' : 'Consulter la charge';
+        idInput.value = dataset.id || '';
+        typeSelect.value = dataset.type || '';
+        montantInput.value = dataset.montant || '';
+        dateSaisieInput.value = dataset.dateSaisie || '';
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.value = dataset.dateExpiration || '';
+        const readOnly = (mode === 'view');
+        [typeSelect, montantInput, dateExpirationInput].forEach(function(el){ el.disabled = readOnly; });
+        submitBtn.style.display = readOnly ? 'none' : '';
+        submitBtn.disabled = readOnly;
+      }
+
+      if (actionInput){ actionInput.value = 'charge_save'; }
+      modal.style.display = 'flex';
+    }
+
+    function closeChargeModal(){
+      const modal = document.getElementById('chargeModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteCharge(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer la charge #' + id + ' ?')){
+        const form = document.getElementById('chargeDeleteForm');
+        const target = document.getElementById('chargeDeleteId');
+        if (form && target){
+          target.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openRevenuModal(mode, trigger){
+      const modal = document.getElementById('revenuModal');
+      const form = document.getElementById('revenuForm');
+      const title = document.getElementById('revenuModalTitle');
+      const submitBtn = document.getElementById('revenuSubmitBtn');
+      const idInput = document.getElementById('revenuId');
+      const typeSelect = document.getElementById('revenuType');
+      const montantInput = document.getElementById('revenuMontant');
+      const dateSaisieInput = document.getElementById('revenuDateSaisie');
+      const dateExpirationInput = document.getElementById('revenuDateExpiration');
+      const actionInput = form ? form.querySelector('input[name="form_action"]') : null;
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter un revenu';
+        form.reset();
+        idInput.value = '';
+        typeSelect.disabled = false;
+        montantInput.disabled = false;
+        const today = new Date();
+        dateSaisieInput.value = today.toISOString().slice(0, 10);
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.disabled = false;
+        submitBtn.style.display = '';
+        submitBtn.disabled = false;
+      } else {
+        const dataset = trigger.dataset;
+        title.textContent = (mode === 'edit') ? 'Modifier le revenu' : 'Consulter le revenu';
+        idInput.value = dataset.id || '';
+        typeSelect.value = dataset.type || '';
+        montantInput.value = dataset.montant || '';
+        dateSaisieInput.value = dataset.dateSaisie || '';
+        dateSaisieInput.readOnly = true;
+        dateExpirationInput.value = dataset.dateExpiration || '';
+        const readOnly = (mode === 'view');
+        [typeSelect, montantInput, dateExpirationInput].forEach(function(el){ el.disabled = readOnly; });
+        submitBtn.style.display = readOnly ? 'none' : '';
+        submitBtn.disabled = readOnly;
+      }
+
+      if (actionInput){ actionInput.value = 'revenu_save'; }
+      modal.style.display = 'flex';
+    }
+
+    function closeRevenuModal(){
+      const modal = document.getElementById('revenuModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteRevenu(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer le revenu #' + id + ' ?')){
+        const form = document.getElementById('revenuDeleteForm');
+        const target = document.getElementById('revenuDeleteId');
+        if (form && target){
+          target.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openAdresseModal(mode, trigger){
+      const modal = document.getElementById('adresseModal');
+      const form = document.getElementById('adresseForm');
+      const title = document.getElementById('adresseModalTitle');
+      const submitBtn = document.getElementById('adresseSubmitBtn');
+      const formAction = document.getElementById('adresseFormAction');
+      const idInput = document.getElementById('adresseId');
+      const typeSelect = document.getElementById('adresseType');
+      const rueInput = document.getElementById('adresseRue');
+      const complementInput = document.getElementById('adresseComplement');
+      const cpInput = document.getElementById('adresseCodePostal');
+      const villeInput = document.getElementById('adresseVille');
+      const paysInput = document.getElementById('adressePays');
+      const dateSaisieInput = document.getElementById('adresseDateSaisie');
+      const dateExpirationInput = document.getElementById('adresseDateExpiration');
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter une adresse';
+        form.reset();
+        formAction.value = 'adresse_save';
+        idInput.value = '';
+        submitBtn.textContent = 'Enregistrer';
+      } else {
+        const data = trigger.dataset || {};
+        title.textContent = 'Modifier l\'adresse';
+        form.reset();
+        formAction.value = 'adresse_save';
+        idInput.value = data.id || '';
+        typeSelect.value = data.typeId || '';
+        rueInput.value = data.rue || '';
+        complementInput.value = data.complement || '';
+        cpInput.value = data.codePostal || '';
+        villeInput.value = data.ville || '';
+        paysInput.value = data.pays || '';
+        dateSaisieInput.value = data.dateSaisie || '';
+        dateExpirationInput.value = data.dateExpiration || '';
+        submitBtn.textContent = 'Mettre à jour';
+      }
+
+      modal.style.display = 'flex';
+      typeSelect.focus();
+    }
+
+    function closeAdresseModal(){
+      const modal = document.getElementById('adresseModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteAdresse(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer l\'adresse #' + id + ' ?')){
+        const form = document.getElementById('adresseDeleteForm');
+        const input = document.getElementById('adresseDeleteId');
+        if (form && input){
+          input.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openMatrimonialModal(mode, trigger){
+      const modal = document.getElementById('matrimonialModal');
+      const form = document.getElementById('matrimonialForm');
+      const title = document.getElementById('matrimonialModalTitle');
+      const submitBtn = document.getElementById('matrimonialSubmitBtn');
+      const formAction = document.getElementById('matrimonialFormAction');
+      const idInput = document.getElementById('matrimonialId');
+      const situationSelect = document.getElementById('matrimonialSituation');
+      const conventionSelect = document.getElementById('matrimonialConvention');
+      const nbEnfantsInput = document.getElementById('matrimonialNbEnfants');
+      const dateSaisieInput = document.getElementById('matrimonialDateSaisie');
+      const dateExpirationInput = document.getElementById('matrimonialDateExpiration');
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter une situation matrimoniale';
+        form.reset();
+        formAction.value = 'matrimonial_save';
+        idInput.value = '';
+        situationSelect.value = '';
+        conventionSelect.value = '';
+        nbEnfantsInput.value = '0';
+        dateSaisieInput.value = '';
+        dateExpirationInput.value = '';
+        submitBtn.textContent = 'Enregistrer';
+        updateMatrimonialConventionVisibility();
+      } else {
+        const data = trigger.dataset || {};
+        title.textContent = 'Modifier la situation matrimoniale';
+        form.reset();
+        formAction.value = 'matrimonial_save';
+        idInput.value = data.id || '';
+        situationSelect.value = data.situationId || '';
+        conventionSelect.value = data.conventionId || '';
+        nbEnfantsInput.value = data.nbEnfants || '0';
+        dateSaisieInput.value = data.dateSaisie || '';
+        dateExpirationInput.value = data.dateExpiration || '';
+        submitBtn.textContent = 'Mettre à jour';
+        updateMatrimonialConventionVisibility();
+      }
+
+      modal.style.display = 'flex';
+      situationSelect.focus();
+    }
+
+    function closeMatrimonialModal(){
+      const modal = document.getElementById('matrimonialModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteMatrimonial(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer cette situation matrimoniale ?')){
+        const form = document.getElementById('matrimonialDeleteForm');
+        const input = document.getElementById('matrimonialDeleteId');
+        if (form && input){
+          input.value = id;
+          form.submit();
+        }
+      }
+    }
+
+    function openProfessionnelModal(mode, trigger){
+      const modal = document.getElementById('professionnelModal');
+      const form = document.getElementById('professionnelForm');
+      const title = document.getElementById('professionnelModalTitle');
+      const submitBtn = document.getElementById('professionnelSubmitBtn');
+      const formAction = document.getElementById('professionnelFormAction');
+      const idInput = document.getElementById('professionnelId');
+      const professionInput = document.getElementById('professionnelProfession');
+      const secteurSelect = document.getElementById('professionnelSecteur');
+      const statutSelect = document.getElementById('professionnelStatut');
+      const employeurInput = document.getElementById('professionnelEmployeur');
+      const ancienneteInput = document.getElementById('professionnelAnciennete');
+      const dateSaisieInput = document.getElementById('professionnelDateSaisie');
+      const dateExpirationInput = document.getElementById('professionnelDateExpiration');
+
+      if (!form) return;
+
+      if (mode === 'add'){
+        title.textContent = 'Ajouter une situation professionnelle';
+        form.reset();
+        formAction.value = 'professionnel_save';
+        idInput.value = '';
+        professionInput.value = '';
+        secteurSelect.value = '';
+        statutSelect.value = '';
+        employeurInput.value = '';
+        ancienneteInput.value = '0';
+        dateSaisieInput.value = '';
+        dateExpirationInput.value = '';
+        submitBtn.textContent = 'Enregistrer';
+      } else {
+        const data = trigger.dataset || {};
+        title.textContent = 'Modifier la situation professionnelle';
+        form.reset();
+        formAction.value = 'professionnel_save';
+        idInput.value = data.id || '';
+        professionInput.value = data.profession || '';
+        secteurSelect.value = data.secteurId || '';
+        statutSelect.value = data.statutId || '';
+        employeurInput.value = data.employeur || '';
+        ancienneteInput.value = data.anciennete || '0';
+        dateSaisieInput.value = data.dateSaisie || '';
+        dateExpirationInput.value = data.dateExpiration || '';
+        submitBtn.textContent = 'Mettre à jour';
+      }
+
+      modal.style.display = 'flex';
+      professionInput.focus();
+    }
+
+    function closeProfessionnelModal(){
+      const modal = document.getElementById('professionnelModal');
+      if (modal){ modal.style.display = 'none'; }
+    }
+
+    function deleteProfessionnel(btn){
+      const id = btn.dataset.id;
+      if (!id) return;
+      if (confirm('Supprimer cette situation professionnelle ?')){
+        const form = document.getElementById('professionnelDeleteForm');
+        const input = document.getElementById('professionnelDeleteId');
+        if (form && input){
+          input.value = id;
+          form.submit();
+        }
+      }
+    }
+  </script>
+{% endif %}
+{% endblock %}
