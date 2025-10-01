@@ -453,11 +453,11 @@
       </div>
     </div>
     <div class="accordion card">
-      <button class="accordion-toggle" data-target="actifsPanel">
+      <button class="accordion-toggle collapsed" data-target="actifsPanel">
         <span><i class="fa-solid fa-box-open" style="margin-right:8px;"></i>Actifs</span>
         <span class="chevron">▾</span>
       </button>
-      <div class="accordion-panel active" id="actifsPanel">
+      <div class="accordion-panel" id="actifsPanel">
         {% if actif_success %}
           <div class="badge success" style="margin-bottom:12px;">{{ actif_success }}</div>
         {% elif actif_error %}
@@ -709,11 +709,11 @@
 
   <div class="kyc-container" id="knowledgeContainer">
     <div class="accordion card">
-      <button class="accordion-toggle" data-target="knowledgePanel">
+      <button class="accordion-toggle collapsed" data-target="knowledgePanel">
         <span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
         <span class="chevron">▾</span>
       </button>
-      <div class="accordion-panel active" id="knowledgePanel">
+      <div class="accordion-panel" id="knowledgePanel">
         <style>
           /* Pleine largeur pour une meilleure lisibilité */
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
@@ -1208,11 +1208,11 @@
 
   <div class="kyc-container" id="esgContainer">
     <div class="accordion card">
-      <button class="accordion-toggle" data-target="esgPanel">
+      <button class="accordion-toggle collapsed" data-target="esgPanel">
         <span><i class="fa-solid fa-leaf" style="margin-right:8px;"></i>Sensibilité ESG</span>
         <span class="chevron">▾</span>
       </button>
-      <div class="accordion-panel active" id="esgPanel">
+      <div class="accordion-panel" id="esgPanel">
         {% if esg_success %}
           <div class="badge success" style="margin-bottom:12px;">{{ esg_success }}</div>
         {% elif esg_error %}
@@ -1405,11 +1405,11 @@
   <!-- LCB-FT / TRACFIN -->
   <div class="kyc-container" id="lcbftContainer">
     <div class="accordion card">
-      <button class="accordion-toggle" data-target="lcbftPanel">
+      <button class="accordion-toggle collapsed" data-target="lcbftPanel">
         <span><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>LCB-FT / TRACFIN / FATCA</span>
         <span class="chevron">▾</span>
       </button>
-      <div class="accordion-panel active" id="lcbftPanel">
+      <div class="accordion-panel" id="lcbftPanel">
         {% if lcbft_success %}
           <div class="badge success">{{ lcbft_success }}</div>
         {% elif lcbft_error %}
@@ -1567,13 +1567,13 @@
   <div class="kyc-container" id="objectifsContainer">
     <div class="accordion card">
       <div class="accordion-header-actions">
-        <button class="accordion-toggle" data-target="objectifsPanel">
+        <button class="accordion-toggle collapsed" data-target="objectifsPanel">
           <span><i class="fa-solid fa-bullseye" style="margin-right:8px;"></i>Objectifs</span>
           <span class="chevron">▾</span>
         </button>
         <button type="button" class="objective-add-btn" id="addObjectiveBtn"><i class="fa-solid fa-plus"></i></button>
       </div>
-      <div class="accordion-panel active" id="objectifsPanel">
+      <div class="accordion-panel" id="objectifsPanel">
         <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
           <div class="objectives-list">
             <h4>Objectifs principaux</h4>
@@ -2747,24 +2747,10 @@ if (objectifFormNiveau){
         }
       }
 
-      const sectionToPanel = {
-        'etat_civil': 'etatCivilPanel',
-        'adresse': 'etatAdressePanel',
-        'matrimonial': 'etatMatrimonialPanel',
-        'professionnel': 'etatProfessionnelPanel',
-        'patrimoine': 'actifsPanel',
-        'passif': 'passifPanel',
-        'recettes': 'recettesPanel',
-        'charges': 'chargesPanel',
-        'objectifs': 'objectifsPanel',
-        'esg': 'esgPanel',
-      };
-      const activeSection = '{{ active_section | default("etat_civil") }}';
-      if (sectionToPanel[activeSection]){
-        setActivePanel(sectionToPanel[activeSection]);
-      } else {
-        setActivePanel('etatCivilPanel');
-      }
+      // Ouverture initiale: afficher la section Etat civil, mais sans déplier les panneaux
+      openMainSection('etat');
+      document.querySelectorAll('.accordion-panel').forEach(function(p){ p.classList.remove('active'); });
+      document.querySelectorAll('.accordion-toggle').forEach(function(t){ t.classList.add('collapsed'); });
 
       updateMatrimonialConventionVisibility();
       if (patrimoineContainer && patrimoineContainer.classList.contains('open')){
