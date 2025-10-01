@@ -1431,7 +1431,7 @@
               </div>
               <div class="field"><label>Compagnie d’assurance</label><input type="text" id="fatcaSociete" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" readonly /></div>
               <div class="field"><label>Date de l’opération</label><input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly /></div>
-              <div class="field"><label>Pays de résidence fiscale</label><input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" readonly /></div>
+              <div class="field"><label>Pays de résidence fiscale</label><input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" /></div>
               <div class="field"><label>NIF</label><input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" /></div>
             </div>
             <div class="risk-block">

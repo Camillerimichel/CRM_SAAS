@@ -2922,6 +2922,40 @@ async def dashboard_client_kyc(
                         except Exception:
                             # Column may not exist or different name; ignore
                             pass
+                        # Optionally sync pays de résidence fiscale back to client/adresse
+                        try:
+                            if fatca_pays_residence and str(fatca_pays_residence).strip() != "":
+                                # Try common column on mariadb_clients
+                                try:
+                                    db.execute(
+                                        _text("UPDATE mariadb_clients SET adresse_pays = :p WHERE id = :cid"),
+                                        {"p": fatca_pays_residence, "cid": client_id},
+                                    )
+                                except Exception:
+                                    # ignore if column doesn't exist
+                                    pass
+                                # Update latest KYC_Client_Adresse row for this client
+                                try:
+                                    row_addr = db.execute(
+                                        _text(
+                                            """
+                                            SELECT id FROM KYC_Client_Adresse
+                                            WHERE client_id = :cid
+                                            ORDER BY date_saisie DESC NULLS LAST, id DESC
+                                            LIMIT 1
+                                            """
+                                        ),
+                                        {"cid": client_id},
+                                    ).fetchone()
+                                    if row_addr and row_addr[0]:
+                                        db.execute(
+                                            _text("UPDATE KYC_Client_Adresse SET pays = :p WHERE id = :id"),
+                                            {"p": fatca_pays_residence, "id": row_addr[0]},
+                                        )
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                     except Exception as _exc_f:
                         logger.debug("LCBFT_fatca persist error: %s", _exc_f, exc_info=True)
                     if hasattr(form, 'getlist'):
