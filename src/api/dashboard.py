@@ -2912,6 +2912,16 @@ async def dashboard_client_kyc(
                                 ),
                                 fatca_params,
                             )
+                        # Optionally sync NIF to mariadb_clients.nif if provided
+                        try:
+                            if fatca_nif and str(fatca_nif).strip() != "":
+                                db.execute(
+                                    _text("UPDATE mariadb_clients SET nif = :nif WHERE id = :cid"),
+                                    {"nif": fatca_nif, "cid": client_id},
+                                )
+                        except Exception:
+                            # Column may not exist or different name; ignore
+                            pass
                     except Exception as _exc_f:
                         logger.debug("LCBFT_fatca persist error: %s", _exc_f, exc_info=True)
                     if hasattr(form, 'getlist'):
