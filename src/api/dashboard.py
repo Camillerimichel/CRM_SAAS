@@ -2840,7 +2840,7 @@ async def dashboard_client_kyc(
                         fatca_date_operation = (form.get("fatca_date_operation") or None)
                         # Resolve societe_nom from DB if possible
                         societe_nom = (form.get("fatca_societe") or None)
-                        if fatca_contrat_id:
+                        if fatca_contrat_id and (not societe_nom or str(societe_nom).strip() == ""):
                             try:
                                 row_soc = db.execute(
                                     _text(
