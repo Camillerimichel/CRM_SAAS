@@ -81,6 +81,9 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     permet au moins d'accéder à la page, en attendant les endpoints POST.
     """
     open_section = request.query_params.get("open") or None
+    saved_success = True if (request.query_params.get("saved") in ("1", "true", "yes")) else False
+    saved_error = True if (request.query_params.get("error") in ("1", "true", "yes")) else False
+    saved_error_msg = request.query_params.get("errmsg") or None
 
     # Valeurs par défaut pour garantir le rendu même si certaines tables manquent
     contrats_generiques: list[dict] = []
@@ -88,6 +91,22 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     contrat_categories: list[dict] = []
     societe_categories: list[dict] = []
     contrat_supports: list[dict] = []
+    # Courtier identity (single row) and reference lists
+    courtier: dict | None = None
+    statut_sociaux: list[dict] = []
+    associations_prof: list[dict] = []
+    autorites_mediation: list[dict] = []
+    # Courtier Détails: Activité
+    activite_refs: list[dict] = []
+    activite_items: list[dict] = []
+    # Courtier Détails: Relation commerciale
+    relation_items: list[dict] = []
+    # Courtier Détails: Rémunération
+    remun_refs: list[dict] = []
+    remun_items: list[dict] = []
+    remun_extra_cols: list[dict] = []
+    # Courtier Détails: Assurances & garanties (normes)
+    garanties_normes: list[dict] = []
     supports: list[dict] = []
 
     # Chargement des données si les tables existent
@@ -191,19 +210,1281 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     except Exception:
         contrat_supports = []
 
+    # ----- Courtier: identité (1 seule ligne) + référentiels -----
+    try:
+        from sqlalchemy import text as _text
+        row = db.execute(_text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            courtier = dict(row._mapping)
+    except Exception:
+        courtier = None
+    statut_sociaux = []
+    associations_prof = []
+    autorites_mediation = []
+    try:
+        statut_sociaux = _fetch_ref_list(db, [
+            "DER_statut_social",
+            "DER_statuts_sociaux",
+        ])
+    except Exception:
+        pass
+    try:
+        associations_prof = _fetch_ref_list(db, [
+            "DER_association_professionnelle",
+            "DER_association_prof",
+        ])
+    except Exception:
+        pass
+    try:
+        autorites_mediation = _fetch_ref_list(db, [
+            "DER_courtier_ref_autorite",
+            "DER_autorite_mediation",
+            "DER_courtier_autorite",
+        ])
+    except Exception:
+        pass
+
+    # -------- Détails: Activité
+
+    act_ref_table = _resolve_table_name(db, ["DER_courtier_activite_ref"])
+    if act_ref_table:
+        try:
+            activite_refs = _fetch_ref_list(db, [act_ref_table])
+        except Exception:
+            activite_refs = []
+
+    act_table = _resolve_table_name(db, ["DER_courtier_activite"])
+    if act_table:
+        id_col, fk_ref_col, fk_cour_col, creation_col, modification_col = _courtier_activite_columns(db, act_table)
+        try:
+            from sqlalchemy import text as _text
+            # filter by current courtier if FK column exists and courtier present
+            where_clause = ""
+            params = {}
+            if fk_cour_col and courtier and courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = courtier.get("id")
+            rows = db.execute(_text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            # detect statut column
+            statut_col = None
+            cols = _sqlite_table_columns(db, act_table)
+            for c in cols:
+                nm = (c.get("name") or "").lower()
+                if nm == "statut":
+                    statut_col = c.get("name")
+                    break
+            for r in rows:
+                m = r._mapping
+                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                ref_id = m.get(fk_ref_col)
+                ref_label = None
+                for ref in activite_refs:
+                    if (ref.get("id") == ref_id) or (str(ref.get("id")) == str(ref_id)):
+                        ref_label = ref.get("libelle")
+                        break
+                activite_items.append({
+                    "id": rid,
+                    "ref_id": ref_id,
+                    "ref_label": ref_label,
+                    "statut": m.get(statut_col) if statut_col else None,
+                })
+        except Exception:
+            activite_items = []
+
+    # Load relations commerciales
+    rel_table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"])
+    if rel_table:
+        try:
+            id_col, fk_soc_col, fk_cour_col, creation_col, modification_col = _courtier_relation_columns(db, rel_table)
+            where_clause = ""
+            params = {}
+            if fk_cour_col and courtier and courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = courtier.get("id")
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {rel_table}{where_clause}"), params).fetchall()
+            for r in rows:
+                m = r._mapping
+                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                sid = m.get(fk_soc_col)
+                # find label from societes already loaded
+                s_label = None
+                for s in societes:
+                    if (s.get("id") == sid) or (str(s.get("id")) == str(sid)):
+                        s_label = s.get("nom")
+                        break
+                relation_items.append({"id": rid, "societe_id": sid, "societe_nom": s_label})
+        except Exception as e:
+            logger.error(f"load relation commerciales failed: {e}")
+
+    # Load rémunération (mode de facturation)
+    try:
+        remun_refs = _fetch_ref_list(db, ["DER_courtier_mode_facturation_ref"]) or []
+    except Exception:
+        remun_refs = []
+    rem_table = _resolve_table_name(db, ["DER_courtier_mode_facturation"])
+    if rem_table:
+        try:
+            # infer columns similar to activite/relation
+            cols = _sqlite_table_columns(db, rem_table)
+            colnames = [c.get("name") for c in cols]
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+            # fk to ref
+            import unicodedata
+            def norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s)
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            norm_map = {name: norm(name) for name in colnames}
+            inv_map = {v: k for k, v in norm_map.items()}
+            fk_ref_col = None
+            for cand in ["id_ref","id_mode_facturation_ref","id_courtier_mode_facturation_ref","mode_ref","mode","id_mode_ref"]:
+                if cand in inv_map:
+                    fk_ref_col = inv_map[cand]
+                    break
+            if not fk_ref_col:
+                for name in colnames:
+                    if name != id_col:
+                        fk_ref_col = name
+                        break
+            # fk to courtier
+            fk_cour_col = None
+            for cand in ["id_courtier","courtier_id","id_der_courtier","id_cabinet"]:
+                if cand in inv_map:
+                    fk_cour_col = inv_map[cand]
+                    break
+            # detect creation/modification date cols to exclude from UI
+            creation_col = next((c for c in ["date_creation", "date_création", "dateCreation"] if c in colnames), None)
+            modification_col = next((c for c in ["date_obsolescence", "date_modification", "date_modif", "date_maj", "dateMiseAJour"] if c in colnames), None)
+
+            # Extra editable columns = all except id / fk_ref / fk_courtier / date cols / 'type'
+            extras = []
+            for c in cols:
+                nm = c.get("name")
+                if nm in (id_col, fk_ref_col, fk_cour_col, creation_col, modification_col):
+                    continue
+                if (nm or '').lower() == 'type':
+                    continue
+                extras.append({"name": nm, "type": (c.get("type") or "")})
+            remun_extra_cols = extras
+
+            where_clause = ""
+            params = {}
+            if fk_cour_col and courtier and courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = courtier.get("id")
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {rem_table}{where_clause}"), params).fetchall()
+            for r in rows:
+                m = r._mapping
+                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                # ref id direct si colonne présente
+                ref_id_fk = m.get(fk_ref_col) if fk_ref_col else None
+                # Dérive le domaine depuis 'type' en base
+                raw_type = str(m.get('type') or '')
+                import unicodedata
+                def _norm_u(s: str) -> str:
+                    s2 = unicodedata.normalize('NFKD', s or '')
+                    s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                    return s2.upper()
+                def _map_type(val: str) -> str:
+                    v = _norm_u(val)
+                    if 'HONOR' in v or 'PONCT' in v:
+                        return 'HONORAIRES'
+                    if 'ENTREE' in v:
+                        return 'FRAIS_ENTREE'
+                    if 'GESTION' in v:
+                        return 'FRAIS_GESTION'
+                    return ''
+                tdom = _map_type(raw_type)
+                # Choisir ref_id prioritairement via type, sinon via FK
+                ref_id = None
+                ref_label = None
+                if tdom:
+                    for ref in remun_refs:
+                        lbl = _map_type(str(ref.get('libelle') or ''))
+                        if lbl == tdom:
+                            ref_id = ref.get('id')
+                            ref_label = ref.get('libelle')
+                            break
+                if ref_id is None and ref_id_fk is not None:
+                    ref_id = ref_id_fk
+                    for ref in remun_refs:
+                        if (ref.get('id') == ref_id) or (str(ref.get('id')) == str(ref_id)):
+                            ref_label = ref.get('libelle')
+                            break
+                extra_vals = {}
+                for ex in extras:
+                    extra_vals[ex["name"]] = m.get(ex["name"]) if ex["name"] in m else None
+                # convenience fields for display
+                montant_val = extra_vals.get("montant") if "montant" in extra_vals else extra_vals.get("valeur")
+                pct_val = extra_vals.get("pourcentage") if "pourcentage" in extra_vals else extra_vals.get("taux")
+                type_raw = m.get('type') if 'type' in colnames else None
+                remun_items.append({
+                    "id": rid,
+                    "ref_id": ref_id,
+                    "ref_label": ref_label,
+                    "extra": extra_vals,
+                    "montant": montant_val,
+                    "pourcentage": pct_val,
+                    "type": type_raw,
+                })
+        except Exception as e:
+            logger.error(f"load remuneration failed: {e}")
+
+    # Load garanties normes
+    gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+    if gar_table:
+        try:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            # detect columns by normalized names
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or colnames[0]
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            c_immo = inv.get('immo') or 'IMMO'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                garanties_normes.append({
+                    'id': m.get('__rid'),
+                    'type_garantie': m.get(c_type),
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                    'IMMO': m.get(c_immo),
+                    '_c_ias': c_ias,
+                    '_c_iobsp': c_iobsp,
+                    '_c_immo': c_immo,
+                })
+        except Exception as e:
+            logger.error(f"load garanties normes failed: {e}")
+
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
             "request": request,
             "open_section": open_section,
+            "saved_success": saved_success,
+            "saved_error": saved_error,
+            "saved_error_msg": saved_error_msg,
             "contrats_generiques": contrats_generiques,
             "societes": societes,
             "contrat_categories": contrat_categories,
             "societe_categories": societe_categories,
             "contrat_supports": contrat_supports,
             "supports": supports,
+            "courtier": courtier,
+            "form_courtier": None,
+            "form_errors": None,
+            "statut_sociaux": statut_sociaux,
+            "associations_prof": associations_prof,
+            "autorites_mediation": autorites_mediation,
+            "activite_refs": activite_refs,
+            "activite_items": activite_items,
+            "relation_items": relation_items,
+            "remun_refs": remun_refs,
+            "remun_items": remun_items,
+            "remun_extra_cols": remun_extra_cols,
+            "garanties_normes": garanties_normes,
         },
     )
+
+
+@router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
+async def update_courtier_garanties(row_id: str, request: Request, db: Session = Depends(get_db)):
+    table = _resolve_table_name(db, ["DER_courtier_garanties_normes"]) or "DER_courtier_garanties_normes"
+    cols = _sqlite_table_columns(db, table)
+    colnames = [c.get("name") for c in cols]
+    import unicodedata
+    def _norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s or '')
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+    inv = { _norm(n): n for n in colnames }
+    c_ias = inv.get('ias') or 'IAS'
+    c_iobsp = inv.get('iobsp') or 'IOBSP'
+    c_immo = inv.get('immo') or 'IMMO'
+    form = await request.form()
+    def _as_int_like(raw: str | None) -> int | None:
+        v = _as_float(raw, None)
+        if v is None:
+            return None
+        try:
+            return int(round(v))
+        except Exception:
+            return None
+    params = {
+        '__id__': row_id,
+        '___ias': _as_int_like(form.get(c_ias)),
+        '___iobsp': _as_int_like(form.get(c_iobsp)),
+        '___immo': _as_int_like(form.get(c_immo)),
+    }
+    # Build set clause with actual column names
+    set_parts = [ f"{c_ias} = :___ias", f"{c_iobsp} = :___iobsp", f"{c_immo} = :___immo" ]
+    try:
+        db.execute(text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update garanties failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+def _sqlite_table_columns(db: Session, table: str) -> list[dict]:
+    from sqlalchemy import text as _text
+    try:
+        cols = rows_to_dicts(db.execute(_text(f"PRAGMA table_info('{table}')")).fetchall())
+        return cols
+    except Exception:
+        return []
+
+
+def _coerce_value(raw: str | None, col_type: str) -> object | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s == "":
+        return None
+    t = (col_type or "").upper()
+    try:
+        if any(x in t for x in ["INT"]):
+            return int(s)
+        if any(x in t for x in ["REAL", "FLOA", "DOUB", "DEC", "NUM"]):
+            return float(s.replace(",", "."))
+        if any(x in t for x in ["DATE", "TIME"]):
+            return s  # laisser tel quel (ISO conseillé)
+        return s
+    except Exception:
+        return s
+
+
+def _allowed_courtier_tables(db: Session) -> set[str]:
+    from sqlalchemy import text as _text
+    names = set()
+    try:
+        rows = db.execute(
+            _text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'DER_courtier%'"
+            )
+        ).fetchall()
+        for r in rows:
+            # r could be tuple or Row
+            name = None
+            try:
+                name = r[0]
+            except Exception:
+                try:
+                    name = r._mapping.get("name")
+                except Exception:
+                    name = None
+            if name:
+                names.add(name)
+    except Exception:
+        pass
+    return names
+
+
+def _fetch_ref_list(db: Session, candidates: list[str]) -> list[dict]:
+    """Retourne [{id, libelle}] depuis la première table existante parmi candidates.
+    Détection robuste de la colonne libellé (insensible à la casse/accents) parmi: libelle, libellé, label, nom, name, intitulé, intitule.
+    """
+    from sqlalchemy import text as _text
+    import unicodedata
+
+    def _norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s)
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+
+    # Trouver une table (ou vue) existante – recherche insensible à la casse et tolère suffixes
+    table = None
+    for cand in candidates:
+        row = db.execute(
+            _text(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type IN ('table','view')
+                  AND (lower(name) = lower(:n) OR lower(name) LIKE lower(:n_like))
+                ORDER BY CASE WHEN lower(name) = lower(:n) THEN 0 ELSE 1 END, name
+                LIMIT 1
+                """
+            ),
+            {"n": cand, "n_like": f"{cand}%"},
+        ).fetchone()
+        if row:
+            try:
+                table = row[0]
+            except Exception:
+                table = row._mapping.get("name")
+            break
+    if not table:
+        return []
+    # Colonnes
+    cols = rows_to_dicts(db.execute(_text(f"PRAGMA table_info('{table}')")).fetchall())
+    if not cols:
+        return []
+    # Déterminer colonne id: priorité PK sinon 'id', sinon première
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else None
+    if not id_col:
+        # rechercher 'id' normalisé
+        name_map = {c.get("name"): _norm(c.get("name") or "") for c in cols}
+        inv_map = {v: k for k, v in name_map.items()}
+        id_col = inv_map.get("id", cols[0].get("name"))
+    # Déterminer colonne label
+    # Préférence: libellé/libelle/label/nom/name/intitulé/intitule; sinon première non-id
+    name_map = {c.get("name"): _norm(c.get("name") or "") for c in cols}
+    inv_map = {v: k for k, v in name_map.items()}
+    for pref in ["libelle", _norm("libellé"), "label", "nom", "name", "intitule", _norm("intitulé")]:
+        if pref in inv_map:
+            label_col = inv_map[pref]
+            break
+    else:
+        label_col = next((c.get("name") for c in cols if c.get("name") != id_col), id_col)
+
+    # Récupérer lignes; inclure rowid pour secours si pas d'ID exploitable
+    raw_rows = db.execute(_text(f"SELECT rowid AS __rid, * FROM {table}")).fetchall()
+    items = []
+    for row in raw_rows:
+        m = row._mapping
+        try:
+            iid = m.get(id_col) if id_col in m else (m.get("id") if "id" in m else m.get("__rid"))
+            lbl = m.get(label_col)
+            if lbl is None:
+                # Dernier secours: première colonne non id
+                for k in m.keys():
+                    if k not in (id_col, "id", "__rid"):
+                        lbl = m.get(k)
+                        if lbl is not None:
+                            break
+            items.append({"id": iid, "libelle": lbl})
+        except Exception:
+            continue
+    # Trier par libellé (sécurité)
+    try:
+        items.sort(key=lambda x: (str(x.get("libelle") or "").lower(), str(x.get("id"))))
+    except Exception:
+        pass
+    return items
+
+
+def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
+    """Return the first existing table/view name matching one of candidates (case-insensitive)."""
+    from sqlalchemy import text as _text
+    for cand in candidates:
+        row = db.execute(
+            _text(
+                "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND lower(name) = lower(:n) LIMIT 1"
+            ),
+            {"n": cand},
+        ).fetchone()
+        if row:
+            try:
+                return row[0]
+            except Exception:
+                return row._mapping.get("name")
+    return None
+
+
+def _courtier_activite_columns(db: Session, table: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Infer (id_col, fk_ref_col, fk_courtier_col, creation_col, modification_col) for DER_courtier_activite-like table."""
+    cols = _sqlite_table_columns(db, table)
+    colnames = [c.get("name") for c in cols]
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+    import unicodedata
+    def norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s)
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+    norm_map = {name: norm(name) for name in colnames}
+    inv_map = {v: k for k, v in norm_map.items()}
+    fk_ref_col = None
+    for cand in ["id_ref", "id_activite_ref", "id_courtier_activite_ref", "id_der_courtier_activite_ref", "ref", "activite", "activite_ref"]:
+        if cand in inv_map:
+            fk_ref_col = inv_map[cand]
+            break
+    if not fk_ref_col:
+        for name in colnames:
+            if name != id_col:
+                fk_ref_col = name
+                break
+    # detect fk to courtier
+    fk_courtier_col = None
+    for cand in [
+        "id_courtier", "id_der_courtier", "id_cabinet", "id_courtier_fk", "courtier_id",
+    ]:
+        if cand in inv_map:
+            fk_courtier_col = inv_map[cand]
+            break
+    creation_col = next((c for c in ["date_creation", "date_création", "dateCreation"] if c in colnames), None)
+    modification_col = next((c for c in ["date_obsolescence", "date_modification", "date_modif", "date_maj", "dateMiseAJour"] if c in colnames), None)
+    return id_col, fk_ref_col, fk_courtier_col, creation_col, modification_col
+
+
+def _courtier_relation_columns(db: Session, table: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Infer (id_col, fk_societe_col, fk_courtier_col, creation_col, modification_col) for DER_courtier_relation_commerciale-like table."""
+    cols = _sqlite_table_columns(db, table)
+    colnames = [c.get("name") for c in cols]
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+    import unicodedata
+    def norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s)
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+    norm_map = {name: norm(name) for name in colnames}
+    inv_map = {v: k for k, v in norm_map.items()}
+    fk_societe_col = None
+    for cand in ["id_societe", "societe_id", "id_mariadb_societe", "id_der_societe"]:
+        if cand in inv_map:
+            fk_societe_col = inv_map[cand]
+            break
+    if not fk_societe_col:
+        for name in colnames:
+            if name != id_col:
+                fk_societe_col = name
+                break
+    fk_courtier_col = None
+    for cand in ["id_courtier", "id_der_courtier", "id_cabinet", "courtier_id"]:
+        if cand in inv_map:
+            fk_courtier_col = inv_map[cand]
+            break
+    creation_col = next((c for c in ["date_creation", "date_création", "dateCreation"] if c in colnames), None)
+    modification_col = next((c for c in ["date_obsolescence", "date_modification", "date_modif", "date_maj", "dateMiseAJour"] if c in colnames), None)
+    return id_col, fk_societe_col, fk_courtier_col, creation_col, modification_col
+
+
+# ---- Courtier > Relation commerciale ----
+@router.post("/parametres/courtier/relation", response_class=HTMLResponse)
+async def create_courtier_relation(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    soc_id_raw = form.get("societe_id")
+    try:
+        societe_id = int(soc_id_raw) if soc_id_raw not in (None, "") else None
+    except Exception:
+        societe_id = None
+    table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
+    id_col, fk_soc_col, fk_cour_col, creation_col, modification_col = _courtier_relation_columns(db, table)
+    if not fk_soc_col:
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&error=1&errmsg=Aucune%20colonne%20societe%20detectee", status_code=303)
+    params: dict = {fk_soc_col: societe_id}
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    if creation_col:
+        params[creation_col] = now
+    if modification_col:
+        params[modification_col] = now
+    # attach current courtier id if column exists
+    try:
+        row = db.execute(text("SELECT id FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if fk_cour_col and row and row[0] is not None:
+            params[fk_cour_col] = row[0]
+    except Exception:
+        pass
+    # Satisfy NOT NULL columns generically
+    try:
+        cols = _sqlite_table_columns(db, table)
+        for c in cols:
+            name = c.get("name")
+            if not name or name in params or name == id_col:
+                continue
+            if c.get("notnull"):
+                if name == creation_col or name == modification_col:
+                    params[name] = now
+                    continue
+                if name == fk_soc_col or name == fk_cour_col:
+                    continue
+                ctype = (c.get("type") or "").upper()
+                if any(x in ctype for x in ["INT", "REAL", "FLOA", "DOUB", "DEC", "NUM"]):
+                    params[name] = 0
+                else:
+                    params[name] = ""
+    except Exception:
+        pass
+    from sqlalchemy import text as _text
+    try:
+        fields = ", ".join(params.keys())
+        placeholders = ", ".join(f":{k}" for k in params.keys())
+        db.execute(_text(f"INSERT INTO {table} ({fields}) VALUES ({placeholders})"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"create_courtier_relation failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/relation/{row_id}", response_class=HTMLResponse)
+async def update_courtier_relation(row_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    soc_id_raw = form.get("societe_id")
+    try:
+        societe_id = int(soc_id_raw) if soc_id_raw not in (None, "") else None
+    except Exception:
+        societe_id = None
+    table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
+    id_col, fk_soc_col, fk_cour_col, creation_col, modification_col = _courtier_relation_columns(db, table)
+    if not fk_soc_col:
+        return _redirect_back(request, "courtierDetails")
+    params: dict = {fk_soc_col: societe_id, "__id__": row_id}
+    set_parts = [f"{fk_soc_col} = :{fk_soc_col}"]
+    if modification_col:
+        params["__now__"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+        set_parts.append(f"{modification_col} = :__now__")
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update_courtier_relation failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/relation/{row_id}/delete", response_class=HTMLResponse)
+async def delete_courtier_relation(row_id: str, request: Request, db: Session = Depends(get_db)):
+    table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"delete_courtier_relation failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---- Courtier > Activité ----
+@router.post("/parametres/courtier/activite", response_class=HTMLResponse)
+async def create_courtier_activite(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    ref_id_raw = form.get("ref_id")
+    try:
+        ref_id = int(ref_id_raw) if ref_id_raw not in (None, "") else None
+    except Exception:
+        ref_id = None
+    table = _resolve_table_name(db, ["DER_courtier_activite"]) or "DER_courtier_activite"
+    id_col, fk_ref_col, fk_cour_col, creation_col, modification_col = _courtier_activite_columns(db, table)
+    if not fk_ref_col:
+        return _redirect_back(request, "courtierDetails")
+    params: dict = {fk_ref_col: ref_id}
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    if creation_col:
+        params[creation_col] = now
+    if modification_col:
+        params[modification_col] = now
+    # attach current courtier id if column exists
+    try:
+        row = db.execute(text("SELECT id FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if fk_cour_col and row and row[0] is not None:
+            params[fk_cour_col] = row[0]
+    except Exception:
+        pass
+    # Satisfaire les colonnes NOT NULL sans valeur par défaut
+    try:
+        cols = _sqlite_table_columns(db, table)
+        for c in cols:
+            name = c.get("name")
+            if not name or name in params or name == id_col:
+                continue
+            if c.get("notnull"):
+                if name == creation_col or name == modification_col:
+                    params[name] = now
+                    continue
+                if name == fk_ref_col or name == fk_cour_col:
+                    # déjà gérées si possibles
+                    continue
+                ctype = (c.get("type") or "").upper()
+                uname = name.upper()
+                if "STATUT" in uname:
+                    # Respecter le domaine ('exercee','non_exercee') si texte
+                    if any(x in ctype for x in ["CHAR", "TEXT"]):
+                        params[name] = "exercee"
+                    else:
+                        params[name] = 1
+                elif any(x in ctype for x in ["INT", "REAL", "FLOA", "DOUB", "DEC", "NUM"]):
+                    params[name] = 0
+                else:
+                    params[name] = ""
+    except Exception:
+        pass
+    from sqlalchemy import text as _text
+    try:
+        fields = ", ".join(params.keys())
+        placeholders = ", ".join(f":{k}" for k in params.keys())
+        db.execute(_text(f"INSERT INTO {table} ({fields}) VALUES ({placeholders})"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"create_courtier_activite failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/activite/{row_id}", response_class=HTMLResponse)
+async def update_courtier_activite(row_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    ref_id_raw = form.get("ref_id")
+    try:
+        ref_id = int(ref_id_raw) if ref_id_raw not in (None, "") else None
+    except Exception:
+        ref_id = None
+    table = _resolve_table_name(db, ["DER_courtier_activite"]) or "DER_courtier_activite"
+    id_col, fk_ref_col, fk_cour_col, creation_col, modification_col = _courtier_activite_columns(db, table)
+    if not fk_ref_col or not id_col:
+        return _redirect_back(request, "courtierDetails")
+    params: dict = {fk_ref_col: ref_id, "__id__": row_id}
+    from sqlalchemy import text as _text
+    set_parts = [f"{fk_ref_col} = :{fk_ref_col}"]
+    # statut update if column exists
+    try:
+        cols = _sqlite_table_columns(db, table)
+        for c in cols:
+            nm = (c.get("name") or "").lower()
+            if nm == "statut":
+                statut_val = (form.get("statut") or "").strip().lower().replace("é", "e")
+                if statut_val not in ("exercee", "non_exercee"):
+                    statut_val = "exercee"
+                params[c.get("name")] = statut_val
+                set_parts.append(f"{c.get('name')} = :{c.get('name')}")
+                break
+    except Exception:
+        pass
+    if modification_col:
+        params["__now__"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+        set_parts.append(f"{modification_col} = :__now__")
+    try:
+        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update_courtier_activite failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/activite/{row_id}/delete", response_class=HTMLResponse)
+async def delete_courtier_activite(row_id: str, request: Request, db: Session = Depends(get_db)):
+    table = _resolve_table_name(db, ["DER_courtier_activite"]) or "DER_courtier_activite"
+    id_col, fk_col, creation_col, modification_col = _courtier_activite_columns(db, table)
+    if not id_col:
+        return _redirect_back(request, "courtierDetails")
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"delete_courtier_activite failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+def _digits_only(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return "".join(ch for ch in str(value) if ch.isdigit()) or None
+
+
+def _int_from_thousands(value: str | None) -> int | None:
+    if value is None:
+        return None
+    s = str(value).replace(" ", "").replace("\u00A0", "")
+    s = "".join(ch for ch in s if ch.isdigit())
+    return int(s) if s else None
+
+
+# ---- Courtier > Rémunération (mode de facturation) ----
+@router.post("/parametres/courtier/remuneration", response_class=HTMLResponse)
+async def create_courtier_remuneration(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    ref_raw = form.get("ref_id")
+    try:
+        ref_id = int(ref_raw) if ref_raw not in (None, "") else None
+    except Exception:
+        ref_id = None
+    table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
+    cols = _sqlite_table_columns(db, table)
+    colnames = [c.get("name") for c in cols]
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+    # infer fk columns
+    import unicodedata
+    def norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s)
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+    norm_map = {name: norm(name) for name in colnames}
+    inv_map = {v: k for k, v in norm_map.items()}
+    fk_ref_col = None
+    for cand in ["id_ref","id_mode_facturation_ref","id_courtier_mode_facturation_ref","mode_ref","mode","id_mode_ref"]:
+        if cand in inv_map:
+            fk_ref_col = inv_map[cand]
+            break
+    if not fk_ref_col:
+        for name in colnames:
+            if name != id_col:
+                fk_ref_col = name
+                break
+    fk_cour_col = None
+    for cand in ["id_courtier","courtier_id","id_der_courtier","id_cabinet"]:
+        if cand in inv_map:
+            fk_cour_col = inv_map[cand]
+            break
+    params: dict = {fk_ref_col: ref_id}
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    # attach courtier id if column exists
+    try:
+        row = db.execute(text("SELECT id FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if fk_cour_col and row and row[0] is not None:
+            params[fk_cour_col] = row[0]
+    except Exception:
+        pass
+    # include extra fields from form
+    try:
+        for c in cols:
+            nm = c.get("name")
+            if nm in (id_col, fk_ref_col, fk_cour_col):
+                continue
+            _ = request.form  # placeholder to satisfy type checker
+        form_map = await request.form()
+        # Convenience normalization for known fields
+        def _as_percent(raw: str | None):
+            if raw is None:
+                return None
+            s = str(raw).strip().replace('%','').replace(' ','').replace(',', '.')
+            try:
+                return float(s)
+            except Exception:
+                return None
+        def _as_amount(raw: str | None):
+            if raw is None:
+                return None
+            import re
+            s = re.sub(r"[^0-9,\.\-]", '', str(raw))
+            s = s.replace(',', '.')
+            try:
+                return float(s)
+            except Exception:
+                return None
+        for c in cols:
+            nm = c.get("name")
+            if nm in (id_col, fk_ref_col, fk_cour_col):
+                continue
+            if (nm or '').lower() == 'type':
+                continue
+            if nm in ("date_creation", "date_création", "dateCreation", "date_obsolescence", "date_modification", "date_modif", "date_maj", "dateMiseAJour"):
+                continue
+            raw = form_map.get(nm)
+            if raw is None:
+                continue
+            # Field-specific coercions
+            if nm.lower() in ("pourcentage", "taux"):
+                val = _as_percent(raw)
+            elif nm.lower() in ("montant", "valeur"):
+                val = _as_amount(raw)
+            else:
+                val = _coerce_value(str(raw), (c.get("type") or ""))
+            params[nm] = val
+    except Exception:
+        pass
+
+    # If a 'type' column exists with CHECK constraint, derive it from ref libelle when absent/empty
+    try:
+        if "type" in colnames:
+            form_map = form_map if 'form_map' in locals() else await request.form()
+            provided = form_map.get("type")
+            def _map_type(val: str | None) -> str | None:
+                if not val:
+                    return None
+                t = str(val).strip().upper().replace(' ', '_')
+                if ("HONOR" in t) or ("PONCT" in t):
+                    return "HONORAIRES"
+                if "ENTREE" in t:
+                    return "FRAIS_ENTREE"
+                if "GESTION" in t:
+                    return "FRAIS_GESTION"
+                return None
+            type_val = _map_type(provided)
+            if not type_val:
+                # derive from ref libelle
+                refs = _fetch_ref_list(db, ["DER_courtier_mode_facturation_ref"]) or []
+                label = None
+                for r in refs:
+                    if str(r.get("id")) == str(ref_id):
+                        label = r.get("libelle")
+                        break
+                type_val = _map_type(label)
+            if not type_val:
+                type_val = "HONORAIRES"
+            params["type"] = type_val
+    except Exception:
+        pass
+    # fill NOT NULL generically
+    try:
+        for c in cols:
+            name = c.get("name")
+            if not name or name in params or name == id_col:
+                continue
+            if c.get("notnull"):
+                ctype = (c.get("type") or "").upper()
+                if any(x in ctype for x in ["INT","REAL","FLOA","DOUB","DEC","NUM"]):
+                    params[name] = 0
+                else:
+                    params[name] = ""
+    except Exception:
+        pass
+    try:
+        from sqlalchemy import text as _text
+        fields = ", ".join(params.keys())
+        placeholders = ", ".join(f":{k}" for k in params.keys())
+        db.execute(_text(f"INSERT INTO {table} ({fields}) VALUES ({placeholders})"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"create remuneration failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/remuneration/{row_id}", response_class=HTMLResponse)
+async def update_courtier_remuneration(row_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    ref_raw = form.get("ref_id")
+    try:
+        ref_id = int(ref_raw) if ref_raw not in (None, "") else None
+    except Exception:
+        ref_id = None
+    table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
+    cols = _sqlite_table_columns(db, table)
+    colnames = [c.get("name") for c in cols]
+    # infer fk ref column name
+    import unicodedata, re
+    def norm(s: str) -> str:
+        s2 = unicodedata.normalize('NFKD', s or '')
+        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+        return s2.lower()
+    inv_map = {norm(name): name for name in colnames}
+    fk_ref_col = None
+    for cand in ["id_ref","id_mode_facturation_ref","id_courtier_mode_facturation_ref","mode_ref","mode","id_mode_ref"]:
+        if cand in inv_map:
+            fk_ref_col = inv_map[cand]
+            break
+    # Build params whitelisting montant/pourcentage only (avoid unexpected fields)
+    params: dict = {"__id__": row_id}
+    set_parts: list[str] = []
+    if fk_ref_col is not None:
+        params[fk_ref_col] = ref_id
+        set_parts.append(f"{fk_ref_col} = :{fk_ref_col}")
+    else:
+        # Pas de fk → mettre à jour la colonne 'type' si elle existe
+        if 'type' in colnames and ref_id is not None:
+            # Charger le libellé du ref et le mapper vers domaine autorisé
+            refs = _fetch_ref_list(db, ["DER_courtier_mode_facturation_ref"]) or []
+            label = None
+            for r in refs:
+                if str(r.get('id')) == str(ref_id):
+                    label = r.get('libelle')
+                    break
+            import unicodedata, re
+            def _norm_upper(val: str | None) -> str:
+                s = '' if val is None else str(val)
+                s = unicodedata.normalize('NFKD', s)
+                s = ''.join(ch for ch in s if not unicodedata.combining(ch))
+                s = s.replace("'", " ").replace("’", " ")
+                s = re.sub(r"\s+", " ", s)
+                return s.upper()
+            def _map_type(val: str | None) -> str | None:
+                v = _norm_upper(val)
+                if 'HONOR' in v or 'PONCT' in v:
+                    return 'HONORAIRES'
+                if 'ENTREE' in v:
+                    return 'FRAIS_ENTREE'
+                if 'GESTION' in v:
+                    return 'FRAIS_GESTION'
+                return None
+            tdom = _map_type(label)
+            if not tdom:
+                tdom = 'HONORAIRES'
+            params['type'] = tdom
+            set_parts.append("type = :type")
+    # montant
+    for mkey in ("montant", "valeur"):
+        if mkey in colnames:
+            raw = form.get(mkey)
+            if raw is not None:
+                sval = re.sub(r"[^0-9,\.\-]", '', str(raw)).replace(',', '.')
+                try:
+                    params[mkey] = float(sval) if sval != '' else None
+                except Exception:
+                    params[mkey] = None
+                set_parts.append(f"{mkey} = :{mkey}")
+            break
+    # pourcentage
+    for pkey in ("pourcentage", "taux"):
+        if pkey in colnames:
+            raw = form.get(pkey)
+            if raw is not None:
+                sval = str(raw).strip().replace('%','').replace(' ','').replace(',', '.')
+                try:
+                    params[pkey] = float(sval) if sval != '' else None
+                except Exception:
+                    params[pkey] = None
+                set_parts.append(f"{pkey} = :{pkey}")
+            break
+    try:
+        from sqlalchemy import text as _text
+        clause = ', '.join(set_parts) or ''
+        if not clause:
+            return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+        db.execute(_text(f"UPDATE {table} SET {clause} WHERE rowid = :__id__"), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update remuneration failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/courtier/remuneration/{row_id}/delete", response_class=HTMLResponse)
+async def delete_courtier_remuneration(row_id: str, request: Request, db: Session = Depends(get_db)):
+    table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
+    try:
+        from sqlalchemy import text as _text
+        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"delete remuneration failed: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/der_courtier", response_class=HTMLResponse)
+async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    # Sanitize / normalize
+    nom_cabinet = (form.get("nom_cabinet") or "").strip()
+    nom_responsable = (form.get("nom_responsable") or "").strip()
+    try:
+        statut_social = int(form.get("statut_social")) if form.get("statut_social") not in (None, "") else None
+    except Exception:
+        statut_social = None
+    capital_social = _int_from_thousands(form.get("capital_social"))
+    siren = _digits_only(form.get("siren"))
+    rcs = (form.get("rcs") or "").strip()
+    numero_orias = _digits_only(form.get("numero_orias")) or ""
+    adresse_rue = (form.get("adresse_rue") or "").strip()
+    adresse_cp = _digits_only(form.get("adresse_cp")) or ""
+    adresse_ville = (form.get("adresse_ville") or "").strip()
+    courriel = (form.get("courriel") or "").strip()
+    try:
+        association_prof = int(form.get("association_prof")) if form.get("association_prof") not in (None, "") else None
+    except Exception:
+        association_prof = None
+    num_adh_assoc = (form.get("num_adh_assoc") or "").strip()
+    categorie_courtage = (form.get("categorie_courtage") or "").strip().upper() or None
+    if categorie_courtage not in (None, "A", "B", "C"):
+        categorie_courtage = None
+    responsable_dpo = (form.get("responsable_dpo") or "").strip()
+    try:
+        centre_mediation = int(form.get("centre_mediation")) if form.get("centre_mediation") not in (None, "") else None
+    except Exception:
+        centre_mediation = None
+    mediators = (form.get("mediators") or "").strip()
+    mail_mediators = (form.get("mail_mediators") or "").strip()
+
+    # Validations strictes
+    errors: dict[str, str] = {}
+    def is_email(s: str) -> bool:
+        return bool(__import__("re").match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", s))
+
+    if not nom_cabinet:
+        errors["nom_cabinet"] = "Le nom du cabinet est requis."
+    # Contrôle SIREN retiré sur demande; on conserve la normalisation uniquement
+    if numero_orias and len(numero_orias) != 9:
+        errors["numero_orias"] = "Le numéro ORIAS doit comporter 9 chiffres."
+    if adresse_cp and len(adresse_cp) != 5:
+        errors["adresse_cp"] = "Le code postal doit comporter 5 chiffres."
+    if courriel:
+        if not is_email(courriel):
+            errors["courriel"] = "Veuillez saisir une adresse courriel valide."
+    # Emails médiateurs: séparés par virgule/point-virgule/espace
+    if mail_mediators:
+        import re
+        parts = [p.strip() for p in re.split(r"[;,\s]+", mail_mediators) if p.strip()]
+        bad = [p for p in parts if not is_email(p)]
+        if bad:
+            errors["mail_mediators"] = "Courriels des médiateurs invalides: " + ", ".join(bad)
+    # Champs référentiels requis si la base les impose (statut_social non null)
+    if statut_social is None:
+        errors["statut_social"] = "Le statut social est requis."
+    # Champs requis supplémentaires
+    if capital_social is None:
+        errors["capital_social"] = "Le capital social est requis."
+    if not rcs:
+        errors["rcs"] = "Le RCS est requis."
+    if not numero_orias:
+        errors["numero_orias"] = "Le numéro ORIAS est requis."
+
+    from sqlalchemy import text as _text
+    # Existe-t-il déjà une ligne ?
+    row = None
+    try:
+        row = db.execute(_text("SELECT id FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+    except Exception:
+        row = None
+
+    params = {
+        "nom_cabinet": nom_cabinet,
+        "nom_responsable": nom_responsable,
+        "statut_social": statut_social,
+        "capital_social": capital_social,
+        "siren": siren,
+        "rcs": rcs,
+        "numero_orias": numero_orias or None,
+        "adresse_rue": adresse_rue,
+        "adresse_cp": adresse_cp or None,
+        "adresse_ville": adresse_ville,
+        "courriel": courriel,
+        "association_prof": association_prof,
+        "num_adh_assoc": num_adh_assoc,
+        "categorie_courtage": categorie_courtage,
+        "responsable_dpo": responsable_dpo,
+        "centre_mediation": centre_mediation,
+        "mediators": mediators,
+        "mail_mediators": mail_mediators,
+    }
+
+    # Si erreurs, re-afficher la page avec messages et valeurs saisies
+    if errors:
+        # Recharger les listes de référence et renvoyer le template
+        try:
+            statut_sociaux = _fetch_ref_list(db, ["DER_statut_social", "DER_statuts_sociaux"])
+        except Exception:
+            statut_sociaux = []
+        try:
+            associations_prof = _fetch_ref_list(db, ["DER_association_professionnelle", "DER_association_prof"])
+        except Exception:
+            associations_prof = []
+        try:
+            autorites_mediation = _fetch_ref_list(db, ["DER_courtier_ref_autorite", "DER_autorite_mediation", "DER_courtier_autorite"])
+        except Exception:
+            autorites_mediation = []
+        return templates.TemplateResponse(
+            "dashboard_parametres.html",
+            {
+                "request": request,
+                "open_section": "courtier",
+                # Garder le contexte principal pour les autres panneaux
+                "contrats_generiques": rows_to_dicts(db.execute(_text("SELECT g.id, g.nom_contrat, g.id_societe, g.id_ctg, g.frais_gestion_assureur, g.frais_gestion_courtier, s.nom AS societe_nom FROM mariadb_affaires_generique g LEFT JOIN mariadb_societe s ON s.id = g.id_societe WHERE COALESCE(g.actif, 1) = 1 ORDER BY s.nom, g.nom_contrat")).fetchall()) if db else [],
+                "societes": rows_to_dicts(db.execute(_text("SELECT id, nom, id_ctg, contact, telephone, email, commentaire FROM mariadb_societe ORDER BY nom")).fetchall()) if db else [],
+                "contrat_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_affaires_generique_ctg ORDER BY libelle")).fetchall()) if db else [],
+                "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
+                "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
+                "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
+                # Contexte courtier avec erreur
+                "courtier": None,
+                "form_courtier": params,
+                "form_errors": errors,
+                "statut_sociaux": statut_sociaux,
+                "associations_prof": associations_prof,
+                "autorites_mediation": autorites_mediation,
+            },
+        )
+
+    # Construction dynamique selon colonnes existantes
+    cols = _sqlite_table_columns(db, "DER_courtier")
+    colnames = [c.get("name") for c in cols]
+    present = {k: v for k, v in params.items() if k in colnames}
+    # Gestion colonnes dates si présentes
+    creation_candidates = ["date_creation", "date_création", "dateCreation"]
+    modification_candidates = ["date_obsolescence", "date_modification", "date_modif", "date_maj", "dateMiseAJour"]
+    creation_col = next((x for x in creation_candidates if x in colnames), None)
+    modification_col = next((x for x in modification_candidates if x in colnames), None)
+
+    try:
+        if row is None:
+            # Création
+            if creation_col:
+                present[creation_col] = datetime.now().isoformat(sep=" ", timespec="seconds")
+            if modification_col:
+                # Certaines bases imposent NOT NULL sur la date de modification
+                present[modification_col] = present.get(creation_col) or datetime.now().isoformat(sep=" ", timespec="seconds")
+            if not present:
+                raise RuntimeError("Aucune colonne correspondante pour l'insertion dans DER_courtier")
+            fields = ", ".join(present.keys())
+            placeholders = ", ".join(f":{k}" for k in present.keys())
+            db.execute(_text(f"INSERT INTO DER_courtier ({fields}) VALUES ({placeholders})"), present)
+        else:
+            # Mise à jour
+            set_parts = []
+            upd_params = dict(present)
+            if modification_col:
+                set_parts.append(f"{modification_col} = :__now__")
+                upd_params["__now__"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+            for k in present.keys():
+                set_parts.append(f"{k} = :{k}")
+            upd_params["__id__"] = row[0]
+            set_clause = ", ".join(set_parts)
+            db.execute(_text(f"UPDATE DER_courtier SET {set_clause} WHERE id = :__id__"), upd_params)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors["__global__"] = f"Erreur lors de l'enregistrement: {e}"
+        # Afficher de nouveau le formulaire avec erreurs
+        try:
+            statut_sociaux = _fetch_ref_list(db, ["DER_statut_social", "DER_statuts_sociaux"])
+        except Exception:
+            statut_sociaux = []
+        try:
+            associations_prof = _fetch_ref_list(db, ["DER_association_professionnelle", "DER_association_prof"])
+        except Exception:
+            associations_prof = []
+        try:
+            autorites_mediation = _fetch_ref_list(db, ["DER_courtier_ref_autorite", "DER_autorite_mediation", "DER_courtier_autorite"])
+        except Exception:
+            autorites_mediation = []
+        return templates.TemplateResponse(
+            "dashboard_parametres.html",
+            {
+                "request": request,
+                "open_section": "courtier",
+                "contrats_generiques": rows_to_dicts(db.execute(_text("SELECT g.id, g.nom_contrat, g.id_societe, g.id_ctg, g.frais_gestion_assureur, g.frais_gestion_courtier, s.nom AS societe_nom FROM mariadb_affaires_generique g LEFT JOIN mariadb_societe s ON s.id = g.id_societe WHERE COALESCE(g.actif, 1) = 1 ORDER BY s.nom, g.nom_contrat")).fetchall()) if db else [],
+                "societes": rows_to_dicts(db.execute(_text("SELECT id, nom, id_ctg, contact, telephone, email, commentaire FROM mariadb_societe ORDER BY nom")).fetchall()) if db else [],
+                "contrat_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_affaires_generique_ctg ORDER BY libelle")).fetchall()) if db else [],
+                "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
+                "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
+                "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
+                "courtier": None,
+                "form_courtier": params,
+                "form_errors": errors,
+                "statut_sociaux": statut_sociaux,
+                "associations_prof": associations_prof,
+                "autorites_mediation": autorites_mediation,
+            },
+        )
+    # Succès → toast "Enregistré"
+    return RedirectResponse(url="/dashboard/parametres?open=courtier&saved=1", status_code=303)
 
 
 # ---------------- KYC index (sélection client) ----------------
@@ -223,7 +1504,10 @@ def _as_float(value: str | None, default: float | None = None) -> float | None:
     if value is None:
         return default
     try:
+        import re
         s = str(value).strip().replace(",", ".")
+        # Remove spaces, non-numeric and non dot/minus characters (thousand separators, currency, etc.)
+        s = re.sub(r"[^0-9.\-]", "", s)
         if s == "":
             return default
         return float(s)

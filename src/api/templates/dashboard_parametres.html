@@ -177,8 +177,52 @@
   #paramContainer .support-sort[data-order="desc"]::after {
     content: ' \25BE';
   }
+  /* Harmoniser la hauteur des champs dans Courtier */
+  #courtierPanel select,
+  #courtierPanel input[type="email"],
+  #courtierPanel input[type="text"] {
+    height: 36px;
+  }
+  #courtierPanel input[type="email"] {
+    font-family: inherit;
+    font-size: inherit;
+  }
+  #courtierPanel select {
+    padding: 6px 10px;
+  }
+  /* Actions icons on one line */
+  #paramContainer td.actions-cell { white-space: nowrap; }
+  /* Détails: grille 2 colonnes pour aligner les largeurs par colonne */
+  #courtierDetailsPanel .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-rows: auto;
+    gap: .75rem;
+    align-items: start;
+  }
+  /* Détails: s'assurer que les tableaux ne débordent pas des cartes */
+  #courtierDetailsPanel .card {
+    overflow-x: auto;
+  }
+  #courtierDetailsPanel table {
+    width: 100%;
+    table-layout: auto;
+  }
+  #courtierDetailsPanel th,
+  #courtierDetailsPanel td {
+    white-space: normal;
+  }
+  /* Assurances & garanties: conserver la même police d'en-tête que les autres tableaux */
+  /* (aucun override de font-size sur th) */
 </style>
 <div class="container" id="paramContainer">
+  <div id="toastSaved" style="display:none; position: fixed; right: 16px; bottom: 16px; background: #16a34a; color: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 14px rgba(0,0,0,.15); z-index: 9999;">
+    <i class="fa-solid fa-circle-check" style="margin-right:6px;"></i> Enregistré
+  </div>
+  <div id="toastError" style="display:none; position: fixed; right: 16px; bottom: 16px; background: #dc2626; color: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 14px rgba(0,0,0,.15); z-index: 9999;">
+    <i class="fa-solid fa-circle-exclamation" style="margin-right:6px;"></i> Erreur lors de l'enregistrement
+    <span id="toastErrorMsg" style="margin-left:6px; opacity:.9;"></span>
+  </div>
   <div class="card" style="margin-bottom:1rem;">
     <h2>Administration des référentiels</h2>
     <p class="muted" style="margin-top:.35rem;">Configurer les sociétés, contrats génériques et supports financiers proposés aux clients.</p>
@@ -186,6 +230,466 @@
 
   <div class="card" style="padding:0; overflow:hidden;">
     <div class="accordion" id="accordionWrapper">
+      <div class="accordion-toggle" data-target="courtierPanel" data-level="root">
+        <span><i class="fa-solid fa-user-tie" style="margin-right:6px;"></i> Courtier</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="courtierPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" data-target="courtierIdentitePanel" data-group="courtierSub">
+          <span><i class="fa-solid fa-id-card" style="margin-right:6px;"></i> Identité</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="courtierIdentitePanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Identité du courtier</h3>
+          {% if form_errors %}
+            <div class="alert alert-danger" role="alert" style="margin:0 0 12px 0;">
+              <strong>Veuillez corriger les erreurs suivantes:</strong>
+              <ul style="margin:6px 0 0 1rem;">
+                {% for k, msg in form_errors.items() %}
+                  <li>{{ msg }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          <form method="post" action="/dashboard/parametres/der_courtier?open=courtier" class="card" style="margin:0;">
+            <div class="form-row">
+              <div class="field" style="min-width:260px;">
+                <label>Nom de la société</label>
+                <input type="text" name="nom_cabinet" value="{{ (form_courtier.nom_cabinet if form_courtier else (courtier.nom_cabinet if courtier else '')) }}" />
+                {% if form_errors and form_errors.get('nom_cabinet') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('nom_cabinet') }}</div>
+                {% endif %}
+              </div>
+              <div class="field">
+                <label>Responsable</label>
+                <input type="text" name="nom_responsable" value="{{ (form_courtier.nom_responsable if form_courtier else (courtier.nom_responsable if courtier else '')) }}" />
+              </div>
+              <div class="field">
+                <label>Statuts</label>
+                <select name="statut_social" required>
+                  <option value="">Choisir…</option>
+                  {% for s in statut_sociaux %}
+                    {% set selected_val = (form_courtier.statut_social if form_courtier else (courtier.statut_social if courtier else None)) %}
+                    <option value="{{ s.id }}" {% if (selected_val|int) == (s.id|int) %}selected{% endif %}>{{ s.libelle }}</option>
+                  {% endfor %}
+                </select>
+                {% if form_errors and form_errors.get('statut_social') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('statut_social') }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field" style="width: 18ch;">
+                <label>Capital social</label>
+                <input type="text" name="capital_social" id="capital_social" value="{{ (form_courtier.capital_social if form_courtier and form_courtier.capital_social is not none else (courtier.capital_social if courtier and courtier.capital_social is not none else '')) }}" inputmode="numeric" required />
+                {% if form_errors and form_errors.get('capital_social') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('capital_social') }}</div>
+                {% endif %}
+              </div>
+              <div class="field" style="width: 16ch;">
+                <label>SIREN</label>
+                {% set siren_val = (form_courtier.siren if form_courtier else (courtier.siren if courtier else '')) %}
+                <input type="text" name="siren" id="siren" value="{{ siren_val }}" inputmode="numeric" required />
+                {% if form_errors and form_errors.get('siren') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('siren') }}</div>
+                {% endif %}
+              </div>
+              <div class="field" style="flex: 1 1 auto; min-width: 24ch;">
+                <label>RCS</label>
+                <input type="text" name="rcs" value="{{ (form_courtier.rcs if form_courtier else (courtier.rcs if courtier else '')) }}" required />
+                {% if form_errors and form_errors.get('rcs') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('rcs') }}</div>
+                {% endif %}
+              </div>
+              <div class="field" style="width: 14ch;">
+                <label>Numéro ORIAS</label>
+                <input type="text" name="numero_orias" id="numero_orias" value="{{ (form_courtier.numero_orias if form_courtier else (courtier.numero_orias if courtier else '')) }}" inputmode="numeric" style="width: 12ch;" required />
+                {% if form_errors and form_errors.get('numero_orias') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('numero_orias') }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field" style="flex:1 1 auto; min-width:260px;">
+                <label>Adresse</label>
+                <input type="text" name="adresse_rue" placeholder="Rue, voie" value="{{ (form_courtier.adresse_rue if form_courtier else (courtier.adresse_rue if courtier else '')) }}" />
+              </div>
+              <div class="field" style="width:120px;">
+                <label>Code postal</label>
+                <input type="text" name="adresse_cp" id="adresse_cp" value="{{ (form_courtier.adresse_cp if form_courtier else (courtier.adresse_cp if courtier else '')) }}" maxlength="5" inputmode="numeric" />
+                {% if form_errors and form_errors.get('adresse_cp') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('adresse_cp') }}</div>
+                {% endif %}
+              </div>
+              <div class="field">
+                <label>Ville</label>
+                <input type="text" name="adresse_ville" value="{{ (form_courtier.adresse_ville if form_courtier else (courtier.adresse_ville if courtier else '')) }}" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label>Courriel</label>
+                <input type="email" name="courriel" value="{{ (form_courtier.courriel if form_courtier else (courtier.courriel if courtier else '')) }}" pattern="^\S+@\S+\.\S+$" title="Adresse courriel valide requise (ex: nom@domaine.tld)" />
+                {% if form_errors and form_errors.get('courriel') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('courriel') }}</div>
+                {% endif %}
+              </div>
+              <div class="field">
+                <label>Association professionnelle</label>
+                <select name="association_prof">
+                  <option value="">Choisir…</option>
+                  {% for s in associations_prof %}
+                    {% set selected_val = (form_courtier.association_prof if form_courtier else (courtier.association_prof if courtier else None)) %}
+                    <option value="{{ s.id }}" {% if (selected_val|int) == (s.id|int) %}selected{% endif %}>{{ s.libelle }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label>Numéro d’adhérent</label>
+                <input type="text" name="num_adh_assoc" value="{{ (form_courtier.num_adh_assoc if form_courtier else (courtier.num_adh_assoc if courtier else '')) }}" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label>Catégorie de courtage</label>
+                <select name="categorie_courtage" style="width:auto; min-width:unset;">
+                  <option value="">Choisir…</option>
+                  {% for opt in ['A','B','C'] %}
+                    {% set selected_val = (form_courtier.categorie_courtage if form_courtier else (courtier.categorie_courtage if courtier else None)) %}
+                    <option value="{{ opt }}" {% if selected_val == opt %}selected{% endif %}>{{ opt }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field" style="min-width:260px;">
+                <label>Responsable des données numériques</label>
+                <input type="text" name="responsable_dpo" value="{{ (form_courtier.responsable_dpo if form_courtier else (courtier.responsable_dpo if courtier else '')) }}" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field" style="width: 220px;">
+                <label>Médiateur</label>
+                <select name="centre_mediation" style="width: 100%;">
+                  <option value="">Choisir…</option>
+                  {% for s in autorites_mediation %}
+                    {% set selected_val = (form_courtier.centre_mediation if form_courtier else (courtier.centre_mediation if courtier else None)) %}
+                    <option value="{{ s.id }}" {% if (selected_val|int) == (s.id|int) %}selected{% endif %}>{{ s.libelle }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field" style="flex: 1 1 auto; min-width: 260px;">
+                <label>Nom des médiateurs</label>
+                <input type="text" name="mediators" value="{{ (form_courtier.mediators if form_courtier else (courtier.mediators if courtier else '')) }}" />
+              </div>
+              <div class="field">
+                <label>Courriels des médiateurs</label>
+                <input type="text" name="mail_mediators" id="mail_mediators" value="{{ (form_courtier.mail_mediators if form_courtier else (courtier.mail_mediators if courtier else '')) }}" placeholder="email1@exemple.com, email2@exemple.com" />
+                {% if form_errors and form_errors.get('mail_mediators') %}
+                  <div class="muted" style="color:#b91c1c;">{{ form_errors.get('mail_mediators') }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="create-btn-container">
+              <button class="btn btn-primary" type="submit">
+                {% if courtier %}<i class="fa-solid fa-floppy-disk" style="color:#fff;"></i>&nbsp;Modifier{% else %}<i class="fa-solid fa-plus" style="color:#fff;"></i>&nbsp;Créer{% endif %}
+              </button>
+            </div>
+
+            <div class="muted" style="font-style:italic; margin-top:.5rem;">
+              {% if courtier and courtier.date_creation %}Date de création: {{ courtier.date_creation }}{% endif %}
+              {% if courtier and courtier.date_obsolescence %}<br>Date de modification: {{ courtier.date_obsolescence }}{% endif %}
+            </div>
+          </form>
+        </div>
+
+        <div class="accordion-toggle accordion-subtoggle" data-target="courtierDetailsPanel" data-group="courtierSub">
+          <span><i class="fa-solid fa-circle-info" style="margin-right:6px;"></i> Détails</span>
+          <span class="chevron">▾</span>
+        </div>
+      </div>
+
+      <!-- Ancien toggle Détails masqué: remplacé par sous-bouton dans Courtier -->
+      <div class="accordion-toggle" data-target="courtierDetailsPanel" data-level="root" style="display:none;">
+        <span>Détails</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="courtierDetailsPanel" style="display:none; border-top:1px solid var(--border); padding:1rem 1.25rem;">
+        <div class="detail-grid">
+        <div class="card" style="margin:0;">
+          <h3 style="margin:0 0 .5rem 0;">Activité</h3>
+          <div class="muted" style="margin-bottom:.5rem;">Paramétrage des activités du courtier.</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:280px;">Activité</th>
+                <th style="min-width:100px; width:120px;">Statut</th>
+                <th class="center" style="width:84px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in activite_items %}
+              <tr>
+                <td>
+                  <select form="act-{{ it.id }}" name="ref_id" required>
+                    <option value="">Choisir…</option>
+                    {% for ref in activite_refs %}
+                      <option value="{{ ref.id }}" {% if (it.ref_id|int) == (ref.id|int) %}selected{% endif %}>{{ ref.libelle }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <select form="act-{{ it.id }}" name="statut" required>
+                    {% set s = (it.statut or 'exercee') %}
+                    <option value="exercee" {% if s == 'exercee' %}selected{% endif %}>Exercée</option>
+                    <option value="non_exercee" {% if s == 'non_exercee' %}selected{% endif %}>Non exercée</option>
+                  </select>
+                </td>
+                <td class="center">
+                  <form id="act-{{ it.id }}" method="post" action="/dashboard/parametres/courtier/activite/{{ it.id }}?open=courtierDetails" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="act-{{ it.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/courtier/activite/{{ it.id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer cette activité ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="2" class="muted center">Aucune activité renseignée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="courtierActiviteCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="courtierActiviteCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/courtier/activite?open=courtierDetails" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:280px;">
+                    <label>Activité</label>
+                    <select name="ref_id" required>
+                      <option value="">Choisir…</option>
+                      {% for ref in activite_refs %}
+                        <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field" style="min-width:180px;">
+                    <label>Statut</label>
+                    <select name="statut" required>
+                      <option value="exercee" selected>Exercée</option>
+                      <option value="non_exercee">Non exercée</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="color:#fff;"></i>&nbsp;Ajouter</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin:0;">
+          <h3 style="margin:0 0 .5rem 0;">Relation commerciale</h3>
+          <div class="muted" style="margin-bottom:.5rem;">Sélectionnez les compgnies avec lesquelles vous travaillez</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:180px; width:180px;">Compagnie</th>
+                <th class="center" style="width:84px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in relation_items %}
+              <tr>
+                <td>
+                  <select form="rel-{{ it.id }}" name="societe_id" required style="width:180px;">
+                    <option value="">Choisir…</option>
+                    {% for s in societes %}
+                      <option value="{{ s.id }}" {% if (it.societe_id|int) == (s.id|int) %}selected{% endif %}>{{ s.nom }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="center actions-cell">
+                  <form id="rel-{{ it.id }}" method="post" action="/dashboard/parametres/courtier/relation/{{ it.id }}?open=courtierDetails" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="rel-{{ it.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/courtier/relation/{{ it.id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer cette relation ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="2" class="muted center">Aucune relation commerciale renseignée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="courtierRelCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="courtierRelCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/courtier/relation?open=courtierDetails" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:180px;">
+                    <label>Compagnie</label>
+                    <select name="societe_id" required style="width:180px;">
+                      <option value="">Choisir…</option>
+                      {% for s in societes %}
+                        <option value="{{ s.id }}">{{ s.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="color:#fff;"></i>&nbsp;Ajouter</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin:0;">
+          <h3 style="margin:0 0 .5rem 0;">Rémunération</h3>
+          <div class="muted" style="margin-bottom:.5rem;">Paramétrez les modes de facturation utilisés.</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:160px; width:160px;">Mode</th>
+                {% for col in remun_extra_cols %}
+                  {% set cname = (col.name or '') %}
+                  {% set nl = cname|lower %}
+                  {% if nl in ['montant','valeur'] %}
+                    <th style="min-width:120px; width:120px; text-align:right;">{{ cname }}</th>
+                  {% elif nl in ['pourcentage','taux'] %}
+                    <th style="min-width:100px; width:100px; text-align:right;">{{ cname }}</th>
+                  {% else %}
+                    <th style="min-width:120px; width:120px;">{{ cname }}</th>
+                  {% endif %}
+                {% endfor %}
+                <th class="center" style="width:84px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in remun_items %}
+              <tr>
+                <td>
+                  <select form="rem-{{ it.id }}" name="ref_id" required style="width:160px;">
+                    <option value="">Choisir…</option>
+                    {% for ref in remun_refs %}
+                      <option value="{{ ref.id }}" {% if (it.ref_id|int) == (ref.id|int) %}selected{% endif %}>{{ ref.libelle }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                {% for col in remun_extra_cols %}
+                {% set cname = (col.name or '') %}
+                {% set nl = cname|lower %}
+                {% set val = it.extra[col.name] if it.extra else '' %}
+                {% set t = (col.type or '').upper() %}
+                <td {% if nl in ['montant','valeur','pourcentage','taux'] %} style="text-align:right;"{% endif %}>
+                  {% if nl in ['montant','valeur'] %}
+                    <input class="money-space-int" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ ('%d' % val) if val is not none else '' }}" style="width:120px; text-align:right;" inputmode="numeric" />
+                  {% elif nl in ['pourcentage','taux'] %}
+                    <input class="percent-2" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ val if val is not none else '' }}" style="width:100px; text-align:right;" inputmode="decimal" />
+                  {% else %}
+                    <input form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ val if val is not none else '' }}" style="width:120px;" {% if 'INT' in t or 'REAL' in t or 'FLOA' in t or 'DOUB' in t or 'DEC' in t or 'NUM' in t %} inputmode="decimal" {% endif %} />
+                  {% endif %}
+                </td>
+                {% endfor %}
+                <td class="center actions-cell">
+                  <form id="rem-{{ it.id }}" method="post" action="/dashboard/parametres/courtier/remuneration/{{ it.id }}?open=courtierDetails" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="rem-{{ it.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/courtier/remuneration/{{ it.id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer ce mode ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="2" class="muted center">Aucun mode enregistré.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="courtierRemunCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="courtierRemunCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/courtier/remuneration?open=courtierDetails" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:160px;">
+                    <label>Mode</label>
+                    <select name="ref_id" required style="width:160px;">
+                      <option value="">Choisir…</option>
+                      {% for ref in remun_refs %}
+                        <option value="{{ ref.id }}">{{ ref.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  {% for col in remun_extra_cols %}
+                  {% set cname = (col.name or '') %}
+                  {% set nl = cname|lower %}
+                  <div class="field">
+                    <label>{{ cname }}</label>
+                    {% if nl in ['montant','valeur'] %}
+                      <input class="money-space-int" type="text" name="{{ col.name }}" style="width:120px; text-align:right;" inputmode="numeric" />
+                    {% elif nl in ['pourcentage','taux'] %}
+                      <input class="percent-2" type="text" name="{{ col.name }}" style="width:100px; text-align:right;" inputmode="decimal" />
+                    {% else %}
+                      <input type="text" name="{{ col.name }}" style="width:120px;" />
+                    {% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="color:#fff;"></i>&nbsp;Ajouter</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin:0;">
+          <h3 style="margin:0 0 .5rem 0;">Assurances & garanties</h3>
+          <div class="muted" style="margin-bottom:.5rem;">Modifiez uniquement les montants normatifs.</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th style="width: 180px; text-align:right;">IAS</th>
+                <th style="width: 160px; text-align:right;">IOBSP</th>
+                <th style="width: 160px; text-align:right;">IMMO</th>
+                <th class="center" style="width:56px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in garanties_normes %}
+              <tr>
+                <td>{{ g.type_garantie }}</td>
+                <td style="text-align:right;">
+                  <input class="money-space" form="gar-{{ g.id }}" type="text" name="{{ g._c_ias or 'IAS' }}" value="{{ ('%d' % g.IAS) if g.IAS is not none else '' }}" inputmode="numeric" style="text-align:right;" />
+                </td>
+                <td style="text-align:right;">
+                  <input class="money-space" form="gar-{{ g.id }}" type="text" name="{{ g._c_iobsp or 'IOBSP' }}" value="{{ ('%d' % g.IOBSP) if g.IOBSP is not none else '' }}" inputmode="numeric" style="text-align:right;" />
+                </td>
+                <td style="text-align:right;">
+                  <input class="money-space" form="gar-{{ g.id }}" type="text" name="{{ g._c_immo or 'IMMO' }}" value="{{ ('%d' % g.IMMO) if g.IMMO is not none else '' }}" inputmode="numeric" style="text-align:right;" />
+                </td>
+                <td class="center actions-cell">
+                  <form id="gar-{{ g.id }}" method="post" action="/dashboard/parametres/courtier/garanties/{{ g.id }}?open=courtierDetails" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="gar-{{ g.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="muted center">Aucune norme enregistrée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        </div>
+      </div>
       <div class="accordion-toggle" data-target="contratsPanel" data-level="root">
         <span><i class="fa-solid fa-file-contract" style="margin-right:6px;"></i> Contrats d'assurance vie</span>
         <span class="chevron">▾</span>
@@ -672,6 +1176,9 @@ document.addEventListener('DOMContentLoaded', function(){
   const open = '{{ open_section or '' }}';
   if (open){
     const mapping = {
+      'courtier': ['courtierPanel'],
+      'courtier_identite': ['courtierPanel','courtierIdentitePanel'],
+      'courtierDetails': ['courtierPanel','courtierDetailsPanel'],
       'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
       'societes_categories': ['assureursPanel','societeCatsPanel'],
       'societes_compagnies': ['assureursPanel','societesPanel'],
@@ -946,6 +1453,148 @@ document.addEventListener('DOMContentLoaded', function(){
     updateSortIndicators();
     renderSupports();
   }
+
+  // Courtier: formatage d'affichage pour capital_social et SIREN
+  const capInput = document.getElementById('capital_social');
+  if (capInput){
+    const fmtThousands = (val) => {
+      const digits = String(val || '').replace(/\D+/g, '');
+      if (!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    };
+    const onCapBlur = () => {
+      capInput.value = fmtThousands(capInput.value);
+    };
+    capInput.addEventListener('blur', onCapBlur);
+    // Initial format if needed
+    onCapBlur();
+  }
+  const sirenInput = document.getElementById('siren');
+  if (sirenInput){
+    const fmtSiren = (val) => {
+      const d = String(val || '').replace(/\D+/g, '').slice(0, 9);
+      const parts = [];
+      if (d.length > 0) parts.push(d.slice(0, 3));
+      if (d.length > 3) parts.push(d.slice(3, 6));
+      if (d.length > 6) parts.push(d.slice(6, 9));
+      return parts.join(' ');
+    };
+    const onSirenInput = () => {
+      sirenInput.value = fmtSiren(sirenInput.value);
+    };
+    sirenInput.addEventListener('input', onSirenInput);
+    sirenInput.addEventListener('blur', onSirenInput);
+    // Initial format
+    onSirenInput();
+  }
+  const oriasInput = document.getElementById('numero_orias');
+  if (oriasInput){
+    const onOriasInput = () => {
+      const d = String(oriasInput.value || '').replace(/\D+/g, '').slice(0, 9);
+      oriasInput.value = d;
+    };
+    oriasInput.addEventListener('input', onOriasInput);
+    oriasInput.addEventListener('blur', onOriasInput);
+    onOriasInput();
+  }
+  const cpInput = document.getElementById('adresse_cp');
+  if (cpInput){
+    const onCpInput = () => {
+      const d = String(cpInput.value || '').replace(/\D+/g, '').slice(0, 5);
+      cpInput.value = d;
+    };
+    cpInput.addEventListener('input', onCpInput);
+    cpInput.addEventListener('blur', onCpInput);
+    onCpInput();
+  }
+
+  // Validation client des courriels des médiateurs (liste)
+  const form = document.querySelector('#courtierPanel form');
+  if (form){
+    form.addEventListener('submit', (e) => {
+      const mm = document.getElementById('mail_mediators');
+      if (mm && mm.value){
+        const parts = mm.value.split(/[;,\s]+/).map(s => s.trim()).filter(Boolean);
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const bad = parts.filter(v => !re.test(v));
+        if (bad.length){
+          e.preventDefault();
+          alert('Courriels des médiateurs invalides: ' + bad.join(', '));
+          mm.focus();
+        }
+      }
+    });
+  }
+
+  // Toast "Enregistré"
+  var saved = {{ saved_success|tojson }};
+  if (saved) {
+    const t = document.getElementById('toastSaved');
+    if (t){
+      t.style.display = 'inline-flex';
+      setTimeout(() => { t.style.display = 'none'; }, 2200);
+    }
+  }
+
+  // Error toast
+  var hasErr = {{ (saved_error|default(false))|tojson }};
+  var errMsg = {{ (saved_error_msg|default(''))|tojson }};
+  if (hasErr) {
+    const t = document.getElementById('toastError');
+    const m = document.getElementById('toastErrorMsg');
+    if (t){
+      if (m) m.textContent = errMsg || '';
+      t.style.display = 'inline-flex';
+      setTimeout(() => { t.style.display = 'none'; }, 3800);
+    }
+  }
+
+  // Format inputs with thousand separators (space), no decimals
+  (function(){
+    const fmt = (val) => {
+      const d = String(val || '').replace(/\D+/g, '');
+      if (!d) return '';
+      return d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    };
+    const apply = (inp) => { inp.value = fmt(inp.value); };
+    const inputs = document.querySelectorAll('#courtierDetailsPanel .money-space');
+    inputs.forEach(inp => {
+      // initial format
+      apply(inp);
+      inp.addEventListener('blur', () => apply(inp));
+    });
+  })();
+
+  // Format remuneration inputs: montant (thousands, no decimals) and percent (2 decimals)
+  (function(){
+    const fmtThousandsNoDec = (val) => {
+      // Parse numeric value first to avoid "4500.0" -> "45 000"
+      let s = String(val ?? '').replace(/\s+/g, '').replace('€','').replace(',', '.');
+      const num = parseFloat(s);
+      if (!isFinite(num)) return '';
+      const n = Math.round(num);
+      const d = String(Math.abs(n));
+      const grouped = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      return n < 0 ? '-' + grouped : grouped;
+    };
+    const fmtPercent2 = (val) => {
+      let s = String(val || '').replace('%','').replace(',', '.');
+      const f = parseFloat(s);
+      if (isNaN(f)) return '';
+      return f.toFixed(2);
+    };
+    const moneyInputs = document.querySelectorAll('#courtierDetailsPanel .money-space-int');
+    moneyInputs.forEach(inp => {
+      const apply = () => { inp.value = fmtThousandsNoDec(inp.value); };
+      apply();
+      inp.addEventListener('blur', apply);
+    });
+    const pctInputs = document.querySelectorAll('#courtierDetailsPanel .percent-2');
+    pctInputs.forEach(inp => {
+      const apply = () => { inp.value = fmtPercent2(inp.value); };
+      inp.addEventListener('blur', apply);
+    });
+  })();
 });
 </script>
 {% endblock %}
