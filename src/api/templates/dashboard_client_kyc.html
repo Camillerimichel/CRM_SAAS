@@ -145,10 +145,7 @@
         LCB-FT / TRACFIN / FATCA
       </button>
     </div>
-    <p class="muted" style="margin:0; font-size:0.85rem; max-width:640px;">
-      Cette page sert d'atelier pour construire le futur module KYC du dashboard client. Les sections ci-dessous sont
-      accessibles uniquement via cette URL tant que le développement est en cours.
-    </p>
+    
   </div>
 
   <div class="kyc-etat-container" id="etatContainer">
@@ -166,36 +163,40 @@
           <form id="etatForm" method="post" class="etat-form" style="display:flex; flex-direction:column; gap:12px;">
             <input type="hidden" name="form_action" value="etat_civil" />
             <input type="hidden" name="id" id="etatId" value="{{ kyc_etat_civil.id if kyc_etat_civil else '' }}" />
-            <div class="field">
-              <label for="etatCivilite">Civilité</label>
-              <select id="etatCivilite" name="civilite">
-                <option value="">-- Choisir --</option>
-                {% for option in ['Monsieur','Madame','Mademoiselle','Autre'] %}
-                  <option value="{{ option }}" {% if kyc_etat_civil and kyc_etat_civil.civilite == option %}selected{% endif %}>{{ option }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label>Nom du client</label>
-              <div class="value-display">
-                {% if client %}
-                  {{ client.prenom }} {{ client.nom }}
-                {% else %}
-                  —
-                {% endif %}
+            <div class="row two-cols" style="display:flex; gap:12px; flex-wrap:wrap;">
+              <div class="field" style="flex:1 1 220px; min-width:200px;">
+                <label for="etatCivilite">Civilité</label>
+                <select id="etatCivilite" name="civilite">
+                  <option value="">-- Choisir --</option>
+                  {% for option in ['Monsieur','Madame','Mademoiselle','Autre'] %}
+                    <option value="{{ option }}" {% if kyc_etat_civil and kyc_etat_civil.civilite == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field" style="flex:2 1 320px; min-width:260px;">
+                <label>Nom du client</label>
+                <div class="value-display">
+                  {% if client %}
+                    {{ client.prenom }} {{ client.nom }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
               </div>
             </div>
-            <div class="field">
-              <label for="etatDateNaissance">Date de naissance</label>
-              <input id="etatDateNaissance" name="date_naissance" type="date" value="{{ kyc_etat_civil.date_naissance if kyc_etat_civil and kyc_etat_civil.date_naissance else '' }}" />
-            </div>
-            <div class="field">
-              <label for="etatLieuNaissance">Lieu de naissance</label>
-              <input id="etatLieuNaissance" name="lieu_naissance" type="text" placeholder="Ville, pays" value="{{ kyc_etat_civil.lieu_naissance if kyc_etat_civil else '' }}" />
-            </div>
-            <div class="field">
-              <label for="etatNationalite">Nationalité</label>
-              <input id="etatNationalite" name="nationalite" type="text" placeholder="Nationalité" value="{{ kyc_etat_civil.nationalite if kyc_etat_civil else '' }}" />
+            <div class="row three-cols" style="display:flex; gap:12px; flex-wrap:wrap;">
+              <div class="field" style="flex:1 1 220px; min-width:200px;">
+                <label for="etatDateNaissance">Date de naissance</label>
+                <input id="etatDateNaissance" name="date_naissance" type="date" value="{{ kyc_etat_civil.date_naissance if kyc_etat_civil and kyc_etat_civil.date_naissance else '' }}" />
+              </div>
+              <div class="field" style="flex:1 1 260px; min-width:220px;">
+                <label for="etatLieuNaissance">Lieu de naissance</label>
+                <input id="etatLieuNaissance" name="lieu_naissance" type="text" placeholder="Ville, pays" value="{{ kyc_etat_civil.lieu_naissance if kyc_etat_civil else '' }}" />
+              </div>
+              <div class="field" style="flex:1 1 220px; min-width:200px;">
+                <label for="etatNationalite">Nationalité</label>
+                <input id="etatNationalite" name="nationalite" type="text" placeholder="Nationalité" value="{{ kyc_etat_civil.nationalite if kyc_etat_civil else '' }}" />
+              </div>
             </div>
             <div class="field">
               <label for="etatCommentaire">Commentaire</label>
@@ -227,12 +228,12 @@
             <table>
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Adresse</th>
+                  <th style="width:18ch;">Type</th>
+                  <th style="min-width: 28ch;">Adresse</th>
                   <th style="width:10ch;">Code postal</th>
                   <th style="width:16ch;">Ville</th>
-                  <th style="width:14ch;">Pays</th>
-                  <th style="width:18ch;">Période</th>
+                  <th style="width:10ch;">Pays</th>
+                  <th style="width:14ch;">Période</th>
                   <th style="width:9ch; text-align:right;">Actions</th>
                 </tr>
               </thead>
@@ -308,10 +309,10 @@
             <table>
               <thead>
                 <tr>
-                  <th>Situation</th>
-                  <th style="width:20ch;">Convention</th>
+                  <th style="width:14ch;">Situation</th>
+                  <th style="min-width:26ch;">Convention</th>
                   <th style="width:10ch; text-align:right;">Enfants</th>
-                  <th style="width:20ch;">Période</th>
+                  <th style="width:14ch;">Période</th>
                   <th style="width:9ch; text-align:right;">Actions</th>
                 </tr>
               </thead>
@@ -370,12 +371,12 @@
             <table>
               <thead>
                 <tr>
-                  <th>Profession</th>
+                  <th style="min-width:26ch;">Profession</th>
                   <th style="width:18ch;">Secteur</th>
                   <th style="width:18ch;">Statut</th>
                   <th style="width:18ch;">Employeur</th>
                   <th style="width:10ch; text-align:right;">Ancienneté</th>
-                  <th style="width:18ch;">Période</th>
+                  <th style="width:14ch;">Période</th>
                   <th style="width:9ch; text-align:right;">Actions</th>
                 </tr>
               </thead>
@@ -718,7 +719,7 @@
           /* Pleine largeur pour une meilleure lisibilité */
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
-          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; }
+          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
           .muted-small { color:#6b7280; font-size:0.85rem; }
@@ -732,17 +733,22 @@
           <input type="hidden" name="form_action" value="risque_save" />
 
           <!-- Bandeau résumé en haut: risque déterminé + dates -->
+          {% if not risque_history_mode %}
           <div class="risk-sticky">
-          <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-            <div class="muted-small">Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></div>
-            <div class="muted-small">
-              Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
-              <span style="margin:0 6px;">|</span>
-              Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+            <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
+              </div>
+              <div class="muted-small">
+                Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
+                <span style="margin:0 6px;">|</span>
+                Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+              </div>
             </div>
           </div>
-          </div>
+          {% endif %}
 
+          {% if not risque_history_mode %}
           <div class="risk-grid">
             <div class="risk-block">
               <h5>Connaissance générale</h5>
@@ -756,6 +762,7 @@
 
             <div class="risk-block step-kn step-hidden" id="riskStepConnaissance">
               <h5>Niveau par produit</h5>
+              <div class="two-col-grid" style="display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:10px;">
               {% for p in risque_opts.produits %}
                 <div class="field" style="margin-bottom:8px;">
                   <label>{{ p.label }}</label>
@@ -767,6 +774,7 @@
                   <input type="hidden" name="connaissance_{{ p.id }}_niveau_id" value="{{ risque_connaissance_map.get(p.id) if risque_connaissance_map else '' }}" />
                 </div>
               {% endfor %}
+              </div>
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther1">
@@ -850,21 +858,36 @@
 
             <div class="risk-block" id="riskAcceptBlock">
               <h5>Acceptez-vous le risque déterminé ?</h5>
+              <div class="muted-small" style="margin-bottom:6px;">Le risque déterminé par vos réponses est : <strong id="riskDeterminedText">—</strong></div>
               <div class="btn-group" data-name="accept_offre_calculee">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
               </div>
               <input type="hidden" name="accept_offre_calculee" value="{{ 'oui' if risque_decision and risque_decision.decision=='accepte' else ('non' if risque_decision and risque_decision.decision=='refuse' else '') }}" />
-              <div id="acceptPersonalChoice" class="step-hidden" style="margin-top:8px;">
-                <div class="muted-small" style="margin-bottom:6px;">Vous pouvez choisir un niveau de risque personnel. Ce choix n'engage pas la responsabilité du courtier.</div>
-                <div class="btn-group" data-name="offre_personnelle_niveau_id">
-                  {% for n in risque_opts.niveaux_offre %}
-                    <button type="button" class="btn btn-choice" data-value="{{ n.id }}">{{ n.label }}</button>
-                  {% endfor %}
-                </div>
-                <div class="field" style="margin-top:6px;">
-                  <label>Pourquoi ?</label>
-                  <textarea name="motivation_refus" rows="2" placeholder="Expliquez la raison du refus du risque proposé">{{ risque_decision.motivation_refus if risque_decision and risque_decision.motivation_refus else '' }}</textarea>
+              <div id="acceptYesBox" class="step-hidden" style="margin-top:8px; border:1px solid var(--border); padding:10px; border-radius:8px;">
+                <label style="display:flex; gap:8px; align-items:flex-start;">
+                  <input type="checkbox" id="acceptYesCk" />
+                  <span>J'accepte ce risque qui reflète bien mes capacités d'acceptation de risque.</span>
+                </label>
+              </div>
+              <div id="acceptNoBox" class="step-hidden" style="margin-top:8px; border:1px solid var(--border); padding:10px; border-radius:8px;">
+                <label style="display:flex; gap:8px; align-items:flex-start;">
+                  <input type="checkbox" id="acceptNoCk" />
+                  <span>
+                    Le risque déterminé ne me convient pas. Je préfère opter pour le risque&nbsp;:
+                    <select id="personalRiskSelect" style="margin:0 6px; width: 180px;">
+                      <option value="">— Choisir —</option>
+                      {% for n in risque_opts.niveaux_offre %}
+                        <option value="{{ n.id }}">{{ n.label }}</option>
+                      {% endfor %}
+                    </select>
+                    Ce faisant, je retire toute responsabilité de mon courtier et de l'assureur sur les conséquences de ce choix dans mes investissements.
+                  </span>
+                </label>
+                <input type="hidden" name="offre_personnelle_niveau_id" value="{{ risque_decision.niveau_client_id if risque_decision and risque_decision.niveau_client_id else '' }}" />
+                <div class="field" style="margin-top:8px;">
+                  <label>Motivation</label>
+                  <textarea id="motivationRefus" name="motivation_refus" rows="2" placeholder="Expliquez la raison du refus du risque proposé">{{ risque_decision.motivation_refus if risque_decision and risque_decision.motivation_refus else '' }}</textarea>
                 </div>
               </div>
             </div>
@@ -877,7 +900,120 @@
               <button type="submit" class="btn-primary" id="riskSaveBtn" style="margin-left:8px;" disabled>Enregistrer</button>
             </div>
           </div>
+          {% endif %}
         </form>
+
+        {% if risque_snapshot %}
+        <div id="risqueSnapshotCard" class="card" style="margin-top:10px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-weight:600;">Récapitulatif enregistré</div>
+              {% if risque_snapshots and risque_snapshots|length > 0 %}
+                <label for="riskSnapshotSelect" class="muted-small">Historique</label>
+                <select id="riskSnapshotSelect" style="height:28px;">
+                  {% for s in risque_snapshots %}
+                    <option value="{{ s.id }}" {% if risque_selected_id and s.id == risque_selected_id %}selected{% endif %}>
+                      {{ s.date_saisie }}{% if s.date_expiration %} → {{ s.date_expiration }}{% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              {% endif %}
+            </div>
+            <button type="button" id="copyRisqueSnapshotBtn" class="btn" style="border:1px solid var(--primary); color:var(--primary); background:#fff; padding:6px 10px; border-radius:8px;">Copier</button>
+          </div>
+          <div class="summary-balances" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div class="summary-balance">
+              <span class="label">Niveau final</span>
+              <span class="amount" id="rsNiveau">{{ risque_snapshot.niveau_label or ('Niveau ' ~ risque_snapshot.niveau_id if risque_snapshot.niveau_id else '—') }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Expérience</span>
+              <span class="amount" id="rsExperience">{{ risque_snapshot.experience or '—' }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Connaissance générale</span>
+              <span class="amount" id="rsConnaissance">{{ risque_snapshot.connaissance or '—' }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Part de patrimoine</span>
+              <span class="amount" id="rsPatrimoine">{{ risque_snapshot.patrimoine or '—' }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Durée envisagée</span>
+              <span class="amount" id="rsDuree">{{ risque_snapshot.duree or '—' }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Perte acceptée</span>
+              <span class="amount" id="rsPerte">{{ risque_snapshot.contraintes or '—' }}</span>
+            </div>
+            <div class="summary-balance">
+              <span class="label">Confirmation client</span>
+              <span class="amount" id="rsConfirmation">{{ risque_snapshot.confirmation_client or '—' }}</span>
+            </div>
+          </div>
+          
+        </div>
+        <script>
+          (function(){
+            // Historique: changement de snapshot -> rechargement de la page avec ?kr=<id>
+            const sel = document.getElementById('riskSnapshotSelect');
+            if (sel){
+              sel.addEventListener('change', function(){
+                try{
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('kr', sel.value || '');
+                  window.location.href = url.toString();
+                } catch(e) {
+                  // fallback: simple query concat
+                  const base = window.location.href.split('?')[0];
+                  window.location.href = base + '?kr=' + encodeURIComponent(sel.value||'');
+                }
+              });
+            }
+            const btn = document.getElementById('copyRisqueSnapshotBtn');
+            const card = document.getElementById('risqueSnapshotCard');
+            if (!btn || !card) return;
+            function text(id){ const el = document.getElementById(id); return el ? (el.textContent||'').trim() : ''; }
+            function buildText(){
+              const lines = [];
+              const map = [
+                ['Niveau final', 'rsNiveau'],
+                ['Expérience', 'rsExperience'],
+                ['Connaissance générale', 'rsConnaissance'],
+                ['Part de patrimoine', 'rsPatrimoine'],
+                ['Durée envisagée', 'rsDuree'],
+                ['Perte acceptée', 'rsPerte'],
+                ['Confirmation client', 'rsConfirmation'],
+              ];
+              map.forEach(([label, id]) => {
+                const v = text(id); if (v) lines.push(label + ': ' + v);
+              });
+              const com = text('rsCommentaire');
+              if (com) { lines.push('Commentaire: ' + com); }
+              return lines.join('\n');
+            }
+            function copyToClipboard(str){
+              if (navigator.clipboard && navigator.clipboard.writeText){
+                return navigator.clipboard.writeText(str);
+              }
+              return new Promise(function(resolve){
+                const ta = document.createElement('textarea');
+                ta.value = str; ta.style.position='fixed'; ta.style.opacity='0';
+                document.body.appendChild(ta); ta.focus(); ta.select();
+                try{ document.execCommand('copy'); }catch(e){}
+                document.body.removeChild(ta); resolve();
+              });
+            }
+            btn.addEventListener('click', function(){
+              const txt = buildText();
+              copyToClipboard(txt).then(function(){
+                const old = btn.textContent; btn.textContent = 'Copié !';
+                setTimeout(function(){ btn.textContent = old; }, 1400);
+              });
+            });
+          })();
+        </script>
+        {% endif %}
 
         <script>
           (function(){
@@ -885,6 +1021,12 @@
             if (!panel) return;
             const form = document.getElementById('riskForm');
             const offerPill = document.getElementById('riskOfferPill');
+            const determinedSpan = document.getElementById('riskDeterminedText');
+            const accYesBox = document.getElementById('acceptYesBox');
+            const accNoBox = document.getElementById('acceptNoBox');
+            const accYesCk = document.getElementById('acceptYesCk');
+            const accNoCk = document.getElementById('acceptNoCk');
+            const personalRiskSelect = document.getElementById('personalRiskSelect');
             // Toggle buttons → hidden inputs
             function initSingle(group){
               const name = group.getAttribute('data-name');
@@ -902,6 +1044,13 @@
                   updateSteps();
                   updateOffer();
                   updateSaveEnabled();
+                  // Spécifiques: synchroniser les blocs d'acceptation/refus et revenus CT
+                  if (name === 'accept_offre_calculee'){
+                    try { syncAcceptBlocks(); syncDetermined(); } catch(e){}
+                  }
+                  if (name === 'revenus_ct_accept'){
+                    try { syncRevPersonal(); } catch(e){}
+                  }
                 });
               });
             }
@@ -1082,11 +1231,15 @@
               // Acceptation globale: si Oui → autoriser l'enregistrement immédiatement
               const accG = (val('accept_offre_calculee')||'').toLowerCase();
               if (!accG){ saveBtn.disabled = true; return; }
-              if (accG === 'oui'){ saveBtn.disabled = false; return; }
+              if (accG === 'oui'){
+                // Activer dès que la case d'acceptation est cochée
+                saveBtn.disabled = !(accYesCk && accYesCk.checked);
+                return;
+              }
               if (accG === 'non'){
-                if (!valInt('offre_personnelle_niveau_id')){ saveBtn.disabled = true; return; }
-                const mot = (val('motivation_refus')||'').trim();
-                if (!mot){ saveBtn.disabled = true; return; }
+                // Activer dès que la case de refus est cochée (le détail pourra être précisé ensuite)
+                saveBtn.disabled = !(accNoCk && accNoCk.checked);
+                return;
               }
               saveBtn.disabled = !needs.every(Boolean);
             }
@@ -1121,12 +1274,28 @@
             syncRevPersonal();
             // Acceptation globale: afficher le choix personnel et la motivation si refus
             const accInput = form.querySelector('input[name="accept_offre_calculee"]');
-            const accPersonalDiv = document.getElementById('acceptPersonalChoice');
-            function syncAcceptPersonal(){
-              if (!accInput || !accPersonalDiv) return;
-              accPersonalDiv.classList.toggle('step-hidden', (accInput.value||'').toLowerCase() !== 'non');
+            function syncAcceptBlocks(){
+              const v = (accInput && accInput.value||'').toLowerCase();
+              if (accYesBox) accYesBox.classList.toggle('step-hidden', v !== 'oui');
+              if (accNoBox) accNoBox.classList.toggle('step-hidden', v !== 'non');
             }
-            syncAcceptPersonal();
+            syncAcceptBlocks();
+            if (accYesCk) accYesCk.addEventListener('change', updateSaveEnabled);
+            if (accNoCk) accNoCk.addEventListener('change', updateSaveEnabled);
+            if (personalRiskSelect){
+              personalRiskSelect.addEventListener('change', function(){
+                const hid = form.querySelector('input[name="offre_personnelle_niveau_id"]');
+                if (hid) hid.value = personalRiskSelect.value || '';
+                updateSaveEnabled();
+              });
+            }
+
+            function syncDetermined(){
+              if (!determinedSpan) return;
+              const pill = document.getElementById('riskOfferCalcPill');
+              determinedSpan.textContent = pill ? (pill.textContent||'—') : (offerPill ? (offerPill.textContent||'—') : '—');
+            }
+            syncDetermined();
             form.addEventListener('click', function(e){
               const t = e.target;
               if (!(t instanceof Element)) return;
@@ -1137,9 +1306,60 @@
                 setTimeout(function(){ syncRevPersonal(); updateOffer(); updateSaveEnabled(); }, 0);
               }
               if (name === 'accept_offre_calculee' || name === 'offre_personnelle_niveau_id'){
-                setTimeout(function(){ syncAcceptPersonal(); updateOffer(); updateSaveEnabled(); }, 0);
+                setTimeout(function(){ syncAcceptBlocks(); updateOffer(); syncDetermined(); updateSaveEnabled(); }, 0);
               }
             });
+          })();
+        </script>
+        <script>
+          // Calcul auto du % patrimoine à partir du montant et du total des actifs
+          (function(){
+            const montantInput = document.getElementById('lcbftMontant');
+            const pctInput = document.getElementById('lcbftPatrimoinePct');
+            const actifsInput = document.getElementById('actifsTotalValue');
+            if (!montantInput || !pctInput || !actifsInput) return;
+            function parseAmount(v){
+              if (v == null) return 0;
+              return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+            }
+            function formatPct(x){
+              if (!isFinite(x)) return '';
+              return x.toFixed(2);
+            }
+            function formatThousands(n){
+              const i = Math.round(n);
+              const d = String(Math.abs(i));
+              const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+              return (i < 0 ? '-' : '') + g;
+            }
+            function recompute(){
+              const totalActifs = parseAmount(actifsInput.value);
+              const m = parseAmount(montantInput.value);
+              let pct = '';
+              if (totalActifs > 0 && m >= 0){
+                pct = formatPct((m / totalActifs) * 100.0);
+                pctInput.value = pct;
+              }
+            }
+            // Recompute while typing, and when user finishes (blur/change/Enter)
+            montantInput.addEventListener('input', recompute);
+            montantInput.addEventListener('change', recompute);
+            montantInput.addEventListener('blur', function(){
+              // Format value with thousands on blur for better readability
+              const m = parseAmount(montantInput.value);
+              montantInput.value = formatThousands(m);
+              recompute();
+            });
+            montantInput.addEventListener('keydown', function(e){
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                // Apply formatting and compute when pressing Enter
+                const m = parseAmount(montantInput.value);
+                montantInput.value = formatThousands(m);
+                recompute();
+              }
+            });
+            recompute();
           })();
         </script>
         <script>
@@ -1223,7 +1443,7 @@
           /* Boutons de choix ESG (oui / non / indifférent) */
           .esg-choices { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
           .esg-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
-          .esg-block h5 { margin:0 0 8px 0; font-size:0.95rem; }
+          .esg-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
           .btn-toggle-group, .btn-multi-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-toggle-group .btn-choice,
           .btn-multi-group .btn-choice {
@@ -1241,7 +1461,7 @@
 
           <div class="esg-choices">
             <div class="esg-block">
-              <h5>Importance environnement</h5>
+              <h5><i class="fa-solid fa-leaf"></i> Importance environnement</h5>
               <div class="btn-toggle-group" data-name="env_importance">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
@@ -1250,7 +1470,7 @@
               <input type="hidden" name="env_importance" value="{{ esg_current.env_importance if esg_current else '' }}" />
             </div>
             <div class="esg-block">
-              <h5>Réduction des GES</h5>
+              <h5><i class="fa-solid fa-wind"></i> Réduction des GES</h5>
               <div class="btn-toggle-group" data-name="env_ges_reduc">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
@@ -1259,7 +1479,7 @@
               <input type="hidden" name="env_ges_reduc" value="{{ esg_current.env_ges_reduc if esg_current else '' }}" />
             </div>
             <div class="esg-block">
-              <h5>Droits humains</h5>
+              <h5><i class="fa-solid fa-handshake-angle"></i> Droits humains</h5>
               <div class="btn-toggle-group" data-name="soc_droits_humains">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
@@ -1268,7 +1488,7 @@
               <input type="hidden" name="soc_droits_humains" value="{{ esg_current.soc_droits_humains if esg_current else '' }}" />
             </div>
             <div class="esg-block">
-              <h5>Parité</h5>
+              <h5><i class="fa-solid fa-venus-mars"></i> Parité</h5>
               <div class="btn-toggle-group" data-name="soc_parite">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
@@ -1417,27 +1637,52 @@
         {% endif %}
         <form method="post" id="lcbftForm" style="display:flex; flex-direction:column; gap:12px;">
           <input type="hidden" name="form_action" value="lcbft_save" />
+          <input type="hidden" id="patrimoineNetValue" value="{{ patrimoine_net_value if patrimoine_net_value is not none else '' }}" />
           <div class="risk-grid">
             <div class="risk-block">
               <h5>FATCA</h5>
-              <div class="field">
-                <label>Nom du produit</label>
-                <select name="fatca_contrat_id" id="fatcaContractSelect">
-                  <option value="">Sélectionner…</option>
-                  {% for c in fatca_contracts %}
-                    <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
-                  {% endfor %}
-                </select>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Nom du produit</label>
+                  <select name="fatca_contrat_id" id="fatcaContractSelect" style="width:100%; height:36px; min-height:36px;">
+                    <option value="">Sélectionner…</option>
+                    {% for c in fatca_contracts %}
+                      <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Compagnie d’assurance</label>
+                  <input type="text" id="fatcaSociete" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" />
+                </div>
               </div>
-              <div class="field"><label>Compagnie d’assurance</label><input type="text" id="fatcaSociete" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" /></div>
-              <div class="field"><label>Date de l’opération</label><input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly /></div>
-              <div class="field"><label>Pays de résidence fiscale</label><input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" /></div>
-              <div class="field"><label>NIF</label><input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" /></div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Date de l’opération</label>
+                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Pays de résidence fiscale</label>
+                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" />
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>NIF</label>
+                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
+                </div>
+              </div>
             </div>
             <div class="risk-block">
               <h5>Cartographie client</h5>
-              <div class="field"><label>Entrée en relation</label><textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Depuis quand connaissez-vous le client</label><input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/></div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Depuis quand connaissez-vous le client</label>
+                  <input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Entrée en relation</label>
+                  <textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?" style="width:100%;">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea>
+                </div>
+              </div>
               <div class="field"><label>Contrats similaires déjà souscrits ?</label>
                 <div class="btn-group" data-name="has_existing_contracts">
                   <button type="button" class="btn btn-choice" data-value="1">Oui</button>
@@ -1505,16 +1750,33 @@
           <div class="risk-grid">
             <div class="risk-block">
               <h5>Profession et exposition personnelle</h5>
-              <div class="field"><label>Profession</label><textarea name="prof_profession" rows="2">{{ lcbft_current.prof_profession if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Activité</label><select name="prof_statut_professionnel_id"><option value=""></option>{% for r in ref_statut_professionnel %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_statut_professionnel_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select></div>
-              <div class="field"><label>Secteur d’activité</label><select name="prof_secteur_id"><option value=""></option>{% for r in ref_profession_secteur %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_secteur_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select></div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Activité</label>
+                  <select name="prof_statut_professionnel_id" style="width:100%; height:36px; min-height:36px;"><option value=""></option>{% for r in ref_statut_professionnel %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_statut_professionnel_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Secteur d’activité</label>
+                  <select name="prof_secteur_id" style="width:100%; height:36px; min-height:36px;"><option value=""></option>{% for r in ref_profession_secteur %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_secteur_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select>
+                </div>
+              </div>
+              <div class="field"><label>Profession</label><input type="text" name="prof_profession" value="{{ lcbft_current.prof_profession if lcbft_current else '' }}" style="height:36px; min-height:36px;"/></div>
               
             </div>
             <div class="risk-block">
               <h5>Objet de l’opération</h5>
               <div class="btn-group" data-name="operation_objet"><button type="button" class="btn btn-choice" data-value="Souscription">Souscription</button><button type="button" class="btn btn-choice" data-value="Rachat">Rachat</button><button type="button" class="btn btn-choice" data-value="Versement">Versement complémentaire</button><button type="button" class="btn btn-choice" data-value="Avance">Avance / remboursement</button><button type="button" class="btn btn-choice" data-value="Garantie">Mise en garantie</button><button type="button" class="btn btn-choice" data-value="Autre">Autre</button></div><input type="hidden" name="operation_objet" value="{{ lcbft_current.operation_objet if lcbft_current else '' }}"/></div>
-              <div class="field"><label>Montant (€)</label><input type="text" name="montant" value="{{ lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else '' }}"/></div>
-              <div class="field"><label>% patrimoine</label><input type="text" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}"/></div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Montant (€)</label>
+                  <input type="text" id="lcbftMontant" name="montant" value="{{ lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else '' }}" style="width:100%; height:36px; min-height:36px;"/>
+                </div>
+                <div class="field step-hidden" style="min-width:0;">
+                  <label>% patrimoine</label>
+                  <input type="text" id="lcbftPatrimoinePct" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}" style="width:100%; height:36px; min-height:36px; text-align:right;" readonly/>
+                </div>
+              </div>
+              
             </div>
           </div>
           <div class="risk-grid">
@@ -1601,27 +1863,31 @@
               <input type="hidden" name="form_action" value="objectifs_save" />
               <input type="hidden" name="link_id" id="objectifFormLinkId" />
               <input type="hidden" name="objectif_id" id="objectifFormObjectifId" />
-              <div class="field">
-                <label for="objectifFormHorizon">Horizon d'investissement</label>
-                <input type="text" id="objectifFormHorizon" name="horizon_investissement" placeholder="Court, moyen ou long terme..." />
-              </div>
-              <div class="field">
-                <label for="objectifFormNiveau">Niveau de priorité</label>
-                <select id="objectifFormNiveau" name="niveau_id" required>
-                  <option value="">-- Choisir (1..N) --</option>
-                </select>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label for="objectifFormNiveau">Niveau de priorité</label>
+                  <select id="objectifFormNiveau" name="niveau_id" required style="width:100%; height:36px; min-height:36px;">
+                    <option value="">-- Choisir (1..N) --</option>
+                  </select>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label for="objectifFormHorizon">Horizon d'investissement</label>
+                  <input type="text" id="objectifFormHorizon" name="horizon_investissement" placeholder="Court, moyen ou long terme..." style="width:100%; height:36px; min-height:36px;" />
+                </div>
               </div>
               <div class="field">
                 <label for="objectifFormCommentaire">Commentaire</label>
                 <textarea id="objectifFormCommentaire" name="commentaire" rows="4" placeholder="Précisions sur l'objectif"></textarea>
               </div>
-              <div class="field">
-                <label for="objectifFormDateExpiration">Date d'expiration</label>
-                <input type="date" id="objectifFormDateExpiration" name="date_expiration" />
-              </div>
-              <div class="field">
-                <label>Date de saisie</label>
-                <div class="value-display" id="objectifFormDateSaisie">—</div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Date de saisie</label>
+                  <div class="value-display" id="objectifFormDateSaisie">—</div>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label for="objectifFormDateExpiration">Date d'expiration</label>
+                  <input type="date" id="objectifFormDateExpiration" name="date_expiration" />
+                </div>
               </div>
               <div class="objective-detail-actions">
                 <span class="spacer"></span>
@@ -1631,6 +1897,34 @@
             </form>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Synthèse - Prévisualisation des données poussées (toujours en bas) -->
+  <div class="card" style="margin-top:16px; display:none;">
+    <h3 style="margin:0 0 8px 0;">Mise à jour de la synthèse</h3>
+    <div class="muted" style="margin-bottom:10px;">
+      Action prévue: <strong>{{ 'Mise à jour (UPDATE)' if synthese_push_action == 'update' else 'Insertion (INSERT)' }}</strong>
+      — Date de saisie: <strong>{{ synthese_push_date }}</strong>
+      — Règle: si la date de saisie ne change pas, une mise à jour est effectuée pour éviter de dupliquer les lignes.
+    </div>
+    <div class="summary-balances">
+      <div class="summary-balance">
+        <span class="label">Total des actifs</span>
+        <span class="amount">{{ synthese_totaux_str.actif }} €</span>
+      </div>
+      <div class="summary-balance">
+        <span class="label">Total des passifs</span>
+        <span class="amount">{{ synthese_totaux_str.passif }} €</span>
+      </div>
+      <div class="summary-balance">
+        <span class="label">Total des revenus annuels</span>
+        <span class="amount">{{ synthese_totaux_str.revenus }} €</span>
+      </div>
+      <div class="summary-balance">
+        <span class="label">Total des charges annuelles</span>
+        <span class="amount">{{ synthese_totaux_str.charges }} €</span>
       </div>
     </div>
   </div>
@@ -2747,10 +3041,23 @@ if (objectifFormNiveau){
         }
       }
 
-      // Ouverture initiale: afficher la section Etat civil, mais sans déplier les panneaux
-      openMainSection('etat');
-      document.querySelectorAll('.accordion-panel').forEach(function(p){ p.classList.remove('active'); });
-      document.querySelectorAll('.accordion-toggle').forEach(function(t){ t.classList.add('collapsed'); });
+      // Ouverture initiale: rester sur la section/panneau actif si fourni par le serveur
+      (function(){
+        const initialSection = '{{ ui_focus_section or '' }}';
+        const initialPanel = '{{ ui_focus_panel or '' }}';
+        if (initialPanel) {
+          setActivePanel(initialPanel);
+          return;
+        }
+        if (initialSection) {
+          openMainSection(initialSection);
+          return;
+        }
+        // défaut: Etat civil
+        openMainSection('etat');
+        document.querySelectorAll('.accordion-panel').forEach(function(p){ p.classList.remove('active'); });
+        document.querySelectorAll('.accordion-toggle').forEach(function(t){ t.classList.add('collapsed'); });
+      })();
 
       updateMatrimonialConventionVisibility();
       if (patrimoineContainer && patrimoineContainer.classList.contains('open')){

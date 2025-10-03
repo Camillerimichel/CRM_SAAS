@@ -2663,8 +2663,12 @@ async def dashboard_client_kyc(
     objectifs_error: str | None = None
     active_objectif_id: int | None = None
     active_section: str = "etat_civil"
+    ui_focus_section: str | None = None
+    ui_focus_panel: str | None = None
     esg_success: str | None = None
     esg_error: str | None = None
+    risque_commentaire: str | None = None
+    risque_snapshot: dict | None = None
 
     def _fmt_amount(v):
         if v is None:
@@ -2678,6 +2682,85 @@ async def dashboard_client_kyc(
         if value is None:
             return ""
         return str(value)
+
+    def _snapshot_synthese():
+        """Recompute totals and upsert today's snapshot in KYC_Client_Synthese.
+        Update if a row for today's date exists; otherwise insert.
+        Be resilient to column naming variations (ex: total_revenu vs total_revenus).
+        """
+        try:
+            # Detect column names once per call
+            cols = set()
+            try:
+                col_rows = db.execute(text("PRAGMA table_info('KYC_Client_Synthese')")).fetchall()
+                cols = {str(r[1]).lower() for r in col_rows}
+            except Exception:
+                cols = set()
+            col_rev = 'total_revenus' if 'total_revenus' in cols else ('total_revenu' if 'total_revenu' in cols else 'total_revenus')
+            col_chg = 'total_charges' if 'total_charges' in cols else ('total_charge' if 'total_charge' in cols else 'total_charges')
+            col_act = 'total_actif'
+            col_pas = 'total_passif'
+
+            sums = {}
+            for key, query in (
+                ("ta", "SELECT COALESCE(SUM(valeur),0) FROM KYC_Client_Actif WHERE client_id = :cid"),
+                ("tp", "SELECT COALESCE(SUM(montant_rest_du),0) FROM KYC_Client_Passif WHERE client_id = :cid"),
+                ("tr", "SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Revenus WHERE client_id = :cid"),
+                ("tc", "SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Charges WHERE client_id = :cid"),
+            ):
+                row = db.execute(text(query), {"cid": client_id}).fetchone()
+                sums[key] = float(row[0] or 0)
+
+            today_str = _date.today().isoformat()
+            row = db.execute(
+                text(
+                    """
+                    SELECT id, date_saisie
+                    FROM KYC_Client_Synthese
+                    WHERE client_id = :cid
+                      AND substr(COALESCE(date_saisie,''), 1, 10) = :today
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id, "today": today_str},
+            ).fetchone()
+            params_s = {"cid": client_id} | sums
+            if row and str(row._mapping.get("date_saisie") or "")[:10] == today_str:
+                params_s["id"] = row._mapping.get("id")
+                db.execute(
+                    text(
+                        f"""
+                        UPDATE KYC_Client_Synthese
+                        SET {col_rev} = :tr,
+                            {col_chg} = :tc,
+                            {col_act} = :ta,
+                            {col_pas} = :tp
+                        WHERE id = :id
+                        """
+                    ),
+                    params_s,
+                )
+            else:
+                db.execute(
+                    text(
+                        f"""
+                        INSERT INTO KYC_Client_Synthese (
+                            client_id, {col_rev}, {col_chg}, {col_act}, {col_pas}
+                        ) VALUES (
+                            :cid, :tr, :tc, :ta, :tp
+                        )
+                        """
+                    ),
+                    params_s,
+                )
+            db.commit()
+        except Exception as _exc_synth:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            logger.debug("Dashboard KYC client: erreur snapshot synthese: %s", _exc_synth, exc_info=True)
 
     def _fmt_date(value):
         if value is None:
@@ -2831,6 +2914,7 @@ async def dashboard_client_kyc(
                             params,
                         )
                     db.commit()
+                    _snapshot_synthese()
                     adresse_success = "Adresse enregistrée."
                 except Exception as exc:
                     db.rollback()
@@ -2849,6 +2933,7 @@ async def dashboard_client_kyc(
                         {"id": int(adresse_id), "cid": client_id},
                     )
                     db.commit()
+                    _snapshot_synthese()
                     adresse_success = "Adresse supprimée."
                 except Exception as exc:
                     db.rollback()
@@ -2923,6 +3008,7 @@ async def dashboard_client_kyc(
                             params,
                         )
                     db.commit()
+                    _snapshot_synthese()
                     matrimonial_success = "Situation matrimoniale enregistrée."
                 except Exception as exc:
                     db.rollback()
@@ -2941,6 +3027,7 @@ async def dashboard_client_kyc(
                         {"id": int(matrimonial_id), "cid": client_id},
                     )
                     db.commit()
+                    _snapshot_synthese()
                     matrimonial_success = "Situation matrimoniale supprimée."
                 except Exception as exc:
                     db.rollback()
@@ -3025,6 +3112,7 @@ async def dashboard_client_kyc(
                             params,
                         )
                     db.commit()
+                    _snapshot_synthese()
                     professionnel_success = "Situation professionnelle enregistrée."
                 except Exception as exc:
                     db.rollback()
@@ -3043,6 +3131,7 @@ async def dashboard_client_kyc(
                         {"id": int(professionnel_id), "cid": client_id},
                     )
                     db.commit()
+                    _snapshot_synthese()
                     professionnel_success = "Situation professionnelle supprimée."
                 except Exception as exc:
                     db.rollback()
@@ -3140,11 +3229,14 @@ async def dashboard_client_kyc(
                         )
                         actif_success = "Actif enregistré."
                     db.commit()
+                    _snapshot_synthese()
                 except Exception as exc:
                     db.rollback()
                     actif_error = "Impossible d'enregistrer l'actif."
                     logger.debug("Dashboard KYC client: erreur actif save: %s", exc, exc_info=True)
             active_section = "patrimoine"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "actifsPanel"
 
         elif action == "actif_delete":
             actif_id = form.get("actif_id") or form.get("id") or None
@@ -3157,12 +3249,15 @@ async def dashboard_client_kyc(
                         {"id": int(actif_id), "cid": client_id},
                     )
                     db.commit()
+                    _snapshot_synthese()
                     actif_success = "Actif supprimé."
                 except Exception as exc:
                     db.rollback()
                     actif_error = "Impossible de supprimer l'actif."
                     logger.debug("Dashboard KYC client: erreur actif delete: %s", exc, exc_info=True)
             active_section = "patrimoine"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "actifsPanel"
 
         elif action == "passif_save":
             passif_id = form.get("id") or None
@@ -3258,6 +3353,8 @@ async def dashboard_client_kyc(
                     passif_error = "Impossible d'enregistrer le passif."
                     logger.debug("Dashboard KYC client: erreur passif save: %s", exc, exc_info=True)
             active_section = "passif"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "passifPanel"
 
         elif action == "passif_delete":
             passif_id = form.get("passif_id") or form.get("id") or None
@@ -3276,6 +3373,8 @@ async def dashboard_client_kyc(
                     passif_error = "Impossible de supprimer le passif."
                     logger.debug("Dashboard KYC client: erreur passif delete: %s", exc, exc_info=True)
             active_section = "passif"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "passifPanel"
 
         elif action == "revenu_save":
             revenu_id = form.get("id") or None
@@ -3366,6 +3465,8 @@ async def dashboard_client_kyc(
                     revenu_error = "Impossible d'enregistrer le revenu."
                     logger.debug("Dashboard KYC client: erreur revenu save: %s", exc, exc_info=True)
             active_section = "recettes"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "recettesPanel"
 
         elif action == "revenu_delete":
             revenu_id = form.get("revenu_id") or form.get("id") or None
@@ -3384,6 +3485,8 @@ async def dashboard_client_kyc(
                     revenu_error = "Impossible de supprimer le revenu."
                     logger.debug("Dashboard KYC client: erreur revenu delete: %s", exc, exc_info=True)
             active_section = "recettes"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "recettesPanel"
 
         elif action == "charge_save":
             charge_id = form.get("id") or None
@@ -3474,6 +3577,8 @@ async def dashboard_client_kyc(
                     charge_error = "Impossible d'enregistrer la charge."
                     logger.debug("Dashboard KYC client: erreur charge save: %s", exc, exc_info=True)
             active_section = "charges"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "chargesPanel"
 
         elif action == "charge_delete":
             charge_id = form.get("charge_id") or form.get("id") or None
@@ -3492,6 +3597,8 @@ async def dashboard_client_kyc(
                     charge_error = "Impossible de supprimer la charge."
                     logger.debug("Dashboard KYC client: erreur charge delete: %s", exc, exc_info=True)
             active_section = "charges"
+            ui_focus_section = "patrimoine"
+            ui_focus_panel = "chargesPanel"
 
         elif action == "objectifs_save":
             active_section = "objectifs"
@@ -3656,10 +3763,10 @@ async def dashboard_client_kyc(
             if not all([env_importance, env_ges_reduc, soc_droits_humains, soc_parite, gov_transparence, gov_controle_ethique]):
                 esg_error = "Veuillez renseigner toutes les réponses ESG."
             else:
-                from datetime import datetime, timedelta
-                now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                from datetime import datetime as _dt, timedelta as _td
+                now = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 # Obsolescence à 2 ans
-                obso = (datetime.utcnow() + timedelta(days=730)).strftime("%Y-%m-%d %H:%M:%S")
+                obso = (_dt.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
                 base_params = {
                     "client_ref": str(client_id),
                     "saisie_at": now,
@@ -3868,9 +3975,9 @@ async def dashboard_client_kyc(
                 rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme","revenus")), None)
 
                 # Persist
-                from datetime import datetime, timedelta
-                now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                obso = (datetime.utcnow() + timedelta(days=730)).strftime("%Y-%m-%d %H:%M:%S")
+                from datetime import datetime as _dt, timedelta as _td
+                now = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                obso = (_dt.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
                 # Toujours créer un nouveau questionnaire (historisation)
                 # On lit éventuellement l'ancien pour information, mais on n'update plus.
                 row = db.execute(
@@ -3993,6 +4100,193 @@ async def dashboard_client_kyc(
                         )
                 except Exception as exc:
                     logger.debug("risque_decision_client upsert error: %s", exc, exc_info=True)
+                # Upsert KYC_Client_Risque (synthèse risque client du jour)
+                try:
+                    # Helper to fetch option label by id
+                    def _label(options: list[dict], oid: int | None):
+                        if oid is None:
+                            return None
+                        try:
+                            for x in options or []:
+                                if int(x.get("id")) == int(oid):
+                                    return x.get("label") or x.get("libelle") or None
+                        except Exception:
+                            return None
+                        return None
+
+                    niveau_id = int(final_offer)
+                    connaissance_txt = (conso if conso in ("oui", "non") else None) or None
+                    patrimoine_txt = _label(risque_opts_local.get("patrimoine_part", []), patr_id)
+                    duree_txt = _label(risque_opts_local.get("duree", []), duree_id)
+                    contraintes_txt = _label(risque_opts_local.get("perte", []), perte_id)
+                    confirmation_txt = (accept_offre_calculee if accept_offre_calculee in ("oui", "non") else None) or None
+                    # Libellé de l'offre finale (table risque_niveau)
+                    offre_libelle_txt = None
+                    try:
+                        rlab = db.execute(
+                            _text("SELECT label FROM risque_niveau WHERE id = :id"),
+                            {"id": niveau_id},
+                        ).fetchone()
+                        if rlab:
+                            offre_libelle_txt = rlab[0]
+                    except Exception:
+                        offre_libelle_txt = None
+                    # Commentaire = Motivation, mais on peut y adjoindre le libellé de l'offre pour traçabilité
+                    commentaire_txt = (motivation_refus or None)
+                    if offre_libelle_txt:
+                        if commentaire_txt:
+                            commentaire_txt = f"{commentaire_txt} | Offre finale: {offre_libelle_txt}"
+                        else:
+                            commentaire_txt = f"Offre finale: {offre_libelle_txt}"
+
+                    from datetime import date as _dt_date
+                    today_only = _dt_date.today().isoformat()
+                    row_kr = db.execute(
+                        _text(
+                            """
+                            SELECT id FROM KYC_Client_Risque
+                            WHERE client_id = :cid
+                              AND substr(COALESCE(date_saisie,''), 1, 10) = :today
+                            ORDER BY id DESC
+                            LIMIT 1
+                            """
+                        ),
+                        {"cid": client_id, "today": today_only},
+                    ).fetchone()
+                    # Experience: libellé de ref_niveau_risque correspondant à niveau_id
+                    exp_txt = None
+                    try:
+                        row_exp = db.execute(
+                            _text("SELECT libelle FROM ref_niveau_risque WHERE id = :id"),
+                            {"id": niveau_id},
+                        ).fetchone()
+                        if row_exp:
+                            exp_txt = row_exp[0]
+                    except Exception:
+                        exp_txt = None
+
+                    payload = {
+                        "cid": client_id,
+                        "niv": niveau_id,
+                        "exp": exp_txt,
+                        "connaissance": connaissance_txt,
+                        "patrimoine": patrimoine_txt,
+                        "duree": duree_txt,
+                        "contraintes": contraintes_txt,
+                        "confirmation": confirmation_txt,
+                        "commentaire": commentaire_txt,
+                    }
+                    risque_id: int | None = None
+                    if row_kr:
+                        db.execute(
+                            _text(
+                                """
+                                UPDATE KYC_Client_Risque
+                                SET niveau_id = :niv,
+                                    experience = :exp,
+                                    connaissance = :connaissance,
+                                    patrimoine = :patrimoine,
+                                    duree = :duree,
+                                    contraintes = :contraintes,
+                                    confirmation_client = :confirmation,
+                                    commentaire = :commentaire
+                                WHERE id = :id
+                                """
+                            ),
+                            payload | {"id": int(row_kr[0])},
+                        )
+                        risque_id = int(row_kr[0])
+                    else:
+                        db.execute(
+                            _text(
+                                """
+                                INSERT INTO KYC_Client_Risque (
+                                    client_id, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire
+                                ) VALUES (
+                                    :cid, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire
+                                )
+                                """
+                            ),
+                            payload,
+                        )
+                        try:
+                            risque_id = int(db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0])
+                        except Exception:
+                            risque_id = None
+                    # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
+                    try:
+                        # Créer la table si absente
+                        db.execute(_text(
+                            """
+                            CREATE TABLE IF NOT EXISTS KYC_Client_Risque_Connaissance (
+                              risque_id INTEGER NOT NULL,
+                              produit_id INTEGER NOT NULL,
+                              niveau_id INTEGER NOT NULL,
+                              produit_label TEXT,
+                              niveau_label TEXT,
+                              PRIMARY KEY (risque_id, produit_id),
+                              FOREIGN KEY (risque_id) REFERENCES KYC_Client_Risque(id) ON DELETE CASCADE
+                            )
+                            """
+                        ))
+                        if risque_id is not None:
+                            # Purge puis insert des paires produit->niveau
+                            db.execute(_text("DELETE FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid"), {"rid": risque_id})
+                            # utilitaires libellés
+                            produits_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("produits") or [])}
+                            niveaux_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("niveaux") or [])}
+                            for pid, nid in (prod_levels or {}).items():
+                                try:
+                                    pid_i = int(pid); nid_i = int(nid)
+                                except Exception:
+                                    continue
+                                db.execute(
+                                    _text(
+                                        """
+                                        INSERT OR REPLACE INTO KYC_Client_Risque_Connaissance (
+                                          risque_id, produit_id, niveau_id, produit_label, niveau_label
+                                        ) VALUES (
+                                          :rid, :pid, :nid, :plabel, :nlabel
+                                        )
+                                        """
+                                    ),
+                                    {
+                                        "rid": risque_id,
+                                        "pid": pid_i,
+                                        "nid": nid_i,
+                                        "plabel": produits_map.get(pid_i),
+                                        "nlabel": niveaux_map.get(nid_i),
+                                    },
+                                )
+                    except Exception as _exc_kcr:
+                        logger.debug("KYC_Client_Risque_Connaissance persist error: %s", _exc_kcr, exc_info=True)
+                    # pour affichage UI
+                    risque_commentaire = payload.get("commentaire")
+                    risque_snapshot = {
+                        "niveau_id": niveau_id,
+                        "niveau_label": offre_libelle_txt,
+                        "experience": exp_txt,
+                        "connaissance": connaissance_txt,
+                        "patrimoine": patrimoine_txt,
+                        "duree": duree_txt,
+                        "contraintes": contraintes_txt,
+                        "confirmation_client": confirmation_txt,
+                        "commentaire": risque_commentaire,
+                    }
+                    # Ajouter connaissance par produit pour l'affichage
+                    try:
+                        if risque_id is not None:
+                            rows_c = db.execute(
+                                _text(
+                                    "SELECT produit_id, produit_label, niveau_id, niveau_label FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid ORDER BY produit_label, produit_id"
+                                ),
+                                {"rid": risque_id},
+                            ).fetchall()
+                            risque_snapshot["connaissance_produits"] = [dict(r._mapping) for r in rows_c]
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    logger.debug("KYC_Client_Risque upsert error: %s", exc, exc_info=True)
                 db.commit()
                 # set to show panel
                 active_section = "knowledge"
@@ -4074,11 +4368,16 @@ async def dashboard_client_kyc(
                 else:
                     risk = 1
                 params["computed_risk_level"] = risk
+                # Ensure DB NOT NULL client_id is satisfied
+                try:
+                    params["client_id"] = int(client_id)
+                except Exception:
+                    params["client_id"] = None
                 db.execute(
                     _text(
                         """
                         INSERT INTO LCBFT_questionnaire (
-                          client_ref, created_at, updated_at,
+                          client_ref, client_id, created_at, updated_at,
                           relation_mode, relation_since,
                           has_existing_contracts, existing_with_our_insurer,
                           existing_contract_ref, reason_new_contract,
@@ -4093,7 +4392,7 @@ async def dashboard_client_kyc(
                           operation_objet, montant, patrimoine_pct,
                           just_fonds, just_destination, just_finalite, just_produits
                         ) VALUES (
-                          :client_ref, :created_at, :updated_at,
+                          :client_ref, :client_id, :created_at, :updated_at,
                           :relation_mode, :relation_since,
                           :has_existing_contracts, :existing_with_our_insurer,
                           :existing_contract_ref, :reason_new_contract,
@@ -4515,6 +4814,28 @@ async def dashboard_client_kyc(
     patrimoine_net_str = _fmt_amount(patrimoine_net)
     budget_net_str = _fmt_amount(budget_net)
 
+    # Snapshot des synthèses déjà effectué après chaque mutation via _snapshot_synthese()
+
+    # Planifier l'écriture de la synthèse (affichage en bas de page)
+    synth_today = _date.today().isoformat()
+    try:
+        row_today = db.execute(
+            text(
+                """
+                SELECT id FROM KYC_Client_Synthese
+                WHERE client_id = :cid
+                  AND substr(COALESCE(date_saisie,''), 1, 10) = :today
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id, "today": synth_today},
+        ).fetchone()
+        synthese_push_action = "update" if row_today else "insert"
+    except Exception:
+        synthese_push_action = "insert"
+
+
     adresses: list[dict] = []
     try:
         rows_adresses = db.execute(
@@ -4728,13 +5049,13 @@ async def dashboard_client_kyc(
         esg_current = None
 
     # Dates d'affichage ESG: si aucune saisie, proposer date du jour et obsolescence à 2 ans
-    from datetime import date as _date, timedelta as _timedelta
+    from datetime import date as _dt_date2, timedelta as _td2
     if esg_current and esg_current.get("saisie_at") and esg_current.get("obsolescence_at"):
         esg_display_saisie = esg_current.get("saisie_at")
         esg_display_obsolescence = esg_current.get("obsolescence_at")
     else:
-        today = _date.today().isoformat()
-        in2y = (_date.today() + _timedelta(days=730)).isoformat()
+        today = _dt_date2.today().isoformat()
+        in2y = (_dt_date2.today() + _td2(days=730)).isoformat()
         esg_display_saisie = today
         esg_display_obsolescence = in2y
 
@@ -4825,9 +5146,82 @@ async def dashboard_client_kyc(
         risque_display_obsolescence = risque_current.get("obsolescence_at")
     else:
         today = _date.today().isoformat()
-        in2y = (_date.today() + _timedelta(days=730)).isoformat()
+        in2y = (_date.today() + timedelta(days=730)).isoformat()
         risque_display_saisie = today
         risque_display_obsolescence = in2y
+
+    # Charger les snapshots KYC_Client_Risque et gérer la sélection via ?kr=<id>
+    risque_snapshots: list[dict] = []
+    risque_selected_id: int | None = None
+    try:
+        rows_kr = db.execute(
+            text(
+                """
+                SELECT id, date_saisie, date_expiration, niveau_id, experience, connaissance,
+                       patrimoine, duree, contraintes, confirmation_client, commentaire
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        risque_snapshots = [dict(r._mapping) for r in rows_kr]
+    except Exception:
+        risque_snapshots = []
+
+    # Déterminer la sélection: ?kr=<id> sinon le plus récent
+    try:
+        sel_kr_raw = request.query_params.get("kr")
+        if sel_kr_raw:
+            risque_selected_id = int(sel_kr_raw)
+    except Exception:
+        risque_selected_id = None
+    risque_history_mode = bool(request.query_params.get("kr"))
+    if risque_history_mode:
+        ui_focus_section = ui_focus_section or "knowledge"
+        ui_focus_panel = ui_focus_panel or "knowledgePanel"
+    if not risque_selected_id and risque_snapshots:
+        try:
+            risque_selected_id = int(risque_snapshots[0]["id"])  # le plus récent
+        except Exception:
+            risque_selected_id = None
+
+    # Construire risque_snapshot pour l'affichage si une ligne sélectionnée existe
+    if risque_selected_id and risque_snapshots:
+        sel = next((s for s in risque_snapshots if int(s.get("id")) == int(risque_selected_id)), None)
+        if sel:
+            # Résoudre libellé de niveau (risque_niveau)
+            try:
+                rlab = db.execute(text("SELECT label FROM risque_niveau WHERE id = :id"), {"id": sel.get("niveau_id")}).fetchone()
+                niveau_label = rlab[0] if rlab else None
+            except Exception:
+                niveau_label = None
+            risque_snapshot = {
+                "niveau_id": sel.get("niveau_id"),
+                "niveau_label": niveau_label,
+                "experience": sel.get("experience"),
+                "connaissance": sel.get("connaissance"),
+                "patrimoine": sel.get("patrimoine"),
+                "duree": sel.get("duree"),
+                "contraintes": sel.get("contraintes"),
+                "confirmation_client": sel.get("confirmation_client"),
+                "commentaire": sel.get("commentaire"),
+            }
+            # Utiliser les dates du snapshot pour l'entête
+            risque_display_saisie = sel.get("date_saisie") or risque_display_saisie
+            risque_display_obsolescence = sel.get("date_expiration") or risque_display_obsolescence
+            # Charger les connaissances par produit reliées à ce snapshot
+            try:
+                rows_c = db.execute(
+                    text(
+                        "SELECT produit_id, produit_label, niveau_id, niveau_label FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid ORDER BY produit_label, produit_id"
+                    ),
+                    {"rid": int(sel.get("id"))},
+                ).fetchall()
+                risque_snapshot["connaissance_produits"] = [dict(r._mapping) for r in rows_c]
+            except Exception:
+                pass
 
     try:
         ref_niveau_rows = db.execute(
@@ -5044,8 +5438,25 @@ async def dashboard_client_kyc(
             "request": request,
             "client": client,
             "client_id": client_id,
+            "ui_focus_section": ui_focus_section,
+            "ui_focus_panel": ui_focus_panel,
+            "synthese_push_action": synthese_push_action,
+            "synthese_push_date": synth_today,
+            "synthese_totaux": {
+                "actif": float(actifs_total),
+                "passif": float(passifs_total),
+                "revenus": float(revenus_total),
+                "charges": float(charges_total),
+            },
+            "synthese_totaux_str": {
+                "actif": _fmt_amount(actifs_total),
+                "passif": _fmt_amount(passifs_total),
+                "revenus": _fmt_amount(revenus_total),
+                "charges": _fmt_amount(charges_total),
+            },
             "kyc_actifs": actifs,
             "kyc_actifs_total": actifs_total_str,
+            "actifs_total_value": float(actifs_total),
             "kyc_passifs": passifs,
             "kyc_passifs_total": passifs_total_str,
             "kyc_revenus": revenus,
@@ -5095,6 +5506,11 @@ async def dashboard_client_kyc(
             "risque_connaissance_map": risque_connaissance_map,
             "risque_objectifs_ids": risque_objectifs_ids,
             "risque_decision": risque_decision,
+            "risque_commentaire": risque_commentaire,
+            "risque_snapshot": risque_snapshot,
+            "risque_snapshots": risque_snapshots,
+            "risque_selected_id": risque_selected_id,
+            "risque_history_mode": risque_history_mode,
             "risque_display_saisie": risque_display_saisie,
             "risque_display_obsolescence": risque_display_obsolescence,
             # ESG
@@ -5942,8 +6358,8 @@ def dashboard_taches(
         conds.append("type_evenement LIKE :type_txt")
         params["type_txt"] = f"%{type_text}%"
     # Quick filters
-    from datetime import date as _date
-    today_str = _date.today().isoformat()
+    from datetime import date as _dt_date3
+    today_str = _dt_date3.today().isoformat()
     if today:
         conds.append("date(date_evenement) = :today")
         params["today"] = today_str
