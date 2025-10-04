@@ -111,6 +111,8 @@
 
     
 
+    
+
     <h2>Liste des clients</h2>
     <div class="table-container">
         <div id="restoreClients" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredClients()">×</a></span></div>
@@ -349,6 +351,68 @@ $(document).ready(function () {
 
     
 });
+
+// Accordéon Conformité
+(function(){
+  var btn = document.getElementById('conformiteToggleCli');
+  var panel = document.getElementById('conformiteSectionCli');
+  if(btn && panel){
+    btn.addEventListener('click', function(){ panel.style.display = (panel.style.display==='none'||!panel.style.display)?'block':'none'; });
+  }
+})();
+
+// Modales Conformité (placeholders)
+(function(){
+  var overlayStyle = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999;';
+  var cardStyle = 'background:#fff; border-radius:12px; width:780px; max-width:95vw; max-height:92vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2);';
+  function makeModal(id, title, innerHtml){
+    var div = document.createElement('div'); div.id=id; div.setAttribute('style', overlayStyle);
+    div.innerHTML = '<div style="'+cardStyle+'">\
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border);">\
+        <h3 style="margin:0; font-size:1.05rem;">'+title+'</h3>\
+        <button style="border:none; background:transparent; font-size:18px; cursor:pointer;" onclick="document.getElementById(\''+id+'\').style.display=\'none\'">✕</button>\
+      </div>\
+      <div style="padding:12px 14px;">'+innerHtml+'</div>\
+    </div>';
+    div.addEventListener('click', function(e){ if(e.target===div){ div.style.display='none'; }});
+    document.body.appendChild(div);
+    return div;
+  }
+  var modalConnaissance = makeModal('confConnaissanceModal', 'Connaissance client', '<p class="muted">En cours de développement.</p><p>Ouvrir la fiche KYC du client pour saisir les informations détaillées.</p>');
+  var modalTacfin = makeModal('confTacfinModal', 'TRACFIN / FATCA', '<p class="muted">En cours de développement.</p><p>Cette fenêtre reprendra le formulaire TRACFIN / FATCA de la fiche KYC.</p>');
+  var modalEer = makeModal('confEerModal', 'Entrée en relation', '
+    <div class="card" style="margin:0;">
+      <div class="accordion-toggle" data-target="eerDocPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
+        <span>Document d’entrée en relation</span><span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="eerDocPanelCli" style="display:none;">
+        <p class="muted">En cours de développement.</p>
+      </div>
+      <div class="accordion-toggle" data-target="eerRgpdPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
+        <span>RGPD</span><span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="eerRgpdPanelCli" style="display:none;">
+        <p class="muted">En cours de développement.</p>
+      </div>
+      <div class="accordion-toggle" data-target="eerMissionPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
+        <span>Lettre de Mission</span><span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="eerMissionPanelCli" style="display:none;">
+        <p class="muted">En cours de développement.</p>
+      </div>
+    </div>'
+  );
+  function wireAccordions(root){
+    root.querySelectorAll('.accordion-toggle').forEach(function(btn){
+      btn.addEventListener('click', function(){ var id=btn.getAttribute('data-target'); var p=document.getElementById(id); if(p){ p.style.display=(p.style.display==='none'||!p.style.display)?'block':'none'; }});
+    });
+  }
+  wireAccordions(modalEer);
+  document.getElementById('btnConfConnaissance')?.addEventListener('click', function(){ modalConnaissance.style.display='flex'; });
+  document.getElementById('btnConfTacfin')?.addEventListener('click', function(){ modalTacfin.style.display='flex'; });
+  document.getElementById('btnConfEer')?.addEventListener('click', function(){ modalEer.style.display='flex'; });
+})();
+</script>
 </script>
 
 {% endblock %}
