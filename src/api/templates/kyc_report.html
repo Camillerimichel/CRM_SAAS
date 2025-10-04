@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rapport KYC</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+  @page { size: A4; margin: 20mm; }
+  .page-break { page-break-before: always; }
+  .title-page { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; text-align:center; }
+  .title { font-size: 2rem; font-weight: 700; margin: 0 0 8px 0; }
+  .subtitle { font-size: 1.1rem; color:#555; }
+  .chapter { margin: 0 0 8px 0; font-size: 1.2rem; font-weight: 700; color:#1d4ed8; }
+  .section { margin: 8px 0 6px 0; font-weight:600; }
+  .kv { margin: 2px 0; }
+  .kv .k { color:#555; display:inline-block; min-width: 180px; }
+  .table { width:100%; border-collapse:collapse; font-size:0.95rem; }
+  .table th, .table td { border-bottom:1px solid #e5e7eb; padding:6px 8px; text-align:left; }
+  .muted { color:#666; }
+  .grid-1 { display:grid; grid-template-columns: repeat(1, minmax(200px, 1fr)); gap:10px; }
+  .grid-2 { display:grid; grid-template-columns: repeat(2, minmax(200px, 1fr)); gap:10px; }
+  .grid-3 { display:grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap:10px; }
+  .grid-4 { display:grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap:10px; }
+  .card { background:#fff; border-radius:10px; padding:10px 12px; border:none; margin-bottom:10px; }
+  .small { font-size:0.9rem; }
+  </style>
+</head>
+<body>
+{% if error %}
+  <div class="card">{{ error }}</div>
+{% else %}
+
+<!-- Page 1: Titre -->
+<div class="title-page">
+  <div class="title">Rapport KYC</div>
+  <div class="subtitle">Pour {{ client.prenom }} {{ client.nom }}</div>
+  <div class="muted" style="margin-top:6px;">Date: {{ today }}</div>
+  <div class="muted small" style="margin-top:24px;">Document généré automatiquement depuis le module KYC</div>
+  <div class="muted small">Confidentiel – Usage interne</div>
+  <div class="muted small">—</div>
+  <div class="muted small">Ce rapport synthétise les éléments déclaratifs et calculés.</div>
+  <div class="muted small">Il ne constitue pas une recommandation personnalisée.</div>
+  <div class="muted small">—</div>
+  <div class="muted small">© Votre société</div>
+</div>
+
+<!-- Page 2: Séquançage -->
+<div class="page-break"></div>
+<div class="card">
+  <div class="chapter">1. Etat civil</div>
+  <div class="muted small" style="margin-bottom:6px;">Informations d’identité et coordonnées principales.</div>
+  <div class="grid-1">
+    <div class="card">
+      <div class="section">Identité</div>
+      <div class="kv"><span class="k">Nom</span> <span class="v">{{ client.prenom }} {{ client.nom }}</span></div>
+      {% if etat %}
+        <div class="kv"><span class="k">Civilité</span> <span class="v">{{ etat.civilite or '—' }}</span></div>
+        <div class="kv"><span class="k">Date de naissance</span> <span class="v">{{ etat.date_naissance or '—' }}</span></div>
+        <div class="kv"><span class="k">Lieu de naissance</span> <span class="v">{{ etat.lieu_naissance or '—' }}</span></div>
+        <div class="kv"><span class="k">Nationalité</span> <span class="v">{{ etat.nationalite or '—' }}</span></div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="section">Adresses</div>
+      {% if adresses %}
+        {% for a in adresses %}
+          <div class="kv"><span class="k">{{ a.type_libelle }}</span> <span class="v">{{ a.rue }} {{ a.complement or '' }}, {{ a.code_postal }} {{ a.ville }}, {{ a.pays }}</span></div>
+        {% endfor %}
+      {% else %}
+        <div class="muted">Aucune adresse enregistrée.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="grid-1">
+    <div class="card">
+      <div class="section">Situation matrimoniale</div>
+      {% if matrimoniales %}
+        <table class="table">
+          <thead><tr><th>Situation</th><th>Convention</th><th>Enfants</th></tr></thead>
+          <tbody>
+          {% for m in matrimoniales %}
+            <tr><td>{{ m.situation_libelle or '—' }}</td><td>{{ m.convention_libelle or '—' }}</td><td>{{ m.nb_enfants or 0 }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">Non renseigné.</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="section">Situation professionnelle</div>
+      {% if professionnelles %}
+        <table class="table">
+          <thead><tr><th>Profession</th><th>Secteur</th><th>Statut</th><th>Ancienneté</th></tr></thead>
+          <tbody>
+          {% for p in professionnelles %}
+            <tr><td>{{ p.profession or '—' }}</td><td>{{ p.secteur_libelle or '—' }}</td><td>{{ p.statut_libelle or '—' }}</td><td>{{ p.anciennete_annees or 0 }} an(s)</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">Non renseigné.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+  <div class="card">
+    <div class="chapter">2. Patrimoine et revenu</div>
+  <div class="muted small">Synthèse des actifs et passifs, ainsi que des revenus/charges annuels.</div>
+  {% if want_charts %}
+  <div class="card" style="margin:8px 0;">
+    <div class="section">Synthèse graphique</div>
+    {% if chart_img_synth_b64 %}
+      <img src="data:image/png;base64,{{ chart_img_synth_b64 }}" alt="Synthèse" style="max-width:100%; height:auto;" />
+    {% else %}
+      <canvas id="chartSynth" height="120"></canvas>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="grid-1">
+    <div class="card">
+      <div class="section">Actifs</div>
+      {% if actifs %}
+        <table class="table">
+          <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Valeur</th></tr></thead>
+          <tbody>
+          {% for a in actifs %}
+            <tr><td>{{ a.type_libelle }}</td><td>{{ a.description or '—' }}</td><td style="text-align:right;">{{ a.valeur | float | round(2) }}</td></tr>
+          {% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="2" style="text-align:right;">Total</th><th style="text-align:right;">{{ actif_total }} €</th></tr></tfoot>
+        </table>
+      {% else %}
+        <div class="muted">Aucun actif enregistré.</div>
+      {% endif %}
+    </div>
+    <div class="page-break"></div>
+    <div class="card">
+      <div class="section">Passifs</div>
+      {% if passifs %}
+        <table class="table">
+          <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Montant dû</th></tr></thead>
+          <tbody>
+          {% for p in passifs %}
+            <tr><td>{{ p.type_libelle }}</td><td>{{ p.description or '—' }}</td><td style="text-align:right;">{{ p.montant_rest_du | float | round(2) }}</td></tr>
+          {% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="2" style="text-align:right;">Total</th><th style="text-align:right;">{{ passif_total }} €</th></tr></tfoot>
+        </table>
+      {% else %}
+        <div class="muted">Aucun passif enregistré.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="grid-1">
+    <div class="card">
+      <div class="section">Revenus annuels</div>
+      {% if revenus %}
+        <table class="table">
+          <thead><tr><th>Type</th><th style="text-align:right;">Montant</th></tr></thead>
+          <tbody>
+          {% for r in revenus %}
+            <tr><td>{{ r.type_libelle }}</td><td style="text-align:right;">{{ r.montant_annuel | float | round(2) }}</td></tr>
+          {% endfor %}
+          </tbody>
+          <tfoot><tr><th style="text-align:right;">Total</th><th style="text-align:right;">{{ revenu_total }} €</th></tr></tfoot>
+        </table>
+      {% else %}
+        <div class="muted">Aucun revenu enregistré.</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="section">Charges annuelles</div>
+      {% if charges %}
+        <table class="table">
+          <thead><tr><th>Type</th><th style="text-align:right;">Montant</th></tr></thead>
+          <tbody>
+          {% for c in charges %}
+            <tr><td>{{ c.type_libelle }}</td><td style="text-align:right;">{{ c.montant_annuel | float | round(2) }}</td></tr>
+          {% endfor %}
+          </tbody>
+          <tfoot><tr><th style="text-align:right;">Total</th><th style="text-align:right;">{{ charge_total }} €</th></tr></tfoot>
+        </table>
+      {% else %}
+        <div class="muted">Aucune charge enregistrée.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <div class="section">Patrimoine net</div>
+      <div><strong>{{ patrimoine_net }} €</strong></div>
+    </div>
+    <div class="card">
+      <div class="section">Solde budget (Recettes - Charges)</div>
+      <div><strong>{{ budget_net }} €</strong></div>
+    </div>
+  </div>
+  {% if chart_img_pie_b64 %}
+  <div class="card" style="margin:8px 0;">
+    <div class="section">Répartition Actifs / Passifs</div>
+    <img src="data:image/png;base64,{{ chart_img_pie_b64 }}" alt="Patrimoine" style="max-width:100%; height:auto;" />
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="chapter">3. Objectifs</div>
+  <div class="muted small">Objectifs déclarés par le client en ordre de priorité, avec horizon et commentaires.</div>
+  {% if objectifs %}
+    <style>
+      .col-prio { width:1%; white-space:nowrap; text-align:center; }
+      .col-objectif { width:32%; }
+      .col-horizon { width:18%; white-space:nowrap; }
+      .col-commentaire { width:auto; }
+    </style>
+    <table class="table">
+      <colgroup>
+        <col class="col-prio" />
+        <col class="col-objectif" />
+        <col class="col-horizon" />
+        <col class="col-commentaire" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="col-prio" style="text-align:center;">Priorité</th>
+          <th class="col-objectif">Objectif</th>
+          <th class="col-horizon">Horizon</th>
+          <th class="col-commentaire">Commentaire</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for o in objectifs %}
+        <tr>
+          <td class="col-prio" style="text-align:center;">{{ o.niveau_id or '—' }}</td>
+          <td class="col-objectif">{{ o.objectif_libelle or '—' }}</td>
+          <td class="col-horizon">{{ o.horizon_investissement or '—' }}</td>
+          <td class="col-commentaire">{{ o.commentaire or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="muted">Aucun objectif enregistré.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="chapter">4. Connaissances financières</div>
+  {% if risque %}
+    {% if chart_img_alloc_b64 %}
+    <div class="card" style="margin-bottom:8px;">
+      <div class="section">Performance et volatilité – {{ risque.allocation_nom or '—' }}</div>
+      <img src="data:image/png;base64,{{ chart_img_alloc_b64 }}" alt="Allocation" style="max-width:100%; height:auto;" />
+    </div>
+    {% endif %}
+    <div class="grid-2">
+      <div class="card">
+        <div class="section">Niveau final</div>
+        <div><strong>{{ risque.niveau_id }}</strong></div>
+      </div>
+      <div class="card">
+        <div class="section">Allocation</div>
+        <div><strong>{{ risque.allocation_nom or '—' }}</strong></div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="section">Expérience</div>
+        <div>{{ risque.experience or '—' }}</div>
+      </div>
+      <div class="card">
+        <div class="section">Connaissance générale</div>
+        <div>{{ risque.connaissance or '—' }}</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="section">Perte acceptée</div>
+        <div>{{ risque.contraintes or '—' }}</div>
+      </div>
+      <div class="card">
+        <div class="section">Confirmation client</div>
+        <div>{{ risque.confirmation_client or '—' }}</div>
+      </div>
+    </div>
+    {% if risque.commentaire %}
+    <div class="card">
+      <div class="section">Commentaire</div>
+      <div>{{ risque.commentaire }}</div>
+    </div>
+    {% endif %}
+    
+  {% else %}
+    <div class="muted">Non renseigné.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="chapter">5. Sensibilité ESG</div>
+  {% if esg %}
+    <div class="grid-2">
+      <div class="card">
+        <div class="section">Environnement</div>
+        <div class="kv"><span class="k">Importance</span> <span class="v">{{ esg.env_importance or '—' }}</span></div>
+        <div class="kv"><span class="k">Réduction GES</span> <span class="v">{{ esg.env_ges_reduc or '—' }}</span></div>
+      </div>
+      <div class="card">
+        <div class="section">Social</div>
+        <div class="kv"><span class="k">Droits humains</span> <span class="v">{{ esg.soc_droits_humains or '—' }}</span></div>
+        <div class="kv"><span class="k">Parité</span> <span class="v">{{ esg.soc_parite or '—' }}</span></div>
+      </div>
+      <div class="card">
+        <div class="section">Gouvernance</div>
+        <div class="kv"><span class="k">Transparence</span> <span class="v">{{ esg.gov_transparence or '—' }}</span></div>
+        <div class="kv"><span class="k">Contrôle éthique</span> <span class="v">{{ esg.gov_controle_ethique or '—' }}</span></div>
+      </div>
+      <div class="card">
+        <div class="section">Exclusions</div>
+        {% if esg_exclusions and esg_exclusions|length > 0 %}
+          <ul>
+            {% for e in esg_exclusions %}<li>{{ e }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          <div class="muted">Aucune exclusion</div>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="muted">Non renseigné.</div>
+  {% endif %}
+</div>
+
+{% endif %}
+
+{% if want_charts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function(){
+  try{
+    const data = {{ chart_data | tojson }};
+    const ctx = document.getElementById('chartSynth').getContext('2d');
+    const labels = data.labels || [];
+    const values = (data.values || []).map(function(v){ var n=parseFloat(v); return isFinite(n)?n:0; });
+    let chart = new Chart(ctx, {
+      type: 'bar', data: { labels, datasets: [{ label: 'Montants (€)', data: values, backgroundColor: ['#2563eb','#ef4444','#16a34a','#f59e0b'] }] },
+      options: { responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ ticks:{ callback:v=> Number(v).toLocaleString('fr-FR') } } } }
+    });
+  }catch(e){}
+})();
+</script>
+{% endif %}
+
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Compte rendu d’entretien – {{ client.prenom }} {{ client.nom }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm;
+      @bottom-center {
+        content: "Compte rendu d’entretien – {{ client.prenom }} {{ client.nom }} — {{ today }}";
+        font-family: Helvetica, Arial, sans-serif;
+        font-size: 11pt;
+        font-style: italic;
+        text-align: center;
+      }
+    }
+    @page:first { @bottom-center { content: none; } }
+    @page:last { @bottom-center { content: none; } }
+    body { font-family: Helvetica, Arial, sans-serif; color:#111; }
+    hr { border: none; border-top: 1px solid #999; margin: 8px 0 12px 0; }
+    /* En-têtes de section */
+    .section-header { font-weight:700; font-size:16pt; margin: 10px 0 4px 0; }
+    /* Styles généraux */
+    .h1 { font-size: 16pt; font-weight: 400; text-align: left; margin: 10px 0 4px; }
+    .h2 { font-size: 14pt; font-weight: 400; text-align: left; margin: 8px 0 4px; }
+    .h3 { font-size: 14pt; font-weight: 700; text-align: left; margin: 12px 0 6px; }
+    p { font-size: 12pt; text-align: justify; margin: 4px 0; }
+    ol { font-size:14pt; font-weight:700; margin: 6px 0 8px 18px; }
+    .center { text-align:center; }
+    .muted { color:#666; }
+    .block { margin: 10px 0; }
+    .card { border:none; border-radius:8px; padding:10px 12px; margin: 8px 0; }
+    .grid-1 { display:block; }
+    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .kv { margin: 2px 0; }
+    .kv .k { display:inline-block; min-width: 180px; color:#333; font-weight:700; }
+    table { width:100%; border-collapse: collapse; }
+    th { font-weight:700; font-size:12pt; background:#eef2ff; color:#1d4ed8; padding:6px 8px; text-align:left; border-bottom:1px solid #dbe2ff; }
+    td { font-size:12pt; background:#fff; color:#111; padding:6px 8px; border-bottom:1px solid #eee; }
+    /* Mise en forme colonnes Objectifs */
+    .col-prio { width:1%; white-space:nowrap; text-align:center; }
+    .col-objectif { width:32%; }
+    .col-horizon { width:18%; white-space:nowrap; }
+    .col-commentaire { width:auto; }
+    .page-break { page-break-before: always; }
+    .title-page { min-height: 60vh; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    /* Décalage du titre de la page 1 de 5 lignes environ */
+    .title-page .section-header { margin-top: 5em; }
+    .title-page img { display:block; margin-left:auto; margin-right:auto; }
+    /* Sommaire centré */
+    /* Sommaire décalé de ~10 lignes vers le bas */
+    .sommaire-page { min-height: 70vh; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding-top: 10em; }
+    .sommaire-page ol { font-size:14pt; margin: 0; padding-left: 1.5rem; }
+    /* Footer visible à l'écran (les moteurs HTML ignorent @page) */
+    .screen-footer { position: fixed; left:0; right:0; bottom: 10mm; text-align:center; font-size:11pt; font-style:italic; color:#333; }
+    @media print { .screen-footer { display:none; } }
+    @media screen { .screen-footer { display:block; } }
+  </style>
+</head>
+<body>
+
+  <!-- Footer pour affichage écran uniquement -->
+  <div class="screen-footer">Compte rendu d’entretien – {{ client.prenom }} {{ client.nom }}</div>
+  {% if auto_print %}
+  <script>
+    // Déclenche l'impression navigateur pour un PDF fidèle au HTML
+    window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 200); });
+  </script>
+  {% endif %}
+
+  <!-- Page de garde -->
+  <div class="title-page">
+    {% if logo_url %}
+      <img src="{{ logo_url }}" alt="Logo" style="max-width: 240px; margin-bottom: 28mm;" />
+    {% else %}
+      <div style="height:90mm"></div>
+    {% endif %}
+    <div class="section-header center">Compte rendu d’entretien avec {{ client.prenom }} {{ client.nom }}</div>
+    {% set t = (today or '') %}{% set d = t.split('-') if '-' in t else [] %}
+    <div class="center" style="font-weight:700; font-style:italic; font-size:12pt;">{% if d %}{{ d[2] }}/{{ d[1] }}/{{ d[0] }}{% else %}{{ today or '' }}{% endif %}</div>
+  </div>
+
+  <!-- Sommaire (page 2) -->
+  <div class="page-break"></div>
+  <div class="sommaire-page">
+    <div class="h2" style="margin-bottom:28px;">Sommaire</div>
+    <ol style="line-height:1.8;">
+      <li>État civil</li>
+      <li>Patrimoine et revenus</li>
+      <li>Connaissances financières</li>
+      <li>Sensibilité ESG</li>
+      <li>Objectifs</li>
+    </ol>
+  </div>
+
+  <!-- Introduction réglementaire -->
+  <div class="page-break"></div>
+  <div class="h1">Devoir de connaissance du client</div>
+  <hr />
+  <p>
+    Conformément à la réglementation applicable aux courtiers en assurance et en investissements financiers,
+    le professionnel a l’obligation de recueillir et d’analyser les informations nécessaires pour s’assurer que les conseils fournis
+    correspondent à la situation, aux objectifs et au profil de risque de son client.
+  </p>
+  <p>Cette obligation découle :</p>
+  <ul style="font-size:12pt;">
+    <li>du Code monétaire et financier, notamment les articles L.541-8-1 et suivants ;</li>
+    <li>de la Directive européenne MIFID II (Directive 2014/65/UE) ;</li>
+    <li>du Code des assurances, articles L.520-1 et L.521-4 ;</li>
+    <li>des textes d’application précisant le recueil d’informations sur la situation financière, les connaissances, l’expérience, les objectifs patrimoniaux, la tolérance au risque et l’horizon d’investissement.</li>
+  </ul>
+  <p>
+    Les informations fournies par le client constituent la base indispensable à la formulation de toute recommandation personnalisée.
+    Le rapport d’entretien qui suit s’inscrit dans ce cadre légal.
+  </p>
+
+  <!-- 1. État civil (même page que le devoir) -->
+  <div style="height: 1.25em;"></div>
+  <div class="h1">1. État civil</div>
+  <hr />
+  <div class="card">
+    <div class="kv"><span class="k">Nom</span> {{ client.prenom }} {{ client.nom }}</div>
+    {% if etat %}
+      <div class="kv"><span class="k">Civilité</span> {{ etat.civilite or '—' }}</div>
+      {% set dn = etat.date_naissance %}
+      {% if dn and '-' in dn %}{% set parts = dn.split('-') %}
+        <div class="kv"><span class="k">Date de naissance</span> {{ parts[2] }}/{{ parts[1] }}/{{ parts[0] }}</div>
+      {% else %}
+        <div class="kv"><span class="k">Date de naissance</span> {{ dn or '—' }}</div>
+      {% endif %}
+      <div class="kv"><span class="k">Lieu de naissance</span> {{ etat.lieu_naissance or '—' }}</div>
+      <div class="kv"><span class="k">Nationalité</span> {{ etat.nationalite or '—' }}</div>
+    {% endif %}
+    {% set primary_addr = (adresses[0] if adresses else None) %}
+    {% if primary_addr %}
+      <div class="kv"><span class="k">Adresse principale</span> {{ primary_addr.rue }} {{ primary_addr.code_postal }} {{ primary_addr.ville }} {{ primary_addr.pays }}</div>
+    {% endif %}
+    {% set matr = (matrimoniales[0] if matrimoniales else None) %}
+    <div class="kv"><span class="k">Situation matrimoniale</span> {{ matr.situation_libelle if matr else '—' }}</div>
+    {% if matr %}
+      <div class="kv"><span class="k">Convention</span> {{ matr.convention_libelle or '—' }}</div>
+      <div class="kv"><span class="k">Nombre d'enfants</span> {{ matr.nb_enfants or 0 }}</div>
+    {% endif %}
+    {% set prof = (professionnelles[0] if professionnelles else None) %}
+    <div class="kv"><span class="k">Situation professionnelle</span> {{ prof.profession if prof else '—' }}</div>
+  </div>
+
+  <!-- 2. Patrimoine et revenus -->
+  <div class="page-break"></div>
+  <div class="h1">2. Patrimoine et revenus</div>
+  <hr />
+  <p>
+    Nous avons fait le point sur l’ensemble de vos biens, de vos dettes, de vos revenus et de vos dépenses. Cette synthèse vous donne une vision claire de votre situation financière et permet d’identifier les moyens disponibles pour réaliser vos projets.
+  </p>
+  <div class="card">
+    <div class="grid-1">
+      <div>
+        <div class="h3">Actifs</div>
+        <table>
+          <colgroup>
+            <col style="width:40%" />
+            <col style="width:40%" />
+            <col style="width:20%" />
+          </colgroup>
+          <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Valeur (€)</th></tr></thead>
+          <tbody>
+          {% for a in actifs %}
+            <tr>
+              <td>{{ a.type_libelle }}</td>
+              <td>{{ a.description or '—' }}</td>
+              <td style="text-align:right;">{{ '{:,.0f}'.format(a.valeur|float).replace(',', ' ') }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="h3">Passifs</div>
+        <table>
+          <colgroup>
+            <col style="width:40%" />
+            <col style="width:40%" />
+            <col style="width:20%" />
+          </colgroup>
+          <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Montant dû (€)</th></tr></thead>
+          <tbody>
+          {% for p in passifs %}
+            <tr>
+              <td>{{ p.type_libelle }}</td>
+              <td>{{ p.description or '—' }}</td>
+              <td style="text-align:right;">{{ '{:,.0f}'.format(p.montant_rest_du|float).replace(',', ' ') }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="grid-1" style="margin-top:8px;">
+      <div>
+        <div class="h3">Revenus annuels</div>
+        <table>
+          <colgroup>
+            <col style="width:70%" />
+            <col style="width:30%" />
+          </colgroup>
+        
+          <thead><tr><th>Type</th><th style="text-align:right;">Montant (€)</th></tr></thead>
+          <tbody>
+          {% for r in revenus %}
+            <tr>
+              <td>{{ r.type_libelle }}</td>
+              <td style="text-align:right;">{{ '{:,.0f}'.format(r.montant_annuel|float).replace(',', ' ') }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="h3">Charges annuelles</div>
+        <table>
+          <colgroup>
+            <col style="width:70%" />
+            <col style="width:30%" />
+          </colgroup>
+          <thead><tr><th>Type</th><th style="text-align:right;">Montant (€)</th></tr></thead>
+          <tbody>
+          {% for c in charges %}
+            <tr>
+              <td>{{ c.type_libelle }}</td>
+              <td style="text-align:right;">{{ '{:,.0f}'.format(c.montant_annuel|float).replace(',', ' ') }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top:8px;">
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Patrimoine net</div>
+        <div style="font-size:14pt; font-weight:700; text-align:center;">{{ patrimoine_net }} €</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Solde budget</div>
+        <div style="font-size:14pt; font-weight:700; text-align:center;">{{ budget_net }} €</div>
+      </div>
+    </div>
+
+    <!-- Donuts de synthèse (répartitions) -->
+    <style>
+      .donut-grid { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; justify-content:center; align-items:flex-start; }
+      .donut-card { flex: 0 0 calc(50% - 10px); page-break-inside: avoid; break-inside: avoid; text-align:center; }
+      .donut-card .legend { margin-top:6px; font-size:10.5pt; }
+      .donut-card .legend-item { display:flex; align-items:center; gap:8px; margin:2px 0; }
+      .donut-card .legend-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+      .donut { width:100%; height:auto; margin:0 auto; display:block; }
+    </style>
+    <div class="donut-grid">
+      <div class="card donut-card">
+        <div class="h3">Répartition des actifs</div>
+        {% if donut_actifs_b64 %}
+          <img class="donut" src="data:image/png;base64,{{ donut_actifs_b64 }}" alt="Actifs" />
+        {% elif donut_actifs_svg %}
+          <div class="donut" style="width:100%; height:auto;">{{ donut_actifs_svg | safe }}</div>
+          <div class="legend">
+            {% set _labels = donut_data['actifs']['labels'] %}
+            {% set _values = donut_data['actifs']['values'] %}
+            {% for l in _labels %}
+              {% set v = _values[loop.index0] %}
+              <div class="legend-item"><span class="legend-dot" style="background:#ccc;"></span><span>{{ l }} — {{ '{:,.0f}'.format(v).replace(',', ' ') }} €</span></div>
+            {% endfor %}
+          </div>
+        {% else %}
+          {% set labels = donut_data['actifs']['labels'] %}
+          {% set values = donut_data['actifs']['values'] %}
+          <svg class="donut" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet" data-labels="{{ labels|join('||') }}" data-values="{{ values|join(',') }}"></svg>
+          <div class="legend"></div>
+        {% endif %}
+      </div>
+      <div class="card donut-card">
+        <div class="h3">Répartition des passifs</div>
+        {% if donut_passifs_b64 %}
+          <img class="donut" src="data:image/png;base64,{{ donut_passifs_b64 }}" alt="Passifs" />
+        {% elif donut_passifs_svg %}
+          <div class="donut" style="width:100%; height:auto;">{{ donut_passifs_svg | safe }}</div>
+          <div class="legend">
+            {% set _labels = donut_data['passifs']['labels'] %}
+            {% set _values = donut_data['passifs']['values'] %}
+            {% for l in _labels %}
+              {% set v = _values[loop.index0] %}
+              <div class="legend-item"><span class="legend-dot" style="background:#ccc;"></span><span>{{ l }} — {{ '{:,.0f}'.format(v).replace(',', ' ') }} €</span></div>
+            {% endfor %}
+          </div>
+        {% else %}
+          {% set labels = donut_data['passifs']['labels'] %}
+          {% set values = donut_data['passifs']['values'] %}
+          <svg class="donut" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet" data-labels="{{ labels|join('||') }}" data-values="{{ values|join(',') }}"></svg>
+          <div class="legend"></div>
+        {% endif %}
+      </div>
+      <div class="card donut-card">
+        <div class="h3">Répartition des revenus</div>
+        {% if donut_revenus_b64 %}
+          <img class="donut" src="data:image/png;base64,{{ donut_revenus_b64 }}" alt="Revenus" />
+        {% elif donut_revenus_svg %}
+          <div class="donut" style="width:100%; height:auto;">{{ donut_revenus_svg | safe }}</div>
+          <div class="legend">
+            {% set _labels = donut_data['revenus']['labels'] %}
+            {% set _values = donut_data['revenus']['values'] %}
+            {% for l in _labels %}
+              {% set v = _values[loop.index0] %}
+              <div class="legend-item"><span class="legend-dot" style="background:#ccc;"></span><span>{{ l }} — {{ '{:,.0f}'.format(v).replace(',', ' ') }} €</span></div>
+            {% endfor %}
+          </div>
+        {% else %}
+          {% set labels = donut_data['revenus']['labels'] %}
+          {% set values = donut_data['revenus']['values'] %}
+          <svg class="donut" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet" data-labels="{{ labels|join('||') }}" data-values="{{ values|join(',') }}"></svg>
+          <div class="legend"></div>
+        {% endif %}
+      </div>
+      <div class="card donut-card">
+        <div class="h3">Répartition des charges</div>
+        {% if donut_charges_b64 %}
+          <img class="donut" src="data:image/png;base64,{{ donut_charges_b64 }}" alt="Charges" />
+        {% elif donut_charges_svg %}
+          <div class="donut" style="width:100%; height:auto;">{{ donut_charges_svg | safe }}</div>
+          <div class="legend">
+            {% set _labels = donut_data['charges']['labels'] %}
+            {% set _values = donut_data['charges']['values'] %}
+            {% for l in _labels %}
+              {% set v = _values[loop.index0] %}
+              <div class="legend-item"><span class="legend-dot" style="background:#ccc;"></span><span>{{ l }} — {{ '{:,.0f}'.format(v).replace(',', ' ') }} €</span></div>
+            {% endfor %}
+          </div>
+        {% else %}
+          {% set labels = donut_data['charges']['labels'] %}
+          {% set values = donut_data['charges']['values'] %}
+          <svg class="donut" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet" data-labels="{{ labels|join('||') }}" data-values="{{ values|join(',') }}"></svg>
+          <div class="legend"></div>
+        {% endif %}
+      </div>
+    </div>
+    <script>
+    (function(){
+      var svgs = document.querySelectorAll('svg.donut');
+      if(!svgs || !svgs.length) return;
+      var COLORS = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#10b981','#f97316','#0ea5e9','#eab308','#dc2626'];
+      function fmt(x){ try{ return (Math.round(parseFloat(x)||0)).toLocaleString('fr-FR') + ' €'; }catch(e){ return x; } }
+      svgs.forEach(function(svg){
+        var labels = (svg.getAttribute('data-labels')||'').split('||').filter(Boolean);
+        var values = (svg.getAttribute('data-values')||'').split(',').map(function(v){ return parseFloat(v)||0; });
+        var total = values.reduce(function(a,b){return a+b;},0);
+        var W=260,H=200,cx=130,cy=90,r=70,th=26;
+        svg.innerHTML = '';
+        var bg = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        bg.setAttribute('cx',cx); bg.setAttribute('cy',cy); bg.setAttribute('r',r);
+        bg.setAttribute('fill','none'); bg.setAttribute('stroke','#eef2ff'); bg.setAttribute('stroke-width',th);
+        svg.appendChild(bg);
+        if(total>0){
+          var C = 2*Math.PI*r, acc = 0;
+          values.forEach(function(v, i){
+            if(v<=0) return;
+            var seg = C * (v/total);
+            var path = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            path.setAttribute('cx',cx); path.setAttribute('cy',cy); path.setAttribute('r',r);
+            path.setAttribute('fill','none'); path.setAttribute('stroke', COLORS[i % COLORS.length]);
+            path.setAttribute('stroke-width', th);
+            path.setAttribute('stroke-dasharray', seg + ' ' + (C-seg));
+            path.setAttribute('stroke-dashoffset', -acc);
+            path.setAttribute('transform','rotate(-90 '+cx+' '+cy+')');
+            path.setAttribute('stroke-linecap','butt');
+            svg.appendChild(path);
+            acc += seg;
+          });
+        }
+        // Legend under SVG
+        var legend = svg.nextElementSibling; if(!legend) return;
+        legend.innerHTML='';
+        labels.forEach(function(l,i){
+          var row = document.createElement('div'); row.className='legend-item';
+          var dot = document.createElement('span'); dot.className='legend-dot'; dot.style.background = COLORS[i % COLORS.length];
+          var txt = document.createElement('span'); txt.textContent = l + ' — ' + fmt(values[i]||0);
+          row.appendChild(dot); row.appendChild(txt); legend.appendChild(row);
+        });
+      });
+    })();
+    </script>
+    {# Blocs synthèse et pie retirés selon demande #}
+  </div>
+
+  <!-- 3. Connaissances financières -->
+  <div class="page-break"></div>
+  <div class="h1">3. Connaissances financières</div>
+  <hr />
+  <p>
+    Grâce à vos réponses, nous pouvons mieux comprendre votre expérience et votre tolérance au risque. Cela nous permet de vous proposer une offre financière qui correspond à vos choix et à votre façon d’investir.
+  </p>
+  {% if risque %}
+    <div class="grid-2">
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Expérience</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.experience or '—' }}</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Connaissance générale</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.connaissance or '—' }}</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Niveaux par produits</div>
+        <div style="font-size:12pt; text-align:center;">
+          {% set all_items = risque.connaissance_produits or [] %}
+          {% set items = all_items[:4] %}
+          {% if items and items|length > 0 %}
+            {% for it in items %}
+              <div>
+                {{ (it.produit_label if it.produit_label else ('Produit ' ~ (it.produit_id if it.produit_id else '?'))) }}:
+                {{ it.niveau_label if it.niveau_label else (it.niveau_id if it.niveau_id else '—') }}
+              </div>
+            {% endfor %}
+          {% else %}
+            Données indisponibles
+          {% endif %}
+        </div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Part de l’investissement dans le patrimoine</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.patrimoine or '—' }}</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Disponibilité</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.disponibilite or '—' }}</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Durée de placement envisagée</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.duree or '—' }}</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Perte acceptée</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.contraintes or '—' }}</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Confirmation client</div>
+        <div style="font-size:14pt; text-align:center;">{{ risque.confirmation_client or '—' }}</div>
+      </div>
+    </div>
+    {% if risque.commentaire %}
+      <div class="card"><div class="h3">Commentaire</div><p>{{ risque.commentaire }}</p></div>
+    {% endif %}
+    {% if risque and risque.allocation_html %}
+      <div class="card" style="margin-top:8px;">{{ risque.allocation_html | safe }}</div>
+    {% endif %}
+    {% if chart_img_alloc_b64 %}
+      <div class="card" style="margin-top:8px; text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Performance et volatilité</div>
+        <img src="data:image/png;base64,{{ chart_img_alloc_b64 }}" style="max-width:100%; height:auto;" />
+      </div>
+    {% elif chart_alloc_svg %}
+      <div class="card" style="margin-top:8px; text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Performance et volatilité</div>
+        <div>{{ chart_alloc_svg | safe }}</div>
+      </div>
+    {% else %}
+      <div class="card" style="margin-top:8px; text-align:center;">
+        <div class="h3" style="font-weight:700; text-align:center;">Performance et volatilité</div>
+        {% if alloc_series_data %}
+          <!-- Fallback inline SVG chart (HTML only) when matplotlib is unavailable -->
+          {% set s_vals = alloc_series_data | map(attribute='sicav') | list %}
+          {% set v_vals = alloc_series_data | map(attribute='vol') | list %}
+          {% set n = s_vals | length %}
+          <div class="alloc-chart" data-s="{{ s_vals | join(',') }}" data-v="{{ v_vals | join(',') }}" data-name="{{ (risque.allocation_nom if risque else '') }}" style="width:100%;">
+            <svg viewBox="0 0 640 240" preserveAspectRatio="none" style="width:100%; height:auto; border:1px solid #e5e7eb; background:#fff;"></svg>
+          </div>
+          <script>
+          (function(){
+            var wrap = document.currentScript && document.currentScript.previousElementSibling;
+            if(!wrap) return;
+            var svg = wrap.querySelector('svg');
+            var sStr = wrap.getAttribute('data-s') || '';
+            var vStr = wrap.getAttribute('data-v') || '';
+            var name = wrap.getAttribute('data-name') || '';
+            if(!sStr || !vStr) return;
+            var s = sStr.split(',').map(function(x){ return parseFloat(x||'0')||0; });
+            var v = vStr.split(',').map(function(x){ return parseFloat(x||'0')||0; });
+            var n = Math.min(s.length, v.length);
+            if(n < 2) return;
+            var W=640,H=240,P=28;
+            function minArr(a){ return a.reduce(function(m,x){return x<m?x:m;}, a[0]); }
+            function maxArr(a){ return a.reduce(function(m,x){return x>m?x:m;}, a[0]); }
+            var sMin=minArr(s), sMax=maxArr(s); if(sMax===sMin){ sMax=sMin+1; }
+            var vMin=minArr(v), vMax=maxArr(v); if(vMax===vMin){ vMax=vMin+1; }
+            function X(i){ return P + (i*(W-2*P))/(n-1); }
+            function Y1(val){ return H-P - ((val - sMin)*(H-2*P))/(sMax - sMin); }
+            function Y2(val){ return H-P - ((val - vMin)*(H-2*P))/(vMax - vMin); }
+            var pts1 = s.map(function(val,i){ return X(i)+','+Y1(val); }).join(' ');
+            var pts2 = v.map(function(val,i){ return X(i)+','+Y2(val); }).join(' ');
+            var grid = '';
+            for(var i=0;i<5;i++){
+              var y = P + i*(H-2*P)/4;
+              grid += '<line x1="'+P+'" y1="'+y+'" x2="'+(W-P)+'" y2="'+y+'" stroke="#eef2ff" stroke-width="1" />';
+            }
+            svg.innerHTML = ''+
+              '<rect x="0" y="0" width="'+W+'" height="'+H+'" fill="#fff" />'+
+              grid+
+              '<polyline fill="none" stroke="#2563eb" stroke-width="2" points="'+pts1+'" />'+
+              '<polyline fill="none" stroke="#ef4444" stroke-width="1.5" points="'+pts2+'" />'+
+              '<text x="'+P+'" y="'+(P-8)+'" fill="#111" font-size="12">'+name+'</text>'+
+              '<text x="'+(W-P-4)+'" y="'+(P-8)+'" fill="#ef4444" font-size="11" text-anchor="end">Volatilité (%)</text>';
+          })();
+          </script>
+        {% else %}
+        <div style="font-size:12pt;">Données indisponibles (allocation = "{{ risque.allocation_nom or '—' }}")</div>
+        <pre style="text-align:left; font-size:10pt; background:#f8fafc; padding:8px; border:1px solid #e5e7eb; border-radius:6px; overflow:auto;">
+-- Requête 1: résolution du nom d'allocation depuis le niveau de risque
+SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+FROM allocation_risque ar
+LEFT JOIN allocations a ON a.nom = ar.allocation_name
+WHERE ar.risque_id = :rid
+ORDER BY ar.date_attribution DESC, ar.id DESC
+LIMIT 1;
+-- params: rid = {{ risque.niveau_id or '—' }}
+
+-- Requête 2: série performance/volatilité pour l'allocation
+SELECT date, sicav, volat
+FROM allocations
+WHERE nom = :alloc_name
+ORDER BY date ASC;
+-- params: alloc_name = "{{ risque.allocation_nom or '—' }}"
+
+-- Comptages de contrôle
+SELECT COUNT(*) FROM allocations WHERE nom = :alloc_name; -- exact = {{ alloc_count_exact|default(0) }}
+SELECT COUNT(*) FROM allocations WHERE lower(trim(nom)) = lower(trim(:alloc_name)); -- normalisé = {{ alloc_count_norm|default(0) }}
+        </pre>
+        {% endif %}
+      </div>
+    {% endif %}
+    
+  {% else %}
+    <p class="muted">Non renseigné.</p>
+  {% endif %}
+
+  <!-- 4. Sensibilité ESG -->
+  <div class="page-break"></div>
+  <div class="h1">4. Sensibilité ESG</div>
+  <hr />
+  <p>
+    Vous nous avez indiqué vos préférences en matière d’environnement, de société et de gouvernance (ESG). Nous tiendrons compte de ces choix pour sélectionner des placements en accord avec vos valeurs.
+  </p>
+  {% if esg %}
+    <div class="grid-2">
+      <div class="card">
+        <div class="h3">Environnement</div>
+        <div class="kv"><span class="k">Importance</span> {{ esg.env_importance or '—' }}</div>
+        <div class="kv"><span class="k">Réduction GES</span> {{ esg.env_ges_reduc or '—' }}</div>
+      </div>
+      <div class="card">
+        <div class="h3">Social</div>
+        <div class="kv"><span class="k">Droits humains</span> {{ esg.soc_droits_humains or '—' }}</div>
+        <div class="kv"><span class="k">Parité</span> {{ esg.soc_parite or '—' }}</div>
+      </div>
+      <div class="card">
+        <div class="h3">Gouvernance</div>
+        <div class="kv"><span class="k">Transparence</span> {{ esg.gov_transparence or '—' }}</div>
+        <div class="kv"><span class="k">Contrôle éthique</span> {{ esg.gov_controle_ethique or '—' }}</div>
+      </div>
+      <div class="card">
+        <div class="h3">Exclusions</div>
+        {% if esg_exclusions %}
+          <ul>
+            {% for e in esg_exclusions %}<li>{{ e }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">Aucune exclusion</p>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <p class="muted">Non renseigné.</p>
+  {% endif %}
+
+  <!-- 5. Objectifs (même page que 4) -->
+  <div class="h1">5. Objectifs</div>
+  <hr />
+  <p>
+    Vous avez exprimé différents projets que nous avons classés par ordre d’importance, avec leur horizon de réalisation. Cette hiérarchisation nous permettra d’adapter ensemble la stratégie et de suivre votre progression dans le temps.
+  </p>
+  {% if objectifs %}
+    <table>
+      <colgroup>
+        <col class="col-prio" />
+        <col class="col-objectif" />
+        <col class="col-horizon" />
+        <col class="col-commentaire" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th style="text-align:center;" class="col-prio">Priorité</th>
+          <th class="col-objectif">Objectif</th>
+          <th class="col-horizon">Horizon</th>
+          <th class="col-commentaire">Commentaire</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for o in objectifs %}
+        <tr>
+          <td class="col-prio" style="text-align:center;">{{ o.niveau_id or '—' }}</td>
+          <td class="col-objectif">{{ o.objectif_libelle or '—' }}</td>
+          <td class="col-horizon">{{ o.horizon_investissement or '—' }}</td>
+          <td class="col-commentaire">{{ o.commentaire or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Aucun objectif enregistré.</p>
+  {% endif %}
+
+  <!-- Page de fin -->
+  <div class="page-break"></div>
+  <div class="title-page" style="min-height:40vh;">
+    {% if logo_url %}<img src="{{ logo_url }}" alt="Logo" style="max-width: 200px; margin-bottom: 12mm;" />{% endif %}
+    <div class="center" style="font-size:11pt;">{{ footer_line1 or 'Nom du cabinet' }}</div>
+    {% if footer_line2 %}<div class="center" style="font-size:11pt;">{{ footer_line2 }}</div>{% endif %}
+    {% if footer_line2b %}<div class="center" style="font-size:11pt;">{{ footer_line2b }}</div>{% endif %}
+    <div class="center" style="font-size:11pt;">{{ footer_line3 or 'Adresse – Code postal – Ville' }}</div>
+    <div class="center" style="font-size:11pt;">{{ footer_line4 or 'Contact' }}</div>
+    {% if footer_line5 %}<div class="center" style="font-size:11pt;">{{ footer_line5 }}</div>{% endif %}
+    {% if footer_line6 %}<div class="center" style="font-size:11pt;">{{ footer_line6 }}</div>{% endif %}
+  </div>
+
+</body>
+</html>

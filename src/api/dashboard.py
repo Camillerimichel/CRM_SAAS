@@ -24,6 +24,7 @@ from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
 from starlette.responses import RedirectResponse
+from starlette.responses import StreamingResponse
 
 # ---------------- Imports Models ----------------
 from src.models.client import Client
@@ -69,6 +70,1095 @@ def _align_to_friday(value):
         return None
     offset = (4 - value.weekday()) % 7
     return value + timedelta(days=offset)
+
+
+# ---------------- KYC Report (HTML/PDF) ----------------
+@router.get("/clients/kyc/{client_id}/rapport")
+async def dashboard_client_kyc_report(
+    client_id: int,
+    request: Request,
+    pdf: int = 0,
+    engine: str | None = None,
+    db: Session = Depends(get_db),
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return templates.TemplateResponse("kyc_report.html", {"request": request, "error": "Client introuvable."})
+
+    def _fmt_amount(v):
+        try:
+            return "{:,.2f}".format(float(v)).replace(",", " ")
+        except Exception:
+            return "-"
+
+    # Etat civil (dernier)
+    etat = None
+    try:
+        row = db.execute(text(
+            "SELECT * FROM etat_civil_client WHERE id_client = :cid ORDER BY id DESC LIMIT 1"
+        ), {"cid": client_id}).fetchone()
+        etat = dict(row._mapping) if row else None
+    except Exception:
+        etat = None
+
+    # Adresses
+    adresses = rows_to_dicts(db.execute(text(
+        """
+        SELECT a.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
+        FROM KYC_Client_Adresse a
+        LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
+        WHERE a.client_id = :cid
+        ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+
+    # Situation matrimoniale
+    matrimoniales = rows_to_dicts(db.execute(text(
+        """
+        SELECT m.*, sm.libelle AS situation_libelle, sc.libelle AS convention_libelle
+        FROM KYC_Client_Situation_Matrimoniale m
+        LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
+        LEFT JOIN ref_situation_matrimoniale_convention sc ON sc.id = m.convention_id
+        WHERE m.client_id = :cid
+        ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+
+    # Situation professionnelle
+    professionnelles = rows_to_dicts(db.execute(text(
+        """
+        SELECT p.*, ps.libelle AS secteur_libelle, st.libelle AS statut_libelle
+        FROM KYC_Client_Situation_Professionnelle p
+        LEFT JOIN ref_profession_secteur ps ON ps.id = p.secteur_id
+        LEFT JOIN ref_statut_professionnel st ON st.id = p.statut_id
+        WHERE p.client_id = :cid
+        ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+
+    # Patrimoine et revenus
+    actifs = rows_to_dicts(db.execute(text(
+        """
+        SELECT a.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
+        FROM KYC_Client_Actif a LEFT JOIN ref_type_actif t ON t.id=a.type_actif_id
+        WHERE a.client_id=:cid ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+    passifs = rows_to_dicts(db.execute(text(
+        """
+        SELECT p.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
+        FROM KYC_Client_Passif p LEFT JOIN ref_type_passif t ON t.id=p.type_passif_id
+        WHERE p.client_id=:cid ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+    # Revenus: joindre ref_type_revenu si la table existe
+    try:
+        has_ref_rev = bool(db.execute(text("PRAGMA table_info('ref_type_revenu')")).fetchall())
+    except Exception:
+        has_ref_rev = False
+    if has_ref_rev:
+        revenus = rows_to_dicts(db.execute(text(
+            """
+            SELECT r.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
+            FROM KYC_Client_Revenus r LEFT JOIN ref_type_revenu t ON t.id=r.type_revenu_id
+            WHERE r.client_id=:cid ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+            """
+        ), {"cid": client_id}).fetchall() or [])
+    else:
+        revenus = rows_to_dicts(db.execute(text(
+            """
+            SELECT r.*, '' AS type_libelle
+            FROM KYC_Client_Revenus r
+            WHERE r.client_id=:cid ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+            """
+        ), {"cid": client_id}).fetchall() or [])
+    charges = rows_to_dicts(db.execute(text(
+        """
+        SELECT c.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
+        FROM KYC_Client_Charges c LEFT JOIN ref_type_charge t ON t.id=c.type_charge_id
+        WHERE c.client_id=:cid ORDER BY c.date_saisie DESC NULLS LAST, c.id DESC
+        """
+    ), {"cid": client_id}).fetchall() or [])
+    actif_total = sum([float(x.get("valeur") or 0) for x in actifs])
+    passif_total = sum([float(x.get("montant_rest_du") or 0) for x in passifs])
+    revenu_total = sum([float(x.get("montant_annuel") or 0) for x in revenus])
+    charge_total = sum([float(x.get("montant_annuel") or 0) for x in charges])
+    patrimoine_net = actif_total - passif_total
+    budget_net = revenu_total - charge_total
+
+    # Donut datasets (aggregations par type)
+    from collections import defaultdict as _dd
+    def _agg(items: list[dict], label_key: str, value_key: str) -> dict:
+        sums = _dd(float)
+        for it in items or []:
+            try:
+                label = str(it.get(label_key) or 'Autre')
+            except Exception:
+                label = 'Autre'
+            try:
+                val = float(it.get(value_key) or 0)
+            except Exception:
+                val = 0.0
+            if val:
+                sums[label] += val
+        # Sort by descending value
+        labels_vals = sorted(sums.items(), key=lambda kv: kv[1], reverse=True)
+        labels = [kv[0] for kv in labels_vals]
+        values = [kv[1] for kv in labels_vals]
+        return { 'labels': labels, 'values': values }
+
+    donut_data = {
+        'actifs': _agg(actifs, 'type_libelle', 'valeur'),
+        'passifs': _agg(passifs, 'type_libelle', 'montant_rest_du'),
+        'revenus': _agg(revenus, 'type_libelle', 'montant_annuel'),
+        'charges': _agg(charges, 'type_libelle', 'montant_annuel'),
+    }
+
+    # SVG fallbacks for charts (usable by WeasyPrint and HTML without JS)
+    def _svg_donut(labels: list[str], values: list[float]) -> str | None:
+        try:
+            total = sum([float(v or 0) for v in (values or [])])
+            if not labels or not values or total <= 0:
+                return None
+            W,H,cx,cy,r,th = 260, 200, 130, 90, 70, 26
+            import math
+            C = 2*math.pi*r
+            acc = 0.0
+            palette = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#10b981','#f97316','#0ea5e9','#eab308','#dc2626']
+            parts = [
+                f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">',
+                f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#eef2ff" stroke-width="{th}" />'
+            ]
+            for i, v in enumerate(values):
+                v = float(v or 0)
+                if v <= 0: continue
+                seg = C * (v/total)
+                color = palette[i % len(palette)]
+                parts.append(
+                    f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{th}" '
+                    f'stroke-dasharray="{seg:.4f} {C-seg:.4f}" stroke-dashoffset="{-acc:.4f}" '
+                    f'transform="rotate(-90 {cx} {cy})" stroke-linecap="butt" />'
+                )
+                acc += seg
+            parts.append('</svg>')
+            return ''.join(parts)
+        except Exception:
+            return None
+
+    def _svg_bar(labels: list[str], values: list[float], title: str) -> str | None:
+        try:
+            vals = [float(v or 0) for v in values or []]
+            if not vals: return None
+            W,H,P = 640, 260, 32
+            vmax = max(vals) or 1.0
+            bw = (W - 2*P) / max(1, len(vals)) * 0.7
+            colors = ['#2563eb','#ef4444','#16a34a','#f59e0b']
+            parts = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">']
+            parts.append(f'<text x="{P}" y="{P-10}" fill="#111" font-size="14" font-weight="bold">{title}</text>')
+            # grid
+            for i in range(5):
+                y = P + i*(H-2*P)/4
+                parts.append(f'<line x1="{P}" y1="{y:.1f}" x2="{W-P}" y2="{y:.1f}" stroke="#eef2ff" stroke-width="1" />')
+            for i, v in enumerate(vals):
+                h = (H-2*P) * (v / vmax)
+                x = P + i*((W-2*P)/max(1,len(vals))) + ((W-2*P)/max(1,len(vals)) - bw)/2
+                y = H-P - h
+                parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{h:.1f}" fill="{colors[i%len(colors)]}" />')
+                parts.append(f'<text x="{x + bw/2:.1f}" y="{H-P+16}" text-anchor="middle" font-size="12" fill="#111">{labels[i]}</text>')
+            parts.append('</svg>')
+            return ''.join(parts)
+        except Exception:
+            return None
+
+    def _svg_pie_two(a: float, b: float, labels=('Actifs','Passifs'), title='Patrimoine (Actifs/Passifs)') -> str | None:
+        try:
+            a = max(0.0, float(a or 0)); b = max(0.0, float(b or 0)); total = a + b
+            if total <= 0: return None
+            W,H,cx,cy,r,th = 320, 240, 160, 110, 80, 36
+            import math
+            C = 2*math.pi*r
+            parts = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">']
+            parts.append(f'<text x="{W/2}" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#111">{title}</text>')
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#eef2ff" stroke-width="{th}" />')
+            segA = C * (a/total); segB = C - segA
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#2563eb" stroke-width="{th}" stroke-dasharray="{segA:.4f} {C-segA:.4f}" transform="rotate(-90 {cx} {cy})" />')
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#ef4444" stroke-width="{th}" stroke-dasharray="{segB:.4f} {C-segB:.4f}" stroke-dashoffset="{-segA:.4f}" transform="rotate(-90 {cx} {cy})" />')
+            parts.append('</svg>')
+            return ''.join(parts)
+        except Exception:
+            return None
+
+    # Objectifs (sélectionnés)
+    # Tenter de joindre libellés via ref_objectif (nom de table exact) ou, à défaut, via risque_objectif_option
+    try:
+        has_ref_obj = bool(db.execute(text("PRAGMA table_info('ref_objectif')")).fetchall())
+    except Exception:
+        has_ref_obj = False
+    try:
+        has_risque_obj = bool(db.execute(text("PRAGMA table_info('risque_objectif_option')")).fetchall())
+    except Exception:
+        has_risque_obj = False
+    if has_ref_obj:
+        objectifs = rows_to_dicts(db.execute(text(
+            """
+            SELECT o.id, o.objectif_id, ro.libelle AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
+            FROM KYC_Client_Objectifs o
+            LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+            WHERE o.client_id=:cid
+            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            """
+        ), {"cid": client_id}).fetchall() or [])
+    elif has_risque_obj:
+        objectifs = rows_to_dicts(db.execute(text(
+            """
+            SELECT o.id, o.objectif_id, r.label AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
+            FROM KYC_Client_Objectifs o
+            LEFT JOIN risque_objectif_option r ON r.id = o.objectif_id
+            WHERE o.client_id=:cid
+            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            """
+        ), {"cid": client_id}).fetchall() or [])
+    else:
+        objectifs = rows_to_dicts(db.execute(text(
+            """
+            SELECT o.id, o.objectif_id, NULL AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
+            FROM KYC_Client_Objectifs o
+            WHERE o.client_id=:cid
+            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            """
+        ), {"cid": client_id}).fetchall() or [])
+
+    # Fallback: si aucun objectif enregistré, tenter depuis le dernier questionnaire risque (objectifs principaux)
+    try:
+        if not objectifs:
+            rq = db.execute(text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
+            if rq:
+                rqid = int(rq[0])
+                rows = db.execute(text(
+                    """
+                    SELECT o.id AS option_id, o.label AS libelle
+                    FROM risque_questionnaire_objectif q
+                    LEFT JOIN risque_objectif_option o ON o.id = q.option_id
+                    WHERE q.questionnaire_id = :qid
+                    ORDER BY q.id ASC
+                    """
+                ), {"qid": rqid}).fetchall()
+                if rows:
+                    tmp = []
+                    pr = 1
+                    for r in rows:
+                        lib = getattr(r, 'libelle', None) or (r[1] if len(r)>1 else None)
+                        oid = getattr(r, 'option_id', None) or (r[0] if len(r)>0 else None)
+                        tmp.append({
+                            'id': None,
+                            'objectif_id': oid,
+                            'objectif_libelle': lib,
+                            'niveau_id': pr,
+                            'horizon_investissement': None,
+                            'commentaire': None,
+                        })
+                        pr += 1
+                    objectifs = tmp
+    except Exception:
+        pass
+
+    # Risque (KYC_Client_Risque dernier + connaissance produits + allocation)
+    risque = None
+    try:
+        row = db.execute(text(
+            "SELECT * FROM KYC_Client_Risque WHERE client_id=:cid ORDER BY date_saisie DESC, id DESC LIMIT 1"
+        ), {"cid": client_id}).fetchone()
+        risque = dict(row._mapping) if row else None
+        if risque:
+            rows_c = db.execute(text(
+                "SELECT produit_id, produit_label, niveau_id, niveau_label FROM KYC_Client_Risque_Connaissance WHERE risque_id=:rid ORDER BY produit_label, produit_id"
+            ), {"rid": risque.get("id")}).fetchall()
+            items = rows_to_dicts(rows_c)
+            # Enrichir labels manquants via la table de référence des produits
+            try:
+                missing_ids = sorted({int(it.get('produit_id')) for it in items if it.get('produit_id') and (not it.get('produit_label'))})
+                if missing_ids:
+                    q = text("SELECT id, label FROM risque_connaissance_produit_option WHERE id IN (%s)" % ",".join(str(x) for x in missing_ids))
+                    rows_map = db.execute(q).fetchall()
+                    ref_map = {int(r[0]): (r[1] or '') for r in rows_map}
+                    for it in items:
+                        pid = it.get('produit_id')
+                        if pid and not it.get('produit_label'):
+                            try:
+                                it['produit_label'] = ref_map.get(int(pid)) or it.get('produit_label')
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+            risque["connaissance_produits"] = items
+            # Allocation liée au niveau
+            try:
+                row_alloc = db.execute(text(
+                    """
+                    SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+                          , ar.texte AS allocation_texte
+                    FROM allocation_risque ar
+                    LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                    WHERE ar.risque_id = :rid
+                    ORDER BY ar.date_attribution DESC, ar.id DESC
+                    LIMIT 1
+                    """
+                ), {"rid": risque.get("niveau_id")}).fetchone()
+                if row_alloc:
+                    risque["allocation_nom"] = row_alloc[0]
+                    # Convert markdown to simple HTML for conformity template
+                    try:
+                        md = row_alloc[1]
+                        if md:
+                            import re, html as _html
+                            text_md = _html.escape(str(md))
+                            text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
+                            text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
+                            text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
+                            text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
+                            text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
+                            lines = text_md.split('\n')
+                            out = []
+                            in_ul = False
+                            for ln in lines:
+                                if re.match(r"^\s*-\s+", ln):
+                                    if not in_ul:
+                                        out.append("<ul>"); in_ul=True
+                                    out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                                else:
+                                    if in_ul:
+                                        out.append("</ul>"); in_ul=False
+                                    if ln.strip(): out.append("<p>"+ln+"</p>")
+                            if in_ul: out.append("</ul>")
+                            risque["allocation_html"] = "\n".join(out)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Disponibilité (fallback depuis risque_questionnaire si absente)
+            try:
+                if not risque.get("disponibilite"):
+                    row_dispo = db.execute(text(
+                        """
+                        SELECT d.label AS dispo, du.label AS duree
+                        FROM risque_questionnaire rq
+                        LEFT JOIN risque_disponibilite_option d ON d.id = rq.disponibilite_option_id
+                        LEFT JOIN risque_duree_option du ON du.id = rq.duree_option_id
+                        WHERE rq.client_ref = :r
+                        ORDER BY rq.updated_at DESC LIMIT 1
+                        """
+                    ), {"r": str(client_id)}).fetchone()
+                    if row_dispo:
+                        m = row_dispo._mapping
+                        if m.get("dispo"):
+                            risque["disponibilite"] = m.get("dispo")
+                        if (not risque.get("duree")) and m.get("duree"):
+                            risque["duree"] = m.get("duree")
+            except Exception:
+                pass
+    except Exception:
+        risque = None
+
+    # ESG (dernier) + exclusions
+    esg = None
+    esg_exclusions: list[str] = []
+    try:
+        row = db.execute(text(
+            "SELECT * FROM esg_questionnaire WHERE client_ref=:r ORDER BY updated_at DESC LIMIT 1"
+        ), {"r": str(client_id)}).fetchone()
+        esg = dict(row._mapping) if row else None
+        if esg and esg.get("id"):
+            try:
+                rows_ex = db.execute(text(
+                    """
+                    SELECT COALESCE(o.label, o.code) AS label
+                    FROM esg_questionnaire_exclusion qe
+                    LEFT JOIN esg_exclusion_option o ON o.id = qe.option_id
+                    WHERE qe.questionnaire_id = :qid
+                    ORDER BY o.label
+                    """
+                ), {"qid": esg.get("id")}).fetchall()
+                esg_exclusions = [str(r[0]) for r in rows_ex]
+            except Exception:
+                esg_exclusions = []
+    except Exception:
+        esg = None
+        esg_exclusions = []
+
+    ctx = {
+        "request": request,
+        "client": client,
+        "today": _date.today().isoformat(),
+        "etat": etat,
+        "adresses": adresses,
+        "matrimoniales": matrimoniales,
+        "professionnelles": professionnelles,
+        "actifs": actifs,
+        "passifs": passifs,
+        "revenus": revenus,
+        "charges": charges,
+        "actif_total": _fmt_amount(actif_total),
+        "passif_total": _fmt_amount(passif_total),
+        "revenu_total": _fmt_amount(revenu_total),
+        "charge_total": _fmt_amount(charge_total),
+        "patrimoine_net": _fmt_amount(patrimoine_net),
+        "budget_net": _fmt_amount(budget_net),
+        "objectifs": objectifs,
+        "risque": risque,
+        "esg": esg,
+        "esg_exclusions": esg_exclusions,
+        "want_charts": int(pdf or 0) == 0,
+        "chart_data": {
+            "labels": ["Actifs", "Passifs", "Revenus", "Charges"],
+            "values": [actif_total, passif_total, revenu_total, charge_total],
+        },
+        "donut_data": donut_data,
+    }
+
+    # Inject SVG fallbacks for charts into context (independent of Matplotlib)
+    try:
+        ctx['donut_actifs_svg'] = _svg_donut(donut_data['actifs']['labels'], donut_data['actifs']['values']) or None
+        ctx['donut_passifs_svg'] = _svg_donut(donut_data['passifs']['labels'], donut_data['passifs']['values']) or None
+        ctx['donut_revenus_svg'] = _svg_donut(donut_data['revenus']['labels'], donut_data['revenus']['values']) or None
+        ctx['donut_charges_svg'] = _svg_donut(donut_data['charges']['labels'], donut_data['charges']['values']) or None
+        ctx['chart_synth_svg'] = _svg_bar(["Actifs","Passifs","Revenus","Charges"], [actif_total, passif_total, revenu_total, charge_total], 'Synthèse') or None
+        ctx['chart_pie_svg'] = _svg_pie_two(actif_total, passif_total) or None
+        # Allocation line+vol (SVG fallback)
+        series = ctx.get('alloc_series_data')
+        if series:
+            try:
+                dates = [s.get('date') for s in series]
+                svals = [float(s.get('sicav') or 0) for s in series]
+                vvals = [float(s.get('vol') or 0) for s in series]
+                # Build simple SVG with dual axis
+                W,H,P = 650, 260, 36
+                try:
+                    import math
+                except Exception:
+                    math = None
+                xmin,xmax = 0, max(1, len(svals)-1)
+                smin,smax = min(svals), max(svals) if svals else (0,1)
+                if smax == smin: smax = smin + 1
+                vmin,vmax = min(vvals), max(vvals) if vvals else (0,1)
+                if vmax == vmin: vmax = vmin + 1
+                def X(i):
+                    return P + (i*(W-2*P))/max(1,(len(svals)-1))
+                def Y1(val):
+                    return H-P - ((val - smin)*(H-2*P))/(smax - smin)
+                def Y2(val):
+                    return H-P - ((val - vmin)*(H-2*P))/(vmax - vmin)
+                pts1 = ' '.join([f"{X(i):.1f},{Y1(v):.1f}" for i,v in enumerate(svals)])
+                pts2 = ' '.join([f"{X(i):.1f},{Y2(v):.1f}" for i,v in enumerate(vvals)])
+                svg = []
+                svg.append(f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">')
+                # grid
+                for i in range(5):
+                    y = P + i*(H-2*P)/4
+                    svg.append(f'<line x1="{P}" y1="{y:.1f}" x2="{W-P}" y2="{y:.1f}" stroke="#eef2ff" stroke-width="1" />')
+                svg.append(f'<polyline fill="none" stroke="#2563eb" stroke-width="2" points="{pts1}" />')
+                svg.append(f'<polyline fill="none" stroke="#ef4444" stroke-width="1.5" points="{pts2}" />')
+                svg.append(f'<text x="{P}" y="{P-10}" fill="#111" font-size="13" font-weight="bold">Performance et volatilité – {ctx.get("risque",{}).get("allocation_nom") or "Allocation"}</text>')
+                svg.append(f'<text x="{W-P}" y="{P-10}" fill="#ef4444" font-size="11" text-anchor="end">Volatilité (%)</text>')
+                svg.append('</svg>')
+                ctx['chart_alloc_svg'] = ''.join(svg)
+            except Exception:
+                ctx['chart_alloc_svg'] = None
+    except Exception:
+        pass
+
+    # Pied de page: informations cabinet (DER_courtier)
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            m = row._mapping
+            nom_cabinet = (m.get('nom_cabinet') or '').strip()
+            adresse_rue = (m.get('adresse_rue') or '').strip()
+            adresse_cp = (m.get('adresse_cp') or '')
+            adresse_ville = (m.get('adresse_ville') or '').strip()
+            nom_responsable = (m.get('nom_responsable') or '').strip()
+            courriel = (m.get('courriel') or '').strip()
+            numero_orias = (m.get('numero_orias') or '').strip()
+            assoc_id = m.get('association_prof')
+            num_adh = (m.get('num_adh_assoc') or '').strip()
+            statut_id = m.get('statut_social')
+            capital_social = m.get('capital_social')
+            siren = (m.get('siren') or '').strip()
+            rcs = (m.get('rcs') or '').strip()
+
+            # Assoc label
+            assoc_label = None
+            try:
+                refs = _fetch_ref_list(db, ["DER_association_professionnelle", "DER_association_prof"]) or []
+                for it in refs:
+                    try:
+                        if int(it.get('id')) == int(assoc_id):
+                            assoc_label = it.get('libelle')
+                            break
+                    except Exception:
+                        if str(it.get('id')) == str(assoc_id):
+                            assoc_label = it.get('libelle')
+                            break
+            except Exception:
+                assoc_label = None
+
+            # Statut label
+            statut_label = None
+            try:
+                srefs = _fetch_ref_list(db, ["DER_statut_social", "DER_statuts_sociaux"]) or []
+                for it in srefs:
+                    try:
+                        if int(it.get('id')) == int(statut_id):
+                            statut_label = it.get('libelle')
+                            break
+                    except Exception:
+                        if str(it.get('id')) == str(statut_id):
+                            statut_label = it.get('libelle')
+                            break
+            except Exception:
+                statut_label = None
+
+            # Compose lines
+            line1 = nom_cabinet or None
+            # Ligne "Statuts au capital ..."
+            cap_str = _fmt_amount(capital_social) if (capital_social is not None) else None
+            stat_parts = []
+            if statut_label:
+                stat_parts.append(str(statut_label))
+            if cap_str and cap_str != '-':
+                stat_parts.append(f"au capital social de {cap_str} €")
+            line2 = " ".join(stat_parts) if stat_parts else None
+            # Ligne suivante: "Siren : ..." et/ou "RCS ..."
+            s_parts = []
+            if siren:
+                s_parts.append(f"SIREN {siren}")
+            if rcs:
+                s_parts.append(f"RCS {rcs}")
+            line2b = " — ".join(s_parts) if s_parts else None
+
+            # Adresse: "<rue>, <CP> <Ville>"
+            addr_parts = []
+            if adresse_rue:
+                addr_parts.append(adresse_rue)
+            cp_ville = (f"{adresse_cp} {adresse_ville}" if (adresse_cp or adresse_ville) else "").strip()
+            if cp_ville:
+                if addr_parts:
+                    addr_parts[-1] = addr_parts[-1] + ", " + cp_ville
+                else:
+                    addr_parts.append(cp_ville)
+            line3 = addr_parts[0] if addr_parts else None
+            # Responsable & courriel
+            r_parts = [p for p in [nom_responsable, courriel] if p]
+            line4 = " & ".join(r_parts) if r_parts else None
+            # ORIAS et Association sur deux lignes
+            line5 = f"Numéro Orias {numero_orias}" if numero_orias else None
+            line6 = None
+            if assoc_label:
+                line6 = f"Association professionnelle {assoc_label}"
+                if num_adh:
+                    line6 += f" {num_adh}"
+
+            if nom_cabinet:
+                ctx['footer_text'] = nom_cabinet
+            if line1:
+                ctx['footer_line1'] = line1
+            if line2:
+                ctx['footer_line2'] = line2
+            if line2b:
+                ctx['footer_line2b'] = line2b
+            if line3:
+                ctx['footer_line3'] = line3
+            if line4:
+                ctx['footer_line4'] = line4
+            if line5:
+                ctx['footer_line5'] = line5
+            if line6:
+                ctx['footer_line6'] = line6
+
+            # Logo (src/logo/*)
+            try:
+                import os, base64
+                logo_dir = os.path.join(os.path.dirname(__file__), '..', 'logo')
+                logo_dir = os.path.abspath(logo_dir)
+                if os.path.isdir(logo_dir):
+                    for fn in os.listdir(logo_dir):
+                        lower = fn.lower()
+                        if lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg')):
+                            path = os.path.join(logo_dir, fn)
+                            mime = 'image/png'
+                            if lower.endswith('.jpg') or lower.endswith('.jpeg'):
+                                mime = 'image/jpeg'
+                            elif lower.endswith('.gif'):
+                                mime = 'image/gif'
+                            elif lower.endswith('.svg'):
+                                mime = 'image/svg+xml'
+                            with open(path, 'rb') as f:
+                                b64 = base64.b64encode(f.read()).decode('ascii')
+                            ctx['logo_url'] = f"data:{mime};base64,{b64}"
+                            break
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Allocation counts for diagnostics in report (exact and normalized)
+    try:
+        alloc_name = ctx.get('risque', {}).get('allocation_nom') if ctx.get('risque') else None
+        if alloc_name:
+            try:
+                row_cnt = db.execute(text("SELECT COUNT(*) FROM allocations WHERE nom = :n"), {"n": alloc_name}).fetchone()
+                ctx['alloc_count_exact'] = int(row_cnt[0]) if row_cnt else 0
+            except Exception:
+                ctx['alloc_count_exact'] = 0
+            try:
+                row_cnt2 = db.execute(text("SELECT COUNT(*) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc_name}).fetchone()
+                ctx['alloc_count_norm'] = int(row_cnt2[0]) if row_cnt2 else 0
+            except Exception:
+                ctx['alloc_count_norm'] = 0
+        else:
+            ctx['alloc_count_exact'] = 0
+            ctx['alloc_count_norm'] = 0
+    except Exception:
+        ctx['alloc_count_exact'] = 0
+        ctx['alloc_count_norm'] = 0
+
+    # Prepare allocation series for client-side chart fallback (no matplotlib)
+    try:
+        alloc_name = ctx.get('risque', {}).get('allocation_nom') if ctx.get('risque') else None
+        if alloc_name:
+            rows_series = (
+                db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                .filter(func.lower(func.trim(Allocation.nom)) == alloc_name.strip().lower())
+                .order_by(Allocation.date.asc())
+                .all()
+            )
+            if rows_series:
+                ser = []
+                for d, s, v in rows_series:
+                    try:
+                        ds = d.strftime('%Y-%m-%d')
+                    except Exception:
+                        ds = str(d)[:10]
+                    try:
+                        sic = float(s or 0.0)
+                    except Exception:
+                        sic = 0.0
+                    try:
+                        vol = float(v or 0.0)
+                    except Exception:
+                        vol = 0.0
+                    if abs(vol) <= 1:
+                        vol *= 100.0
+                    ser.append({'date': ds, 'sicav': sic, 'vol': vol})
+                if ser:
+                    ctx['alloc_series_data'] = ser
+    except Exception:
+        pass
+
+    # Build chart images for both HTML preview and PDF (Matplotlib if available)
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec('matplotlib') is None:
+            raise SystemExit  # silently skip chart generation
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt  # type: ignore
+        import io, base64
+
+        def _png_bytes(fig) -> bytes:
+            buf = io.BytesIO(); fig.savefig(buf, format='png', bbox_inches='tight', dpi=150); plt.close(fig); return buf.getvalue()
+
+        # Bar chart synthèse
+        try:
+            fig, ax = plt.subplots(figsize=(6, 3))
+            vals = [float(actif_total), float(passif_total), float(revenu_total), float(charge_total)]
+            ax.bar(["Actifs", "Passifs", "Revenus", "Charges"], vals, color=['#2563eb','#ef4444','#16a34a','#f59e0b'])
+            ax.set_ylabel('€'); ax.set_title('Synthèse'); ax.tick_params(axis='x', rotation=0)
+            chart_img_synth = _png_bytes(fig)
+            ctx['chart_img_synth_b64'] = base64.b64encode(chart_img_synth).decode('ascii')
+        except Exception as _e1:
+            logger.debug('Chart synthese error: %s', _e1, exc_info=True)
+
+        # Pie chart Actifs/Passifs
+        try:
+            fig, ax = plt.subplots(figsize=(4, 4))
+            ax.pie([max(0.0,float(actif_total)), max(0.0,float(passif_total))], labels=['Actifs','Passifs'], autopct='%1.0f%%', startangle=90)
+            ax.axis('equal'); ax.set_title('Patrimoine (Actifs/Passifs)')
+            chart_img_pie = _png_bytes(fig)
+            ctx['chart_img_pie_b64'] = base64.b64encode(chart_img_pie).decode('ascii')
+        except Exception as _e2:
+            logger.debug('Chart pie error: %s', _e2, exc_info=True)
+
+        # Courbe allocation (si allocation dispo)
+        try:
+            alloc_name = ctx.get('risque',{}).get('allocation_nom') if ctx.get('risque') else None
+            if alloc_name:
+                rows_series = (
+                    db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                    .filter(func.lower(func.trim(Allocation.nom)) == alloc_name.strip().lower())
+                    .order_by(Allocation.date.asc())
+                    .all()
+                )
+                logger.debug("Alloc chart preview: %s rows for '%s'", len(rows_series or []), alloc_name)
+                if rows_series:
+                    dates, svals, vvals = [], [], []
+                    for d, s, v in rows_series:
+                        dates.append(d.strftime('%Y-%m-%d') if hasattr(d,'strftime') else str(d)[:10])
+                        svals.append(float(s or 0)); vol=float(v or 0); vvals.append(vol*100.0 if abs(vol)<=1 else vol)
+                    fig, ax1 = plt.subplots(figsize=(6.5, 3.2)); ax2 = ax1.twinx()
+                    ax1.plot(dates, svals, color='#2563eb', linewidth=1.5, label=str(alloc_name))
+                    ax2.plot(dates, vvals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
+                    ax1.set_ylabel(str(alloc_name)); ax2.set_ylabel('Volatilité (%)'); ax1.set_title(f'Performance et volatilité – {alloc_name}')
+                    # Masquer l'échelle de l'axe des X (dates)
+                    ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                    ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                    chart_img_alloc = _png_bytes(fig)
+                    ctx['chart_img_alloc_b64'] = base64.b64encode(chart_img_alloc).decode('ascii')
+        except Exception as _e3:
+            logger.debug('Chart alloc error: %s', _e3, exc_info=True)
+    except SystemExit:
+        pass
+    except Exception as _emat:
+        logger.debug('Matplotlib error (charts skipped): %s', _emat)
+
+    # Render HTML
+    # Template selection (style)
+    style = (request.query_params.get('style') or '').lower()
+    template_name = "kyc_conformite_report.html" if style in ("conformite", "full", "complete") else "kyc_report.html"
+    # Auto-print flag for browser PDF
+    auto_print = (request.query_params.get('print') in ('1','true','yes'))
+    if auto_print:
+        ctx['auto_print'] = True
+    html = templates.get_template(template_name).render(ctx)
+    if int(pdf or 0) == 1:
+        # Par défaut on privilégie WeasyPrint pour un PDF identique à l'HTML
+        prefer_weasy = (engine or 'weasy').lower() == 'weasy'
+        prefer_reportlab = (engine or '').lower() == 'reportlab'
+        # Build chart images (PNG base64) with Matplotlib if available
+        chart_img_synth: bytes | None = None
+        chart_img_pie: bytes | None = None
+        chart_img_alloc: bytes | None = None
+        try:
+            import importlib.util as _ilu
+            if _ilu.find_spec('matplotlib') is None:
+                raise SystemExit
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt  # type: ignore
+            import io, base64
+
+            def _png_bytes(fig) -> bytes:
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+                plt.close(fig)
+                return buf.getvalue()
+
+            # Synthèse barres
+            try:
+                fig, ax = plt.subplots(figsize=(6, 3))
+                labels = ["Actifs", "Passifs", "Revenus", "Charges"]
+                vals = [float(actif_total), float(passif_total), float(revenu_total), float(charge_total)]
+                colors = ['#2563eb', '#ef4444', '#16a34a', '#f59e0b']
+                ax.bar(labels, vals, color=colors)
+                ax.set_ylabel('€')
+                ax.set_title('Synthèse')
+                ax.tick_params(axis='x', rotation=0)
+                ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x,_: f"{int(x):,}".replace(',', ' ')))
+                chart_img_synth = _png_bytes(fig)
+            except Exception:
+                chart_img_synth = None
+
+            # Pie chart Actifs vs Passifs
+            try:
+                fig, ax = plt.subplots(figsize=(4, 4))
+                sizes = [max(0.0, float(actif_total)), max(0.0, float(passif_total))]
+                lbls = ['Actifs', 'Passifs']
+                ax.pie(sizes, labels=lbls, autopct='%1.0f%%', startangle=90)
+                ax.axis('equal')
+                ax.set_title('Patrimoine (Actifs/Passifs)')
+                chart_img_pie = _png_bytes(fig)
+            except Exception:
+                chart_img_pie = None
+
+            # Donuts répartitions (pour PDF)
+            def _fmt_eur(x: float) -> str:
+                try:
+                    return f"{int(round(x)):,}".replace(',', ' ') + " €"
+                except Exception:
+                    return str(x)
+            donut_imgs: dict[str, bytes] = {}
+            donut_svgs: dict[str, str] = {}
+            try:
+                palettes = [
+                    '#2563eb', '#16a34a', '#f59e0b', '#ef4444',
+                    '#8b5cf6', '#10b981', '#f97316', '#eab308', '#0ea5e9', '#dc2626'
+                ]
+                def make_donut(title: str, labels: list[str], values: list[float]) -> bytes | None:
+                    if not labels or not values or sum(values) <= 0:
+                        return None
+                    fig, ax = plt.subplots(figsize=(4, 4))
+                    ax.pie(values, labels=None, startangle=90,
+                           colors=palettes[:max(1, len(values))],
+                           wedgeprops={'width':0.35, 'edgecolor':'white'})
+                    # Petite légende en dessous
+                    try:
+                        lbls = [f"{l} — {_fmt_eur(v)}" for l, v in zip(labels, values)]
+                        ax.legend(lbls, loc='lower center', bbox_to_anchor=(0.5, -0.15), fontsize=8, frameon=False)
+                    except Exception:
+                        pass
+                    ax.set_title(title)
+                    ax.axis('equal')
+                    return _png_bytes(fig)
+
+                def make_donut_svg(labels: list[str], values: list[float]) -> str | None:
+                    if not labels or not values:
+                        return None
+                    total = sum([float(v or 0) for v in values])
+                    if total <= 0:
+                        return None
+                    W,H,cx,cy,r,th = 260, 200, 130, 90, 70, 26
+                    import math
+                    C = 2*math.pi*r
+                    acc = 0.0
+                    parts = [
+                        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">',
+                        f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#eef2ff" stroke-width="{th}" />'
+                    ]
+                    for i, v in enumerate(values):
+                        v = float(v or 0)
+                        if v <= 0:
+                            continue
+                        seg = C * (v/total)
+                        color = palettes[i % len(palettes)]
+                        parts.append(
+                            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{color}" stroke-width="{th}" '
+                            f'stroke-dasharray="{seg:.4f} {C-seg:.4f}" stroke-dashoffset="{-acc:.4f}" '
+                            f'transform="rotate(-90 {cx} {cy})" stroke-linecap="butt" />'
+                        )
+                        acc += seg
+                    parts.append('</svg>')
+                    return ''.join(parts)
+
+                donut_imgs['actifs'] = make_donut('Répartition des actifs', donut_data['actifs']['labels'], donut_data['actifs']['values']) or None
+                donut_imgs['passifs'] = make_donut('Répartition des passifs', donut_data['passifs']['labels'], donut_data['passifs']['values']) or None
+                donut_imgs['revenus'] = make_donut('Répartition des revenus', donut_data['revenus']['labels'], donut_data['revenus']['values']) or None
+                donut_imgs['charges'] = make_donut('Répartition des charges', donut_data['charges']['labels'], donut_data['charges']['values']) or None
+                # Always prepare SVG fallback (usable by WeasyPrint)
+                donut_svgs['actifs'] = make_donut_svg(donut_data['actifs']['labels'], donut_data['actifs']['values']) or ''
+                donut_svgs['passifs'] = make_donut_svg(donut_data['passifs']['labels'], donut_data['passifs']['values']) or ''
+                donut_svgs['revenus'] = make_donut_svg(donut_data['revenus']['labels'], donut_data['revenus']['values']) or ''
+                donut_svgs['charges'] = make_donut_svg(donut_data['charges']['labels'], donut_data['charges']['values']) or ''
+            except Exception:
+                donut_imgs = {}
+                donut_svgs = {}
+
+            # Courbe Allocation (SICAV + Vol) si allocation connue
+            try:
+                alloc_name = None
+                if 'risque' in ctx and ctx['risque'] and ctx['risque'].get('allocation_nom'):
+                    alloc_name = ctx['risque'].get('allocation_nom')
+                if alloc_name:
+                    rows_series = (
+                        db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                        .filter(func.lower(func.trim(Allocation.nom)) == alloc_name.strip().lower())
+                        .order_by(Allocation.date.asc())
+                        .all()
+                    )
+                    if rows_series:
+                        dates = []
+                        sicav_vals = []
+                        vol_vals = []
+                        for d, s, v in rows_series:
+                            try:
+                                dates.append(d.strftime('%Y-%m-%d'))
+                            except Exception:
+                                dates.append(str(d)[:10])
+                            sicav_vals.append(float(s or 0))
+                            vol = float(v or 0)
+                            if abs(vol) <= 1:
+                                vol *= 100.0
+                            vol_vals.append(vol)
+                        if dates:
+                            fig, ax1 = plt.subplots(figsize=(6.5, 3.2))
+                            ax2 = ax1.twinx()
+                            ax1.plot(dates, sicav_vals, color='#2563eb', linewidth=1.5, label=alloc_name)
+                            ax2.plot(dates, vol_vals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
+                            ax1.set_ylabel(alloc_name)
+                            ax2.set_ylabel('Volatilité (%)')
+                            ax1.set_title(f'Performance et volatilité – {alloc_name}')
+                            # Masquer l'échelle de l'axe des X (dates)
+                            ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                            ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                            chart_img_alloc = _png_bytes(fig)
+            except Exception:
+                chart_img_alloc = None
+
+            # For WeasyPrint HTML, embed base64 images in template context
+            if chart_img_synth:
+                ctx['chart_img_synth_b64'] = base64.b64encode(chart_img_synth).decode('ascii')
+            if chart_img_pie:
+                ctx['chart_img_pie_b64'] = base64.b64encode(chart_img_pie).decode('ascii')
+            if chart_img_alloc:
+                ctx['chart_img_alloc_b64'] = base64.b64encode(chart_img_alloc).decode('ascii')
+            # Donuts (PDF)
+            for key, img in (donut_imgs or {}).items():
+                if img:
+                    ctx[f'donut_{key}_b64'] = base64.b64encode(img).decode('ascii')
+            # SVG fallbacks (if Matplotlib pngs absent)
+            for key, svg in (donut_svgs or {}).items():
+                if svg and not ctx.get(f'donut_{key}_b64'):
+                    ctx[f'donut_{key}_svg'] = svg
+            # Re-render HTML with images using the same selected template
+            html = templates.get_template(template_name).render(ctx)
+        except SystemExit:
+            # Matplotlib absent: conserver le HTML déjà rendu, sans images supplémentaires
+            pass
+        except Exception:
+            pass
+        # 1) Try WeasyPrint (preferred by default)
+        if prefer_weasy:
+            try:
+                from weasyprint import HTML  # type: ignore
+                pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+                return StreamingResponse(
+                    iter([pdf_bytes]), media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+                )
+            except Exception as _exc_wp:
+                logger.debug("WeasyPrint export failed (preferred): %s", _exc_wp, exc_info=True)
+                # Activer la branche complète ReportLab ci-dessous
+                prefer_reportlab = True
+        # 2) ReportLab uniquement si explicitement demandé
+        if prefer_reportlab:
+            try:
+                import io
+                from reportlab.lib.pagesizes import A4  # type: ignore
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage  # type: ignore
+                from reportlab.lib.styles import getSampleStyleSheet  # type: ignore
+                from reportlab.lib import colors  # type: ignore
+
+                buf = io.BytesIO()
+                doc = SimpleDocTemplate(buf, pagesize=A4)
+                styles = getSampleStyleSheet()
+                H1 = styles['Heading1']; H2 = styles['Heading2']; H3 = styles['Heading3']; P = styles['BodyText']
+                story = []
+
+                # Titre
+                story.append(Paragraph(f"Rapport KYC", H1))
+                story.append(Paragraph(f"Pour {client.prenom} {client.nom}", H2))
+                story.append(Paragraph(f"Date: {ctx['today']}", P))
+                story.append(Spacer(1, 12))
+
+                # Chapitre 1: Etat civil
+                story.append(Paragraph("1. Etat civil", H2))
+                if etat:
+                    story.append(Paragraph(f"Civilité: {etat.get('civilite') or '-'}", P))
+                    story.append(Paragraph(f"Date de naissance: {etat.get('date_naissance') or '-'}", P))
+                    story.append(Paragraph(f"Lieu de naissance: {etat.get('lieu_naissance') or '-'}", P))
+                    story.append(Paragraph(f"Nationalité: {etat.get('nationalite') or '-'}", P))
+                story.append(Spacer(1, 8))
+
+                # Adresses tableau
+                if adresses:
+                    data = [["Type", "Adresse"]] + [[a.get('type_libelle') or '-', f"{a.get('rue') or ''} {a.get('complement') or ''} {a.get('code_postal') or ''} {a.get('ville') or ''} {a.get('pays') or ''}"] for a in adresses]
+                    tbl = Table(data, hAlign='LEFT')
+                    tbl.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0), colors.HexColor('#eef2ff')),
+                        ('TEXTCOLOR',(0,0),(-1,0), colors.HexColor('#1d4ed8')),
+                        ('GRID',(0,0),(-1,-1), 0.25, colors.grey),
+                        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ]))
+                    story.append(tbl)
+                story.append(Spacer(1, 12))
+
+                # Chapitre 2: Patrimoine et revenu (totaux)
+                story.append(Paragraph("2. Patrimoine et revenu", H2))
+                story.append(Paragraph(f"Actifs: {ctx['actif_total']} € — Passifs: {ctx['passif_total']} €", P))
+                story.append(Paragraph(f"Revenus: {ctx['revenu_total']} € — Charges: {ctx['charge_total']} €", P))
+                story.append(Paragraph(f"Patrimoine net: {ctx['patrimoine_net']} €", P))
+                story.append(Paragraph(f"Solde budget: {ctx['budget_net']} €", P))
+                # Charts (if available)
+                try:
+                    if chart_img_synth:
+                        story.append(Spacer(1, 8))
+                        story.append(RLImage(io.BytesIO(chart_img_synth), width=480, height=220))
+                    if chart_img_pie:
+                        story.append(Spacer(1, 6))
+                        story.append(RLImage(io.BytesIO(chart_img_pie), width=260, height=260))
+                except Exception:
+                    pass
+                story.append(PageBreak())
+
+                # Chapitre 3: Objectifs
+                story.append(Paragraph("3. Objectifs", H2))
+                if objectifs:
+                    data = [["Objectif", "Priorité", "Horizon", "Commentaire"]]
+                    for o in objectifs:
+                        data.append([
+                            o.get('objectif_libelle') or '-', str(o.get('niveau_id') or '-'),
+                            o.get('horizon_investissement') or '-', o.get('commentaire') or '-',
+                        ])
+                    tbl = Table(data, hAlign='LEFT', colWidths=[140, 60, 120, 200])
+                    tbl.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0), colors.HexColor('#eef2ff')),
+                        ('TEXTCOLOR',(0,0),(-1,0), colors.HexColor('#1d4ed8')),
+                        ('GRID',(0,0),(-1,-1), 0.25, colors.grey),
+                        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ]))
+                    story.append(tbl)
+                story.append(PageBreak())
+
+                # Chapitre 4: Connaissances financières (récap synthétique)
+                story.append(Paragraph("4. Connaissances financières", H2))
+                if risque:
+                    story.append(Paragraph(f"Niveau final: {risque.get('niveau_id')} — Allocation: {risque.get('allocation_nom') or '-'}", P))
+                    story.append(Paragraph(f"Expérience: {risque.get('experience') or '-'} — Connaissance: {risque.get('connaissance') or '-'}", P))
+                    story.append(Paragraph(f"Perte acceptée: {risque.get('contraintes') or '-'} — Confirmation: {risque.get('confirmation_client') or '-'}", P))
+                    if risque.get('commentaire'):
+                        story.append(Paragraph(f"Commentaire: {risque.get('commentaire')}", P))
+                    # Allocation chart
+                    try:
+                        if chart_img_alloc:
+                            story.append(Spacer(1, 8))
+                            story.append(RLImage(io.BytesIO(chart_img_alloc), width=500, height=240))
+                    except Exception:
+                        pass
+                    story.append(Spacer(1, 12))
+
+                # Chapitre 5: ESG
+                story.append(Paragraph("5. Sensibilité ESG", H2))
+                if esg:
+                    story.append(Paragraph(f"Environnement — Importance: {esg.get('env_importance') or '-'}; Réduction GES: {esg.get('env_ges_reduc') or '-'}", P))
+                    story.append(Paragraph(f"Social — Droits humains: {esg.get('soc_droits_humains') or '-'}; Parité: {esg.get('soc_parite') or '-'}", P))
+                    story.append(Paragraph(f"Gouvernance — Transparence: {esg.get('gov_transparence') or '-'}; Contrôle éthique: {esg.get('gov_controle_ethique') or '-'}", P))
+                    if esg_exclusions:
+                        story.append(Paragraph("Exclusions:", H3))
+                        for e in esg_exclusions:
+                            story.append(Paragraph(f"• {e}", P))
+
+                doc.build(story)
+                pdf_bytes = buf.getvalue()
+                buf.close()
+                return StreamingResponse(
+                    iter([pdf_bytes]), media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+                )
+            except Exception as _exc_rl:
+                logger.debug("ReportLab export failed: %s", _exc_rl, exc_info=True)
+        # 3) Try WeasyPrint (fallback if not preferred or after RL failure)
+        try:
+            from weasyprint import HTML  # type: ignore
+            pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+            return StreamingResponse(
+                iter([pdf_bytes]), media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+            )
+        except Exception as _exc_wp:
+            logger.debug("WeasyPrint export failed (final): %s", _exc_wp, exc_info=True)
+            return templates.TemplateResponse(
+                template_name,
+                ctx | {"error": "Export PDF indisponible (WeasyPrint non installé). Le rendu HTML reflète fidèlement le rapport."},
+            )
+    return templates.TemplateResponse(template_name, ctx)
 
 
 # ---------------- Paramètres (référentiels) ----------------
@@ -2758,6 +3848,8 @@ async def dashboard_client_kyc(
         except Exception as _exc_synth:
             try:
                 db.rollback()
+            except SystemExit:
+                pass
             except Exception:
                 pass
             logger.debug("Dashboard KYC client: erreur snapshot synthese: %s", _exc_synth, exc_info=True)
@@ -4262,6 +5354,104 @@ async def dashboard_client_kyc(
                         logger.debug("KYC_Client_Risque_Connaissance persist error: %s", _exc_kcr, exc_info=True)
                     # pour affichage UI
                     risque_commentaire = payload.get("commentaire")
+                    # Récupérer allocation liée au niveau de risque
+                    allocation_nom = None
+                    allocation_md = None
+                    try:
+                        row_alloc = db.execute(
+                            _text(
+                                """
+                                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                                       ar.texte AS allocation_texte
+                                FROM allocation_risque ar
+                                LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                                WHERE ar.risque_id = :rid
+                                ORDER BY ar.date_attribution DESC, ar.id DESC
+                                LIMIT 1
+                                """
+                            ),
+                            {"rid": niveau_id},
+                        ).fetchone()
+                        if row_alloc:
+                            allocation_nom = row_alloc[0]
+                            allocation_md = row_alloc[1]
+                    except Exception:
+                        allocation_nom = None
+                        allocation_md = None
+
+                    # Charger la série de performance/volatilité pour cette allocation
+                    alloc_chart = None
+                    try:
+                        if allocation_nom:
+                            rows_series = (
+                                db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                                .filter(Allocation.nom == allocation_nom)
+                                .order_by(Allocation.date.asc())
+                                .all()
+                            )
+                            labels: list[str] = []
+                            sicav_vals: list[float] = []
+                            vol_vals: list[float] = []
+                            for d, sicav_v, vol_v in rows_series:
+                                try:
+                                    dstr = d.strftime("%Y-%m-%d") if d else None
+                                except Exception:
+                                    dstr = str(d)[:10] if d else None
+                                if not dstr:
+                                    continue
+                                labels.append(dstr)
+                                try:
+                                    sicav_vals.append(float(sicav_v or 0))
+                                except Exception:
+                                    sicav_vals.append(0.0)
+                                try:
+                                    vol_vals.append(float(vol_v or 0))
+                                except Exception:
+                                    vol_vals.append(0.0)
+                            if labels:
+                                alloc_chart = {"labels": labels, "sicav": sicav_vals, "vol": vol_vals}
+                    except Exception:
+                        alloc_chart = None
+
+                    # Convertir markdown en HTML simple
+                    def _md_to_html(md: str | None) -> str | None:
+                        if not md:
+                            return None
+                        try:
+                            import re, html as _html
+                            text = str(md)
+                            # Protect HTML
+                            text = _html.escape(text)
+                            # Headings
+                            text = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text, flags=re.M)
+                            text = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text, flags=re.M)
+                            text = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text, flags=re.M)
+                            # Bold / Italic
+                            text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+                            text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+                            # Lists: convert lines starting with -
+                            lines = text.split("\n")
+                            out = []
+                            in_ul = False
+                            for ln in lines:
+                                if re.match(r"^\s*-\s+", ln):
+                                    if not in_ul:
+                                        out.append("<ul>")
+                                        in_ul = True
+                                    out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                                else:
+                                    if in_ul:
+                                        out.append("</ul>")
+                                        in_ul = False
+                                    # Paragraphs and line breaks
+                                    if ln.strip():
+                                        out.append("<p>" + ln + "</p>")
+                            if in_ul:
+                                out.append("</ul>")
+                            return "\n".join(out)
+                        except Exception:
+                            return md
+
                     risque_snapshot = {
                         "niveau_id": niveau_id,
                         "niveau_label": offre_libelle_txt,
@@ -4272,6 +5462,9 @@ async def dashboard_client_kyc(
                         "contraintes": contraintes_txt,
                         "confirmation_client": confirmation_txt,
                         "commentaire": risque_commentaire,
+                        "allocation_nom": allocation_nom,
+                        "allocation_chart": alloc_chart,
+                        "allocation_html": _md_to_html(allocation_md),
                     }
                     # Ajouter connaissance par produit pour l'affichage
                     try:
@@ -5197,6 +6390,99 @@ async def dashboard_client_kyc(
                 niveau_label = rlab[0] if rlab else None
             except Exception:
                 niveau_label = None
+            # Récupérer allocation correspondant à ce niveau
+            allocation_nom = None
+            allocation_md = None
+            try:
+                row_alloc = db.execute(
+                    text(
+                        """
+                        SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                               ar.texte AS allocation_texte
+                        FROM allocation_risque ar
+                        LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                        WHERE ar.risque_id = :rid
+                        ORDER BY ar.date_attribution DESC, ar.id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"rid": sel.get("niveau_id")},
+                ).fetchone()
+                if row_alloc:
+                    allocation_nom = row_alloc[0]
+                    allocation_md = row_alloc[1]
+            except Exception:
+                allocation_nom = None
+                allocation_md = None
+
+            # Charger série perf/vol pour l'allocation sélectionnée
+            alloc_chart = None
+            try:
+                if allocation_nom:
+                    rows_series = (
+                        db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                        .filter(Allocation.nom == allocation_nom)
+                        .order_by(Allocation.date.asc())
+                        .all()
+                    )
+                    labels: list[str] = []
+                    sicav_vals: list[float] = []
+                    vol_vals: list[float] = []
+                    for d, sicav_v, vol_v in rows_series:
+                        try:
+                            dstr = d.strftime("%Y-%m-%d") if d else None
+                        except Exception:
+                            dstr = str(d)[:10] if d else None
+                        if not dstr:
+                            continue
+                        labels.append(dstr)
+                        try:
+                            sicav_vals.append(float(sicav_v or 0))
+                        except Exception:
+                            sicav_vals.append(0.0)
+                        try:
+                            vol_vals.append(float(vol_v or 0))
+                        except Exception:
+                            vol_vals.append(0.0)
+                    if labels:
+                        alloc_chart = {"labels": labels, "sicav": sicav_vals, "vol": vol_vals}
+            except Exception:
+                alloc_chart = None
+
+            # Convert markdown to HTML
+            def _md_to_html(md: str | None) -> str | None:
+                if not md:
+                    return None
+                try:
+                    import re, html as _html
+                    text = str(md)
+                    text = _html.escape(text)
+                    text = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text, flags=re.M)
+                    text = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text, flags=re.M)
+                    text = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text, flags=re.M)
+                    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+                    text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+                    lines = text.split("\n")
+                    out = []
+                    in_ul = False
+                    for ln in lines:
+                        if re.match(r"^\s*-\s+", ln):
+                            if not in_ul:
+                                out.append("<ul>")
+                                in_ul = True
+                            out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                        else:
+                            if in_ul:
+                                out.append("</ul>")
+                                in_ul = False
+                            if ln.strip():
+                                out.append("<p>" + ln + "</p>")
+                    if in_ul:
+                        out.append("</ul>")
+                    return "\n".join(out)
+                except Exception:
+                    return md
+
             risque_snapshot = {
                 "niveau_id": sel.get("niveau_id"),
                 "niveau_label": niveau_label,
@@ -5207,6 +6493,9 @@ async def dashboard_client_kyc(
                 "contraintes": sel.get("contraintes"),
                 "confirmation_client": sel.get("confirmation_client"),
                 "commentaire": sel.get("commentaire"),
+                "allocation_nom": allocation_nom,
+                "allocation_chart": alloc_chart,
+                "allocation_html": _md_to_html(allocation_md),
             }
             # Utiliser les dates du snapshot pour l'entête
             risque_display_saisie = sel.get("date_saisie") or risque_display_saisie

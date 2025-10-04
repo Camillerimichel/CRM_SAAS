@@ -241,6 +241,7 @@ $(document).ready(function () {
     var sicavChart;
     var fullData2 = { labels: [], sicav: [], volat: [] };
     var seriesData = {{ series_data | tojson }};
+    var currentAllocName = '';
 
     function toPercent(x){
         var n = parseFloat(String(x).replace(',', '.'));
@@ -250,6 +251,7 @@ $(document).ready(function () {
     }
 
     function buildSeriesForNom(nom) {
+        currentAllocName = nom || '';
         var data = (seriesData[nom] || []).slice();
         data = data.filter(d => d && d.date).sort((a,b) => (a.date||'').localeCompare(b.date||''));
         fullData2.labels = data.map(d => d.date);
@@ -292,7 +294,7 @@ $(document).ready(function () {
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'SICAV', data: sicav, borderColor: primaryColor, yAxisID: 'y1', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+                    { label: (currentAllocName || 'SICAV'), data: sicav, borderColor: primaryColor, yAxisID: 'y1', fill: false, pointRadius: 0, pointHoverRadius: 0 },
                     { label: 'Volatilité (%)', data: vol, borderColor: '#ff6b6b', yAxisID: 'y2', fill: false, pointRadius: 0, pointHoverRadius: 0 }
                 ]
             },
@@ -305,7 +307,7 @@ $(document).ready(function () {
                         type: 'linear', position: 'left',
                         ticks: { callback: v => (Number(v).toLocaleString('fr-FR')) , color: primaryColor },
                         border: { color: primaryColor },
-                        title: { display: true, text: 'SICAV', color: primaryColor },
+                        title: { display: true, text: (currentAllocName || 'SICAV'), color: primaryColor },
                         suggestedMin: smin - smargin, suggestedMax: smax + smargin
                     },
                     y2: {

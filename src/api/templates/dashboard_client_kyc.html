@@ -144,6 +144,11 @@
         <i class="fa-solid fa-shield-halved"></i>
         LCB-FT / TRACFIN / FATCA
       </button>
+      <a class="kyc-main-btn" href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1" download="rapport_kyc_{{ client_id }}.pdf">
+        <i class="fa-solid fa-download"></i>
+        Télécharger PDF
+      </a>
+      
     </div>
     
   </div>
@@ -927,6 +932,10 @@
               <span class="amount" id="rsNiveau">{{ risque_snapshot.niveau_label or ('Niveau ' ~ risque_snapshot.niveau_id if risque_snapshot.niveau_id else '—') }}</span>
             </div>
             <div class="summary-balance">
+              <span class="label">Allocation</span>
+              <span class="amount" id="rsAllocation">{{ risque_snapshot.allocation_nom or '—' }}</span>
+            </div>
+            <div class="summary-balance">
               <span class="label">Expérience</span>
               <span class="amount" id="rsExperience">{{ risque_snapshot.experience or '—' }}</span>
             </div>
@@ -951,6 +960,24 @@
               <span class="amount" id="rsConfirmation">{{ risque_snapshot.confirmation_client or '—' }}</span>
             </div>
           </div>
+          {% if risque_snapshot.allocation_chart and risque_snapshot.allocation_chart.labels %}
+            <div style="margin-top:12px;">
+              <div class="label" style="font-size:0.95rem; font-weight:600; margin-bottom:6px;">Performance et volatilité – {{ risque_snapshot.allocation_nom }}</div>
+              <div style="display:flex; gap:8px; align-items:center; margin:6px 0 10px 0; flex-wrap:wrap;">
+                <span class="muted-small">Plage:</span>
+                <button type="button" class="btn kyc-alloc-range" data-range="all">Tous</button>
+                <button type="button" class="btn kyc-alloc-range" data-range="365">1 an</button>
+                <button type="button" class="btn kyc-alloc-range" data-range="180">6 mois</button>
+                <button type="button" class="btn kyc-alloc-range" data-range="90">3 mois</button>
+              </div>
+              <canvas id="kycAllocChart" height="140"></canvas>
+            </div>
+          {% endif %}
+          {% if risque_snapshot.allocation_html %}
+            <div style="margin-top:10px;" class="md-block">
+              {{ risque_snapshot.allocation_html | safe }}
+            </div>
+          {% endif %}
           
         </div>
         <script>
@@ -978,6 +1005,7 @@
               const lines = [];
               const map = [
                 ['Niveau final', 'rsNiveau'],
+                ['Allocation', 'rsAllocation'],
                 ['Expérience', 'rsExperience'],
                 ['Connaissance générale', 'rsConnaissance'],
                 ['Part de patrimoine', 'rsPatrimoine'],
@@ -1011,6 +1039,63 @@
                 setTimeout(function(){ btn.textContent = old; }, 1400);
               });
             });
+          })();
+        </script>
+        {% endif %}
+
+        {% if risque_snapshot and risque_snapshot.allocation_chart and risque_snapshot.allocation_chart.labels %}
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+          (function(){
+            try{
+              const data = {{ risque_snapshot.allocation_chart | tojson }};
+              const allocName = {{ (risque_snapshot.allocation_nom or 'SICAV') | tojson }};
+              const canvas = document.getElementById('kycAllocChart');
+              if (!canvas) return;
+              const ctx = canvas.getContext('2d');
+              const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
+              const fullLabels = (data.labels || []).slice();
+              const fullSicav = (data.sicav || []).slice();
+              const fullVol = (data.vol || []).map(function(v){ var n=parseFloat(v); if(!isFinite(n)) return null; if (Math.abs(n) <= 1) n = n * 100; return parseFloat(n.toFixed(2)); });
+              let chart;
+              function draw(labels, s, v){
+                if (chart) chart.destroy();
+                const smin = Math.min.apply(null, s), smax = Math.max.apply(null, s);
+                const vmin = Math.min.apply(null, v), vmax = Math.max.apply(null, v);
+                const sm = (smax - smin) * 0.1 || 1;
+                const vm = (vmax - vmin) * 0.1 || 1;
+                chart = new Chart(ctx, {
+                  type: 'line',
+                  data: { labels: labels, datasets: [
+                    { label: allocName, data:s, yAxisID:'y1', borderColor: primaryColor, fill:false, pointRadius:0, pointHoverRadius:0 },
+                    { label:'Volatilité (%)', data:v, yAxisID:'y2', borderColor:'#ff6b6b', fill:false, pointRadius:0, pointHoverRadius:0 },
+                  ]},
+                  options: {
+                    responsive:true,
+                    interaction:{ mode:'index', intersect:false },
+                    stacked:false,
+                    scales:{
+                      y1:{ type:'linear', position:'left', ticks:{ callback: v=> Number(v).toLocaleString('fr-FR'), color: primaryColor }, border:{ color: primaryColor }, title:{ display:true, text: allocName, color: primaryColor }, suggestedMin:smin - sm, suggestedMax:smax + sm },
+                      y2:{ type:'linear', position:'right', ticks:{ callback: v=> v + ' %', color:'#ff6b6b' }, border:{ color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, title:{ display:true, text:'Volatilité (%)', color:'#ff6b6b' }, suggestedMin:vmin - vm, suggestedMax:vmax + vm },
+                    },
+                    plugins:{ legend:{ display:true } }
+                  }
+                });
+              }
+              function applyRange(range){
+                if (range === 'all') { draw(fullLabels, fullSicav, fullVol); return; }
+                const n = parseInt(range, 10);
+                const len = fullLabels.length;
+                const start = Math.max(0, len - n);
+                draw(fullLabels.slice(start), fullSicav.slice(start), fullVol.slice(start));
+              }
+              // Bind chips
+              document.querySelectorAll('.kyc-alloc-range').forEach(function(btn){
+                btn.addEventListener('click', function(){ applyRange(btn.getAttribute('data-range') || 'all'); });
+              });
+              // Initial draw
+              applyRange('all');
+            }catch(e){}
           })();
         </script>
         {% endif %}
