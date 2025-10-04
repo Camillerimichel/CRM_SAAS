@@ -119,7 +119,7 @@
         {% if client_id %}<span class="badge">ID&nbsp;{{ client_id }}</span>{% endif %}
       </div>
     {% endif %}
-    <div class="kyc-btn-row">
+  <div class="kyc-btn-row">
       <button type="button" class="kyc-main-btn" id="openEtatCivilBtn">
         <i class="fa-solid fa-user"></i>
         Etat civil
@@ -140,10 +140,6 @@
         <i class="fa-solid fa-bullseye"></i>
         Objectifs
       </button>
-      <button type="button" class="kyc-main-btn" id="openLcbftBtn">
-        <i class="fa-solid fa-shield-halved"></i>
-        LCB-FT / TRACFIN / FATCA
-      </button>
       <a class="kyc-main-btn" href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1" download="rapport_kyc_{{ client_id }}.pdf">
         <i class="fa-solid fa-download"></i>
         Télécharger PDF
@@ -152,6 +148,75 @@
     </div>
     
   </div>
+
+  <!-- Bloc Conformité (nouvel accordéon) -->
+  <div class="kyc-container open" id="conformiteContainer">
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="conformitePanel">
+        <span><i class="fa-solid fa-scale-balanced" style="margin-right:8px;"></i>Conformité</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel" id="conformitePanel" style="display:none;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn" onclick="openConformiteConnaissance()"><i class="fa-solid fa-user-check" style="margin-right:6px;"></i>Connaissance client</button>
+          <button type="button" class="btn" onclick="openConformiteTacfin()"><i class="fa-solid fa-shield-halved" style="margin-right:6px;"></i>TRACFIN / FATCA</button>
+          <button type="button" class="btn" onclick="openConformiteEer()"><i class="fa-solid fa-file-signature" style="margin-right:6px;"></i>Entrée en relation</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modals Conformité -->
+  <div class="modal-overlay" id="conformiteConnaissanceModal" onclick="if(event.target===this) closeConformiteConnaissance()">
+    <div class="modal-card" style="width:840px; max-width:95vw;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3>
+        <button class="modal-close" onclick="closeConformiteConnaissance()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">En cours de développement — ce pop‑up regroupera les éléments clés de “Connaissances financières”.</p>
+        <p><a href="#" onclick="closeConformiteConnaissance(); document.getElementById('openKnowledgeBtn').click(); return false;" class="btn">Aller à l’édition détaillée</a></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="conformiteTacfinModal" onclick="if(event.target===this) closeConformiteTacfin()">
+    <div class="modal-card" style="width:960px; max-width:96vw; max-height:92vh;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3>
+        <button class="modal-close" onclick="closeConformiteTacfin()">✕</button>
+      </div>
+      <div class="modal-body" id="conformiteTacfinBody">
+        <!-- Le contenu du panneau LCBFT sera cloné ici à l’ouverture -->
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="conformiteEerModal" onclick="if(event.target===this) closeConformiteEer()">
+    <div class="modal-card" style="width:720px; max-width:96vw;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3>
+        <button class="modal-close" onclick="closeConformiteEer()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="accordion card" style="margin:0;">
+          <button class="accordion-toggle" data-target="eerDocPanel"><span>Document d’entrée en relation</span><span class="chevron">▾</span></button>
+          <div class="accordion-panel" id="eerDocPanel" style="display:none;">
+            <p class="muted">En cours de développement.</p>
+          </div>
+          <button class="accordion-toggle" data-target="eerRgpdPanel"><span>RGPD</span><span class="chevron">▾</span></button>
+          <div class="accordion-panel" id="eerRgpdPanel" style="display:none;">
+            <p class="muted">En cours de développement.</p>
+          </div>
+          <button class="accordion-toggle" data-target="eerMissionPanel"><span>Lettre de Mission</span><span class="chevron">▾</span></button>
+          <div class="accordion-panel" id="eerMissionPanel" style="display:none;">
+            <p class="muted">En cours de développement.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <div class="kyc-etat-container" id="etatContainer">
       <div class="accordion card">
@@ -2501,6 +2566,20 @@
         });
       });
 
+      // Ouvrir une section via paramètre ?open=...
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const open = (params.get('open') || '').toLowerCase();
+        if (open) {
+          if (open === 'etat') setActivePanel('etatCivilPanel');
+          else if (open === 'patrimoine') setActivePanel('actifsPanel');
+          else if (open === 'knowledge' || open === 'connaissance') setActivePanel('knowledgePanel');
+          else if (open === 'esg') setActivePanel('esgPanel');
+          else if (open === 'objectifs') setActivePanel('objectifsPanel');
+          else if (open === 'lcbft' || open === 'tracfin' || open === 'fatca') { openMainSection('lcbft'); setActivePanel('lcbftPanel'); }
+        }
+      } catch(e){}
+
       const addBtn = document.getElementById('addActifBtn');
       if (addBtn){
         addBtn.addEventListener('click', function(){ openActifModal('add'); });
@@ -3654,6 +3733,36 @@ if (objectifFormNiveau){
         }
       }
     }
+  </script>
+
+  <script>
+    // Accordéon Conformité toggle
+    (function(){
+      var btn = document.querySelector('[data-target="conformitePanel"]');
+      var panel = document.getElementById('conformitePanel');
+      if(btn && panel){ btn.addEventListener('click', function(){ panel.style.display = (panel.style.display==='none'||!panel.style.display)?'block':'none'; }); }
+    })();
+
+    // Popups Conformité
+    function openConformiteConnaissance(){ var m=document.getElementById('conformiteConnaissanceModal'); if(m) m.style.display='flex'; }
+    function closeConformiteConnaissance(){ var m=document.getElementById('conformiteConnaissanceModal'); if(m) m.style.display='none'; }
+
+    function openConformiteTacfin(){
+      var m=document.getElementById('conformiteTacfinModal'); var body=document.getElementById('conformiteTacfinBody');
+      var src=document.getElementById('lcbftPanel');
+      if(m && body && src){ body.innerHTML = src.innerHTML; m.style.display='flex'; }
+    }
+    function closeConformiteTacfin(){ var m=document.getElementById('conformiteTacfinModal'); if(m) m.style.display='none'; }
+
+    function openConformiteEer(){ var m=document.getElementById('conformiteEerModal'); if(m) m.style.display='flex'; }
+    function closeConformiteEer(){ var m=document.getElementById('conformiteEerModal'); if(m) m.style.display='none'; }
+
+    // Sous-accordéons dans Entrée en relation
+    (function(){
+      document.querySelectorAll('#conformiteEerModal .accordion-toggle').forEach(function(btn){
+        btn.addEventListener('click', function(){ var id=btn.getAttribute('data-target'); var p=document.getElementById(id); if(p){ p.style.display=(p.style.display==='none'||!p.style.display)?'block':'none'; }});
+      });
+    })();
   </script>
 {% endif %}
 {% endblock %}

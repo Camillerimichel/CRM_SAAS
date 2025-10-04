@@ -1,23 +1,22 @@
-# Bases de données / gros fichiers à ne jamais pousser
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtualenvs
+env/
+env3*/
+venv/
+
+# OS files
+.DS_Store
+
+# Databases (exclude from VCS)
 *.sqlite
 *.sqlite3
 *.db
+*.db3
+data/*.sqlite*
+data/*.db*
 
-# Divers
-__pycache__/
-.env
-.DS_Store
-node_modules/
-*.sql
-*.sql.gz
-schema.sql*
-*.sql
-*.sql.gz
-schema.sql*
-dump.sql
-dump.sql
-*.sql
-# .gitignore
-.env
-node_modules/
-
+# Notebooks auto files
+*.ipynb_checkpoints/

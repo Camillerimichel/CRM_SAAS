@@ -105,6 +105,11 @@
   .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
   .badge-closed { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; vertical-align:middle; white-space:nowrap; }
   .highlight-cle { background: #ffe5e5 !important; }
+  /* Boutons pilule type KYC */
+  .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
+  .kyc-main-btn i { font-size:1rem; color:#fff; }
+  /* Bouton Conformité identique aux autres (pilule primaire) */
+  /* aucun style spécifique: utiliser l'apparence standard des autres accordéons */
 </style>
 
 
@@ -129,9 +134,37 @@
       <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
       <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
       <div class="kpi-mini kpi-line"><span>SRRI client / actuel</span><span class="kv">{{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
+  <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
     </div>
   </div>
+
+  <!-- Modale dédiée: Lettre de Mission -->
+  <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" style="width:760px; max-width:96vw;">
+      <div class="modal-header"><h3><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Lettre de Mission</h3><button class="modal-close" onclick="document.getElementById('confMissionDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-body">
+        <p class="muted">En cours de développement.</p>
+      </div>
+    </div>
+  </div>
+  <!-- Modale Conformité: 3 boutons pilule -->
+  <div class="modal-overlay" id="confMainModal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" style="width:720px; max-width:95vw;">
+      <div class="modal-header"><h3>Conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
+      <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>Entrée en relation</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
+      </div>
+    </div>
+  </div>
+  <!-- Accordéon Conformité (détail client) -->
+  <div id="confToggleDetail" class="card accordion-toggle" onclick="openConfMain()" style="margin-top:10px;">
+      <h3 style="margin:0;">Conformité</h3>
+      <span class="chevron">▸</span>
+    </div>
+  
 
   <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
   <style>
@@ -179,7 +212,6 @@
   </div>
 
   <!-- Actions rapides -->
-  <div id="clientKycToggle" class="card accordion-toggle" onclick="openKycWindow()"><h3 style="margin:0;">Connaissance client</h3><span class="chevron">▸</span></div>
   
   <!-- Tâches: accordéon local -->
   <div id="clientTasksToggle" class="card accordion-toggle" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
@@ -295,20 +327,7 @@
       </div>
     </div>
   </div>
-  <script>
-    function openKycWindow(){
-      var w = 1100, h = 800;
-      var dualScreenLeft = window.screenLeft !== undefined ? window.screenLeft : screen.left;
-      var dualScreenTop = window.screenTop !== undefined ? window.screenTop : screen.top;
-      var width = window.innerWidth ? window.innerWidth : document.documentElement.clientWidth ? document.documentElement.clientWidth : screen.width;
-      var height = window.innerHeight ? window.innerHeight : document.documentElement.clientHeight ? document.documentElement.clientHeight : screen.height;
-      var left = ((width / 2) - (w / 2)) + dualScreenLeft;
-      var top = ((height / 2) - (h / 2)) + dualScreenTop;
-      var feat = 'scrollbars=yes,resizable=yes,width='+w+',height='+h+',top='+top+',left='+left;
-      var url = '/dashboard/clients/kyc/{{ client.id }}';
-      window.open(url, 'kycClient{{ client.id }}', feat);
-    }
-  </script>
+  
 
   <script>
     // --- Messages header buttons & modal ---
@@ -995,6 +1014,225 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   })();
 </script>
 
+<!-- Modales Conformité (détail) -->
+  <div class="modal-overlay" id="confConnaissanceDetailModal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
+      <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="document.getElementById('confConnaissanceDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-body" style="padding:0; flex:1 1 auto;">
+        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge" style="width:100%; height:100%; border:0;"></iframe>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="confTacfinDetailModal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
+      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3><button class="modal-close" onclick="document.getElementById('confTacfinDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-body" style="flex:1 1 auto; overflow:auto;">
+        <style>
+          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+          .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
+          .btn-group .btn-choice { margin-right:6px; }
+          .btn-choice-active { background: var(--primary); color:#fff; }
+          .step-hidden { display:none; }
+        </style>
+        <form method="post" action="/dashboard/clients/kyc/{{ client.id }}" id="lcbftFormDetail" style="display:flex; flex-direction:column; gap:12px;">
+          <input type="hidden" name="form_action" value="lcbft_save" />
+          <div class="risk-grid">
+            <div class="risk-block">
+              <h5>FATCA</h5>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Nom du produit</label>
+                  <select name="fatca_contrat_id" id="fatcaContractSelectDetail" style="width:100%; height:36px; min-height:36px;">
+                    <option value="">Sélectionner…</option>
+                    {% for c in fatca_contracts %}
+                      <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Compagnie d’assurance</label>
+                  <input type="text" id="fatcaSocieteDetail" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" />
+                </div>
+              </div>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Date de l’opération</label>
+                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Pays de résidence fiscale</label>
+                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" />
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>NIF</label>
+                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
+                </div>
+              </div>
+            </div>
+            <div class="risk-block">
+              <h5>Cartographie client</h5>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
+                <div class="field" style="min-width:0;">
+                  <label>Depuis quand connaissez-vous le client</label>
+                  <input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/>
+                </div>
+                <div class="field" style="min-width:0;">
+                  <label>Entrée en relation</label>
+                  <textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?" style="width:100%;">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea>
+                </div>
+              </div>
+              <div class="field"><label>Contrats similaires déjà souscrits ?</label>
+                <div class="btn-group" data-name="has_existing_contracts">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="has_existing_contracts" value="{{ lcbft_current.has_existing_contracts if lcbft_current and lcbft_current.has_existing_contracts is not none else '0' }}" />
+              </div>
+              <div id="lcbftExistingBlockDetail" class="step-hidden">
+                <div class="field"><label>Auprès de notre société d'assurance ?</label>
+                  <div class="btn-group" data-name="existing_with_our_insurer">
+                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                  </div>
+                  <input type="hidden" name="existing_with_our_insurer" value="{{ lcbft_current.existing_with_our_insurer if lcbft_current and lcbft_current.existing_with_our_insurer is not none else '0' }}" />
+                </div>
+                <div class="field"><label>Référence du contrat</label><input type="text" name="existing_contract_ref" placeholder="REF-..." value="{{ lcbft_current.existing_contract_ref if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
+              </div>
+            </div>
+            <div class="risk-block">
+              <h5>PPE</h5>
+              <div class="muted-small" style="margin-bottom:6px;">Reportez-vous aux fonctions PPE (chef d’État, parlement, haute juridiction, ambassadeur, etc.).</div>
+              <div class="field"><label>Client PPE ?</label>
+                <div class="btn-group" data-name="ppe_self">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
+              </div>
+              <div id="ppeSelfBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_self_fonction" value="{{ lcbft_current.ppe_self_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
+              </div>
+              <div class="field"><label>Membre de la famille PPE ?</label>
+                <div class="btn-group" data-name="ppe_family">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
+              </div>
+              <div id="ppeFamilyBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <div class="field"><label>Fonction du membre</label><input type="text" name="ppe_family_fonction" value="{{ lcbft_current.ppe_family_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_family_pays" value="{{ lcbft_current.ppe_family_pays if lcbft_current else '' }}"/></div>
+              </div>
+            </div>
+            <div class="risk-block">
+              <h5>US Person</h5>
+              <div class="field"><label>US Person ?</label>
+                <div class="btn-group" data-name="us_person">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="us_person" value="{{ lcbft_current.us_person if lcbft_current and lcbft_current.us_person is not none else '0' }}" />
+              </div>
+            </div>
+            <div class="risk-block">
+              <h5>Vigilance</h5>
+              <div class="btn-multi-group" data-name="vigilance_ids">
+                {% for v in lcbft_vigilance_options %}
+                  <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>
+                {% endfor %}
+              </div>
+              <div class="multi-hidden" data-name="vigilance_ids"></div>
+            </div>
+            <div class="risk-block">
+              <h5>Justificatifs</h5>
+              <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
+              <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
+            </div>
+          </div>
+          <div class="card" style="display:flex; justify-content:flex-end; border:none;">
+            <button type="submit" class="btn-primary">Enregistrer</button>
+          </div>
+        </form>
+        <script>
+          (function(){
+            const sel = document.getElementById('fatcaContractSelectDetail');
+            const soc = document.getElementById('fatcaSocieteDetail');
+            if (sel && soc){
+              function updateSoc(){ const opt = sel.options[sel.selectedIndex]; soc.value = opt ? (opt.getAttribute('data-societe') || '') : ''; }
+              sel.addEventListener('change', updateSoc); updateSoc();
+            }
+            const form = document.getElementById('lcbftFormDetail');
+            if (!form) return;
+            function initSingle(group){
+              const name = group.getAttribute('data-name'); const input = form.querySelector('input[name="'+name+'"]'); const current = input? String(input.value||'') : '';
+              group.querySelectorAll('button[data-value]').forEach(function(btn){ const v=String(btn.getAttribute('data-value')||''); if(current===v&&v!==''){ btn.classList.add('btn-choice-active'); }
+                btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(input){ input.value=v; } group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active')); btn.classList.add('btn-choice-active');
+                  if (name==='has_existing_contracts'){ const blk=document.getElementById('lcbftExistingBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
+                  if (name==='ppe_self'){ const blk=document.getElementById('ppeSelfBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
+                  if (name==='ppe_family'){ const blk=document.getElementById('ppeFamilyBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
+                });
+              });
+            }
+            function ensureHiddenContainer(name){ let c=form.querySelector('.multi-hidden[data-name="'+name+'"]'); if(!c){ c=document.createElement('div'); c.className='multi-hidden'; c.setAttribute('data-name', name); form.appendChild(c);} return c; }
+            function initMulti(group){ const name=group.getAttribute('data-name'); const container=ensureHiddenContainer(name); const selected=new Set(); group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ const id=btn.getAttribute('data-id'); if(btn.getAttribute('data-active')==='1'){ btn.classList.add('btn-choice-active'); selected.add(id);} btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id);} else { btn.classList.add('btn-choice-active'); selected.add(id);} container.innerHTML=''; Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); }); }); }); }
+            Array.from(form.querySelectorAll('.btn-group')).forEach(function(g){ if(g.querySelector('[data-value]')) initSingle(g); });
+            Array.from(form.querySelectorAll('.btn-multi-group')).forEach(function(g){ initMulti(g); });
+            // initial visibility
+            (function(){
+              function val(n){ const i=form.querySelector('[name="'+n+'"]'); return i? i.value:''; }
+              document.getElementById('lcbftExistingBlockDetail')?.classList.toggle('step-hidden', val('has_existing_contracts')!=='1');
+              document.getElementById('ppeSelfBlockDetail')?.classList.toggle('step-hidden', val('ppe_self')!=='1');
+              document.getElementById('ppeFamilyBlockDetail')?.classList.toggle('step-hidden', val('ppe_family')!=='1');
+            })();
+          })();
+        </script>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="confEerDetailModal" onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal-card" style="width:760px; max-width:96vw;">
+    <div class="modal-header"><h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3><button class="modal-close" onclick="document.getElementById('confEerDetailModal').style.display='none'">✕</button></div>
+    <div class="modal-body">
+      <div class="accordion card" style="margin:0;">
+        <button class="accordion-toggle" data-target="eerDocPanelDetail" onclick="openEerSub('doc')"><span>Document d’entrée en relation</span><span class="chevron">▾</span></button>
+        <div class="accordion-panel" id="eerDocPanelDetail" style="display:none;"><p class="muted">En cours de développement.</p></div>
+        <button class="accordion-toggle" data-target="eerRgpdPanelDetail" onclick="openEerSub('rgpd')"><span>RGPD</span><span class="chevron">▾</span></button>
+        <div class="accordion-panel" id="eerRgpdPanelDetail" style="display:none;"><p class="muted">En cours de développement.</p></div>
+        
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+<script>
+  // Toggle Conformité panel
+    // Ouvrir/fermer la modale Conformité
+    function openConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='flex'; }
+    function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
+    // Open modals
+    function openConfConnaissanceDetail(){ var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='flex'; }
+    function openConfTacfinDetail(){ var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='flex'; }
+    function openConfEerDetail(){ var m=document.getElementById('confEerDetailModal'); if(m) m.style.display='flex'; }
+    function openConfMissionDetail(){ var m=document.getElementById('confMissionDetailModal'); if(m) m.style.display='flex'; }
+    function openEerSub(which){
+      try{
+        var doc = document.getElementById('eerDocPanelDetail');
+        var rgpd = document.getElementById('eerRgpdPanelDetail');
+        if (which==='doc'){
+          if (rgpd) rgpd.style.display='none';
+          if (doc) doc.style.display='block';
+        } else if (which==='rgpd'){
+          if (doc) doc.style.display='none';
+          if (rgpd) rgpd.style.display='block';
+        }
+      }catch(e){}
+    }
+  </script>
 <script>
   // Charger la liste des documents de base pour le select
   (async function loadDocuments() {

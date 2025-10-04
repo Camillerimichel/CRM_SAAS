@@ -9085,6 +9085,69 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "commentaire": getattr(r, "commentaire", None),
         })
 
+    # ---- Conformité (TRACFIN / FATCA) data for detail modal ----
+    lcbft_current = None
+    lcbft_vigilance_options: list[dict] = []
+    lcbft_vigilance_ids: list[int] = []
+    try:
+        rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
+        lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+    except Exception:
+        lcbft_vigilance_options = []
+    try:
+        row = db.execute(text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
+        if row:
+            m = row._mapping
+            qid = m.get('id')
+            lcbft_current = {k: m.get(k) for k in m.keys()}
+            try:
+                ids = db.execute(text("SELECT option_id FROM LCBFT_questionnaire_vigilance WHERE questionnaire_id = :q"), {"q": qid}).fetchall()
+                lcbft_vigilance_ids = [int(x[0]) for x in ids]
+            except Exception:
+                lcbft_vigilance_ids = []
+    except Exception:
+        lcbft_current = None
+
+    fatca_contracts: list[dict] = []
+    try:
+        rows = db.execute(text("""
+            SELECT g.id, g.nom_contrat, COALESCE(s.nom, '') AS societe_nom
+            FROM mariadb_affaires_generique g
+            LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+            WHERE COALESCE(g.actif, 1) = 1
+            ORDER BY s.nom, g.nom_contrat
+        """)).fetchall()
+        fatca_contracts = [dict(r._mapping) for r in rows]
+    except Exception:
+        fatca_contracts = []
+    fatca_saved = None
+    try:
+        if lcbft_current and lcbft_current.get('id'):
+            qid = lcbft_current.get('id')
+            row = db.execute(text("SELECT contrat_id, societe_nom, date_operation, pays_residence, nif FROM LCBFT_fatca WHERE questionnaire_id = :q"), {"q": qid}).fetchone()
+            if row:
+                fatca_saved = dict(row._mapping)
+    except Exception:
+        fatca_saved = None
+    fatca_client_country = None
+    fatca_client_nif = None
+    try:
+        crow = db.execute(text("SELECT * FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+        if crow:
+            m = crow._mapping
+            lower_map = { (k.lower() if isinstance(k, str) else k): v for k, v in m.items() }
+            for key in ("adresse_pays", "pays_fiscal", "residence_fiscale", "pays"):
+                if key in lower_map and lower_map.get(key):
+                    fatca_client_country = lower_map.get(key) or ''
+                    break
+            for key in ("nif", "num_fiscal", "numero_fiscal", "tin"):
+                if key in lower_map and lower_map.get(key):
+                    fatca_client_nif = lower_map.get(key) or ''
+                    break
+    except Exception:
+        pass
+    fatca_today = _date.today().isoformat()
+
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -9151,6 +9214,15 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # KYC Actifs
             "kyc_actifs": kyc_actifs,
             "kyc_types_actifs": rows_types_actifs,
+            # Conformité (LCBFT / FATCA) context for detail page modal
+            "lcbft_current": lcbft_current,
+            "lcbft_vigilance_options": lcbft_vigilance_options,
+            "lcbft_vigilance_ids": lcbft_vigilance_ids,
+            "fatca_contracts": fatca_contracts,
+            "fatca_saved": fatca_saved,
+            "fatca_client_country": fatca_client_country,
+            "fatca_client_nif": fatca_client_nif,
+            "fatca_today": fatca_today,
         }
     )
 
