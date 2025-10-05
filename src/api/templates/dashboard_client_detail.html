@@ -143,7 +143,171 @@
     <div class="modal-card" style="width:760px; max-width:96vw;">
       <div class="modal-header"><h3><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Lettre de Mission</h3><button class="modal-close" onclick="document.getElementById('confMissionDetailModal').style.display='none'">✕</button></div>
       <div class="modal-body">
-        <p class="muted">En cours de développement.</p>
+        <style>
+          .lm h2 { font-size: 1.2rem; margin: 0 0 8px; }
+          .lm h3 { font-size: 1.05rem; margin: 14px 0 6px; }
+          .lm p { margin: 6px 0; }
+          .lm ul { margin: 6px 0 6px 18px; }
+          .lm hr { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
+          .lm .muted { color: var(--muted); }
+        </style>
+        <div class="lm">
+          <h2><strong>LETTRE DE MISSION ÉLECTRONIQUE – COURTAGE EN ASSURANCE-VIE</strong></h2>
+          <hr />
+
+          <h3><strong>Préambule</strong></h3>
+          <p>Vous avez bien voulu nous consulter en qualité de <strong>courtier en assurance-vie</strong>, et nous vous remercions de votre confiance.</p>
+          <p>Lors d’un précédent entretien, nous vous avons remis le <strong>Document d’Entrée en Relation (DER)</strong> conformément à l’article <strong>L.521-2 du Code des assurances</strong>.<br/>
+          La présente lettre de mission a pour objet de <strong>définir et de formaliser les conditions et modalités</strong> de notre intervention dans le cadre de votre accompagnement patrimonial.</p>
+
+          <hr />
+          <h3><strong>A. Objectifs de la mission</strong></h3>
+          <p>Lors de notre entretien du <strong>{{ dateEntretien }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
+          <p>Vous avez manifesté le souhait d’investir <strong>{{ montantInvesti }}</strong> euros, avec pour objectif(s) : <strong>{{ objectifsMission }}</strong>.</p>
+          <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.<br/>
+          Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations.</p>
+
+          <hr />
+          <h3><strong>B. Missions confiées</strong></h3>
+          <h4>1. Mise en relation avec les compagnies d’assurance</h4>
+          <p class="muted">Intermédiation au sens de l’article <strong>L.511-1 du Code des assurances</strong>.</p>
+          <h4>2. Présentation et explication des produits d’assurance-vie</h4>
+          <p class="muted">Informations claires et exactes sur les produits, avant toute recommandation personnalisée.</p>
+          <h4>3. Collecte d’informations</h4>
+          <p class="muted">Recueil des données nécessaires à l’analyse de votre situation conformément à la <strong>Directive DDA (UE) 2016/97</strong> et au <strong>devoir de connaissance du client</strong> (articles L.541-8-1 et suivants du Code monétaire et financier).</p>
+          <h4>4. Transmission de la documentation contractuelle</h4>
+          <p class="muted">Conditions générales, DIC (PRIIPs), fiches IPID et tout document précontractuel requis.</p>
+          <h4>5. Suivi administratif et contractuel</h4>
+          <p class="muted">Gestion des opérations de souscription, rachats, arbitrages, avenants et conservation des documents.</p>
+          <h4>6. Obligations de vigilance et conformité</h4>
+          <p class="muted">Application des dispositifs <strong>LCB-FT</strong>, <strong>RGPD</strong> et <strong>DDA</strong>, incluant la vérification d’identité et la collecte de justificatifs.</p>
+
+          <hr />
+          <h3><strong>C. Références légales</strong></h3>
+          <ul>
+            <li><strong>Code des assurances</strong> : Articles <strong>L.511-1 à L.511-3</strong></li>
+            <li><strong>Code monétaire et financier</strong> : Article <strong>L.541-1</strong></li>
+            <li><strong>Directive (UE) 2016/97</strong> dite <strong>DDA</strong></li>
+            <li><strong>Directive (UE) 2014/65</strong> dite <strong>MIF 2</strong></li>
+          </ul>
+
+          <hr />
+          <h3><strong>D. Déroulement de la mission</strong></h3>
+          <ol>
+            <li>Remise du <strong>Document d’Entrée en Relation</strong>, signé le {{ lm_today }}.</li>
+            <li>Signature du <strong>recueil d’informations patrimoniales</strong>, le {{ lm_today }}.</li>
+            <li>Signature électronique de la <strong>présente lettre de mission</strong>.</li>
+            <li>Élaboration et remise du <strong>rapport d’adéquation</strong> documentant la cohérence des solutions proposées avec vos objectifs.</li>
+          </ol>
+          <p>La mission débute dès réception des éléments nécessaires à l’analyse complète de votre situation.</p>
+
+          <hr />
+          <h3><strong>E. Suivi et révision</strong></h3>
+          <p>Un suivi régulier est prévu, comprenant :</p>
+          <ul>
+            <li>Des <strong>rendez-vous périodiques</strong> selon vos besoins,</li>
+            <li>Un <strong>bilan patrimonial</strong> actualisé tous les deux ans,</li>
+            <li>Et, le cas échéant, un point intermédiaire sur demande.</li>
+          </ul>
+          <p>Toute évolution importante de votre situation (revenus, patrimoine, projets, profil de risque) doit être portée à notre connaissance pour mise à jour de votre dossier.</p>
+
+          <hr />
+          <h3><strong>F. Durée et dénonciation</strong></h3>
+          <p>La mission est conclue pour une durée <strong>d’un an</strong>, renouvelable par tacite reconduction.<br/>
+          Elle peut être résiliée à tout moment par simple notification écrite, sous réserve d’un <strong>préavis d’un mois</strong>.</p>
+
+          <hr />
+          <h3><strong>G. Communication et supports d’information</strong></h3>
+          <p>Le Client accepte la communication d’informations sur <strong>support durable autre que le papier</strong>, via :</p>
+          <ul>
+            <li>Courriel sécurisé,</li>
+            <li>Espace client en ligne,</li>
+            <li>Ou courrier postal.</li>
+          </ul>
+          <p>Les documents resteront consultables et téléchargeables pendant la durée légale requise.</p>
+
+          <hr />
+          <h3><strong>H. Coûts et rémunérations</strong></h3>
+          {% if lm_remunerations and (lm_remunerations|length > 0) %}
+            <ul>
+              {% for r in lm_remunerations %}
+                <li>
+                  <strong>{{ r.mode or r.type or 'Mode' }} :</strong>
+                  {% set has_val = false %}
+                  {% if r.montant is not none %}
+                    {% set has_val = true %} {{ r.montant }} €
+                  {% endif %}
+                  {% if r.pourcentage is not none %}
+                    {% if has_val %} — {% endif %}{{ r.pourcentage }} %
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">Rémunérations: non renseigné pour ce courtier.</p>
+          {% endif %}
+          <p>Ces rémunérations couvrent les prestations de conseil, de suivi et d’intermédiation.<br/>
+          Un détail complet peut être fourni sur simple demande.</p>
+
+          <hr />
+          <h3><strong>I. Droits et obligations réciproques</strong></h3>
+          <p>Le Courtier est tenu à une <strong>obligation de moyens</strong> et non de résultat.<br/>
+          Le Client s’engage à fournir des informations exactes et à informer le cabinet de toute modification significative de sa situation.</p>
+          <p>Le Client autorise le Courtier à obtenir auprès des compagnies d’assurance ou établissements financiers les données nécessaires au suivi de ses contrats.<br/>
+          Le Courtier est tenu au <strong>secret professionnel</strong> (article L.519-6 du Code monétaire et financier).</p>
+
+          <hr />
+          <h3><strong>J. Protection des données personnelles (RGPD)</strong></h3>
+          <p>Les données personnelles sont traitées conformément au <strong>Règlement (UE) 2016/679 (RGPD)</strong> et à la <strong>loi Informatique et Libertés</strong>.<br/>
+          Elles sont utilisées pour l’analyse, la souscription et le suivi des contrats d’assurance-vie, et conservées pendant la durée de la relation contractuelle, puis <strong>5 ans</strong> après sa fin.</p>
+          <p>Vous disposez des droits d’accès, de rectification, d’effacement, de limitation, de portabilité et d’opposition.<br/>
+          Pour les exercer :<br/>
+          <strong>{{ DER_courtier.responsable_dpo }} – {{ DER_courtier.courriel }}</strong><br/>
+          Vous pouvez également saisir la <strong>CNIL</strong> (www.cnil.fr).</p>
+
+          <hr />
+          <h3><strong>K. Droit applicable et litiges</strong></h3>
+          <p>La présente lettre de mission est régie par le <strong>droit français</strong>.<br/>
+          En cas de désaccord, les parties privilégieront une solution amiable avant toute procédure judiciaire.<br/>
+          À défaut, compétence exclusive est donnée aux <strong>juridictions françaises</strong>.</p>
+
+          <hr />
+          <h3><strong>L. Réclamations et médiation</strong></h3>
+          <p>Toute réclamation peut être adressée à :<br/>
+          <strong>Courtage du Centre – Service Réclamations</strong><br/>
+          23 rue du quai, 56150 Chatillon sur Saône<br/>
+          Email : jc@cc.fr</p>
+          <p>En cas d’absence de solution amiable, le Client peut saisir :<br/>
+          <strong>{{ centre_mediation_lib or DER_courtier.centre_mediation }}</strong><br/>
+          Contact : banqueroute@acpr.fr</p>
+
+          <hr />
+          <h3><strong>M. Délai de rétractation (en cas de démarchage)</strong></h3>
+          <p>Conformément à l’article <strong>L.341-16 du Code monétaire et financier</strong>,<br/>
+          si cette mission résulte d’un <strong>acte de démarchage</strong>, vous disposez d’un <strong>délai de 14 jours calendaires révolus</strong> pour exercer votre droit de rétractation, sans avoir à justifier de motif ni supporter de pénalité.<br/>
+          Le délai court à compter de la signature électronique de la présente lettre.</p>
+
+          <hr />
+          <h3><strong>Validation et consentement électronique</strong></h3>
+          <p>En validant électroniquement cette lettre de mission sur la plateforme sécurisée,<br/>
+          <strong>{{ client.prenom }} {{ client.nom }}</strong> reconnaît avoir :</p>
+          <ul>
+            <li>pris connaissance de l’intégralité du document,</li>
+            <li>compris la portée des engagements réciproques,</li>
+            <li>et accepté la mission dans les conditions exposées.</li>
+          </ul>
+          <p>La signature électronique apposée ci-dessous vaut <strong>consentement exprès</strong>, conformément à l’article <strong>1367 du Code civil</strong> et au <strong>Règlement eIDAS (UE) n°910/2014</strong> sur l’identification électronique et les services de confiance.</p>
+
+          <hr />
+          <p><strong>Date de signature électronique :</strong> {{ date_signature }}<br/>
+          <strong>Identifiant de transaction :</strong> {{ signature_id }}</p>
+          <p><strong>Signature électronique du client :</strong> ✍️<br/>
+          <strong>Signature électronique du courtier :</strong> ✍️</p>
+
+          <hr />
+          <p><strong>{{ DER_courtier.nom_cabinet }}</strong> – Courtier en assurance-vie et produits financiers<br/>
+          Immatriculé à l’ORIAS n° {{ DER_courtier.numero_orias }} – Adhérent {{ DER_courtier.association_prof }}</p>
+        </div>
       </div>
     </div>
   </div>
@@ -153,7 +317,6 @@
       <div class="modal-header"><h3>Conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
       <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>DER</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfRgpdDetail()"><i class="fa-solid fa-lock"></i>RGPD</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
@@ -1204,131 +1367,222 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         .der-list { margin: 0; padding-left: 18px; }
         .der-table { width: 100%; border-collapse: collapse; }
         .der-table th, .der-table td { border: 1px solid var(--border); padding: 6px 8px; font-size: .92rem; }
-        .der-table th { background: var(--primary-100); text-align: left; }
+        .der-table th { background: var(--primary); color:#fff; text-align: left; }
         .muted-note { color: var(--muted); font-size: .9rem; }
       </style>
+      <!-- DER (Document d’Entrée en Relation) panel -->
+      <div id="eerDocPanelDetail">
+        <div class="der-section">
+          <h3 style="margin:0 0 8px;">DOCUMENT D’ENTRÉE EN RELATION (DER)</h3>
+          <div class="muted-note">Conformément aux articles L.520-1 et suivants du Code des assurances et L.541-8-1 du Code monétaire et financier</div>
+        </div>
 
-      <div class="der-section">
-        <h3 style="margin:0 0 8px;">DOCUMENT D’ENTRÉE EN RELATION (DER)</h3>
-        <div class="muted-note">Conformément aux articles L.520-1 et suivants du Code des assurances et L.541-8-1 du Code monétaire et financier</div>
+        <div class="der-section">
+          <h4>1. Identification du courtier</h4>
+          {% set _cid = (DER_sql_params_activite[':cid'] if (DER_sql_params_activite is defined and DER_sql_params_activite and (':cid' in DER_sql_params_activite)) else (DER_courtier.id if DER_courtier else None)) %}
+          <ul class="der-list">
+            <li><strong>Dénomination sociale :</strong> {{ DER_courtier.nom_cabinet if DER_courtier else '' }}</li>
+            <li><strong>Responsable :</strong> {{ DER_courtier.nom_responsable if DER_courtier else '' }}</li>
+            <li><strong>Statut social :</strong> {{ DER_statut_social.lib if DER_statut_social else '' }}</li>
+            <li><strong>Capital social :</strong> {% if DER_courtier and DER_courtier.capital_social is not none %}{{ '{:,.0f}'.format((DER_courtier.capital_social)|float).replace(',', ' ') }} €{% endif %}</li>
+            <li><strong>SIREN :</strong> {{ DER_courtier.siren if DER_courtier else '' }}</li>
+            <li><strong>RCS :</strong> {{ DER_courtier.rcs if DER_courtier else '' }}</li>
+            <li><strong>Numéro ORIAS :</strong> {{ DER_courtier.numero_orias if DER_courtier else '' }}</li>
+            <li><strong>Adresse :</strong> {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}</li>
+            <li><strong>Courriel :</strong> {{ DER_courtier.courriel if DER_courtier else '' }}</li>
+            <li><strong>Association professionnelle :</strong> {{ DER_courtier.association_prof if DER_courtier else '' }}{% if DER_courtier and DER_courtier.num_adh_assoc %} (adhérent n° {{ DER_courtier.num_adh_assoc }}){% endif %}</li>
+            <li><strong>Catégorie de courtage :</strong> {{ DER_courtier.categorie_courtage if DER_courtier else '' }}</li>
+          </ul>
+        </div>
+
+        <div class="der-section">
+          <h4>2. Activités et domaines d’exercice</h4>
+          {% if DER_activites and (DER_activites|length > 0) %}
+            <table class="der-table">
+              <thead>
+                <tr>
+                  <th>Domaine</th>
+                  <th>Activité</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in DER_activites %}
+                <tr>
+                  <td>{{ a.domaine or '' }}</td>
+                  <td>{{ a.libelle or '' }}</td>
+                  <td>{{ 'Exercée' if (a.statut or '')|lower == 'exercee' else 'Non exercée' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="muted-note">Aucune activité renseignée.</p>
+          {% endif %}
+        </div>
+
+        <div class="der-section">
+          <h4>3. Autorités de tutelle</h4>
+          <ul class="der-list">
+            <li><strong>AMF (Autorité des Marchés Financiers)</strong><br/>17, place de la Bourse – 75082 Paris Cedex 02</li>
+            <li><strong>ACPR (Autorité de Contrôle Prudentiel et de Résolution)</strong><br/>61, rue Taitbout – 75436 Paris Cedex 09</li>
+          </ul>
+          <p class="muted-note">Ces autorités veillent au respect des obligations professionnelles du courtier.</p>
+        </div>
+
+        <div class="der-section">
+          <h4>4. Nature et étendue du service</h4>
+          <p>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} agit en qualité de <strong>courtier indépendant</strong>.<br/>
+          Son rôle est d’analyser <strong>vos besoins, vos objectifs et votre profil de risque</strong> afin de recommander les solutions adaptées.</p>
+          <p>Le cabinet ne perçoit ni ne conserve de fonds destinés aux assureurs ou aux clients.</p>
+        </div>
+
+        <div class="der-section">
+          <h4>5. Rémunération et frais</h4>
+          <p>Le cabinet est rémunéré sous forme :</p>
+          <ul class="der-list">
+            <li>de <strong>commissions</strong> versées par les compagnies partenaires ;</li>
+            <li>et/ou de <strong>frais</strong> ou <strong>honoraires</strong> prévus dans la lettre de mission.</li>
+          </ul>
+        </div>
+
+        <div class="der-section">
+          <h4>6. Garanties professionnelles</h4>
+          <p>Le cabinet justifie d’une <strong>assurance responsabilité civile professionnelle</strong> et d’une <strong>garantie financière</strong>, conformément à la réglementation.</p>
+          <table class="der-table">
+            <thead>
+              <tr>
+                <th>Type de garantie</th>
+              <th style="text-align:center;">IAS</th>
+              <th style="text-align:center;">IOBSP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in (DER_courtier_garanties_normes or []) %}
+              <tr>
+                <td>{{ g.type_garantie }}</td>
+                <td class="center">{% if g.IAS is not none %}{{ '{:,.0f}'.format((g.IAS)|float).replace(',', ' ') }} €{% endif %}</td>
+                <td class="center">{% if g.IOBSP is not none %}{{ '{:,.0f}'.format((g.IOBSP)|float).replace(',', ' ') }} €{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="der-section">
+          <h4>7. Données personnelles</h4>
+          <div>
+            <p><strong>A. Responsable du traitement</strong></p>
+            <p>
+              Responsable : {{ DER_courtier.nom_cabinet }}<br/>
+              Adresse : {{ DER_courtier.adresse_rue }}, {{ DER_courtier.adresse_cp }} {{ DER_courtier.adresse_ville }}<br/>
+              Courriel : {{ DER_courtier.courriel }}<br/>
+              Délégué à la protection des données (DPO) : {{ DER_courtier.responsable_dpo }}
+            </p>
+
+            <p><strong>B. Finalités du traitement</strong></p>
+            <p>Les données personnelles collectées sont utilisées pour :</p>
+            <ul class="der-list">
+              <li>Évaluer votre situation patrimoniale, financière et personnelle ;</li>
+              <li>Établir un conseil adapté à vos besoins, objectifs et profil de risque ;</li>
+              <li>Préparer, souscrire et gérer vos contrats d’assurance ou de placement ;</li>
+              <li>Respecter les obligations légales du courtier (lutte contre le blanchiment, devoir de conseil, contrôles réglementaires) ;</li>
+              <li>Communiquer des informations utiles à la relation de suivi et de conseil.</li>
+            </ul>
+
+            <p><strong>C. Base légale du traitement</strong></p>
+            <p>Les traitements reposent sur :</p>
+            <ul class="der-list">
+              <li>L’exécution d’un contrat ou de mesures précontractuelles ;</li>
+              <li>Le respect d’obligations légales et réglementaires ;</li>
+              <li>L’intérêt légitime du cabinet pour assurer la qualité et la continuité du service ;</li>
+              <li>Et, le cas échéant, votre consentement explicite.</li>
+            </ul>
+
+            <p><strong>D. Nature des données traitées</strong></p>
+            <p>Les catégories de données collectées incluent :</p>
+            <ul class="der-list">
+              <li>Données d’identification : nom, prénom, date et lieu de naissance, nationalité, NIF, pièce d’identité ;</li>
+              <li>Coordonnées : adresse, téléphone, courriel ;</li>
+              <li>Situation personnelle : état civil, profession, situation familiale et patrimoniale ;</li>
+              <li>Données financières : revenus, charges, actifs, passifs ;</li>
+              <li>Objectifs d’investissement : horizon, tolérance au risque, sensibilité ESG.</li>
+            </ul>
+
+            <p><strong>E. Destinataires des données</strong></p>
+            <p>Les données sont destinées exclusivement à :</p>
+            <ul class="der-list">
+              <li>{{ DER_courtier.nom_cabinet }} et ses collaborateurs soumis à une obligation de confidentialité ;</li>
+              <li>Les compagnies d’assurance, sociétés de gestion ou plateformes partenaires nécessaires à la mise en œuvre des contrats ;</li>
+              <li>Les autorités de contrôle (ACPR, AMF, administration fiscale) lorsque la loi l’exige.</li>
+            </ul>
+            <p>Aucune donnée n’est cédée ni utilisée à des fins commerciales sans votre accord.</p>
+
+            <p><strong>F. Durée de conservation</strong></p>
+            <ul class="der-list">
+              <li>Pendant la durée de la relation contractuelle ;</li>
+              <li>Puis pendant les délais légaux de prescription applicables :</li>
+            </ul>
+            <ul class="der-list" style="margin-left:18px;">
+              <li>10 ans pour les obligations relatives à la lutte contre le blanchiment et le financement du terrorisme ;</li>
+              <li>5 ans pour le devoir de conseil et la traçabilité des recommandations.</li>
+            </ul>
+            <p>Les données sont ensuite archivées ou supprimées conformément à la réglementation.</p>
+
+            <p><strong>G. Sécurité et confidentialité</strong></p>
+            <p>{{ DER_courtier.nom_cabinet }} met en œuvre des mesures techniques et organisationnelles destinées à garantir la confidentialité, l’intégrité et la sécurité de vos données :</p>
+            <ul class="der-list">
+              <li>Systèmes informatiques protégés et sauvegardes régulières ;</li>
+              <li>Accès restreint aux seules personnes habilitées ;</li>
+              <li>Chiffrement des communications et suivi des accès.</li>
+            </ul>
+
+            <p><strong>H. Vos droits</strong></p>
+            <p>Vous disposez à tout moment des droits suivants :</p>
+            <ul class="der-list">
+              <li>Accès, rectification, mise à jour de vos données ;</li>
+              <li>Effacement ou limitation du traitement dans les conditions légales ;</li>
+              <li>Opposition au traitement pour motifs légitimes ;</li>
+              <li>Portabilité de vos données vers un autre prestataire ;</li>
+              <li>Retrait de votre consentement, sans effet rétroactif.</li>
+            </ul>
+            <p>
+              Pour exercer vos droits :<br/>
+              {{ DER_courtier.responsable_dpo }} – {{ DER_courtier.courriel }}<br/>
+              Vous pouvez également saisir la CNIL (www.cnil.fr) en cas de difficulté non résolue.
+            </p>
+
+            <p><strong>I. Transferts de données hors de l’Union européenne</strong></p>
+            <p>Aucun transfert de données hors de l’Union européenne n’est effectué sans garanties adéquates de protection et de confidentialité conformes au RGPD.</p>
+
+            <p><strong>J. Mise à jour de la notice</strong></p>
+            <p>La présente politique est susceptible d’évoluer afin de refléter les changements législatifs ou techniques. La version la plus récente est disponible sur simple demande ou sur le site internet de {{ DER_courtier.nom_cabinet }}.</p>
+          </div>
+        </div>
+
+        <div class="der-section">
+          <h4>8. Médiation et réclamations</h4>
+          <p>Toute réclamation peut être adressée à :<br/>
+          <strong>Courtage du Centre – Service Réclamations</strong><br/>
+          23 rue du quai, 56150 Chatillon sur Saône<br/>
+          Email : jc@cc.fr</p>
+          <p>En cas d’absence de solution amiable, le Client peut saisir :<br/>
+          <strong>{{ centre_mediation_lib or DER_courtier.centre_mediation }}</strong><br/>
+          Contact : banqueroute@acpr.fr</p>
+        </div>
+
+        <div class="der-section">
+          <h4>9. Acceptation</h4>
+          <p>Je, soussigné(e) <strong>{{ client.prenom if client else '' }} {{ client.nom if client else '' }}</strong>, reconnais avoir reçu et pris connaissance du présent <strong>Document d’Entrée en Relation</strong> avant tout engagement.</p>
+          <p><strong>Fait à :</strong> {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
+          {% set _d = fatca_today|default('') %}
+          <strong>Le :</strong> {% if _d and (_d|length >= 10) %}{{ _d[8:10] ~ '/' ~ _d[5:7] ~ '/' ~ _d[0:4] }}{% else %}{{ fatca_today }}{% endif %}</p>
+          <p><strong>Signature du client :</strong> ________________________<br/>
+          <strong>Signature du courtier :</strong> ________________________</p>
+        </div>
       </div>
 
-      <div class="der-section">
-        <h4>1. Identification du courtier</h4>
-        <ul class="der-list">
-          <li><strong>Dénomination sociale :</strong> {{ DER_courtier.nom_cabinet if DER_courtier else '' }}</li>
-          <li><strong>Responsable :</strong> {{ DER_courtier.nom_responsable if DER_courtier else '' }}</li>
-          <li><strong>Statut social :</strong> {{ DER_statut_social.lib if DER_statut_social else '' }}</li>
-          <li><strong>Capital social :</strong> {{ DER_courtier.capital_social if DER_courtier else '' }} €</li>
-          <li><strong>SIREN :</strong> {{ DER_courtier.siren if DER_courtier else '' }}</li>
-          <li><strong>RCS :</strong> {{ DER_courtier.rcs if DER_courtier else '' }}</li>
-          <li><strong>Numéro ORIAS :</strong> {{ DER_courtier.numero_orias if DER_courtier else '' }}</li>
-          <li><strong>Adresse :</strong> {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}</li>
-          <li><strong>Courriel :</strong> {{ DER_courtier.courriel if DER_courtier else '' }}</li>
-          <li><strong>Association professionnelle :</strong> {{ DER_courtier.association_prof if DER_courtier else '' }}{% if DER_courtier and DER_courtier.num_adh_assoc %} (adhérent n° {{ DER_courtier.num_adh_assoc }}){% endif %}</li>
-          <li><strong>Catégorie de courtage :</strong> {{ DER_courtier.categorie_courtage if DER_courtier else '' }}</li>
-        </ul>
-      </div>
-
-      <div class="der-section">
-        <h4>2. Activités et domaines d’exercice</h4>
-        <p>Le cabinet exerce les activités suivantes :</p>
-        <ul class="der-list">
-          {% for activite in (DER_courtier_activite or []) %}
-          <li><strong>{{ activite.libelle }}</strong>{% if activite.domaine %} ({{ activite.domaine }}){% endif %}{% if activite.statut %} – Statut : <strong>{{ activite.statut }}</strong>{% endif %}</li>
-          {% endfor %}
-        </ul>
-        <p class="muted-note">Les activités non exercées sont mentionnées à titre informatif.</p>
-      </div>
-
-      <div class="der-section">
-        <h4>3. Autorités de tutelle</h4>
-        <ul class="der-list">
-          <li><strong>AMF (Autorité des Marchés Financiers)</strong><br/>17, place de la Bourse – 75082 Paris Cedex 02</li>
-          <li><strong>ACPR (Autorité de Contrôle Prudentiel et de Résolution)</strong><br/>61, rue Taitbout – 75436 Paris Cedex 09</li>
-        </ul>
-        <p class="muted-note">Ces autorités veillent au respect des obligations professionnelles du courtier.</p>
-      </div>
-
-      <div class="der-section">
-        <h4>4. Nature et étendue du service</h4>
-        <p>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} agit en qualité de <strong>courtier indépendant</strong>.<br/>
-        Son rôle est d’analyser <strong>vos besoins, vos objectifs et votre profil de risque</strong> afin de recommander les solutions adaptées.</p>
-        <p>Le cabinet ne perçoit ni ne conserve de fonds destinés aux assureurs ou aux clients.</p>
-      </div>
-
-      <div class="der-section">
-        <h4>5. Rémunération et frais</h4>
-        <p>Le cabinet est rémunéré sous forme :</p>
-        <ul class="der-list">
-          <li>de <strong>commissions</strong> versées par les compagnies partenaires ;</li>
-          <li>et/ou de <strong>frais</strong> ou <strong>honoraires</strong> prévus dans la lettre de mission.</li>
-        </ul>
-        <h5 style="margin:8px 0 4px;">Modes de facturation :</h5>
-        <ul class="der-list">
-          {% for f in (DER_courtier_mode_facturation or []) %}
-          <li><strong>{{ f.type }}</strong> : {% if f.montant %}{{ f.montant }} €{% elif f.pourcentage %}{{ f.pourcentage }} %{% endif %}</li>
-          {% endfor %}
-        </ul>
-        <h5 style="margin:8px 0 4px;">Modes de communication :</h5>
-        <ul class="der-list">
-          {% for c in (DER_courtier_ref_mode_comm or []) %}
-          <li>{{ c.lib }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-
-      <div class="der-section">
-        <h4>6. Garanties professionnelles</h4>
-        <p>Le cabinet justifie d’une <strong>assurance responsabilité civile professionnelle</strong> et d’une <strong>garantie financière</strong>, conformément à la réglementation.</p>
-        <table class="der-table">
-          <thead>
-            <tr>
-              <th>Type de garantie</th>
-              <th>Montant Assurance (IAS)</th>
-              <th>Montant Banque (IOBSP)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for g in (DER_courtier_garanties_normes or []) %}
-            <tr>
-              <td>{{ g.type_garantie }}</td>
-              <td>{{ g.IAS }} €</td>
-              <td>{{ g.IOBSP }} €</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="der-section">
-        <h4>7. Données personnelles</h4>
-        <p>Vos informations sont collectées et traitées selon le <strong>RGPD</strong> et la <strong>loi Informatique et Libertés</strong>.<br/>
-        Elles sont utilisées pour analyser votre situation, préparer des recommandations et assurer le suivi de vos contrats.</p>
-        <p>Vous disposez d’un droit d’accès, de rectification et de suppression de vos données.<br/>
-        Pour exercer ces droits, contactez : <strong>{{ DER_courtier.responsable_dpo if DER_courtier else '' }} – {{ DER_courtier.courriel if DER_courtier else '' }}</strong></p>
-      </div>
-
-      <div class="der-section">
-        <h4>8. Médiation et réclamations</h4>
-        <p>En cas de réclamation, vous pouvez contacter :<br/>
-        <strong>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} – Service Réclamations</strong><br/>
-        {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
-        Email : {{ DER_courtier.courriel if DER_courtier else '' }}</p>
-        <p>En cas de désaccord non résolu, vous pouvez saisir :<br/>
-        <strong>{{ DER_courtier.centre_mediation if DER_courtier else '' }}</strong><br/>
-        {{ DER_courtier.mediators if DER_courtier else '' }}<br/>
-        Contact : {{ DER_courtier.mail_mediators if DER_courtier else '' }}</p>
-      </div>
-
-      <div class="der-section">
-        <h4>9. Acceptation</h4>
-        <p>Je, soussigné(e) <strong>{{ client.prenom if client else '' }} {{ client.nom if client else '' }}</strong>, reconnais avoir reçu et pris connaissance du présent <strong>Document d’Entrée en Relation</strong> avant tout engagement.</p>
-        <p><strong>Fait à :</strong> {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
-        <strong>Le :</strong> {{ fatca_today }}</p>
-        <p><strong>Signature du client :</strong> ________________________<br/>
-        <strong>Signature du courtier :</strong> ________________________</p>
-      </div>
+      
     </div>
   </div>
 
@@ -1344,23 +1598,6 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     function openConfTacfinDetail(){ var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='flex'; }
     function openConfEerDetail(){ var m=document.getElementById('confEerDetailModal'); if(m) m.style.display='flex'; }
     function openConfMissionDetail(){ var m=document.getElementById('confMissionDetailModal'); if(m) m.style.display='flex'; }
-    function openConfRgpdDetail(){
-      var m=document.getElementById('confEerDetailModal');
-      if(m){ m.style.display='flex'; try{ openEerSub('rgpd'); }catch(e){} }
-    }
-    function openEerSub(which){
-      try{
-        var doc = document.getElementById('eerDocPanelDetail');
-        var rgpd = document.getElementById('eerRgpdPanelDetail');
-        if (which==='doc'){
-          if (rgpd) rgpd.style.display='none';
-          if (doc) doc.style.display='block';
-        } else if (which==='rgpd'){
-          if (doc) doc.style.display='none';
-          if (rgpd) rgpd.style.display='block';
-        }
-      }catch(e){}
-    }
   </script>
 <script>
   // Charger la liste des documents de base pour le select

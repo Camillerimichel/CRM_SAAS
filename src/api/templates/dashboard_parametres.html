@@ -10,7 +10,8 @@
     background: var(--surface);
   }
   #paramContainer #assureursPanel > .accordion-subtoggle,
-  #paramContainer #contratsPanel > .accordion-subtoggle {
+  #paramContainer #contratsPanel > .accordion-subtoggle,
+  #paramContainer #courtierPanel > .accordion-subtoggle {
     margin: 0 1.25rem 0.75rem;
     padding: 0.75rem 1rem 0.75rem 2.5rem;
     border-radius: 10px;
@@ -190,6 +191,12 @@
   #courtierPanel select {
     padding: 6px 10px;
   }
+  /* Courtier > Détails: harmoniser la hauteur des listes déroulantes dans les tableaux */
+  #courtierDetailsPanel select {
+    height: 36px;
+    padding: 6px 10px;
+    line-height: 24px;
+  }
   /* Actions icons on one line */
   #paramContainer td.actions-cell { white-space: nowrap; }
   /* Détails: grille 2 colonnes pour aligner les largeurs par colonne */
@@ -282,7 +289,7 @@
             <div class="form-row">
               <div class="field" style="width: 18ch;">
                 <label>Capital social</label>
-                <input type="text" name="capital_social" id="capital_social" value="{{ (form_courtier.capital_social if form_courtier and form_courtier.capital_social is not none else (courtier.capital_social if courtier and courtier.capital_social is not none else '')) }}" inputmode="numeric" required />
+                <input type="text" name="capital_social" id="capital_social" value="{{ (form_courtier.capital_social if form_courtier and form_courtier.capital_social is not none else (courtier.capital_social|int if courtier and courtier.capital_social is not none else '')) }}" inputmode="numeric" required />
                 {% if form_errors and form_errors.get('capital_social') %}
                   <div class="muted" style="color:#b91c1c;">{{ form_errors.get('capital_social') }}</div>
                 {% endif %}
@@ -501,7 +508,7 @@
           <table>
             <thead>
               <tr>
-                <th style="min-width:180px; width:180px;">Compagnie</th>
+                <th style="min-width:260px; width:260px;">Compagnie</th>
                 <th class="center" style="width:84px;">Actions</th>
               </tr>
             </thead>
@@ -509,7 +516,7 @@
               {% for it in relation_items %}
               <tr>
                 <td>
-                  <select form="rel-{{ it.id }}" name="societe_id" required style="width:180px;">
+                  <select form="rel-{{ it.id }}" name="societe_id" required style="width:260px;">
                     <option value="">Choisir…</option>
                     {% for s in societes %}
                       <option value="{{ s.id }}" {% if (it.societe_id|int) == (s.id|int) %}selected{% endif %}>{{ s.nom }}</option>
@@ -536,9 +543,9 @@
             <div id="courtierRelCreate" class="create-body">
               <form method="post" action="/dashboard/parametres/courtier/relation?open=courtierDetails" class="card" style="margin:0;">
                 <div class="form-row">
-                  <div class="field" style="min-width:180px;">
+                  <div class="field" style="min-width:260px;">
                     <label>Compagnie</label>
-                    <select name="societe_id" required style="width:180px;">
+                    <select name="societe_id" required style="width:260px;">
                       <option value="">Choisir…</option>
                       {% for s in societes %}
                         <option value="{{ s.id }}">{{ s.nom }}</option>
@@ -564,9 +571,9 @@
                   {% set cname = (col.name or '') %}
                   {% set nl = cname|lower %}
                   {% if nl in ['montant','valeur'] %}
-                    <th style="min-width:120px; width:120px; text-align:right;">{{ cname }}</th>
+                    <th style="min-width:90px; width:90px; text-align:right;">{{ cname }}</th>
                   {% elif nl in ['pourcentage','taux'] %}
-                    <th style="min-width:100px; width:100px; text-align:right;">{{ cname }}</th>
+                    <th style="min-width:70px; width:70px; text-align:right;">%</th>
                   {% else %}
                     <th style="min-width:120px; width:120px;">{{ cname }}</th>
                   {% endif %}
@@ -592,9 +599,9 @@
                 {% set t = (col.type or '').upper() %}
                 <td {% if nl in ['montant','valeur','pourcentage','taux'] %} style="text-align:right;"{% endif %}>
                   {% if nl in ['montant','valeur'] %}
-                    <input class="money-space-int" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ ('%d' % val) if val is not none else '' }}" style="width:120px; text-align:right;" inputmode="numeric" />
+                    <input class="money-space-int" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ ('%d' % val) if val is not none else '' }}" style="width:90px; text-align:right;" inputmode="numeric" />
                   {% elif nl in ['pourcentage','taux'] %}
-                    <input class="percent-2" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ val if val is not none else '' }}" style="width:100px; text-align:right;" inputmode="decimal" />
+                    <input class="percent-2" form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ val if val is not none else '' }}" style="width:70px; text-align:right;" inputmode="decimal" />
                   {% else %}
                     <input form="rem-{{ it.id }}" type="text" name="{{ col.name }}" value="{{ val if val is not none else '' }}" style="width:120px;" {% if 'INT' in t or 'REAL' in t or 'FLOA' in t or 'DOUB' in t or 'DEC' in t or 'NUM' in t %} inputmode="decimal" {% endif %} />
                   {% endif %}
@@ -633,11 +640,11 @@
                   {% set cname = (col.name or '') %}
                   {% set nl = cname|lower %}
                   <div class="field">
-                    <label>{{ cname }}</label>
+                    <label>{% if nl in ['pourcentage','taux'] %}%{% else %}{{ cname }}{% endif %}</label>
                     {% if nl in ['montant','valeur'] %}
-                      <input class="money-space-int" type="text" name="{{ col.name }}" style="width:120px; text-align:right;" inputmode="numeric" />
+                      <input class="money-space-int" type="text" name="{{ col.name }}" style="width:90px; text-align:right;" inputmode="numeric" />
                     {% elif nl in ['pourcentage','taux'] %}
-                      <input class="percent-2" type="text" name="{{ col.name }}" style="width:100px; text-align:right;" inputmode="decimal" />
+                      <input class="percent-2" type="text" name="{{ col.name }}" style="width:70px; text-align:right;" inputmode="decimal" />
                     {% else %}
                       <input type="text" name="{{ col.name }}" style="width:120px;" />
                     {% endif %}
