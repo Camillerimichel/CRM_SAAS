@@ -6665,23 +6665,102 @@ async def dashboard_client_kyc(
     DER_courtier = None
     DER_statut_social = None
     DER_courtier_garanties_normes: list[dict] = []
+    lm_remunerations: list[dict] = []
     DER_courtier_activite: list[dict] = []
     DER_sql_activite: str | None = None
     DER_sql_mediation: str | None = None
+    DER_sql_params_activite: dict | None = {":cid": None}
     try:
         row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
         if row:
             DER_courtier = dict(row._mapping)
-            # Expose statut social label if present in plain text
-            ss = None
+            # Resolve statut social via reference table if value is an id
+            ss_label = None
+            raw_val = None
             for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
-                if key in DER_courtier and DER_courtier.get(key):
-                    ss = DER_courtier.get(key)
+                if key in DER_courtier and DER_courtier.get(key) not in (None, ""):
+                    raw_val = DER_courtier.get(key)
                     break
-            DER_statut_social = {"lib": ss} if ss is not None else None
+            if raw_val is not None:
+                try:
+                    ss_id = int(str(raw_val).strip())
+                    r2 = db.execute(text("SELECT lib FROM DER_statut_social WHERE id = :i"), {"i": ss_id}).fetchone()
+                    if r2 and r2[0]:
+                        ss_label = r2[0]
+                except Exception:
+                    ss_label = str(raw_val)
+            DER_statut_social = {"lib": ss_label} if ss_label is not None else None
     except Exception:
         DER_courtier = None
         DER_statut_social = None
+
+    # Lettre de mission — Rémunération (point H): requête directe, schema connu
+    try:
+        cid = DER_courtier.get("id") if DER_courtier else None
+        if cid is not None:
+            q = text(
+                """
+                SELECT type, montant, pourcentage
+                FROM DER_courtier_mode_facturation
+                WHERE courtier_id = :cid
+                """
+            )
+            rows = db.execute(q, {"cid": cid}).fetchall()
+        else:
+            rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation"))
+        # Build ref mode map for human-friendly labels
+        ref_modes = []
+        try:
+            ref_modes = db.execute(text("SELECT id, mode FROM DER_courtier_mode_facturation_ref")).fetchall()
+        except Exception:
+            ref_modes = []
+        import unicodedata, re
+        def _normtxt(s: str | None) -> str:
+            if s is None:
+                return ""
+            t = unicodedata.normalize('NFKD', str(s))
+            t = ''.join(ch for ch in t if not unicodedata.combining(ch))
+            t = t.lower().replace("_", " ").replace("'", " ")
+            t = re.sub(r"[^a-z0-9]+", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+        ref_map = {}
+        for rm in ref_modes:
+            try:
+                key = _normtxt(rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
+                ref_map[key] = (rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
+            except Exception:
+                continue
+        def _label_for_type(t: str | None) -> str | None:
+            n = _normtxt(t)
+            if not n:
+                return None
+            # Heuristics
+            if 'honor' in n:
+                return ref_map.get('honoraires') or 'Honoraires'
+            if 'entree' in n:
+                return ref_map.get('frais d entree') or "Frais d'entrée"
+            if 'gestion' in n:
+                return ref_map.get('frais de gestion') or 'Frais de gestion'
+            # direct map
+            return ref_map.get(n)
+        for r in rows:
+            m = r._mapping if hasattr(r, "_mapping") else {"type": r[0], "montant": r[1], "pourcentage": r[2]}
+            t = m.get("type")
+            lm_remunerations.append({
+                "type": t,
+                "mode": _label_for_type(t) or (str(t).replace('_', ' ').title() if t else None),
+                "montant": m.get("montant"),
+                "pourcentage": m.get("pourcentage"),
+            })
+        # Tri: HONORAIRES d'abord, puis alpha
+        import unicodedata
+        def _normv(v: str) -> str:
+            s2 = unicodedata.normalize('NFKD', v or '')
+            s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+            return s2.upper()
+        lm_remunerations.sort(key=lambda r: (0 if 'HONOR' in _normv(str(r.get('type') or '')) else 1, _normv(str(r.get('type') or ''))))
+    except Exception:
+        lm_remunerations = []
     # SQL affichée pour le bloc Médiation (point 8)
     try:
         DER_sql_mediation = "SELECT centre_mediation, mediators, mail_mediators FROM DER_courtier ORDER BY id LIMIT 1"
@@ -6713,11 +6792,46 @@ async def dashboard_client_kyc(
     except Exception:
         DER_courtier_garanties_normes = []
 
+    # Load DER activities (courtier_id/activite_id) to feed section 2 — joined with reference for labels
+    DER_activites: list[dict] = []
+    try:
+        cid_val = DER_courtier.get("id") if DER_courtier else None
+        DER_sql_params_activite = {":cid": cid_val}
+        rows_der_act = []
+        if cid_val is not None:
+            rows_der_act = db.execute(
+                text(
+                    """
+                    SELECT a.activite_id, a.statut,
+                           r.code, r.libelle, r.domaine, r.sous_categorie, r.description
+                    FROM DER_courtier_activite a
+                    JOIN DER_courtier_activite_ref r ON r.id = a.activite_id
+                    WHERE a.courtier_id = :cid
+                    ORDER BY r.domaine, r.libelle
+                    """
+                ),
+                {"cid": cid_val},
+            ).fetchall()
+        for rr in rows_der_act or []:
+            mm = rr._mapping
+            DER_activites.append({
+                "activite_id": mm.get("activite_id"),
+                "statut": mm.get("statut"),
+                "code": mm.get("code"),
+                "libelle": mm.get("libelle"),
+                "domaine": mm.get("domaine"),
+                "sous_categorie": mm.get("sous_categorie"),
+                "description": mm.get("description"),
+            })
+    except Exception:
+        DER_activites = []
+        DER_sql_params_activite = {":cid": None}
+
     # Ensure DER variables exist in this path
     try:
-        DER_courtier_activite
+        DER_activites
     except NameError:
-        DER_courtier_activite = []
+        DER_activites = []
     try:
         DER_sql_activite
     except NameError:
@@ -6726,6 +6840,10 @@ async def dashboard_client_kyc(
         DER_sql_mediation
     except NameError:
         DER_sql_mediation = None
+    try:
+        DER_sql_params_activite
+    except NameError:
+        DER_sql_params_activite = {":cid": None}
 
     # DER: activités + SQL (section 2) et SQL médiation (section 8)
     DER_courtier_activite: list[dict] = []
@@ -9552,13 +9670,23 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
         if row:
             DER_courtier = dict(row._mapping)
-            # Expose statut social label if present
-            ss = None
+            # Resolve statut social against reference table if numeric id
+            ss_label = None
+            raw_val = None
             for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
-                if key in DER_courtier and DER_courtier.get(key):
-                    ss = DER_courtier.get(key)
+                if key in DER_courtier and DER_courtier.get(key) not in (None, ""):
+                    raw_val = DER_courtier.get(key)
                     break
-            DER_statut_social = {"lib": ss} if ss is not None else None
+            if raw_val is not None:
+                try:
+                    ss_id = int(str(raw_val).strip())
+                    r2 = db.execute(text("SELECT lib FROM DER_statut_social WHERE id = :i"), {"i": ss_id}).fetchone()
+                    if r2 and r2[0]:
+                        ss_label = r2[0]
+                except Exception:
+                    ss_label = str(raw_val)
+            DER_statut_social = {"lib": ss_label} if ss_label is not None else None
+            # Médiation join retiré temporairement
     except Exception:
         DER_courtier = None
         DER_statut_social = None
@@ -9588,6 +9716,129 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         DER_courtier_garanties_normes = []
 
+    # Safety: ensure debug params always exist
+    try:
+        DER_sql_params_activite
+    except NameError:
+        DER_sql_params_activite = {":cid": None}
+
+    # Lettre de mission (H): chargement dédié (si pas déjà fait dans d'autres blocs)
+    try:
+        lm_remunerations  # type: ignore[name-defined]
+    except NameError:
+        lm_remunerations = []  # type: ignore[assignment]
+        try:
+            row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+            DER_courtier = dict(row._mapping) if row else None
+            cid = DER_courtier.get("id") if DER_courtier else None
+            if cid is not None:
+                rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation WHERE courtier_id = :cid"), {"cid": cid}).fetchall()
+            else:
+                rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation")).fetchall()
+            # Build ref mode map for human-friendly labels
+            ref_modes = []
+            try:
+                ref_modes = db.execute(text("SELECT id, mode FROM DER_courtier_mode_facturation_ref")).fetchall()
+            except Exception:
+                ref_modes = []
+            import unicodedata, re
+            def _normtxt(s: str | None) -> str:
+                if s is None:
+                    return ""
+                t = unicodedata.normalize('NFKD', str(s))
+                t = ''.join(ch for ch in t if not unicodedata.combining(ch))
+                t = t.lower().replace("_", " ").replace("'", " ")
+                t = re.sub(r"[^a-z0-9]+", " ", t)
+                return re.sub(r"\s+", " ", t).strip()
+            ref_map = {}
+            for rm in ref_modes:
+                try:
+                    key = _normtxt(rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
+                    ref_map[key] = (rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
+                except Exception:
+                    continue
+            def _label_for_type(t: str | None) -> str | None:
+                n = _normtxt(t)
+                if not n:
+                    return None
+                if 'honor' in n:
+                    return ref_map.get('honoraires') or 'Honoraires'
+                if 'entree' in n:
+                    return ref_map.get('frais d entree') or "Frais d'entrée"
+                if 'gestion' in n:
+                    return ref_map.get('frais de gestion') or 'Frais de gestion'
+                return ref_map.get(n)
+            for r in rows:
+                m = r._mapping if hasattr(r, "_mapping") else {"type": r[0], "montant": r[1], "pourcentage": r[2]}
+                t = m.get("type")
+                lm_remunerations.append({
+                    "type": t,
+                    "mode": _label_for_type(t) or (str(t).replace('_', ' ').title() if t else None),
+                    "montant": m.get("montant"),
+                    "pourcentage": m.get("pourcentage"),
+                })
+            import unicodedata
+            def _normv(v: str) -> str:
+                s2 = unicodedata.normalize('NFKD', v or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.upper()
+            lm_remunerations.sort(key=lambda r: (0 if 'HONOR' in _normv(str(r.get('type') or '')) else 1, _normv(str(r.get('type') or ''))))
+        except Exception:
+            lm_remunerations = []
+
+    # Safety: guarantee lm_remunerations exists even if earlier block failed
+    try:
+        lm_remunerations  # type: ignore[name-defined]
+    except NameError:
+        lm_remunerations = []  # type: ignore[assignment]
+
+    # Préparer affichage autorité de médiation (label depuis ref)
+    centre_mediation_lib = None
+    try:
+        cm_id = None
+        if DER_courtier and DER_courtier.get("centre_mediation") not in (None, ""):
+            try:
+                cm_id = int(str(DER_courtier.get("centre_mediation")).strip())
+            except Exception:
+                cm_id = None
+        if cm_id is not None:
+            row = db.execute(text("SELECT lib FROM DER_courtier_ref_autorite WHERE id = :i"), {"i": cm_id}).fetchone()
+            if row:
+                centre_mediation_lib = row[0]
+    except Exception:
+        centre_mediation_lib = None
+
+    # DER — Activités et domaines d'exercice pour le courtier courant
+    DER_activites: list[dict] = []
+    try:
+        cid_val = DER_courtier.get("id") if DER_courtier else None
+        if cid_val is not None:
+            rows_der_act = db.execute(
+                text(
+                    """
+                    SELECT a.activite_id, a.statut,
+                           r.code, r.libelle, r.domaine, r.sous_categorie, r.description
+                    FROM DER_courtier_activite a
+                    JOIN DER_courtier_activite_ref r ON r.id = a.activite_id
+                    WHERE a.courtier_id = :cid
+                    ORDER BY r.domaine, r.libelle
+                    """
+                ),
+                {"cid": cid_val},
+            ).fetchall()
+            for rr in rows_der_act or []:
+                mm = rr._mapping
+                DER_activites.append({
+                    "activite_id": mm.get("activite_id"),
+                    "statut": mm.get("statut"),
+                    "code": mm.get("code"),
+                    "libelle": mm.get("libelle"),
+                    "domaine": mm.get("domaine"),
+                    "sous_categorie": mm.get("sous_categorie"),
+                    "description": mm.get("description"),
+                })
+    except Exception:
+        DER_activites = []
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -9663,13 +9914,15 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "fatca_client_country": fatca_client_country,
             "fatca_client_nif": fatca_client_nif,
             "fatca_today": fatca_today,
+            "lm_today": _date.today().strftime('%d/%m/%Y'),
             # DER context for modal rendering
             "DER_courtier": DER_courtier,
             "DER_statut_social": DER_statut_social,
             "DER_courtier_garanties_normes": DER_courtier_garanties_normes,
-            "DER_courtier_activite": DER_courtier_activite,
-            "DER_sql_activite": DER_sql_activite,
-            "DER_sql_mediation": DER_sql_mediation,
+            "lm_remunerations": lm_remunerations,
+            "centre_mediation_lib": centre_mediation_lib,
+            "DER_activites": DER_activites,
+            # points 2 et 8 retirés temporairement
         }
     )
 
