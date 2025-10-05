@@ -5,414 +5,184 @@
 
 {% block content %}
 <style>
-    .main-container {
-        background: white;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        padding: 2rem;
-        margin: 2rem auto;
-    }
-    .header-section {
-        background: var(--primary);
-        color: #fff;
-        padding: 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1.2rem;
-        text-align: center;
-        box-shadow: var(--shadow-sm);
-    }
-    .top-row {
-        display: flex;
-        gap: 2rem;
-        margin-bottom: 2rem;
-    }
-    .srri-info {
-        flex: 1;
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-    }
-    .srri-chart {
-        flex: 1;
-        background: #fff;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        background: white;
-    }
-    /* En-têtes de tableau héritent du style global (base.html) */
-    thead input, thead select {
-        width: 100%;
-        padding: 6px 8px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
-        font-size: 13px;
-    }
-    tbody td {
-        padding: 10px 8px;
-        font-size: 0.95rem; /* harmonise police avec valorisation */
-    }
-    .srri-calc {
-        margin-left: 6px;
-        font-size: 11px;
-        color: #666;
-        vertical-align: middle;
-    }
-    .valo-amount {
-        font-weight: 600;
-        color: #28a745;
-        text-align: right;
-        font-family: monospace;
-        font-size: 0.95rem; /* même taille que le reste */
-    }
-    /* Alignements demandés */
-    #clientsTable thead th:nth-child(3),
-    #clientsTable tbody td:nth-child(3),
-    #clientsTable thead th:nth-child(4),
-    #clientsTable tbody td:nth-child(4) { text-align: center; } /* SRRI & icône centrés */
-    #clientsTable thead th:nth-child(6),
-    #clientsTable tbody td:nth-child(6),
-    #clientsTable thead th:nth-child(7),
-    #clientsTable tbody td:nth-child(7) { text-align: right; } /* Perf 52s & Volatilité à droite */
-    .pagination-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 15px;
-        padding: 10px;
-        background: #f8f9fa;
-        border-radius: 8px;
-    }
-    .clear-btn {
-        background: #ff6b6b;
-        color: white;
-        border: none;
-        padding: 8px 20px;
-        border-radius: 8px;
-        cursor: pointer;
-        font-weight: bold;
-    }
-    .restore-note { display:none; font-size:12px; color:#666; margin: 2px 0 6px 0; }
-    .restore-note .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2f7; border:1px solid #dde3ea; color:#445; font-weight:600; }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
-    .chips { display:flex; flex-wrap:wrap; gap:8px; }
-    .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
-    .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+  .main-container { background: white; border-radius: 12px; box-shadow: var(--shadow-sm); padding: 1rem; }
+  .filters { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; margin: .5rem 0 1rem; }
+  .filters input, .filters select { height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background:#fff; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
+  thead th { background: var(--primary); color: #fff; font-weight: 600; text-transform: uppercase; font-size: .8rem; letter-spacing: .02em; padding: .65rem .6rem; }
+  tbody td { border-top: 1px solid var(--border); padding: .6rem .6rem; font-size: .92rem; }
+  tbody tr:nth-child(odd) td { background: #fcfdff; }
+  tbody tr:hover td { background: #f8fbff; }
+  .right { text-align: right; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace); }
+  .muted { color: var(--muted); }
+  .toolbar { display:flex; justify-content: space-between; align-items:center; margin:.4rem 0 .6rem; }
+  .btn { border:1px solid var(--border); border-radius:8px; padding:.4rem .7rem; background:#fff; cursor:pointer; }
+  /* en-tête supprimé */
+  .center { text-align:center; }
+  /* Centrer SRRI (col 3) et SRRI calculé (col 4) */
+  #clientsTbl thead th:nth-child(3),
+  #clientsTbl tbody td:nth-child(3),
+  #clientsTbl thead th:nth-child(4),
+  #clientsTbl tbody td:nth-child(4) { text-align: center; }
 </style>
 
 <div class="main-container">
-    <div class="header-section">
-        <p><strong>Total clients :</strong> {{ total_clients }}</p>
-    </div>
+  <h2>Liste des clients</h2>
 
-    
+  <div class="filters">
+    <input type="text" id="fNom" placeholder="Filtrer Nom…" />
+    <input type="text" id="fPrenom" placeholder="Filtrer Prénom…" />
+    <select id="fSrri"><option value="">SRRI: Tous</option></select>
+    <select id="fSrriCalc"><option value="">SRRI calculé: Tous</option></select>
+  </div>
 
-    
+  <div class="toolbar">
+    <div class="muted" id="resultsInfo"></div>
+    <button class="btn" id="btnClear">Effacer les filtres</button>
+  </div>
 
-    <h2>Liste des clients</h2>
-    <div class="table-container">
-        <div id="restoreClients" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredClients()">×</a></span></div>
-        <div id="quickToggleCli" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
-            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
-            <span class="chevron">▾</span>
-        </div>
-        <div id="quickSectionCli" style="display:none;">
-        <div class="toolbar">
-            <div class="chips">
-                <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
-                <a class="chip" href="#" onclick="return chipRisk('all')">Risque: Tous</a>
-                <a class="chip" href="#" onclick="return chipRisk('🔥')">🔥 Au‑dessus</a>
-                <a class="chip" href="#" onclick="return chipRisk('🙏')">🙏 Identique</a>
-                <a class="chip" href="#" onclick="return chipRisk('❄️')">❄️ En‑dessous</a>
-                <a class="chip" href="#" onclick="return chipSrri('')">SRRI: Tous</a>
-                <a class="chip" href="#" onclick="return chipSrri('1')">SRRI: 1</a>
-                <a class="chip" href="#" onclick="return chipSrri('2')">SRRI: 2</a>
-                <a class="chip" href="#" onclick="return chipSrri('3')">SRRI: 3</a>
-                <a class="chip" href="#" onclick="return chipSrri('4')">SRRI: 4</a>
-                <a class="chip" href="#" onclick="return chipSrri('5')">SRRI: 5</a>
-                <a class="chip" href="#" onclick="return chipSrri('6')">SRRI: 6</a>
-                <a class="chip" href="#" onclick="return chipSrri('7')">SRRI: 7</a>
-            </div>
-            <div class="toolbar-actions">
-                <button class="btn btn-primary" onclick="exportClientsCSV()">⬇️ Export CSV</button>
-                <button class="btn btn-danger" onclick="clearFilters()">🗑️ Effacer</button>
-            </div>
-        </div>
-        </div>
-        <table id="clientsTable" class="display nowrap" style="width:100%">
-            <thead>
-                <tr>
-                    <th>Nom</th>
-                    <th>Prénom</th>
-                    <th>SRRI</th>
-                    <th>Risque</th>
-                    <th>Valorisation</th>
-                    <th>Perf 52 sem.</th>
-                    <th>Volatilité</th>
-                </tr>
-                <tr>
-                    <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
-                    <th><input type="text" id="prenom-filter" placeholder="Filtrer..."></th>
-                    <th><select id="srri-filter"><option value="">Tous</option></select></th>
-                    <th>
-                        <select id="srri-icon-filter">
-                            <option value=""></option>
-                            <option value="❄️">❄️</option>
-                            <option value="🙏">🙏</option>
-                            <option value="🔥">🔥</option>
-                        </select>
-                    </th>
-                    <th></th>
-                    <th></th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for c in clients %}
-                <tr>
-                    <td><a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ c.nom }}</a></td>
-                    <td>{{ c.prenom }}</td>
-                    <td>{{ c.SRRI }}</td>
-                    <td style="text-align:center;">
-                        {% if c.srri_icon == 'fire' %}🔥{% elif c.srri_icon == 'hands-praying' %}🙏{% elif c.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
-                        {% if c.srri_hist is not none %}<span class="srri-calc">{{ c.srri_hist }}</span>{% endif %}
-                    </td>
-                    <td class="valo-amount">{{ c.total_valo }}</td>
-                    <td>{{ c.perf_52_sem }}</td>
-                    <td>{{ c.volatilite }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    
-
-    <div class="pagination-container">
-        <div id="results-info"></div>
-        <button class="clear-btn" onclick="clearFilters()">🗑️ Effacer</button>
-    </div>
+  <table id="clientsTbl">
+    <thead>
+      <tr>
+        <th>Nom</th>
+        <th>Prénom</th>
+        <th>SRRI</th>
+        <th>SRRI calculé</th>
+        <th class="right">Valorisation</th>
+        <th class="right">Perf 52 sem.</th>
+        <th class="right">Volatilité</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td><a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ c.nom }}</a></td>
+        <td>{{ c.prenom }}</td>
+        <td>{{ c.SRRI }}</td>
+        <td>{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
+        <td class="right">{{ c.total_valo }}</td>
+        <td class="right">{{ c.perf_52_sem }}</td>
+        <td class="right">{{ c.volatilite }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
-<!-- jQuery + DataTables -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-
-<!-- FixedHeader -->
-<link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
-<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
-
-<!-- Chart.js (plus utilisé sur cette page) -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 <script>
-$(document).ready(function () {
-    // (bucket prefilter removed)
-    var table = $('#clientsTable').DataTable({
-        order: [[4, "desc"]], // trier par valorisation (colonne 5 après Nom)
-        pageLength: 25,
-        fixedHeader: true,
-        columnDefs: [
-            {
-                targets: 4, // Valorisation
-                render: $.fn.dataTable.render.number(' ', ',', 0, '', ' €')
-            },
-            {
-                targets: 5, // Perf 52 sem.
-                render: function (data) {
-                    if (data === null || data === undefined || data === '') return '';
-                    var num = parseFloat(data);
-                    if (isNaN(num)) return data;
-                    return num.toFixed(2) + ' %';
-                }
-            },
-            {
-                targets: 6, // Volatilité
-                render: function (data) {
-                    if (data === null || data === undefined || data === '') return '';
-                    var num = parseFloat(data);
-                    if (isNaN(num)) return data;
-                    return num.toFixed(2) + ' %';
-                }
-            }
-        ],
-        initComplete: function () {
-            var api = this.api();
+(function(){
+  function fmtMoney(val){
+    var n = Number(val);
+    if (!isFinite(n)) return '';
+    var s = n.toFixed(2);
+    var parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return parts.join('.');
+  }
+  function fmtPct(frac){
+    var n = Number(frac);
+    if (!isFinite(n)) return '';
+    return (n*100).toFixed(2) + ' %';
+  }
+  function text(el){ return (el?.textContent || '').trim(); }
+  function setText(el, v){ if (el) el.textContent = v; }
 
-            // remplir SRRI unique
-            var srriSelect = $('#srri-filter');
-            api.column(2).data().unique().sort().each(function (d) {
-                if (d) srriSelect.append('<option value="'+d+'">'+d+'</option>');
-            });
+  var tbl = document.getElementById('clientsTbl');
+  var rows = Array.prototype.slice.call(tbl.querySelectorAll('tbody tr'));
 
-            srriSelect.on('change', function () {
-                var val = $(this).val();
-                api.column(2).search(val ? '^'+$.fn.dataTable.util.escapeRegex(val)+'$' : '', true, false).draw();
-                try { var params=new URLSearchParams(window.location.search); if(val) params.set('srri', val); else params.delete('srri'); var u=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', u); } catch(e) {}
-                try { saveClientsState(); } catch(e) {}
-            });
+  // Format numeric columns once
+  rows.forEach(function(tr){
+    var tds = tr.querySelectorAll('td');
+    // Valorisation (index 4)
+    var v = text(tds[4]);
+    setText(tds[4], fmtMoney(v));
+    // Perf (index 5)
+    var p = text(tds[5]);
+    setText(tds[5], fmtPct(p));
+    // Volatilité (index 6)
+    var vol = text(tds[6]);
+    setText(tds[6], fmtPct(vol));
+  });
 
-        }
-    });
+  // Build filter options (SRRI + Risque)
+  var srriSet = new Set();
+  var srriCalcSet = new Set();
+  rows.forEach(function(tr){
+    var tds = tr.querySelectorAll('td');
+    var srri = text(tds[2]);
+    var srriCalc = text(tds[3]);
+    if (srri) srriSet.add(srri);
+    if (srriCalc) srriCalcSet.add(srriCalc);
+  });
+  var fSrri = document.getElementById('fSrri');
+  Array.from(srriSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
+    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrri.appendChild(opt);
+  });
+  var fSrriCalc = document.getElementById('fSrriCalc');
+  Array.from(srriCalcSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
+    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrriCalc.appendChild(opt);
+  });
 
-    // filtres texte
-    function saveClientsState(){
-      try {
-        var st = {
-          nom: $('#nom-filter').val() || '',
-          prenom: $('#prenom-filter').val() || '',
-          srri: $('#srri-filter').val() || '',
-          risk: $('#srri-icon-filter').val() || ''
-        };
-        localStorage.setItem('clients_filters', JSON.stringify(st));
-      } catch(e) {}
+  var fNom = document.getElementById('fNom');
+  var fPrenom = document.getElementById('fPrenom');
+  var resultsInfo = document.getElementById('resultsInfo');
+
+  // Coloration conditionnelle du SRRI calculé vs SRRI
+  rows.forEach(function(tr){
+    var tds = tr.querySelectorAll('td');
+    var srri = Number(text(tds[2]));
+    var calc = Number(text(tds[3]));
+    if (!isNaN(srri) && !isNaN(calc)){
+      if (calc > srri) tds[3].style.color = '#dc2626'; /* rouge */
+      else if (calc === srri) tds[3].style.color = '#16a34a'; /* vert */
+      else tds[3].style.color = getComputedStyle(document.documentElement).getPropertyValue('--primary-600') || '#1e3a8a'; /* bleu foncé */
     }
-    $('#nom-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); saveClientsState(); });
-    $('#prenom-filter').on('keyup change', function () { table.column(1).search(this.value).draw(); saveClientsState(); });
+  });
 
-    // filtre par icône SRRI (colonne 4)
-    $('#srri-icon-filter').on('change', function(){
-        var val = $(this).val();
-        table.column(3).search(val).draw();
-        try { var params=new URLSearchParams(window.location.search); if(val) params.set('risk', val); else params.delete('risk'); var u=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', u); } catch(e) {}
-        try { saveClientsState(); } catch(e) {}
-    });
-
-    // bouton effacer
-    window.clearFilters = function() {
-        $('#nom-filter, #prenom-filter').val('');
-        $('#srri-filter').val('').trigger('change');
-        $('#srri-icon-filter').val('');
-        table.search('');
-        table.columns().every(function(){ this.search(''); });
-        table.draw();
-        try { var params=new URLSearchParams(window.location.search); ['risk','srri'].forEach(k=>params.delete(k)); var u=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', u);} catch(e) {}
-        try { localStorage.removeItem('clients_filters'); } catch(e) {}
-    };
-
-    // Sécurité: au chargement, s'assurer qu'aucun filtre n'est appliqué
-    (function(){
-        try {
-            $('#srri-filter').val('');
-            $('#srri-icon-filter').val('');
-            table.search('');
-            table.columns().every(function(){ this.search(''); });
-            table.draw();
-        } catch(e) {}
-    })();
-
-    // Préfiltres via URL: risk= (above/equal/below/emoji) et srri= ; sinon restaurer depuis localStorage
-    (function(){
-      try {
-        const params = new URLSearchParams(window.location.search);
-        let used = false;
-        let risk = params.get('risk');
-        if (risk){
-          const map = { 'above':'🔥', 'equal':'🙏', 'below':'❄️', 'fire':'🔥', 'hands-praying':'🙏', 'snowflake':'❄️', '🔥':'🔥', '🙏':'🙏', '❄️':'❄️' };
-          const icon = map[String(risk).toLowerCase ? String(risk).toLowerCase() : risk] || map[risk];
-          const sel = document.getElementById('srri-icon-filter'); if (sel && icon){ sel.value = icon; sel.dispatchEvent(new Event('change')); used = true; }
+  function applyFilters(){
+    var qNom = (fNom.value||'').toLowerCase();
+    var qPre = (fPrenom.value||'').toLowerCase();
+    var qSrri = fSrri.value||'';
+    var qSrriCalc = fSrriCalc.value||'';
+    // Risk mode from URL (?risk=above|equal|below)
+    var params = new URLSearchParams(window.location.search);
+    var riskMode = (params.get('risk')||'').toLowerCase();
+    var visible = 0;
+    rows.forEach(function(tr){
+      var tds = tr.querySelectorAll('td');
+      var nom = text(tds[0]).toLowerCase();
+      var prenom = text(tds[1]).toLowerCase();
+      var srri = text(tds[2]);
+      var srriCalc = text(tds[3]);
+      var ok = true;
+      if (qNom && nom.indexOf(qNom) === -1) ok = false;
+      if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
+      if (ok && qSrri && srri !== qSrri) ok = false;
+      if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
+      if (ok && riskMode){
+        var s = Number(srri), c = Number(srriCalc);
+        if (isFinite(s) && isFinite(c)){
+          if (riskMode === 'above' && !(c > s)) ok = false;
+          else if (riskMode === 'equal' && !(c === s)) ok = false;
+          else if (riskMode === 'below' && !(c < s)) ok = false;
         }
-        const srri = params.get('srri');
-        if (srri){ const s = document.getElementById('srri-filter'); if(s){ s.value = srri; s.dispatchEvent(new Event('change')); used = true; } }
-        if (!used){
-          const raw = localStorage.getItem('clients_filters');
-          if (raw){
-            const st = JSON.parse(raw);
-            if (st){
-              let restored=false;
-              if (st.nom){ $('#nom-filter').val(st.nom).trigger('change'); restored=true; }
-              if (st.prenom){ $('#prenom-filter').val(st.prenom).trigger('change'); restored=true; }
-              if (st.srri){ $('#srri-filter').val(st.srri).trigger('change'); restored=true; }
-              if (st.risk){ $('#srri-icon-filter').val(st.risk).trigger('change'); restored=true; }
-              if (restored){ try{ document.getElementById('restoreClients').style.display='block'; }catch(e){} }
-            }
-          }
-        }
-      } catch(e) { /* ignore */ }
-    })();
-    (function(){try{var t=document.getElementById('quickToggleCli'),s=document.getElementById('quickSectionCli');if(!t||!s)return;function setOpen(o){s.style.display=o?'':'none';t.classList.toggle('collapsed',!o);localStorage.setItem('cli_quick_open',o?'1':'');}var saved=localStorage.getItem('cli_quick_open')==='1';setOpen(saved);t.addEventListener('click',function(){setOpen(s.style.display==='none');});}catch(e){}})();
-
-    // Chips actions
-    window.chipRisk = function(val){ var sel=document.getElementById('srri-icon-filter'); if(val==='all'){ sel.value=''; } else { sel.value=val; } sel.dispatchEvent(new Event('change')); return false; };
-    window.chipSrri = function(val){ var s=document.getElementById('srri-filter'); s.value=(val||''); s.dispatchEvent(new Event('change')); return false; };
-
-    // Export CSV (lignes filtrées)
-    window.exportClientsCSV = function(){ try{ var headers=[]; $('#clientsTable thead tr').first().find('th').each(function(){ headers.push($(this).text().trim()); }); var rows=[]; table.rows({search:'applied'}).every(function(){ var d=this.data(); rows.push(d.map(function(cell){ var t=$('<div>').html(cell).text(); if (t.indexOf(',')!==-1||t.indexOf('"')!==-1||t.indexOf('\n')!==-1){ t='"'+t.replace(/"/g,'""')+'"'; } return t; }).join(',')); }); var csv=headers.join(',')+'\n'+rows.join('\n'); var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='clients_export.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);}catch(e){} };
-
-    // (Graphiques SRRI retirés de cette page — présents sur le tableau de bord)
-
-    // reset depuis le badge restauré
-    window.resetRestoredClients = function(){ try{ document.getElementById('restoreClients').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
-
-    
-});
-
-// Accordéon Conformité
-(function(){
-  var btn = document.getElementById('conformiteToggleCli');
-  var panel = document.getElementById('conformiteSectionCli');
-  if(btn && panel){
-    btn.addEventListener('click', function(){ panel.style.display = (panel.style.display==='none'||!panel.style.display)?'block':'none'; });
-  }
-})();
-
-// Modales Conformité (placeholders)
-(function(){
-  var overlayStyle = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999;';
-  var cardStyle = 'background:#fff; border-radius:12px; width:780px; max-width:95vw; max-height:92vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2);';
-  function makeModal(id, title, innerHtml){
-    var div = document.createElement('div'); div.id=id; div.setAttribute('style', overlayStyle);
-    div.innerHTML = '<div style="'+cardStyle+'">\
-      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border);">\
-        <h3 style="margin:0; font-size:1.05rem;">'+title+'</h3>\
-        <button style="border:none; background:transparent; font-size:18px; cursor:pointer;" onclick="document.getElementById(\''+id+'\').style.display=\'none\'">✕</button>\
-      </div>\
-      <div style="padding:12px 14px;">'+innerHtml+'</div>\
-    </div>';
-    div.addEventListener('click', function(e){ if(e.target===div){ div.style.display='none'; }});
-    document.body.appendChild(div);
-    return div;
-  }
-  var modalConnaissance = makeModal('confConnaissanceModal', 'Connaissance client', '<p class="muted">En cours de développement.</p><p>Ouvrir la fiche KYC du client pour saisir les informations détaillées.</p>');
-  var modalTacfin = makeModal('confTacfinModal', 'TRACFIN / FATCA', '<p class="muted">En cours de développement.</p><p>Cette fenêtre reprendra le formulaire TRACFIN / FATCA de la fiche KYC.</p>');
-  var modalEer = makeModal('confEerModal', 'Entrée en relation', '
-    <div class="card" style="margin:0;">
-      <div class="accordion-toggle" data-target="eerDocPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
-        <span>Document d’entrée en relation</span><span class="chevron">▾</span>
-      </div>
-      <div class="accordion-panel" id="eerDocPanelCli" style="display:none;">
-        <p class="muted">En cours de développement.</p>
-      </div>
-      <div class="accordion-toggle" data-target="eerRgpdPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
-        <span>RGPD</span><span class="chevron">▾</span>
-      </div>
-      <div class="accordion-panel" id="eerRgpdPanelCli" style="display:none;">
-        <p class="muted">En cours de développement.</p>
-      </div>
-      <div class="accordion-toggle" data-target="eerMissionPanelCli" style="padding:8px 0; cursor:pointer; display:flex; justify-content:space-between;">
-        <span>Lettre de Mission</span><span class="chevron">▾</span>
-      </div>
-      <div class="accordion-panel" id="eerMissionPanelCli" style="display:none;">
-        <p class="muted">En cours de développement.</p>
-      </div>
-    </div>'
-  );
-  function wireAccordions(root){
-    root.querySelectorAll('.accordion-toggle').forEach(function(btn){
-      btn.addEventListener('click', function(){ var id=btn.getAttribute('data-target'); var p=document.getElementById(id); if(p){ p.style.display=(p.style.display==='none'||!p.style.display)?'block':'none'; }});
+      }
+      tr.style.display = ok ? '' : 'none';
+      if (ok) visible++;
     });
+    resultsInfo.textContent = visible + ' / ' + rows.length + ' affichés';
   }
-  wireAccordions(modalEer);
-  document.getElementById('btnConfConnaissance')?.addEventListener('click', function(){ modalConnaissance.style.display='flex'; });
-  document.getElementById('btnConfTacfin')?.addEventListener('click', function(){ modalTacfin.style.display='flex'; });
-  document.getElementById('btnConfEer')?.addEventListener('click', function(){ modalEer.style.display='flex'; });
+
+  ['input','change'].forEach(function(ev){ fNom.addEventListener(ev, applyFilters); fPrenom.addEventListener(ev, applyFilters); });
+  fSrri.addEventListener('change', applyFilters);
+  fSrriCalc.addEventListener('change', applyFilters);
+  document.getElementById('btnClear').addEventListener('click', function(){
+    fNom.value = ''; fPrenom.value = ''; fSrri.value = ''; fSrriCalc.value = ''; applyFilters();
+  });
+
+  // Initial state
+  applyFilters();
 })();
-</script>
 </script>
 
 {% endblock %}

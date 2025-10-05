@@ -6660,6 +6660,394 @@ async def dashboard_client_kyc(
     fatca_client_country: str | None = None
     fatca_client_nif: str | None = None
     fatca_today = _date.today().isoformat()
+
+    # --- DER data for Conformité modal (client detail) ---
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    DER_courtier_activite: list[dict] = []
+    DER_sql_activite: str | None = None
+    DER_sql_mediation: str | None = None
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            DER_courtier = dict(row._mapping)
+            # Expose statut social label if present in plain text
+            ss = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in DER_courtier and DER_courtier.get(key):
+                    ss = DER_courtier.get(key)
+                    break
+            DER_statut_social = {"lib": ss} if ss is not None else None
+    except Exception:
+        DER_courtier = None
+        DER_statut_social = None
+    # SQL affichée pour le bloc Médiation (point 8)
+    try:
+        DER_sql_mediation = "SELECT centre_mediation, mediators, mail_mediators FROM DER_courtier ORDER BY id LIMIT 1"
+    except Exception:
+        DER_sql_mediation = None
+
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                DER_courtier_garanties_normes.append({
+                    'type_garantie': m.get(c_type) if c_type else None,
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                })
+    except Exception:
+        DER_courtier_garanties_normes = []
+
+    # Ensure DER variables exist in this path
+    try:
+        DER_courtier_activite
+    except NameError:
+        DER_courtier_activite = []
+    try:
+        DER_sql_activite
+    except NameError:
+        DER_sql_activite = None
+    try:
+        DER_sql_mediation
+    except NameError:
+        DER_sql_mediation = None
+
+    # DER: activités + SQL (section 2) et SQL médiation (section 8)
+    DER_courtier_activite: list[dict] = []
+    DER_sql_activite: str | None = None
+    DER_sql_mediation: str | None = None
+    try:
+        DER_sql_mediation = "SELECT centre_mediation, mediators, mail_mediators FROM DER_courtier ORDER BY id LIMIT 1"
+    except Exception:
+        DER_sql_mediation = None
+    try:
+        act_table = _resolve_table_name(db, ["DER_courtier_activite"]) or None
+        ref_table = _resolve_table_name(db, ["DER_courtier_activite_ref"]) or None
+        if act_table:
+            id_col, fk_ref_col, fk_cour_col, _c1, _c2 = _courtier_activite_columns(db, act_table)
+            where_clause = ""
+            params: dict[str, object] = {}
+            if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = DER_courtier.get("id")
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            # Map ref id -> libellé
+            ref_map: dict[str, str] = {}
+            if ref_table:
+                try:
+                    refs = _fetch_ref_list(db, [ref_table]) or []
+                    for r in refs:
+                        ref_map[str(r.get("id"))] = str(r.get("libelle") or "")
+                except Exception:
+                    ref_map = {}
+            # Colonnes facultatives
+            cols = _sqlite_table_columns(db, act_table)
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(c.get("name") or ""): c.get("name") for c in cols }
+            c_statut = inv.get('statut')
+            c_domaine = inv.get('domaine') or inv.get('domaine_exercice') or inv.get('domaineactivite')
+            for r in rows:
+                m = r._mapping
+                ref_id_val = m.get(fk_ref_col) if fk_ref_col else None
+                lib = ref_map.get(str(ref_id_val)) if ref_id_val is not None else None
+                DER_courtier_activite.append({
+                    'libelle': lib,
+                    'statut': m.get(c_statut) if c_statut else None,
+                    'domaine': m.get(c_domaine) if c_domaine else None,
+                })
+            # SQL join affichable
+            try:
+                if ref_table and fk_ref_col:
+                    ref_cols = _sqlite_table_columns(db, ref_table)
+                    ref_pk = next((c.get("name") for c in ref_cols if c.get("pk")), None) or 'id'
+                    name_map = {_norm(c.get("name") or ''): c.get("name") for c in ref_cols}
+                    ref_label_col = name_map.get('libelle') or name_map.get('label') or name_map.get('nom') or name_map.get('name') or name_map.get('intitule') or name_map.get('intitulé') or 'libelle'
+                    where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
+                    DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
+                else:
+                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+            except Exception:
+                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+    except Exception:
+        DER_courtier_activite = []
+        DER_sql_activite = None
+
+    # DER: activités + SQL affichage (section 2) et SQL médiation (section 8)
+    DER_courtier_activite: list[dict] = []
+    DER_sql_activite: str | None = None
+    DER_sql_mediation: str | None = None
+    try:
+        DER_sql_mediation = "SELECT centre_mediation, mediators, mail_mediators FROM DER_courtier ORDER BY id LIMIT 1"
+    except Exception:
+        DER_sql_mediation = None
+    try:
+        act_table = _resolve_table_name(db, ["DER_courtier_activite"]) or None
+        ref_table = _resolve_table_name(db, ["DER_courtier_activite_ref"]) or None
+        if act_table:
+            id_col, fk_ref_col, fk_cour_col, _c1, _c2 = _courtier_activite_columns(db, act_table)
+            where_clause = ""
+            params: dict[str, object] = {}
+            if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = DER_courtier.get("id")
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            # Map ref id -> libellé
+            ref_map: dict[str, str] = {}
+            if ref_table:
+                try:
+                    refs = _fetch_ref_list(db, [ref_table]) or []
+                    for r in refs:
+                        ref_map[str(r.get("id"))] = str(r.get("libelle") or "")
+                except Exception:
+                    ref_map = {}
+            # Detect facultatives
+            cols = _sqlite_table_columns(db, act_table)
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(c.get("name") or ""): c.get("name") for c in cols }
+            c_statut = inv.get('statut')
+            c_domaine = inv.get('domaine') or inv.get('domaine_exercice') or inv.get('domaineactivite')
+            for r in rows:
+                m = r._mapping
+                ref_id_val = m.get(fk_ref_col) if fk_ref_col else None
+                lib = ref_map.get(str(ref_id_val)) if ref_id_val is not None else None
+                DER_courtier_activite.append({
+                    'libelle': lib,
+                    'statut': m.get(c_statut) if c_statut else None,
+                    'domaine': m.get(c_domaine) if c_domaine else None,
+                })
+            # SQL join affichable
+            try:
+                if ref_table and fk_ref_col:
+                    ref_cols = _sqlite_table_columns(db, ref_table)
+                    ref_pk = next((c.get("name") for c in ref_cols if c.get("pk")), None) or 'id'
+                    name_map = {_norm(c.get("name") or ''): c.get("name") for c in ref_cols}
+                    ref_label_col = name_map.get('libelle') or name_map.get('label') or name_map.get('nom') or name_map.get('name') or name_map.get('intitule') or name_map.get('intitulé') or 'libelle'
+                    where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
+                    DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
+                else:
+                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+            except Exception:
+                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+    except Exception:
+        DER_courtier_activite = []
+        DER_sql_activite = None
+
+    # Activités du courtier (pour DER §2)
+    try:
+        act_table = _resolve_table_name(db, ["DER_courtier_activite"]) or None
+        ref_table = _resolve_table_name(db, ["DER_courtier_activite_ref"]) or None
+        if act_table:
+            id_col, fk_ref_col, fk_cour_col, _c1, _c2 = _courtier_activite_columns(db, act_table)
+            # Charger activités
+            where_clause = ""
+            params: dict[str, object] = {}
+            if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
+                where_clause = f" WHERE {fk_cour_col} = :cid"
+                params["cid"] = DER_courtier.get("id")
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            # Map ref id -> libellé
+            ref_map: dict[str, str] = {}
+            if ref_table:
+                try:
+                    refs = _fetch_ref_list(db, [ref_table]) or []
+                    for r in refs:
+                        ref_map[str(r.get("id"))] = str(r.get("libelle") or "")
+                except Exception:
+                    ref_map = {}
+            # Detect colonnes statut/domaine si présentes
+            cols = _sqlite_table_columns(db, act_table)
+            norm = lambda s: ''.join(ch for ch in __import__('unicodedata').normalize('NFKD', (s or '')) if not __import__('unicodedata').combining(ch)).lower()
+            inv = { norm(c.get("name") or ""): c.get("name") for c in cols }
+            c_statut = inv.get('statut')
+            c_domaine = inv.get('domaine') or inv.get('domaine_exercice') or inv.get('domaineactivite')
+            for r in rows:
+                m = r._mapping
+                ref_id_val = m.get(fk_ref_col) if fk_ref_col else None
+                lib = ref_map.get(str(ref_id_val)) if ref_id_val is not None else None
+                DER_courtier_activite.append({
+                    'libelle': lib,
+                    'statut': m.get(c_statut) if c_statut else None,
+                    'domaine': m.get(c_domaine) if c_domaine else None,
+                })
+            # Construire une requête SQL affichable (JOIN explicite si possible)
+            try:
+                if ref_table and fk_ref_col:
+                    # Détection colonnes id/label de la ref
+                    ref_cols = _sqlite_table_columns(db, ref_table)
+                    ref_pk = next((c.get("name") for c in ref_cols if c.get("pk")), None) or 'id'
+                    # label heuristique
+                    import unicodedata
+                    def _norm(s: str) -> str:
+                        s2 = unicodedata.normalize('NFKD', s or '')
+                        s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                        return s2.lower()
+                    name_map = {_norm(c.get("name") or ''): c.get("name") for c in ref_cols}
+                    ref_label_col = name_map.get('libelle') or name_map.get('label') or name_map.get('nom') or name_map.get('name') or name_map.get('intitule') or name_map.get('intitulé') or 'libelle'
+                    where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
+                    DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
+                else:
+                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+            except Exception:
+                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+    except Exception:
+        DER_courtier_activite = []
+        DER_sql_activite = None
+
+    # --- DER data for Conformité modal (client detail) ---
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            DER_courtier = dict(row._mapping)
+            # Try to expose statut social label directly if present
+            ss = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in DER_courtier and DER_courtier.get(key):
+                    ss = DER_courtier.get(key)
+                    break
+            DER_statut_social = {"lib": ss} if ss is not None else None
+    except Exception:
+        DER_courtier = None
+        DER_statut_social = None
+
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                DER_courtier_garanties_normes.append({
+                    'type_garantie': m.get(c_type) if c_type else None,
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                })
+    except Exception:
+        DER_courtier_garanties_normes = []
+
+    # --- DER data for Conformité modal (client detail) ---
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            DER_courtier = dict(row._mapping)
+            # Expose statut social label if present as plain text
+            ss = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in DER_courtier and DER_courtier.get(key):
+                    ss = DER_courtier.get(key)
+                    break
+            DER_statut_social = {"lib": ss} if ss is not None else None
+    except Exception:
+        DER_courtier = None
+        DER_statut_social = None
+
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                DER_courtier_garanties_normes.append({
+                    'type_garantie': m.get(c_type) if c_type else None,
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                })
+    except Exception:
+        DER_courtier_garanties_normes = []
+
+    # --- DER data for Conformité modal (client detail) ---
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            DER_courtier = dict(row._mapping)
+            # Try to expose statut social label directly if present as text
+            ss = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in DER_courtier and DER_courtier.get(key):
+                    ss = DER_courtier.get(key)
+                    break
+            DER_statut_social = {"lib": ss} if ss is not None else None
+    except Exception:
+        DER_courtier = None
+        DER_statut_social = None
+
+    # Load guarantees norms (robust to column names)
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                DER_courtier_garanties_normes.append({
+                    'type_garantie': m.get(c_type) if c_type else None,
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                })
+    except Exception:
+        DER_courtier_garanties_normes = []
     try:
         rows = db.execute(
             text(
@@ -8319,6 +8707,14 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
 # ---------------- Détail Client ----------------
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
+    # Ensure DER context variables always exist to avoid NameError in templates
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    DER_courtier_activite: list[dict] = []
+    DER_sql_activite: str | None = None
+    DER_sql_mediation: str | None = None
+
     client = db.query(Client).filter(Client.id == client_id).first()
 
     # Historique complet pour la courbe (inclut mouvements pour cumul)
@@ -9148,6 +9544,50 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         pass
     fatca_today = _date.today().isoformat()
 
+    # --- DER data for Conformité modal (client detail) ---
+    DER_courtier = None
+    DER_statut_social = None
+    DER_courtier_garanties_normes: list[dict] = []
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            DER_courtier = dict(row._mapping)
+            # Expose statut social label if present
+            ss = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in DER_courtier and DER_courtier.get(key):
+                    ss = DER_courtier.get(key)
+                    break
+            DER_statut_social = {"lib": ss} if ss is not None else None
+    except Exception:
+        DER_courtier = None
+        DER_statut_social = None
+
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = { _norm(n): n for n in colnames }
+            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
+            c_ias = inv.get('ias') or 'IAS'
+            c_iobsp = inv.get('iobsp') or 'IOBSP'
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            for r in rows:
+                m = r._mapping
+                DER_courtier_garanties_normes.append({
+                    'type_garantie': m.get(c_type) if c_type else None,
+                    'IAS': m.get(c_ias),
+                    'IOBSP': m.get(c_iobsp),
+                })
+    except Exception:
+        DER_courtier_garanties_normes = []
+
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -9223,6 +9663,13 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "fatca_client_country": fatca_client_country,
             "fatca_client_nif": fatca_client_nif,
             "fatca_today": fatca_today,
+            # DER context for modal rendering
+            "DER_courtier": DER_courtier,
+            "DER_statut_social": DER_statut_social,
+            "DER_courtier_garanties_normes": DER_courtier_garanties_normes,
+            "DER_courtier_activite": DER_courtier_activite,
+            "DER_sql_activite": DER_sql_activite,
+            "DER_sql_mediation": DER_sql_mediation,
         }
     )
 

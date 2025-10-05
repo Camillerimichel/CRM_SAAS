@@ -152,9 +152,10 @@
     <div class="modal-card" style="width:720px; max-width:95vw;">
       <div class="modal-header"><h3>Conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
       <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>Entrée en relation</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>DER</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfRgpdDetail()"><i class="fa-solid fa-lock"></i>RGPD</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
       </div>
     </div>
@@ -1197,12 +1198,136 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   <div class="modal-card" style="width:760px; max-width:96vw;">
     <div class="modal-header"><h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3><button class="modal-close" onclick="document.getElementById('confEerDetailModal').style.display='none'">✕</button></div>
     <div class="modal-body">
-      <div class="accordion card" style="margin:0;">
-        <button class="accordion-toggle" data-target="eerDocPanelDetail" onclick="openEerSub('doc')"><span>Document d’entrée en relation</span><span class="chevron">▾</span></button>
-        <div class="accordion-panel" id="eerDocPanelDetail" style="display:none;"><p class="muted">En cours de développement.</p></div>
-        <button class="accordion-toggle" data-target="eerRgpdPanelDetail" onclick="openEerSub('rgpd')"><span>RGPD</span><span class="chevron">▾</span></button>
-        <div class="accordion-panel" id="eerRgpdPanelDetail" style="display:none;"><p class="muted">En cours de développement.</p></div>
-        
+      <style>
+        .der-section { margin-bottom: 14px; }
+        .der-section h4 { margin: 0 0 6px; font-size: 1rem; }
+        .der-list { margin: 0; padding-left: 18px; }
+        .der-table { width: 100%; border-collapse: collapse; }
+        .der-table th, .der-table td { border: 1px solid var(--border); padding: 6px 8px; font-size: .92rem; }
+        .der-table th { background: var(--primary-100); text-align: left; }
+        .muted-note { color: var(--muted); font-size: .9rem; }
+      </style>
+
+      <div class="der-section">
+        <h3 style="margin:0 0 8px;">DOCUMENT D’ENTRÉE EN RELATION (DER)</h3>
+        <div class="muted-note">Conformément aux articles L.520-1 et suivants du Code des assurances et L.541-8-1 du Code monétaire et financier</div>
+      </div>
+
+      <div class="der-section">
+        <h4>1. Identification du courtier</h4>
+        <ul class="der-list">
+          <li><strong>Dénomination sociale :</strong> {{ DER_courtier.nom_cabinet if DER_courtier else '' }}</li>
+          <li><strong>Responsable :</strong> {{ DER_courtier.nom_responsable if DER_courtier else '' }}</li>
+          <li><strong>Statut social :</strong> {{ DER_statut_social.lib if DER_statut_social else '' }}</li>
+          <li><strong>Capital social :</strong> {{ DER_courtier.capital_social if DER_courtier else '' }} €</li>
+          <li><strong>SIREN :</strong> {{ DER_courtier.siren if DER_courtier else '' }}</li>
+          <li><strong>RCS :</strong> {{ DER_courtier.rcs if DER_courtier else '' }}</li>
+          <li><strong>Numéro ORIAS :</strong> {{ DER_courtier.numero_orias if DER_courtier else '' }}</li>
+          <li><strong>Adresse :</strong> {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}</li>
+          <li><strong>Courriel :</strong> {{ DER_courtier.courriel if DER_courtier else '' }}</li>
+          <li><strong>Association professionnelle :</strong> {{ DER_courtier.association_prof if DER_courtier else '' }}{% if DER_courtier and DER_courtier.num_adh_assoc %} (adhérent n° {{ DER_courtier.num_adh_assoc }}){% endif %}</li>
+          <li><strong>Catégorie de courtage :</strong> {{ DER_courtier.categorie_courtage if DER_courtier else '' }}</li>
+        </ul>
+      </div>
+
+      <div class="der-section">
+        <h4>2. Activités et domaines d’exercice</h4>
+        <p>Le cabinet exerce les activités suivantes :</p>
+        <ul class="der-list">
+          {% for activite in (DER_courtier_activite or []) %}
+          <li><strong>{{ activite.libelle }}</strong>{% if activite.domaine %} ({{ activite.domaine }}){% endif %}{% if activite.statut %} – Statut : <strong>{{ activite.statut }}</strong>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        <p class="muted-note">Les activités non exercées sont mentionnées à titre informatif.</p>
+      </div>
+
+      <div class="der-section">
+        <h4>3. Autorités de tutelle</h4>
+        <ul class="der-list">
+          <li><strong>AMF (Autorité des Marchés Financiers)</strong><br/>17, place de la Bourse – 75082 Paris Cedex 02</li>
+          <li><strong>ACPR (Autorité de Contrôle Prudentiel et de Résolution)</strong><br/>61, rue Taitbout – 75436 Paris Cedex 09</li>
+        </ul>
+        <p class="muted-note">Ces autorités veillent au respect des obligations professionnelles du courtier.</p>
+      </div>
+
+      <div class="der-section">
+        <h4>4. Nature et étendue du service</h4>
+        <p>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} agit en qualité de <strong>courtier indépendant</strong>.<br/>
+        Son rôle est d’analyser <strong>vos besoins, vos objectifs et votre profil de risque</strong> afin de recommander les solutions adaptées.</p>
+        <p>Le cabinet ne perçoit ni ne conserve de fonds destinés aux assureurs ou aux clients.</p>
+      </div>
+
+      <div class="der-section">
+        <h4>5. Rémunération et frais</h4>
+        <p>Le cabinet est rémunéré sous forme :</p>
+        <ul class="der-list">
+          <li>de <strong>commissions</strong> versées par les compagnies partenaires ;</li>
+          <li>et/ou de <strong>frais</strong> ou <strong>honoraires</strong> prévus dans la lettre de mission.</li>
+        </ul>
+        <h5 style="margin:8px 0 4px;">Modes de facturation :</h5>
+        <ul class="der-list">
+          {% for f in (DER_courtier_mode_facturation or []) %}
+          <li><strong>{{ f.type }}</strong> : {% if f.montant %}{{ f.montant }} €{% elif f.pourcentage %}{{ f.pourcentage }} %{% endif %}</li>
+          {% endfor %}
+        </ul>
+        <h5 style="margin:8px 0 4px;">Modes de communication :</h5>
+        <ul class="der-list">
+          {% for c in (DER_courtier_ref_mode_comm or []) %}
+          <li>{{ c.lib }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="der-section">
+        <h4>6. Garanties professionnelles</h4>
+        <p>Le cabinet justifie d’une <strong>assurance responsabilité civile professionnelle</strong> et d’une <strong>garantie financière</strong>, conformément à la réglementation.</p>
+        <table class="der-table">
+          <thead>
+            <tr>
+              <th>Type de garantie</th>
+              <th>Montant Assurance (IAS)</th>
+              <th>Montant Banque (IOBSP)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in (DER_courtier_garanties_normes or []) %}
+            <tr>
+              <td>{{ g.type_garantie }}</td>
+              <td>{{ g.IAS }} €</td>
+              <td>{{ g.IOBSP }} €</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="der-section">
+        <h4>7. Données personnelles</h4>
+        <p>Vos informations sont collectées et traitées selon le <strong>RGPD</strong> et la <strong>loi Informatique et Libertés</strong>.<br/>
+        Elles sont utilisées pour analyser votre situation, préparer des recommandations et assurer le suivi de vos contrats.</p>
+        <p>Vous disposez d’un droit d’accès, de rectification et de suppression de vos données.<br/>
+        Pour exercer ces droits, contactez : <strong>{{ DER_courtier.responsable_dpo if DER_courtier else '' }} – {{ DER_courtier.courriel if DER_courtier else '' }}</strong></p>
+      </div>
+
+      <div class="der-section">
+        <h4>8. Médiation et réclamations</h4>
+        <p>En cas de réclamation, vous pouvez contacter :<br/>
+        <strong>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} – Service Réclamations</strong><br/>
+        {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
+        Email : {{ DER_courtier.courriel if DER_courtier else '' }}</p>
+        <p>En cas de désaccord non résolu, vous pouvez saisir :<br/>
+        <strong>{{ DER_courtier.centre_mediation if DER_courtier else '' }}</strong><br/>
+        {{ DER_courtier.mediators if DER_courtier else '' }}<br/>
+        Contact : {{ DER_courtier.mail_mediators if DER_courtier else '' }}</p>
+      </div>
+
+      <div class="der-section">
+        <h4>9. Acceptation</h4>
+        <p>Je, soussigné(e) <strong>{{ client.prenom if client else '' }} {{ client.nom if client else '' }}</strong>, reconnais avoir reçu et pris connaissance du présent <strong>Document d’Entrée en Relation</strong> avant tout engagement.</p>
+        <p><strong>Fait à :</strong> {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
+        <strong>Le :</strong> {{ fatca_today }}</p>
+        <p><strong>Signature du client :</strong> ________________________<br/>
+        <strong>Signature du courtier :</strong> ________________________</p>
       </div>
     </div>
   </div>
@@ -1219,6 +1344,10 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     function openConfTacfinDetail(){ var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='flex'; }
     function openConfEerDetail(){ var m=document.getElementById('confEerDetailModal'); if(m) m.style.display='flex'; }
     function openConfMissionDetail(){ var m=document.getElementById('confMissionDetailModal'); if(m) m.style.display='flex'; }
+    function openConfRgpdDetail(){
+      var m=document.getElementById('confEerDetailModal');
+      if(m){ m.style.display='flex'; try{ openEerSub('rgpd'); }catch(e){} }
+    }
     function openEerSub(which){
       try{
         var doc = document.getElementById('eerDocPanelDetail');
