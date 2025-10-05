@@ -15,8 +15,14 @@ venv/
 *.sqlite3
 *.db
 *.db3
+base.sqlite
+crm.db
 data/*.sqlite*
 data/*.db*
+data/*.bak_*
+
+# Frontend cache artifacts
+frontend/node_modules/.cache/
 
 # Notebooks auto files
 *.ipynb_checkpoints/
