@@ -37,12 +37,19 @@
   .valo-negative { color: #c0392b; }
   table i.fa-solid { font-size: 0.9rem !important; }
   .center { text-align: center; }
+  /* SRRI colored dots */
+  .srri-dot { display:inline-block; width: 1em; height: 1em; border-radius: 50%; vertical-align: middle; }
+  .srri-red { background:#ef4444; }
+  .srri-green { background:#16a34a; }
+  .srri-blue { background:#3b82f6; }
   /* Bouton Voir compact */
   .btn-view { display:inline-block; padding: 2px 6px; font-size: 0.65rem; border-radius: 4px; background: var(--primary); color: #fff; text-decoration: none; }
   /* Réduire la marge haute du bloc contrats */
   #invSection { padding-top: 8px; }
   #invSection h3 { margin: 4px 0 8px; }
   #invSection table { margin-top: 0; }
+  /* Réduire la largeur du sélecteur de date à la taille d'une date */
+  #asOfSelect { width: 12ch; min-width: 12ch; }
   .kpi-mini { font-size: 0.85rem; color: #333; line-height: 1.2; }
   .kpi-line { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; }
   .kpi-line:first-of-type { margin-top:6px; }
@@ -138,8 +145,10 @@
     </div>
   </div>
 
-  <!-- Modale dédiée: Lettre de Mission -->
-  <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
+  
+
+<!-- Modale dédiée: Lettre de Mission -->
+<div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal-card" style="width:760px; max-width:96vw;">
       <div class="modal-header"><h3><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Lettre de Mission</h3><button class="modal-close" onclick="document.getElementById('confMissionDetailModal').style.display='none'">✕</button></div>
       <div class="modal-body">
@@ -190,6 +199,15 @@
             <li><strong>Directive (UE) 2016/97</strong> dite <strong>DDA</strong></li>
             <li><strong>Directive (UE) 2014/65</strong> dite <strong>MIF 2</strong></li>
           </ul>
+          <p>Un questionnaire de détermination du profil investisseur a été complété.</p>
+          {% if risque_latest and risque_latest.confirmation_client is not none %}
+            {% set _conf = (risque_latest.confirmation_client|string).lower() %}
+            {% if _conf == 'oui' %}
+              <p>Vous avez validé le profil de risque déterminé par le questionnaire.</p>
+            {% else %}
+              <p>le risque choisi est différent de celui déterminé par le questionnaire, le client reconnaît avoir été informé de cet écart et assume pleinement la responsabilité de ce choix.</p>
+            {% endif %}
+          {% endif %}
 
           <hr />
           <h3><strong>D. Déroulement de la mission</strong></h3>
@@ -307,7 +325,8 @@
           <hr />
           <p><strong>{{ DER_courtier.nom_cabinet }}</strong> – Courtier en assurance-vie et produits financiers<br/>
           Immatriculé à l’ORIAS n° {{ DER_courtier.numero_orias }} – Adhérent {{ DER_courtier.association_prof }}</p>
-        </div>
+</div>
+
       </div>
     </div>
   </div>
@@ -319,6 +338,7 @@
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>DER</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfAdequationDetail()"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
       </div>
     </div>
@@ -637,7 +657,7 @@
       <h3 style="margin:4px 8px 8px 0;">Contrats du client</h3>
       {% if available_dates %}
         <label for="asOfSelect" class="muted" style="font-size:0.85rem;">Date effective:</label>
-        <select id="asOfSelect" style="padding:4px 8px; font-size:0.9rem;">
+        <select id="asOfSelect" style="padding:4px 8px; font-size:0.9rem; width:12ch; min-width:12ch;">
           {% for d in available_dates %}
             <option value="{{ d }}" {% if d == as_of_effective %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
@@ -665,7 +685,13 @@
           <td style="text-align:center;">
             {{ a.SRRI }}
             {% if a.srri_icon %}
-              {% if a.srri_icon == 'fire' %}🔥{% elif a.srri_icon == 'hands-praying' %}🙏{% elif a.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
+              {% if a.srri_icon == 'fire' %}
+                <span class="srri-dot srri-blue" title="Au‑dessus" aria-hidden="true"></span>
+              {% elif a.srri_icon == 'hands-praying' %}
+                <span class="srri-dot srri-green" title="Identique" aria-hidden="true"></span>
+              {% elif a.srri_icon == 'snowflake' %}
+                <span class="srri-dot srri-red" title="En‑dessous" aria-hidden="true"></span>
+              {% else %}{% endif %}
               <span class="srri-calc" style="margin-left:6px; font-size:11px; color:#666;">{{ a.srri_calc }}</span>
             {% endif %}
           </td>
@@ -727,6 +753,50 @@
         <h3 class="chart-title">Répartition géographique du secteur</h3>
         <canvas id="clientGeoChart" height="220"></canvas>
       </div>
+    </div>
+  </div>
+
+  <!-- Accordéon ESG (client), placé sous Investissements -->
+  <div id="esgToggleClient" class="card accordion-toggle"><h3 style="margin:0;">ESG</h3><span class="chevron">▾</span></div>
+  <div id="esgSectionClient" style="display:none;">
+    <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box;">
+      <h3 class="chart-title">Comparaison ESG Client vs Indice</h3>
+      <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+        <div>
+          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+          <select id="esgAllocSelectClient" style="min-width:220px; max-width:280px; width:auto;">
+            <option value="">— choisir —</option>
+            {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
+          </select>
+        </div>
+        <div style="display:none;">
+          <label class="muted" style="font-size:0.85rem;">Date</label><br>
+          <select id="esgAllocDateClient" style="width: 14ch; min-width: 14ch;"></select>
+        </div>
+        <div style="flex:1 1 auto; min-width:260px;">
+          <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+          <div id="esgFieldsClient" style="display:flex; gap:6px; flex-wrap:wrap;">
+            {% if esg_field_labels %}
+              {% for col, label in esg_field_labels.items() %}
+                <button type="button" class="dim-btn esg-field-client" data-field="{{ col }}" title="{{ label or col }}">{{ label or col }}</button>
+              {% endfor %}
+            {% elif esg_fields %}
+              {% for it in esg_fields %}
+                {% set col = it.col if it is mapping else it %}
+                {% set label = (it.label if it is mapping else it) %}
+                <button type="button" class="dim-btn esg-field-client" data-field="{{ col }}" title="{{ label or col }}">{{ label or col }}</button>
+              {% endfor %}
+            {% else %}
+              <span class="muted">Aucun champ ESG détecté</span>
+            {% endif %}
+          </div>
+        </div>
+        <div>
+          <button id="esgRefreshBtnClient" class="rangeBtn" type="button" title="Actualiser">Actualiser</button>
+        </div>
+      </div>
+      <div id="esgChartClient" style="height:320px; width:100%;"></div>
+      <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Client = valeur relative (Client / Indice × 100).</div>
     </div>
   </div>
 
@@ -897,6 +967,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     var groups = [
       { key:'kyc', toggleId:'kycToggle', sectionId:'kycSection' },
       { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
+      { key:'esg', toggleId:'esgToggleClient', sectionId:'esgSectionClient' },
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
       { key:'docs', toggleId:'docsToggle', sectionId:'docsSection' },
@@ -1022,13 +1093,19 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       });
     }
     buildCatBar('cat_gene');
-    document.querySelectorAll('.dim-btn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        document.querySelectorAll('.dim-btn').forEach(function(b){ b.classList.remove('active'); });
-        this.classList.add('active');
-        buildCatBar(this.dataset.field);
+    // Scope les clicks aux boutons de la section Répartition (évite de capter les boutons ESG)
+    var dimContainer = document.querySelector('#clientCatChart') ? document.getElementById('clientCatChart').closest('.pie-card') : null;
+    if (dimContainer){
+      dimContainer.querySelectorAll('.dim-buttons .dim-btn').forEach(function(btn){
+        btn.addEventListener('click', function(ev){
+          // Ne pas impacter d'autres groupes de boutons
+          dimContainer.querySelectorAll('.dim-buttons .dim-btn').forEach(function(b){ b.classList.remove('active'); });
+          this.classList.add('active');
+          buildCatBar(this.dataset.field);
+          ev.stopPropagation();
+        });
       });
-    });
+    }
   })();
 
   const labels = [{% for d in labels %}'{{ d }}'{% if not loop.last %}, {% endif %}{% endfor %}];
@@ -1176,6 +1253,118 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     });
     document.querySelectorAll('.rangeBtn').forEach(btn => btn.addEventListener('click', function(){ currentRange = this.dataset.range || 'all'; const selected = sel.value ? [sel.value] : []; drawAlloc(selected); }));
   })();
+
+  // --- ESG (client consolidé) Plotly horizontal bar: indice=100 vs client ---
+  (function(){
+    var allocSel = document.getElementById('esgAllocSelectClient');
+    var allocDateSel = document.getElementById('esgAllocDateClient');
+    var fieldsWrap = document.getElementById('esgFieldsClient');
+    var refreshBtn = document.getElementById('esgRefreshBtnClient');
+    var asOfSel = document.getElementById('asOfSelect');
+    if (!allocSel || !fieldsWrap) return;
+
+    // Persist keys per client
+    var keyAlloc = 'client_esg_alloc_{{ client.id }}';
+    var keyFields = 'client_esg_fields_{{ client.id }}';
+    var keyAllocDate = 'client_esg_alloc_date_{{ client.id }}';
+
+    function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field-client.active')).map(b=> b.getAttribute('data-field')); }
+    function updateSelection(btn){
+      var sel = selectedFields();
+      if (btn){
+        if (btn.classList.contains('active')){ btn.classList.remove('active'); }
+        else {
+          if (sel.length >= 4) return; // max 4
+          btn.classList.add('active');
+        }
+      }
+    }
+    fieldsWrap.addEventListener('click', function(e){
+      var b=e.target.closest('.esg-field-client'); if(!b) return;
+      updateSelection(b);
+      try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
+      drawESG();
+    });
+
+    function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
+    function drawESG(){
+      var fields = selectedFields();
+      var alloc = allocSel.value || '';
+      var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
+      var asOf = asOfSel && asOfSel.value ? asOfSel.value : '';
+      if (!fields.length || !alloc){ return; }
+      ensurePlotly(function(){
+        var url = `/dashboard/clients/{{ client.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'');
+        fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
+          var rows = (data && data.results) || [];
+          var cats = rows.map(r=> r.field);
+          var idx = rows.map(r=> (r.index==null? null : Number(r.index)));
+          var cli = rows.map(r=> (r.client==null? null : Number(r.client)));
+          var traces = [
+            { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+            { x: cli, y: cats, type:'bar', orientation:'h', name:'Client', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+          ];
+          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+          var cfg = { displayModeBar: false, responsive: true };
+          Plotly.react('esgChartClient', traces, layout, cfg);
+        }).catch(function(err){ try{ console.error('Client ESG fetch error', err); }catch(_){} });
+      });
+    }
+
+    function loadAllocDates(preferred){
+      if (!allocSel || !allocSel.value) { if (allocDateSel) allocDateSel.innerHTML=''; return; }
+      fetch(`/dashboard/allocations/dates?name=${encodeURIComponent(allocSel.value)}`)
+        .then(r=>r.json()).then(function(data){
+          if (!allocDateSel) return;
+          allocDateSel.innerHTML = '';
+          var ds = (data && data.dates) || [];
+          ds.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; allocDateSel.appendChild(o); });
+          var selected = false;
+          if (preferred){
+            for (var i=0;i<allocDateSel.options.length;i++){
+              if (allocDateSel.options[i].value === preferred){ allocDateSel.selectedIndex = i; selected = true; break; }
+            }
+          }
+          if (!selected && allocDateSel.options.length>0) allocDateSel.selectedIndex = 0;
+          drawESG();
+        }).catch(function(e){ try{ console.warn('alloc dates (client)', e);}catch(_){} });
+    }
+
+    // Persist selections
+    allocSel.addEventListener('change', function(){
+      try{ localStorage.setItem(keyAlloc, allocSel.value||''); }catch(_e){}
+      try{ localStorage.removeItem(keyAllocDate); }catch(_e){}
+      loadAllocDates();
+    });
+    if (allocDateSel) allocDateSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}; drawESG(); });
+    if (asOfSel) asOfSel.addEventListener('change', drawESG);
+    if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
+
+    // Init defaults
+    (function init(){
+      // Allocation
+      try{
+        var savedAlloc = localStorage.getItem(keyAlloc) || '';
+        if (savedAlloc){
+          var found = false; for (var i=0;i<allocSel.options.length;i++){ if (allocSel.options[i].value===savedAlloc){ allocSel.selectedIndex=i; found=true; break; } }
+          if (!found) savedAlloc = '';
+        }
+        if (!savedAlloc){ for (var j=0;j<allocSel.options.length;j++){ if (allocSel.options[j].value){ allocSel.selectedIndex=j; savedAlloc=allocSel.options[j].value; break; } } if(savedAlloc){ try{ localStorage.setItem(keyAlloc, savedAlloc); }catch(_e){} }
+        }
+      }catch(_e){}
+      // Fields
+      try{
+        var raw = localStorage.getItem(keyFields); var saved = []; if (raw){ try{ saved=JSON.parse(raw)||[]; }catch(_ee){ saved=[]; } }
+        var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field-client'));
+        buttons.forEach(b=> b.classList.remove('active'));
+        if (saved && saved.length){ buttons.forEach(b=> { var v=b.getAttribute('data-field'); if (saved.indexOf(v)>=0) b.classList.add('active'); }); }
+        else { buttons.slice(0,3).forEach(b=> b.classList.add('active')); try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(b=> b.getAttribute('data-field')))); }catch(_e){} }
+      }catch(_e){}
+      // Dates alloc: try restore
+      var preferDate = ''; try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
+      if (allocSel && allocSel.value){ loadAllocDates(preferDate); } else { drawESG(); }
+    })();
+  })();
 </script>
 
 <!-- Modales Conformité (détail) -->
@@ -1183,7 +1372,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
       <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="document.getElementById('confConnaissanceDetailModal').style.display='none'">✕</button></div>
       <div class="modal-body" style="padding:0; flex:1 1 auto;">
-        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge" style="width:100%; height:100%; border:0;"></iframe>
+        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1" style="width:100%; height:100%; border:0;"></iframe>
       </div>
     </div>
   </div>
@@ -1585,6 +1774,185 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       
     </div>
   </div>
+  <!-- Modale dédiée: Lettre d’adéquation -->
+  <div class="modal-overlay" id="confAdequationDetailModal" style="z-index:10001;" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" style="width:760px; max-width:96vw;">
+      <div class="modal-header"><h3><i class="fa-solid fa-file-circle-check" style="margin-right:8px;"></i>Lettre d’adéquation</h3><button class="modal-close" onclick="document.getElementById('confAdequationDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-body">
+        <style>
+          .la h1 { font-size: 1.25rem; margin: 0 0 6px; }
+          .la h2 { font-size: 1.05rem; margin: 12px 0 6px; }
+          .la h3 { font-size: 1rem; margin: 10px 0 6px; }
+          .la p { margin: 6px 0; }
+          .la ul { margin: 6px 0 6px 18px; }
+          .la table { width:100%; border-collapse: collapse; margin: 8px 0; }
+          .la th, .la td { border:1px solid var(--border); padding:6px 8px; font-size:.92rem; }
+          .la th { background: var(--primary); color:#fff; text-align:left; }
+          .la .muted { color: var(--muted); }
+          .la .meta { display:flex; gap:18px; flex-wrap:wrap; padding:8px 10px; background:#f8fafc; border:1px solid var(--border); border-radius:8px; }
+          .la .meta div { min-width:220px; }
+          .la .sig-box { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:10px; }
+          .la .sig { border:1px dashed var(--border); border-radius:8px; padding:10px; height:120px; }
+        </style>
+        <div class="la">
+          <h1><strong>Lettre d’adéquation – Conseil en assurance vie</strong></h1>
+          <h2><strong>Références réglementaires</strong></h2>
+          <ul>
+            <li><strong>Code des assurances</strong> : article L. 522-5</li>
+            <li><strong>Code monétaire et financier</strong> : article L. 519-6</li>
+            <li><strong>Directive (UE) 2016/97 (IDD)</strong> du 20 janvier 2016 sur la distribution d’assurances</li>
+            <li><strong>Règlement délégué (UE) 2017/2359</strong> du 21 septembre 2017</li>
+            <li><strong>Code des assurances</strong> : articles R. 521-1 à R. 521-14</li>
+          </ul>
+
+          
+
+          <h2><strong>1. Objet</strong></h2>
+          <p>Cette lettre formalise le <strong>conseil personnalisé</strong> délivré par <strong>Courtage du Centre</strong> dans le cadre de la souscription du contrat d’assurance vie.</p>
+          <p>Elle expose les éléments pris en compte pour s’assurer que le produit proposé est <strong>adapté à votre situation, à vos besoins et à vos objectifs</strong>.</p>
+
+          <h2><strong>2. Analyse de votre situation</strong></h2>
+          {% set _qual = (etat_civil_latest.civilite if etat_civil_latest else (kyc_etat_civil.civilite if kyc_etat_civil else None)) %}
+          {% set _sitfam = (etat_civil_latest.situation_familiale if etat_civil_latest else (kyc_etat_civil.situation_familiale if kyc_etat_civil else None)) %}
+          {% set _nb = (nb_enfants_latest if (nb_enfants_latest is not none) else (kyc_situations_matrimoniales[0].nb_enfants if (kyc_situations_matrimoniales and (kyc_situations_matrimoniales|length>0)) else 0)) %}
+          {% set _t_rev = (synthese_latest.total_revenus if synthese_latest else None) %}
+          {% set _t_chg = (synthese_latest.total_charges if synthese_latest else None) %}
+          {% set _t_act = (synthese_latest.total_actif if synthese_latest else None) %}
+          {% set _t_pas = (synthese_latest.total_passif if synthese_latest else None) %}
+          {% set _net_pat = (_t_act|float - _t_pas|float) if (_t_act is not none and _t_pas is not none) else None %}
+          {% set _net_bud = (_t_rev|float - _t_chg|float) if (_t_rev is not none and _t_chg is not none) else None %}
+          {% set _dur2 = (risque_latest.horizon_placement if risque_latest else (risque_snapshot.duree if risque_snapshot else (risque_current.duree if risque_current else None))) %}
+          {% set _niv2 = (risque_latest.niveau_risque if risque_latest else _niv) %}
+          {% set _exp2 = (risque_latest.experience if risque_latest else _exp) %}
+          {% set _con2 = (risque_latest.connaissance if risque_latest else _con) %}
+          <p>
+            {{ _qual or '—' }}, vous êtes actuellement {{ _sitfam or '—' }}{% if (_nb or 0) > 0 %}, et vous avez {{ _nb }} enfant{% if (_nb|int) > 1 %}s{% endif %} à charge{% else %}, et vous n'avez pas d'enfant à charge{% endif %}. 
+            Ces éléments familiaux ont été pris en considération dans l’évaluation globale de votre situation et dans la définition de vos besoins patrimoniaux.
+          </p>
+          {% if _t_rev is not none and _t_chg is not none and _t_act is not none and _t_pas is not none %}
+            <p>
+              Sur le plan financier, vos revenus annuels s’élèvent à {{ '{:,.0f}'.format((_t_rev or 0)|float).replace(',', ' ') }} €, pour un niveau de charges annuelles de {{ '{:,.0f}'.format((_t_chg or 0)|float).replace(',', ' ') }} €.
+              Votre budget disponible annuel, après déduction des charges, est ainsi estimé à {{ '{:,.0f}'.format((_net_bud or 0)|float).replace(',', ' ') }} €, traduisant une situation financière saine et équilibrée. 
+              Votre actif total est évalué à {{ '{:,.0f}'.format((_t_act or 0)|float).replace(',', ' ') }} €, tandis que votre passif représente {{ '{:,.0f}'.format((_t_pas or 0)|float).replace(',', ' ') }} €,
+              soit un patrimoine net de {{ '{:,.0f}'.format((_net_pat or 0)|float).replace(',', ' ') }} €.
+            </p>
+          {% endif %}
+          <p>
+            Concernant votre profil d’investissement, vous indiquez viser un horizon de placement {{ _dur2 or '—' }}, compatible avec des objectifs patrimoniaux de long terme.
+            Votre tolérance au risque est qualifiée de {% if _niv2 %}« {{ _niv2 }} »{% else %}—{% endif %}, ce qui signifie que vous acceptez les fluctuations inhérentes aux marchés financiers dans la recherche d’un rendement plus élevé.
+          </p>
+          {% set _k = (_con2 or '')|lower %}
+          {% set _e = (_exp2 or '')|lower %}
+          {% set _is_adeq = ('averti' in _k) or ('avert' in _k) or ('confirm' in _k) or ('élev' in _k) or ('eleve' in _k) or (_k == 'oui') or ('averti' in _e) or ('avert' in _e) or ('confirm' in _e) or ('élev' in _e) or ('eleve' in _e) or (_e == 'oui') %}
+          {% if _is_adeq %}
+            <p>Enfin, votre connaissance et votre expérience financières correspondent à un investisseur capable de comprendre les caractéristiques et les risques des instruments proposés.</p>
+          {% else %}
+            <p>Enfin, votre connaissance et votre expérience financières ne permettent pas d’appréhender pleinement certains instruments complexes; les recommandations privilégieront des supports simples, une diversification prudente et une information renforcée sur les risques.</p>
+          {% endif %}
+          {% if risque_latest and risque_latest.confirmation_client is not none %}
+            {% set _conf = (risque_latest.confirmation_client|string).lower() %}
+            {% if _conf == 'oui' %}
+              <p>Un questionnaire de détermination du profil investisseur a été complété : Vous avez validé le profil de risque déterminé par le questionnaire.</p>
+            {% else %}
+              <p>Un questionnaire de détermination du profil investisseur a été complété : le risque choisi est différent de celui déterminé par le questionnaire. Vous reconnaissez avoir été informé de cet écart et assumez pleinement la responsabilité de ce choix.</p>
+            {% endif %}
+          {% endif %}
+          
+
+          <h2><strong>3. Comparatif des offres étudiées</strong></h2>
+          <table>
+            <colgroup>
+              <col style="width: 50%;" />
+              <col style="width: 35%;" />
+              <col style="width: 15%;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Nom du contrat</th>
+                <th>Compagnie d’assurance</th>
+                <th style="text-align:center; min-width: 120px;">Total de frais</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if adequation_contracts and (adequation_contracts|length>0) %}
+                {% for c in adequation_contracts %}
+                  <tr>
+                    <td>{{ c.nom_contrat }}</td>
+                    <td>{{ c.societe_nom }}</td>
+                    <td style="text-align:center; min-width: 120px;">{{ '%.2f'|format((c.total_frais or 0)|float) }} %</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="3" class="muted">Aucune offre disponible.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+          <p class="muted">Les informations détaillées sur chaque contrat sont fournies en annexe du présent document.</p>
+
+          <h2><strong>4. Recommandation du courtier</strong></h2>
+          <p>Le contrat recommandé est <strong>{{ contrat_choisi_nom or '—' }}</strong>, assuré par <strong>{{ contrat_choisi_societe or '—' }}</strong>. Ce produit répond aux <strong>objectifs</strong> et au <strong>profil d’investissement</strong> du client.</p>
+          <ul>
+            <li><strong>Supports proposés :</strong> fonds euros, unités de compte.</li>
+            <li><strong>Offre financière choisie :</strong> {{ (risque_latest.commentaire if risque_latest else '') or '—' }}</li>
+            <li>
+              <strong>Objectifs :</strong>
+              <div style="margin-top:6px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Objectif</th>
+                      <th>Horizon</th>
+                      <th>Commentaire</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% if adequation_objectifs and (adequation_objectifs|length>0) %}
+                      {% for o in adequation_objectifs %}
+                        <tr>
+                          <td>{{ o.objectif_libelle or '—' }}</td>
+                          <td>{{ o.horizon_investissement or '—' }}</td>
+                          <td>{{ o.commentaire or '—' }}</td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr><td colspan="3" class="muted">Aucun objectif enregistré.</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </li>
+          </ul>
+
+          <h2><strong>5. Détail de l'offre</strong></h2>
+          {% if adequation_allocation_html %}
+            <div class="card" style="margin:6px 0; padding:8px 10px;">{{ adequation_allocation_html | safe }}</div>
+          {% else %}
+            <p class="muted">Détail d’offre indisponible.</p>
+          {% endif %}
+
+          <h2><strong>5. Mises en garde</strong></h2>
+          <ul>
+            <li>Le client reconnaît avoir été informé des <strong>caractéristiques, coûts et risques</strong> des contrats présentés ;</li>
+            <li>que la <strong>valeur des supports</strong> peut fluctuer à la hausse comme à la baisse ;</li>
+            <li>que les <strong>performances passées ne préjugent pas des performances futures</strong> ;</li>
+            <li>que le conseil repose sur les informations communiquées et qu’une omission ou inexactitude peut en affecter la pertinence.</li>
+          </ul>
+
+          <h2><strong>6. Accord du client</strong></h2>
+          <p>Je soussigné(e) <strong>{{ client.prenom if client else '' }} {{ client.nom if client else '' }}</strong>, déclare avoir reçu et pris connaissance de la présente lettre d’adéquation. Je confirme que le conseil fourni correspond à mes attentes et à mes objectifs patrimoniaux.</p>
+          <div class="sig-box">
+            <div class="sig"><strong>Signature du client</strong><br/><span class="muted">[Date et lieu]</span></div>
+            <div class="sig"><strong>Signature du courtier</strong><br/><span class="muted">[Date et lieu]</span></div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; display:flex; gap:8px;">
+          <button class="btn" type="button" onclick="window.print()"><i class="fa-solid fa-print" style="margin-right:6px;"></i>Imprimer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   </div>
 
@@ -1593,12 +1961,28 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     // Ouvrir/fermer la modale Conformité
     function openConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='flex'; }
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
-    // Open modals
-    function openConfConnaissanceDetail(){ var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='flex'; }
-    function openConfTacfinDetail(){ var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='flex'; }
-    function openConfEerDetail(){ var m=document.getElementById('confEerDetailModal'); if(m) m.style.display='flex'; }
-    function openConfMissionDetail(){ var m=document.getElementById('confMissionDetailModal'); if(m) m.style.display='flex'; }
+    // Open modals (exclusive)
+    function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
+    function openConfConnaissanceDetail(){ __showOverlay('confConnaissanceDetailModal'); }
+    function openConfTacfinDetail(){ __showOverlay('confTacfinDetailModal'); }
+    function openConfEerDetail(){ __showOverlay('confEerDetailModal'); }
+    function openConfMissionDetail(){ __showOverlay('confMissionDetailModal'); }
+    function openConfAdequationDetail(){
+      try { document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); } catch(e){}
+      var m = document.getElementById('confAdequationDetailModal');
+      if (m && m.parentElement !== document.body) {
+        try { document.body.appendChild(m); } catch(e){}
+      }
+      if (m) m.style.display='flex';
+      var main = document.getElementById('confMainModal');
+      if (main) main.style.display='none';
+    }
+    // removed: mission2, tempo
   </script>
+<script>
+  // Inject today date in Lettre d’adéquation
+  (function(){ try{ var el=document.getElementById('laDate'); if(el){ var d=new Date(); var s=d.toLocaleDateString(); el.textContent=s; } }catch(e){} })();
+</script>
 <script>
   // Charger la liste des documents de base pour le select
   (async function loadDocuments() {

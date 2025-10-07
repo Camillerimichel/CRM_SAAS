@@ -101,6 +101,12 @@
     .chips { display:flex; flex-wrap:wrap; gap:8px; }
     .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
     .chip:hover { background: var(--primary-100); color: var(--primary-600); }
+    /* SRRI dots (remplacement des emojis) */
+    .srri-dot { display:inline-block; width: 1em; height: 1em; border-radius: 50%; vertical-align: middle; }
+    .srri-red { background:#ef4444; }
+    .srri-green { background:#16a34a; }
+    .srri-blue { background:#3b82f6; }
+    .srri-hidden { display:none; }
 </style>
 
 <div class="main-container">
@@ -136,9 +142,9 @@
                 <div class="chips">
                     <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
                     <a class="chip" href="#" onclick="return chipRiskAff('all')">Risque: Tous</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('🔥')">🔥 Au‑dessus</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('🙏')">🙏 Identique</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('❄️')">❄️ En‑dessous</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('🔥')"><span class="srri-dot srri-blue" aria-hidden="true"></span> Au‑dessus</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('🙏')"><span class="srri-dot srri-green" aria-hidden="true"></span> Identique</a>
+                    <a class="chip" href="#" onclick="return chipRiskAff('❄️')"><span class="srri-dot srri-red" aria-hidden="true"></span> En‑dessous</a>
                 </div>
             </div>
         </div>
@@ -151,16 +157,17 @@
                     <th>Frais négociés (€)</th>
                     <th>Montant</th>
                     <th>Perf 52 sem. (%)</th>
-                    <th>Volatilité 52 sem. (%)</th>
+                    <th>Vol. 52s (%)</th>
                 </tr>
                 <tr>
                     <th><input type="text" id="contrat-filter" placeholder="Filtrer..."></th>
                     <th>
                         <select id="srri-icon-filter">
                             <option value=""></option>
-                            <option value="❄️">❄️</option>
-                            <option value="🙏">🙏</option>
-                            <option value="🔥">🔥</option>
+                            <!-- Afficher des gros points colorés tout en conservant les valeurs d'origine pour le filtrage -->
+                            <option value="❄️">🔴</option>
+                            <option value="🙏">🟢</option>
+                            <option value="🔥">🔵</option>
                         </select>
                     </th>
                     <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ"></th>
@@ -180,7 +187,14 @@
                         {% if a.date_cle %}<span class="badge-closed">Le contrat est clôturé ({{ (a.date_cle|string)[:10] }})</span>{% endif %}
                     </td>
                     <td style="text-align:center;">
-                        {% if a.srri_icon == 'fire' %}🔥{% elif a.srri_icon == 'hands-praying' %}🙏{% elif a.srri_icon == 'snowflake' %}❄️{% else %}{% endif %}
+                        {% if a.srri_icon == 'fire' %}
+                          <span class="srri-dot srri-blue" title="Au‑dessus" aria-hidden="true"></span><span class="srri-hidden">🔥</span>
+                        {% elif a.srri_icon == 'hands-praying' %}
+                          <span class="srri-dot srri-green" title="Identique" aria-hidden="true"></span><span class="srri-hidden">🙏</span>
+                        {% elif a.srri_icon == 'snowflake' %}
+                          <span class="srri-dot srri-red" title="En‑dessous" aria-hidden="true"></span><span class="srri-hidden">❄️</span>
+                        {% else %}
+                        {% endif %}
                     </td>
                     <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
                     <td style="text-align:right;" data-order="{{ a.frais_negocies if a.frais_negocies is not none else '' }}">{{ a.frais_negocies if a.frais_negocies is not none else '' }}</td>
@@ -220,6 +234,10 @@ $(document).ready(function () {
         pageLength: 25,
         fixedHeader: true,
         columnDefs: [
+          // Largeur dédiée pour donner plus d'espace au montant (col 4)
+          { targets: 4, width: '140px' },
+          // Réduire la largeur de la dernière colonne Vol. 52s (col 6)
+          { targets: 6, width: '90px' },
           {
             targets: 3,
             render: function (data, type) {

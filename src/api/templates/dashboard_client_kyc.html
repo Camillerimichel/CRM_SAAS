@@ -140,15 +140,31 @@
         <i class="fa-solid fa-bullseye"></i>
         Objectifs
       </button>
+      <button type="button" class="kyc-main-btn" id="openContratsBtn">
+        <i class="fa-solid fa-file-contract"></i>
+        Choix du contrat
+      </button>
       <a class="kyc-main-btn" href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1" download="rapport_kyc_{{ client_id }}.pdf">
         <i class="fa-solid fa-download"></i>
         Télécharger PDF
       </a>
       
     </div>
+    {% if kyc_contrat_selected_id %}
+      {% set _sel_name = None %}
+      {% for c in (kyc_contracts or []) %}
+        {% if c.id == kyc_contrat_selected_id %}{% set _sel_name = c.nom_contrat %}{% endif %}
+      {% endfor %}
+      {% if _sel_name %}
+        <div style="margin-top:8px;">
+          <span class="badge primary">Contrat choisi&nbsp;: {{ _sel_name }}</span>
+        </div>
+      {% endif %}
+    {% endif %}
     
   </div>
 
+  {% if not request.query_params.get('embed') %}
   <!-- Bloc Conformité (nouvel accordéon) -->
   <div class="kyc-container open" id="conformiteContainer">
     <div class="accordion card">
@@ -165,6 +181,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <!-- Modals Conformité -->
   <div class="modal-overlay" id="conformiteConnaissanceModal" onclick="if(event.target===this) closeConformiteConnaissance()">
@@ -2047,6 +2064,58 @@
     </div>
   </div>
 
+  <div class="kyc-container" id="contratsContainer">
+    <div class="accordion card">
+      <button class="accordion-toggle" data-target="contratsPanel">
+        <span><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Choix du contrat</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="accordion-panel" id="contratsPanel">
+        {% if contrat_success %}<div class="badge success" style="margin:6px 0;">{{ contrat_success }}</div>{% endif %}
+        {% if contrat_error %}<div class="badge error" style="margin:6px 0;">{{ contrat_error }}</div>{% endif %}
+        <form method="post" action="/dashboard/clients/kyc/{{ client_id }}?open=contrats">
+          <input type="hidden" name="form_action" value="contrat_choisir" />
+          <table style="width:100%; border-collapse:collapse;">
+            <colgroup>
+              <col style="width:8%;" />
+              <col style="width:42%;" />
+              <col style="width:40%;" />
+              <col style="width:5%;" />
+              <col style="width:5%;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style="text-align:center; padding:6px 8px; border-bottom:1px solid var(--border);">Sélection</th>
+                <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Nom du contrat</th>
+                <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Description</th>
+                <th style="text-align:center; padding:6px 8px; border-bottom:1px solid var(--border);">FG Assureur (%)</th>
+                <th style="text-align:center; padding:6px 8px; border-bottom:1px solid var(--border);">FG Courtier (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in (kyc_contracts or []) %}
+              <tr>
+                <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:center;">
+                  <input type="radio" name="id_contrat" value="{{ c.id }}" {% if kyc_contrat_selected_id and (c.id == kyc_contrat_selected_id) %}checked{% endif %} />
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ c.nom_contrat }}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; color:#4b5563;">{{ c.description or '—' }}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:center;">{{ '%.2f'|format((c.frais_gestion_assureur or 0)|float) }}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:center;">{{ '%.2f'|format((c.frais_gestion_courtier or 0)|float) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="muted" style="padding:8px; text-align:center;">Aucun contrat disponible.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+            <button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px; color:#fff;"></i>Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Synthèse - Prévisualisation des données poussées (toujours en bas) -->
   <div class="card" style="margin-top:16px; display:none;">
     <h3 style="margin:0 0 8px 0;">Mise à jour de la synthèse</h3>
@@ -2492,6 +2561,7 @@
     knowledge: knowledgeContainer,
     esg: esgContainer,
     objectifs: objectifsContainer,
+    contrats: document.getElementById('contratsContainer'),
     lcbft: document.getElementById('lcbftContainer'),
   };
 
@@ -2508,6 +2578,7 @@
       const knowledgeBtn = document.getElementById('openKnowledgeBtn');
   const esgBtn = document.getElementById('openEsgBtn');
   const objBtn = document.getElementById('openObjectifsBtn');
+  const contratsBtn = document.getElementById('openContratsBtn');
   const lcbftBtn = document.getElementById('openLcbftBtn');
 
       if (etatBtn){
@@ -2537,6 +2608,12 @@
   if (objBtn){
     objBtn.addEventListener('click', function(){
       setActivePanel('objectifsPanel');
+    });
+  }
+
+  if (contratsBtn){
+    contratsBtn.addEventListener('click', function(){
+      setActivePanel('contratsPanel');
     });
   }
 
@@ -2572,6 +2649,7 @@
           else if (open === 'knowledge' || open === 'connaissance') setActivePanel('knowledgePanel');
           else if (open === 'esg') setActivePanel('esgPanel');
           else if (open === 'objectifs') setActivePanel('objectifsPanel');
+          else if (open === 'contrats' || open === 'contrat') setActivePanel('contratsPanel');
           else if (open === 'lcbft' || open === 'tracfin' || open === 'fatca') { openMainSection('lcbft'); setActivePanel('lcbftPanel'); }
         }
       } catch(e){}

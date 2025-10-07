@@ -18,10 +18,6 @@ from src.api import events
 app.include_router(dashboard.router)
 app.include_router(events.router)
 
-# Debug : afficher toutes les routes connues
-for route in app.routes:
-    print(">>> ROUTE:", route.path, "→", route.name)
-
 
 # ---------------- Route d'accueil ----------------
 @app.get("/")
