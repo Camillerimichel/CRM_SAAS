@@ -68,10 +68,12 @@
   .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
   .rangeBtn { padding:3px 7px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:11px; margin-right:4px; }
   .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
+  /* ESG block full width enforcement */
+  #esgToggle, #esgSection, #esgSection > .card { width:100%; box-sizing:border-box; grid-column: 1 / -1; }
   /* Toggle chevron styles (reuse for inv+graphs) */
-  #invToggle, #avisToggle, #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; width:100%; box-sizing:border-box; grid-column: 1 / -1; clear: both; }
-  #invToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
-  #invToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #invToggle, #esgToggle, #avisToggle, #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; width:100%; box-sizing:border-box; grid-column: 1 / -1; clear: both; }
+  #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  #invToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
   /* Ensure accordion sections take full row under any grid */
   #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
   /* Reportings pluriannuels toggle full width */
@@ -376,6 +378,45 @@
  </div>
 </div>
 <!-- Séparateur visuel -->
+<!-- Accordéon ESG -->
+<div id="esgToggle" class="card" style="margin-top:12px; margin-bottom:12px; border-left:4px solid #6b7280; cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; box-sizing:border-box; grid-column: 1 / -1;">
+  <h3 class="chart-title" style="font-size: 0.95rem;">ESG</h3>
+  <span class="chevron">▾</span>
+  </div>
+<div id="esgSection" style="display:none;">
+  <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box; grid-column: 1 / -1;">
+    <h3 class="chart-title">Comparaison ESG Affaire vs Indice</h3>
+    <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+        <select id="esgAllocSelect" style="min-width:220px; max-width:280px; width:auto;">
+          <option value="">— choisir —</option>
+          {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="display:none;">
+        <label class="muted" style="font-size:0.85rem;">Date</label><br>
+        <select id="esgAllocDate" style="width: 14ch; min-width: 14ch;"></select>
+      </div>
+      <div style="flex:1 1 auto; min-width:260px;">
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <div id="esgFields" style="display:flex; gap:6px; flex-wrap:wrap;">
+          {% for it in esg_fields %}
+            {% set col = it.col if it is mapping else it %}
+            {% set label = it.label if it is mapping else it %}
+            <button type="button" class="dim-btn esg-field" data-field="{{ col }}" title="{{ label }}">{{ label }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      <div>
+        <button id="esgRefreshBtn" class="rangeBtn" type="button" title="Actualiser">Actualiser</button>
+      </div>
+    </div>
+    <div id="esgChart" style="height:320px; width:100%;"></div>
+    <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Affaire = valeur relative (Affaire / Indice × 100).</div>
+  </div>
+</div>
+
 <!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
 <div id="avisToggle" class="card accordion-toggle" style="margin-top:12px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center;" onclick="openAvisModal()">
   <h3 class="chart-title" style="font-size: 0.95rem;">Avis d'opération <span class="badge">{{ (avis_affaire|length) if avis_affaire else 0 }}</span></h3>
@@ -632,6 +673,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   (function(){
     var groups = [
       { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
+      { key:'esg', toggleId:'esgToggle', sectionId:'esgSection' },
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
     ];
@@ -685,6 +727,151 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const allocSeries = {{ alloc_series | tojson }};
   const affaireSicav = {{ affaire_sicav | tojson }};
   const supportsData = {{ supports | tojson }};
+  const esgFieldLabels = {{ esg_field_labels | tojson }};
+  // --- ESG (Plotly horizontal bar, indice=100 vs affaire) ---
+  (function(){
+    // Load Plotly
+    var plotlyLoaded = !!window.Plotly;
+    function ensurePlotly(cb){
+      if (plotlyLoaded) { cb(); return; }
+      var s = document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ plotlyLoaded=true; cb(); }; document.head.appendChild(s);
+    }
+    var allocSel = document.getElementById('esgAllocSelect');
+    var allocDateSel = document.getElementById('esgAllocDate');
+    var allocIsinInput = document.getElementById('esgAllocIsin');
+    var asOfInput = document.querySelector('input[name="as_of"]');
+    var fieldsWrap = document.getElementById('esgFields');
+    var refreshBtn = document.getElementById('esgRefreshBtn');
+
+    // Persist preferences (allocation + champs ESG) par affaire
+    var keyAlloc = 'esg_alloc_{{ affaire.id }}';
+    var keyFields = 'esg_fields_{{ affaire.id }}';
+    var keyAllocDate = 'esg_alloc_date_{{ affaire.id }}';
+    if (!allocSel || !fieldsWrap) return;
+    function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field.active')).map(b=> b.getAttribute('data-field')); }
+    function updateSelection(btn){
+      var sel = selectedFields();
+      if (btn){
+        if (btn.classList.contains('active')){ btn.classList.remove('active'); }
+        else {
+          if (sel.length >= 4) return; // max 4
+          btn.classList.add('active');
+        }
+      }
+    }
+    fieldsWrap.addEventListener('click', function(e){
+      var b=e.target.closest('.esg-field'); if(!b) return;
+      updateSelection(b);
+      try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
+      drawESG();
+    });
+    function drawESG(){
+      var fields = selectedFields();
+      var alloc = allocSel.value || '';
+      var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
+      var allocIsin = (allocIsinInput && allocIsinInput.value) ? allocIsinInput.value.trim() : '';
+      var asOf = (asOfInput && asOfInput.value) ? asOfInput.value : '';
+      if (!fields.length || !alloc){ return; }
+      ensurePlotly(function(){
+        var url = `/dashboard/affaires/{{ affaire.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` +
+                  (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'') + (allocIsin?`&alloc_isin=${encodeURIComponent(allocIsin)}`:'');
+        fetch(url).then(function(r){
+          if (!r.ok){ throw new Error('HTTP ' + r.status + ' for ' + url); }
+          return r.json();
+        }).then(function(data){
+          var rows = (data && data.results) || [];
+          var cats = rows.map(r=> r.field);
+          var idx = rows.map(r=> (r.index==null? null : Number(r.index)));
+          var aff = rows.map(r=> (r.affaire==null? null : Number(r.affaire)));
+          var traces = [
+            { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+            { x: aff, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+          ];
+          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+          var cfg = { displayModeBar: false, responsive: true };
+          Plotly.react('esgChart', traces, layout, cfg);
+        }).catch(function(err){ try { console.error('ESG fetch error', err); } catch(_) {} });
+      });
+    }
+    function loadAllocDates(preferred){
+      if (!allocSel || !allocSel.value) { if (allocDateSel) allocDateSel.innerHTML=''; return; }
+      fetch(`/dashboard/allocations/dates?name=${encodeURIComponent(allocSel.value)}`)
+        .then(r=>r.json()).then(function(data){
+          if (!allocDateSel) return;
+          allocDateSel.innerHTML = '';
+          var ds = (data && data.dates) || [];
+          ds.forEach(function(d,i){ var o=document.createElement('option'); o.value=d; o.textContent=d; allocDateSel.appendChild(o); });
+          // présélectionner la date mémorisée si disponible, sinon la plus récente
+          var selected = false;
+          if (preferred){
+            for (var i=0;i<allocDateSel.options.length;i++){
+              if (allocDateSel.options[i].value === preferred){ allocDateSel.selectedIndex = i; selected = true; break; }
+            }
+          }
+          if (!selected && allocDateSel.options.length>0) allocDateSel.selectedIndex = 0;
+          drawESG();
+        }).catch(function(e){ try{ console.error('alloc dates', e);}catch(_){} });
+    }
+    // Sauvegarde des préférences sur changements
+    allocSel.addEventListener('change', function(){
+      try{ localStorage.setItem(keyAlloc, allocSel.value||''); }catch(_e){}
+      // reset stored date when allocation changes
+      try{ localStorage.removeItem(keyAllocDate); }catch(_e){}
+      loadAllocDates();
+    });
+    if (allocDateSel) allocDateSel.addEventListener('change', function(){
+      try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}
+      drawESG();
+    });
+    if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
+
+    // Initialisation: restaurer préférences pour éviter une page vide
+    (function initESGDefaults(){
+      if (!allocSel || !fieldsWrap) return;
+      // Allocation: restaurer ou choisir la première valeur réelle
+      try{
+        var savedAlloc = localStorage.getItem(keyAlloc) || '';
+        if (savedAlloc){
+          // si l'option existe encore
+          var found = false;
+          for (var i=0;i<allocSel.options.length;i++){
+            if (allocSel.options[i].value === savedAlloc){ allocSel.selectedIndex = i; found = true; break; }
+          }
+          if (!found){ savedAlloc = ''; }
+        }
+        if (!savedAlloc){
+          // sélectionner la première option non vide si disponible
+          for (var j=0;j<allocSel.options.length;j++){
+            if (allocSel.options[j].value){ allocSel.selectedIndex = j; savedAlloc = allocSel.options[j].value; break; }
+          }
+          if (savedAlloc){ try{ localStorage.setItem(keyAlloc, savedAlloc); }catch(_e){} }
+        }
+      }catch(_e){}
+
+      // Champs ESG: restaurer ou activer des valeurs par défaut (jusqu'à 3)
+      try{
+        var raw = localStorage.getItem(keyFields);
+        var savedFields = [];
+        if (raw){ try{ savedFields = JSON.parse(raw) || []; }catch(_ee){ savedFields=[]; } }
+        var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field'));
+        // reset all
+        buttons.forEach(function(b){ b.classList.remove('active'); });
+        if (savedFields && savedFields.length){
+          buttons.forEach(function(b){ var v=b.getAttribute('data-field'); if (savedFields.indexOf(v)>=0) b.classList.add('active'); });
+        } else {
+          // activer les 3 premiers par défaut si existants
+          buttons.slice(0,3).forEach(function(b){ b.classList.add('active'); });
+          try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(function(b){return b.getAttribute('data-field');}))); }catch(_e){}
+        }
+      }catch(_e){}
+
+      // Charger dates pour l'allocation sélectionnée et restaurer la date si possible
+      var preferDate = '';
+      try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
+      if (allocSel && allocSel.value){ loadAllocDates(preferDate); }
+      else { drawESG(); }
+    })();
+  })();
   const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#2456a6';
 
   // Chart 1: valo vs cumul mouvements
@@ -893,9 +1080,9 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       });
     }
     buildCatBar('cat_gene');
-    document.querySelectorAll('.dim-btn').forEach(function(btn){
+    document.querySelectorAll('.dim-buttons .dim-btn').forEach(function(btn){
       btn.addEventListener('click', function(){
-        document.querySelectorAll('.dim-btn').forEach(b=> b.classList.remove('active'));
+        document.querySelectorAll('.dim-buttons .dim-btn').forEach(b=> b.classList.remove('active'));
         this.classList.add('active');
         buildCatBar(this.dataset.field);
       });

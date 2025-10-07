@@ -1030,7 +1030,7 @@
             </div>
             <div>
               <label for="supportFilterSupport">Support</label>
-              <input type="text" id="supportFilterSupport" placeholder="Rechercher support ou ISIN" />
+              <input type="text" id="supportFilterSupport" placeholder="Rechercher un support" />
             </div>
           </div>
           <div class="support-actions">
@@ -1066,7 +1066,7 @@
           <tbody id="supportTableBody">
             {% for cs in contrat_supports %}
             <tr>
-              <td>{{ cs.support_nom or '—' }}{% if cs.code_isin %}<br><span class="muted" style="font-size:.8rem;">{{ cs.code_isin }}</span>{% endif %}</td>
+              <td>{{ cs.support_nom or '—' }}</td>
               <td>{{ cs.cat_gene or '—' }}</td>
               <td>{{ cs.cat_geo or '—' }}</td>
               <td>{{ cs.promoteur or '—' }}</td>
@@ -1110,7 +1110,7 @@
                   <select name="id_support" required>
                     <option value="" disabled selected>Choisir…</option>
                     {% for s in supports %}
-                      <option value="{{ s.id }}">{{ s.nom }}{% if s.code_isin %} ({{ s.code_isin }}){% endif %}</option>
+                      <option value="{{ s.id }}">{{ s.nom }}</option>
                     {% endfor %}
                   </select>
                 </div>
@@ -1290,7 +1290,7 @@ document.addEventListener('DOMContentLoaded', function(){
         if (!supportTerm){
           return true;
         }
-        return [item.support_nom, item.code_isin]
+        return [item.support_nom]
           .some(val => val && val.toLowerCase().includes(supportTerm));
       });
       currentPage = 1;
@@ -1352,14 +1352,14 @@ document.addEventListener('DOMContentLoaded', function(){
 
       const rowsHtml = pageItems.map(item => {
         const support = htmlEscape(item.support_nom || '—');
-        const isin = item.code_isin ? `<br><span class=\"muted\" style=\"font-size:.8rem;\">${htmlEscape(item.code_isin)}</span>` : '';
+        const isin = '';
         const categorie = htmlEscape(item.cat_gene || '—');
         const zoneGeo = htmlEscape(item.cat_geo || '—');
         const promoteur = htmlEscape(item.promoteur || '—');
         const taux = htmlEscape(formatPercent(item.taux_retro));
         return `
           <tr>
-            <td>${support}${isin}</td>
+            <td>${support}</td>
             <td>${categorie}</td>
             <td>${zoneGeo}</td>
             <td>${promoteur}</td>
@@ -1396,12 +1396,11 @@ document.addEventListener('DOMContentLoaded', function(){
       if (!filteredSupports.length){
         return;
       }
-      const header = ['Contrat', 'Société', 'Support', 'ISIN', 'Catégorie', 'Zone géo', 'Promoteur', 'Taux (%)'];
+      const header = ['Contrat', 'Société', 'Support', 'Catégorie', 'Zone géo', 'Promoteur', 'Taux (%)'];
       const rows = filteredSupports.map(item => [
         item.contrat_nom || '',
         item.societe_nom || '',
         item.support_nom || '',
-        item.code_isin || '',
         item.cat_gene || '',
         item.cat_geo || '',
         item.promoteur || '',

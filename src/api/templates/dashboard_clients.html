@@ -24,6 +24,11 @@
   #clientsTbl tbody td:nth-child(3),
   #clientsTbl thead th:nth-child(4),
   #clientsTbl tbody td:nth-child(4) { text-align: center; }
+  /* Pastilles SRRI */
+  .srri-dot { display:inline-block; width: 1em; height: 1em; border-radius: 50%; vertical-align: middle; }
+  .srri-red { background:#ef4444; }
+  .srri-green { background:#16a34a; }
+  .srri-blue { background:#3b82f6; }
 </style>
 
 <div class="main-container">
@@ -136,6 +141,12 @@
       if (calc > srri) tds[3].style.color = '#dc2626'; /* rouge */
       else if (calc === srri) tds[3].style.color = '#16a34a'; /* vert */
       else tds[3].style.color = getComputedStyle(document.documentElement).getPropertyValue('--primary-600') || '#1e3a8a'; /* bleu foncé */
+      // Ajouter une pastille colorée pour indiquer le rapport (Au‑dessus=bleu / Identique=vert / En‑dessous=rouge)
+      var dot = document.createElement('span');
+      dot.className = 'srri-dot ' + (calc>srri ? 'srri-blue' : (calc===srri ? 'srri-green' : 'srri-red'));
+      dot.title = (calc>srri ? 'Au‑dessus' : (calc===srri ? 'Identique' : 'En‑dessous'));
+      dot.style.marginLeft = '6px';
+      tds[3].appendChild(dot);
     }
   });
 

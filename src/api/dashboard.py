@@ -369,6 +369,14 @@ async def dashboard_client_kyc_report(
             "SELECT * FROM KYC_Client_Risque WHERE client_id=:cid ORDER BY date_saisie DESC, id DESC LIMIT 1"
         ), {"cid": client_id}).fetchone()
         risque = dict(row._mapping) if row else None
+        # Libellé du niveau de risque (ref)
+        try:
+            if risque and (risque.get("niveau_id") is not None):
+                r_lbl = db.execute(text("SELECT libelle FROM ref_niveau_risque WHERE id = :i"), {"i": risque.get("niveau_id")}).fetchone()
+                if r_lbl and r_lbl[0] is not None:
+                    risque["niveau_label"] = r_lbl[0]
+        except Exception:
+            pass
         if risque:
             rows_c = db.execute(text(
                 "SELECT produit_id, produit_label, niveau_id, niveau_label FROM KYC_Client_Risque_Connaissance WHERE risque_id=:rid ORDER BY produit_label, produit_id"
@@ -458,6 +466,30 @@ async def dashboard_client_kyc_report(
                 pass
     except Exception:
         risque = None
+
+    # Risque synthétique via jointure (niveau libellé, horizon, expérience, connaissance)
+    risque_latest_info = None
+    try:
+        row = db.execute(text(
+            """
+            SELECT 
+              r.libelle AS niveau_risque,
+              k.duree AS horizon_placement,
+              k.experience,
+              k.connaissance,
+              k.commentaire
+            FROM KYC_Client_Risque k
+            JOIN ref_niveau_risque r 
+              ON k.niveau_id = r.id
+            WHERE k.client_id = :cid
+            ORDER BY k.date_saisie DESC, k.id DESC
+            LIMIT 1
+            """
+        ), {"cid": client_id}).fetchone()
+        if row:
+            risque_latest_info = dict(row._mapping)
+    except Exception:
+        risque_latest_info = None
 
     # ESG (dernier) + exclusions
     esg = None
@@ -2375,10 +2407,7 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
     # Sanitize / normalize
     nom_cabinet = (form.get("nom_cabinet") or "").strip()
     nom_responsable = (form.get("nom_responsable") or "").strip()
-    try:
-        statut_social = int(form.get("statut_social")) if form.get("statut_social") not in (None, "") else None
-    except Exception:
-        statut_social = None
+    statut_social = _as_int(form.get("statut_social"))
     capital_social = _int_from_thousands(form.get("capital_social"))
     siren = _digits_only(form.get("siren"))
     rcs = (form.get("rcs") or "").strip()
@@ -2387,19 +2416,13 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
     adresse_cp = _digits_only(form.get("adresse_cp")) or ""
     adresse_ville = (form.get("adresse_ville") or "").strip()
     courriel = (form.get("courriel") or "").strip()
-    try:
-        association_prof = int(form.get("association_prof")) if form.get("association_prof") not in (None, "") else None
-    except Exception:
-        association_prof = None
+    association_prof = _as_int(form.get("association_prof"))
     num_adh_assoc = (form.get("num_adh_assoc") or "").strip()
     categorie_courtage = (form.get("categorie_courtage") or "").strip().upper() or None
     if categorie_courtage not in (None, "A", "B", "C"):
         categorie_courtage = None
     responsable_dpo = (form.get("responsable_dpo") or "").strip()
-    try:
-        centre_mediation = int(form.get("centre_mediation")) if form.get("centre_mediation") not in (None, "") else None
-    except Exception:
-        centre_mediation = None
+    centre_mediation = _as_int(form.get("centre_mediation"))
     mediators = (form.get("mediators") or "").strip()
     mail_mediators = (form.get("mail_mediators") or "").strip()
 
@@ -2604,6 +2627,19 @@ def _as_float(value: str | None, default: float | None = None) -> float | None:
     except Exception:
         return default
 
+def _as_int(value: str | None, default: int | None = None) -> int | None:
+    """Parse an int from form values, treating '', None and 'None'/'null' as None.
+    Returns default on failure.
+    """
+    if value is None:
+        return default
+    s = str(value).strip()
+    if s == "" or s.lower() in ("none", "null"):
+        return default
+    try:
+        return int(s)
+    except Exception:
+        return default
 
 def _redirect_back(request: Request, fallback_open: str) -> RedirectResponse:
     target_open = request.query_params.get("open") or fallback_open
@@ -2616,27 +2652,42 @@ async def create_contrat_generique(request: Request, db: Session = Depends(get_d
     form = await request.form()
     params = {
         "nom_contrat": (form.get("nom_contrat") or "").strip(),
-        "id_societe": int(form.get("id_societe") or 0) or None,
-        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "id_societe": _as_int(form.get("id_societe")),
+        "id_ctg": _as_int(form.get("id_ctg")),
         "fga": _as_float(form.get("frais_gestion_assureur")),
         "fgc": _as_float(form.get("frais_gestion_courtier")),
     }
+    # Validation côté serveur
+    if not params["nom_contrat"]:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Le nom du contrat est requis.')}", status_code=303)
+    if params["id_societe"] is None:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Assureur obligatoire. Merci de sélectionner une société.')}", status_code=303)
+    if params["id_ctg"] is None:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Catégorie obligatoire. Merci de sélectionner une catégorie.')}", status_code=303)
     from sqlalchemy import text as _text
     try:
+        # Forcer un id explicite si la table n'est pas en AUTOINCREMENT côté SQLite
+        row = db.execute(_text("SELECT MAX(id) AS max_id FROM mariadb_affaires_generique")).fetchone()
+        next_id = ((row[0] if row else 0) or 0) + 1
         db.execute(
             _text(
                 """
                 INSERT INTO mariadb_affaires_generique
-                    (nom_contrat, id_societe, id_ctg, frais_gestion_assureur, frais_gestion_courtier, actif)
-                VALUES (:nom_contrat, :id_societe, :id_ctg, :fga, :fgc, 1)
+                    (id, nom_contrat, id_societe, id_ctg, frais_gestion_assureur, frais_gestion_courtier, actif)
+                VALUES (:id, :nom_contrat, :id_societe, :id_ctg, :fga, :fgc, 1)
                 """
             ),
-            params,
+            {"id": next_id, **params},
         )
         db.commit()
-    except Exception:
+        return RedirectResponse(url="/dashboard/parametres?open=contrats&saved=1", status_code=303)
+    except Exception as e:
         db.rollback()
-    return _redirect_back(request, "contrats")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote(str(e))}", status_code=303)
 
 
 @router.post("/parametres/contrats_generiques/{contrat_id}", response_class=HTMLResponse)
@@ -2645,11 +2696,21 @@ async def update_contrat_generique(contrat_id: int, request: Request, db: Sessio
     params = {
         "id": contrat_id,
         "nom_contrat": (form.get("nom_contrat") or "").strip(),
-        "id_societe": int(form.get("id_societe") or 0) or None,
-        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "id_societe": _as_int(form.get("id_societe")),
+        "id_ctg": _as_int(form.get("id_ctg")),
         "fga": _as_float(form.get("frais_gestion_assureur")),
         "fgc": _as_float(form.get("frais_gestion_courtier")),
     }
+    # Validation côté serveur
+    if not params["nom_contrat"]:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Le nom du contrat est requis.')}", status_code=303)
+    if params["id_societe"] is None:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Assureur obligatoire. Merci de sélectionner une société.')}", status_code=303)
+    if params["id_ctg"] is None:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote('Catégorie obligatoire. Merci de sélectionner une catégorie.')}", status_code=303)
     from sqlalchemy import text as _text
     try:
         db.execute(
@@ -2667,9 +2728,11 @@ async def update_contrat_generique(contrat_id: int, request: Request, db: Sessio
             params,
         )
         db.commit()
-    except Exception:
+        return RedirectResponse(url="/dashboard/parametres?open=contrats&saved=1", status_code=303)
+    except Exception as e:
         db.rollback()
-    return _redirect_back(request, "contrats")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote(str(e))}", status_code=303)
 
 
 @router.post("/parametres/contrats_generiques/{contrat_id}/delete", response_class=HTMLResponse)
@@ -2678,9 +2741,11 @@ async def delete_contrat_generique(contrat_id: int, request: Request, db: Sessio
     try:
         db.execute(_text("DELETE FROM mariadb_affaires_generique WHERE id = :id"), {"id": contrat_id})
         db.commit()
-    except Exception:
+        return RedirectResponse(url="/dashboard/parametres?open=contrats&saved=1", status_code=303)
+    except Exception as e:
         db.rollback()
-    return _redirect_back(request, "contrats")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=contrats&error=1&errmsg={quote(str(e))}", status_code=303)
 
 
 # ---- Catégories de contrats génériques ----
@@ -2740,27 +2805,40 @@ async def create_societe(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     params = {
         "nom": (form.get("nom") or "").strip(),
-        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "id_ctg": _as_int(form.get("id_ctg")),
         "contact": (form.get("contact") or None),
         "telephone": (form.get("telephone") or None),
         "email": (form.get("email") or None),
         "commentaire": (form.get("commentaire") or None),
     }
+    # Validation
+    if not params["nom"]:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=societes&error=1&errmsg={quote('Le nom de la société est requis.')}", status_code=303)
+    if params["id_ctg"] is None:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=societes&error=1&errmsg={quote('La catégorie est obligatoire.')}", status_code=303)
     from sqlalchemy import text as _text
     try:
+        # Certaines bases (SQLite) issues d'exports MariaDB n'ont pas id en AUTOINCREMENT.
+        # On force un identifiant = MAX(id)+1 pour garantir la création.
+        row = db.execute(_text("SELECT MAX(id) AS max_id FROM mariadb_societe")).fetchone()
+        next_id = ((row[0] if row else 0) or 0) + 1
         db.execute(
             _text(
                 """
-                INSERT INTO mariadb_societe (nom, id_ctg, contact, telephone, email, commentaire)
-                VALUES (:nom, :id_ctg, :contact, :telephone, :email, :commentaire)
+                INSERT INTO mariadb_societe (id, nom, id_ctg, contact, telephone, email, commentaire, actif)
+                VALUES (:id, :nom, :id_ctg, :contact, :telephone, :email, :commentaire, 1)
                 """
             ),
-            params,
+            {"id": next_id, **params},
         )
         db.commit()
-    except Exception:
+        return RedirectResponse(url="/dashboard/parametres?open=societes&saved=1", status_code=303)
+    except Exception as e:
         db.rollback()
-    return _redirect_back(request, "societes")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=societes&error=1&errmsg={quote(str(e))}", status_code=303)
 
 
 @router.post("/parametres/societes/{soc_id}", response_class=HTMLResponse)
@@ -2769,7 +2847,7 @@ async def update_societe(soc_id: int, request: Request, db: Session = Depends(ge
     params = {
         "id": soc_id,
         "nom": (form.get("nom") or "").strip(),
-        "id_ctg": int(form.get("id_ctg") or 0) or None,
+        "id_ctg": _as_int(form.get("id_ctg")),
         "contact": (form.get("contact") or None),
         "telephone": (form.get("telephone") or None),
         "email": (form.get("email") or None),
@@ -2864,8 +2942,8 @@ async def delete_societe_ctg(ctg_id: int, request: Request, db: Session = Depend
 @router.post("/parametres/contrat_supports", response_class=HTMLResponse)
 async def create_contrat_support(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    id_affaire_generique = int(form.get("id_affaire_generique") or 0) or None
-    id_support = int(form.get("id_support") or 0) or None
+    id_affaire_generique = _as_int(form.get("id_affaire_generique"))
+    id_support = _as_int(form.get("id_support"))
     taux_percent = _as_float(form.get("taux_retro"), 0.0) or 0.0
     taux_value = taux_percent / 100.0
     from sqlalchemy import text as _text
@@ -3125,9 +3203,11 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 h = int(hs)
             except Exception:
                 continue
-            if c > h:
+            # Interprétation: "Au-dessus du risque" = le niveau de risque de l'historique (réalité)
+            # est au-dessus du risque cible client (h > c). "Sous le risque" = h < c.
+            if h > c:
                 cli_counts["above"] += 1
-            elif c == h:
+            elif h == c:
                 cli_counts["equal"] += 1
             else:
                 cli_counts["below"] += 1
@@ -3646,6 +3726,95 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             retro_error = "Impossible de calculer les rétrocessions pour la période demandée."
             logger.debug("Dashboard rétrocessions: erreur de calcul: %s", exc, exc_info=True)
 
+    # --- ESG (global) UI context: allocation names + ESG field labels ---
+    try:
+        alloc_names_dash = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
+    except Exception:
+        alloc_names_dash = []
+    esg_fields_dash: list[dict] = []
+    esg_field_labels_dash: dict[str, str] = {}
+    try:
+        ok = False
+        # 1) MySQL/MariaDB via information_schema (plus fiable)
+        try:
+            rows_cols = db.execute(text("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'esg_fonds' ORDER BY ORDINAL_POSITION")).fetchall()
+            if rows_cols:
+                esg_fields_debug_dash = {"source": "information_schema.COLUMNS", "raw_cols": [str(rc[0]) for rc in rows_cols], "final": []}
+                for rc in rows_cols:
+                    col = rc[0]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
+                ok = True
+        except Exception:
+            ok = False
+        # 2) SHOW COLUMNS (MySQL)
+        if not ok:
+            try:
+                rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+                if rows_cols:
+                    esg_fields_debug_dash = {"source": "SHOW COLUMNS", "raw_cols": [str(getattr(getattr(rc, '_mapping', {}), 'get', lambda *_: rc[0])('Field')) if hasattr(rc, '_mapping') else str(rc[0]) for rc in rows_cols], "final": []}
+                    for rc in rows_cols:
+                        col = None
+                        if hasattr(rc, '_mapping'):
+                            try:
+                                col = rc._mapping.get('Field')
+                            except Exception:
+                                col = None
+                        if col is None:
+                            col = rc[0]
+                        if str(col).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
+                    ok = True
+            except Exception:
+                ok = False
+        # 3) SQLite PRAGMA (sélection explicite du champ name)
+        if not ok:
+            try:
+                rows_cols = db.execute(text("SELECT name FROM pragma_table_info('esg_fonds')")).fetchall()
+                if rows_cols:
+                    names = [str(rc[0] if not hasattr(rc, '_mapping') else (rc._mapping.get('name') or rc[0])) for rc in rows_cols]
+                    esg_fields_debug_dash = {"source": "PRAGMA table_info (SELECT name)", "raw_cols": names, "final": []}
+                    for col in names:
+                        if not col:
+                            continue
+                        if str(col).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
+                    ok = True
+            except Exception:
+                ok = False
+        # 4) Fallback générique SELECT * LIMIT 1 (peut renvoyer des clés numériques)
+        if not ok:
+            try:
+                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
+                if row1 is not None:
+                    keys = list(getattr(row1, "_mapping", {} ).keys())
+                    esg_fields_debug_dash = {"source": "SELECT * LIMIT 1", "raw_cols": [str(k) for k in keys], "final": []}
+                    for k in keys:
+                        if str(k).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields_dash.append({"col": k, "label": str(k).replace('_',' ').title()})
+            except Exception:
+                pass
+        # Deduplicate and sort
+        seen = set(); uniq = []
+        for it in esg_fields_dash:
+            key = str(it.get('col'))
+            if key in seen: continue
+            seen.add(key); uniq.append(it)
+        esg_fields_dash = sorted(uniq, key=lambda x: str(x.get('label','')).lower())
+        esg_field_labels_dash = { it['col']: it['label'] for it in esg_fields_dash }
+        try:
+            esg_fields_debug_dash["final"] = esg_fields_dash
+        except Exception:
+            pass
+    except Exception:
+        esg_fields_dash = []
+        esg_field_labels_dash = {}
+        esg_fields_debug_dash = {"source": "ERROR", "raw_cols": [], "final": []}
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -3715,6 +3884,12 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "retro_total_week": retro_total_week,
             "retro_total_support": retro_total_support,
             "retro_error": retro_error,
+            # ESG (global) UI context
+            "alloc_names": alloc_names_dash,
+            "esg_fields": esg_fields_dash,            # backwards compatibility
+            "esg_field_labels": esg_field_labels_dash, # backwards compatibility
+            "esg_fields_list": esg_fields_dash,        # explicit list of {col,label}
+            "esg_fields_debug": esg_fields_debug_dash,
         }
     )
 
@@ -3747,6 +3922,8 @@ async def dashboard_client_kyc(
     revenu_error: str | None = None
     charge_success: str | None = None
     charge_error: str | None = None
+    contrat_success: str | None = None
+    contrat_error: str | None = None
     actif_success: str | None = None
     actif_error: str | None = None
     objectifs_success: str | None = None
@@ -4691,6 +4868,42 @@ async def dashboard_client_kyc(
             active_section = "charges"
             ui_focus_section = "patrimoine"
             ui_focus_panel = "chargesPanel"
+
+        elif action == "contrat_choisir":
+            # Sélection unique d'un contrat pour le client
+            sel_id_raw = form.get("id_contrat")
+            try:
+                sel_id = int(sel_id_raw) if sel_id_raw and str(sel_id_raw).isdigit() else None
+            except Exception:
+                sel_id = None
+            if sel_id is None:
+                contrat_error = "Veuillez sélectionner un contrat."
+            else:
+                try:
+                    # Table (si absente)
+                    db.execute(text(
+                        """
+                        CREATE TABLE IF NOT EXISTS KYC_contrat_choisi (
+                          id_client INTEGER NOT NULL,
+                          id_contrat INTEGER NOT NULL,
+                          PRIMARY KEY (id_client)
+                        )
+                        """
+                    ))
+                    # Remplace l'existant
+                    db.execute(text("DELETE FROM KYC_contrat_choisi WHERE id_client = :cid"), {"cid": client_id})
+                    db.execute(text("INSERT INTO KYC_contrat_choisi (id_client, id_contrat) VALUES (:cid, :kid)"), {"cid": client_id, "kid": sel_id})
+                    db.commit()
+                    contrat_success = "Contrat enregistré."
+                except Exception as exc:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    contrat_error = "Impossible d'enregistrer le contrat."
+            # Revenir sur le panneau Contrats
+            ui_focus_section = "contrats"
+            ui_focus_panel = "contratsPanel"
 
         elif action == "objectifs_save":
             active_section = "objectifs"
@@ -6028,6 +6241,29 @@ async def dashboard_client_kyc(
     except Exception:
         synthese_push_action = "insert"
 
+    # Dernière synthèse patrimoniale (totaux)
+    synthese_last = None
+    try:
+        row = db.execute(text(
+            "SELECT * FROM KYC_Client_Synthese WHERE client_id = :cid ORDER BY date_saisie DESC, id DESC LIMIT 1"
+        ), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            def _first(keys):
+                for k in keys:
+                    if k in m and m.get(k) is not None:
+                        return m.get(k)
+                return None
+            synthese_last = {
+                "total_revenus": _first(["total_revenus", "total_revenu", "revenus_total"]) or 0,
+                "total_charges": _first(["total_charges", "charges_total"]) or 0,
+                "total_actif": _first(["total_actif", "actifs_total", "total_actifs"]) or 0,
+                "total_passif": _first(["total_passif", "passifs_total", "total_passifs"]) or 0,
+                "commentaire": m.get("commentaire"),
+            }
+    except Exception:
+        synthese_last = None
+
 
     adresses: list[dict] = []
     try:
@@ -6192,6 +6428,35 @@ async def dashboard_client_kyc(
         ref_type_charge = [dict(row._mapping) for row in ref_type_charge_rows]
     except Exception:
         ref_type_charge = []
+
+    # Contrats disponibles (pour choix du contrat)
+    kyc_contracts: list[dict] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT id, nom_contrat, description, frais_gestion_assureur, frais_gestion_courtier
+                FROM mariadb_affaires_generique
+                WHERE COALESCE(actif,1)=1
+                ORDER BY nom_contrat
+                """
+            )
+        ).fetchall()
+        kyc_contracts = [dict(r._mapping) for r in rows]
+    except Exception:
+        kyc_contracts = []
+
+    # Contrat sélectionné (si existant)
+    kyc_contrat_selected_id: int | None = None
+    try:
+        row = db.execute(text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid LIMIT 1"), {"cid": client_id}).fetchone()
+        if row:
+            try:
+                kyc_contrat_selected_id = int(row[0]) if row[0] is not None else None
+            except Exception:
+                kyc_contrat_selected_id = None
+    except Exception:
+        kyc_contrat_selected_id = None
 
     # ESG: options et questionnaire courant
     esg_exclusion_options = []
@@ -7282,6 +7547,10 @@ async def dashboard_client_kyc(
             "ref_type_passif": ref_type_passif,
             "ref_type_revenu": ref_type_revenu,
             "ref_type_charge": ref_type_charge,
+            "kyc_contracts": kyc_contracts,
+            "kyc_contrat_selected_id": kyc_contrat_selected_id,
+            "contrat_success": contrat_success,
+            "contrat_error": contrat_error,
             "ref_objectifs": ref_objectifs,
             "preselected_objectifs": preselected_objectifs,
             "preselected_objectifs_ids": preselected_objectifs_ids,
@@ -8012,6 +8281,77 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "sortie_str": _fmt_money2(getattr(r, 'sortie', None)),
         })
 
+    # Noms d'allocations disponibles (distincts)
+    try:
+        alloc_names = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
+    except Exception:
+        alloc_names = []
+
+    # Champs ESG disponibles (colonnes de esg_fonds, hors identifiants texte)
+    # On renvoie à la fois le nom de colonne et un libellé lisible.
+    esg_fields: list[dict] = []
+    esg_field_labels: dict[str, str] = {}
+    # Fallback multi-SGBD: SHOW COLUMNS (MySQL/MariaDB) -> PRAGMA (SQLite) -> SELECT * LIMIT 1
+    try:
+        ok = False
+        try:
+            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            if rows_cols:
+                for rc in rows_cols:
+                    col = rc[0]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    esg_fields.append({"col": col, "label": col})
+                ok = True
+        except Exception:
+            ok = False
+        if not ok:
+            try:
+                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+                def _labelize(name: str) -> str:
+                    # Transforme camelCase / snake_case en libellé lisible
+                    if not name:
+                        return name
+                    s = str(name)
+                    s = s.replace('_', ' ')
+                    # insert spaces before capitals
+                    import re as _re
+                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
+                    return s.strip().capitalize()
+                for rc in rows_cols or []:
+                    col = rc[1]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    label = _labelize(col)
+                    esg_fields.append({"col": col, "label": label})
+                ok = True
+            except Exception:
+                ok = False
+        if not ok:
+            try:
+                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
+                if row1 is not None:
+                    for k in row1._mapping.keys():
+                        if str(k).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields.append({"col": k, "label": k})
+                ok = True
+            except Exception:
+                ok = False
+    except Exception:
+        pass
+    # Déduplique et trie par libellé
+    seen = set()
+    uniq = []
+    for it in esg_fields:
+        key = str(it.get("col"))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(it)
+    esg_fields = sorted(uniq, key=lambda x: str(x.get("label","" )).lower())
+    esg_field_labels = { it["col"]: it["label"] for it in esg_fields }
+
     return templates.TemplateResponse(
         "dashboard_affaire_detail.html",
         {
@@ -8063,8 +8403,895 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "duree_historique_aff_str": duree_historique_aff_str,
             "nb_contrats_ouverts_aff": nb_contrats_ouverts_aff,
             "nb_contrats_fermes_aff": nb_contrats_fermes_aff,
+            # ESG UI context
+            "alloc_names": alloc_names,
+            "esg_fields": esg_fields,
+            "esg_field_labels": esg_field_labels,
         }
     )
+
+# ---------------- ESG data API (Affaire) ----------------
+from fastapi import Query
+from fastapi.responses import JSONResponse
+
+@router.get("/affaires/{affaire_id}/esg", response_class=JSONResponse)
+def dashboard_affaire_esg(
+    affaire_id: int,
+    alloc: str = Query(None, description="Nom de l'allocation de référence"),
+    alloc_isin: str = Query(None, description="ISIN de l'allocation (prioritaire si fourni)"),
+    fields: str = Query(None, description="Champs ESG séparés par des virgules"),
+    as_of: str | None = Query(None, description="Date d'analyse YYYY-MM-DD pour l'affaire"),
+    alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
+    debug: int = Query(0, description="Activer la sortie debug"),
+    db: Session = Depends(get_db),
+):
+    # Parse fields
+    sel_fields: list[str] = []
+    if fields:
+        sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
+    if not sel_fields:
+        return {"error": "Aucun champ ESG sélectionné."}
+
+    # Date de référence affaire
+    debug_info = {"affaire_query": None, "alloc_query": None, "esg_query": None}
+
+    try:
+        if as_of:
+            as_of_dt = as_of
+        else:
+            as_of_dt = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :i"), {"i": affaire_id}).scalar()
+    except Exception:
+        as_of_dt = None
+
+    # Composition affaire (ISIN -> poids) — dernière valeur par support, optionnellement <= as_of
+    affaire_weights: dict[str, float] = {}
+    try:
+        if as_of_dt:
+            # Strictement à la date choisie
+            q = text(
+                """
+                SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_support s ON s.id = h.id_support
+                WHERE h.id_source = :aid AND h.date = :d
+                GROUP BY s.code_isin
+                """
+            )
+            params = {"aid": affaire_id, "d": as_of_dt}
+        else:
+            # Fallback: dernière valeur par support
+            q = text(
+                """
+                WITH sub AS (
+                  SELECT id_support, MAX(date) AS last_date
+                  FROM mariadb_historique_support_w
+                  WHERE id_source = :aid
+                  GROUP BY id_support
+                )
+                SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo
+                FROM mariadb_historique_support_w h
+                JOIN sub ON sub.id_support = h.id_support AND h.date = sub.last_date
+                JOIN mariadb_support s ON s.id = h.id_support
+                WHERE h.id_source = :aid
+                GROUP BY s.code_isin
+                """
+            )
+            params = {"aid": affaire_id}
+        debug_info["affaire_query"] = {"sql": q.text, "params": {k: (str(v) if v is not None else None) for k,v in params.items()}}
+        rows = db.execute(q, params).fetchall()
+        total = sum(float(r.somme_valo or 0) for r in rows) if rows else 0.0
+        if total and total > 0:
+            for r in rows:
+                isin = getattr(r, 'isin', None)
+                v = float(getattr(r, 'somme_valo', 0) or 0)
+                if isin and v is not None:
+                    affaire_weights[isin] = v / total
+    except Exception:
+        affaire_weights = {}
+
+    # Composition allocation (ISIN -> poids)
+    alloc_weights: dict[str, float] = {}
+    alloc_date_val = None
+    try:
+        # Déterminer si on filtre par ISIN explicite
+        import re as _re
+        isin_param = alloc_isin or (alloc if alloc and _re.match(r'^[A-Z0-9]{9,12}$', str(alloc).strip()) else None)
+        if isin_param:
+            # Mode ISIN — forcer la date: dernière <= alloc_date si fournie, sinon dernière
+            if alloc_date:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"), {"i": isin_param, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE ISIN = :i AND date = :d
+                """
+            )
+            params2 = {"i": isin_param, "d": alloc_date_val}
+            debug_info["alloc_query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+        elif alloc:
+            # Mode nom — forcer la date: dernière <= alloc_date si fournie, sinon dernière
+            if alloc_date:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"), {"n": alloc, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
+                """
+            )
+            params2 = {"n": alloc, "d": alloc_date_val}
+            debug_info["alloc_query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+        total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
+        if total2 and total2 > 0:
+            for r in rows2:
+                isin = getattr(r, 'isin', None)
+                v = float(getattr(r, 'v', 0) or 0)
+                if isin and v is not None:
+                    alloc_weights[isin] = v / total2
+    except Exception:
+        alloc_weights = {}
+
+    # Rassembler tous les ISIN utiles
+    all_isins = set(affaire_weights.keys()) | set(alloc_weights.keys())
+    if not all_isins:
+        return {"fields": sel_fields, "results": []}
+
+    # Charger les valeurs ESG pour ces ISIN
+    # Quoter les champs pour compatibilité MySQL (noms avec espaces/traits)
+    def quote_col(c: str) -> str:
+        c = c.strip()
+        if not c:
+            return c
+        # utiliser backticks
+        return f"`{c}`"
+
+    # Construire des alias sûrs pour récupérer les colonnes (évite problèmes d'espaces/traits)
+    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
+    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
+    esg_map: dict[str, dict[str, float]] = {}
+    try:
+        # Construire une liste de paramètres
+        isin_list = list(all_isins)
+        # Créer placeholders
+        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
+        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
+        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for (f, al) in aliases:
+                try:
+                    val = mm.get(al)
+                except Exception:
+                    val = None
+                try:
+                    d[f] = float(val) if val is not None else None
+                except Exception:
+                    d[f] = None
+            esg_map[isin] = d
+    except Exception:
+        esg_map = {}
+
+    # Calcul des indicateurs pondérés et normalisés (indice = 100)
+    results = []
+    for f in sel_fields:
+        # affaire
+        aff_val = 0.0
+        aff_wsum = 0.0
+        for isin, w in affaire_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            aff_val += float(w) * float(v)
+            aff_wsum += float(w)
+        aff_val = (aff_val / aff_wsum) if aff_wsum > 0 else None
+
+        # index
+        idx_val = 0.0
+        idx_wsum = 0.0
+        for isin, w in alloc_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            idx_val += float(w) * float(v)
+            idx_wsum += float(w)
+        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
+
+        # ajouter compteurs de présence par champ
+        aff_present = sum(1 for isin,_w in affaire_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        if aff_val is None or idx_val is None or idx_val == 0:
+            results.append({"field": f, "index": None, "affaire": None, "aff_present": aff_present, "idx_present": idx_present})
+        else:
+            results.append({"field": f, "index": 100.0, "affaire": (aff_val / idx_val) * 100.0, "aff_present": aff_present, "idx_present": idx_present})
+
+    payload = {
+        "fields": sel_fields,
+        "alloc": alloc,
+        "alloc_isin": isin_param if 'isin_param' in locals() else None,
+        "as_of": as_of_dt,
+        "alloc_date": alloc_date_val,
+        "results": results,
+    }
+    if debug:
+        payload["debug"] = {
+            "affaire": {
+                "weights_count": len(affaire_weights),
+                "weights_sum": sum(affaire_weights.values()) if affaire_weights else 0,
+                "query": debug_info["affaire_query"],
+                "isins": sorted(list(affaire_weights.keys())),
+            },
+            "allocation": {
+                "weights_count": len(alloc_weights),
+                "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                "date": alloc_date_val,
+                "query": debug_info["alloc_query"],
+                "isins": sorted(list(alloc_weights.keys())),
+            },
+            "esg": {
+                "isin_count": len(all_isins),
+                "query": debug_info["esg_query"],
+            }
+        }
+    return payload
+
+
+# ---------------- ESG data API (Client consolidé) ----------------
+@router.get("/clients/{client_id}/esg", response_class=JSONResponse)
+def dashboard_client_esg(
+    client_id: int,
+    alloc: str = Query(None, description="Nom de l'allocation de référence"),
+    alloc_isin: str = Query(None, description="ISIN de l'allocation (prioritaire si fourni)"),
+    fields: str = Query(None, description="Champs ESG séparés par des virgules"),
+    as_of: str | None = Query(None, description="Date d'analyse YYYY-MM-DD pour le client (supports consolidés)"),
+    alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
+    debug: int = Query(0, description="Activer la sortie debug"),
+    db: Session = Depends(get_db),
+):
+    sel_fields: list[str] = []
+    if fields:
+        sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
+    if not sel_fields:
+        return {"error": "Aucun champ ESG sélectionné."}
+
+    debug_info = {"client_query": None, "alloc_query": None, "esg_query": None}
+
+    # Composition client (consolidée sur toutes les affaires à la date as_of ou dernière par affaire)
+    client_weights: dict[str, float] = {}
+    try:
+        # Récupérer les affaires du client
+        affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
+        # Agréger les valorisations par ISIN
+        sums: dict[str, float] = {}
+        total_valo = 0.0
+        params_list = []
+        weight_sql = (
+            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
+            "FROM mariadb_historique_support_w h\n"
+            "JOIN mariadb_support s ON s.id = h.id_support\n"
+            "WHERE h.id_source = :aid AND h.date = :d\n"
+            "GROUP BY s.code_isin"
+        )
+        for aid in affaire_ids:
+            if as_of:
+                ref_date = as_of
+            else:
+                ref_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"), {"aid": aid}).scalar()
+                if not ref_date:
+                    continue
+            q = text(
+                weight_sql
+            )
+            params = {"aid": aid, "d": ref_date}
+            rows = db.execute(q, params).fetchall()
+            params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
+            for r in rows or []:
+                isin = getattr(r, 'isin', None)
+                v = float(getattr(r, 'somme_valo', 0) or 0)
+                if isin:
+                    sums[isin] = sums.get(isin, 0.0) + v
+                    total_valo += v
+        if total_valo > 0:
+            for isin, v in sums.items():
+                if v is not None:
+                    client_weights[isin] = float(v) / float(total_valo)
+        debug_info["client_query"] = {"sql": weight_sql, "params_list": params_list, "affaires": affaire_ids, "as_of": as_of, "weights_count": len(client_weights)}
+    except Exception:
+        client_weights = {}
+
+    # Composition allocation (ISIN -> poids)
+    alloc_weights: dict[str, float] = {}
+    alloc_date_val = None
+    try:
+        import re as _re
+        isin_param = alloc_isin or (alloc if alloc and _re.match(r'^[A-Z0-9]{9,12}$', str(alloc).strip()) else None)
+        if isin_param:
+            if alloc_date:
+                # Utiliser la dernière date <= celle choisie pour éviter les décalages
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"), {"i": isin_param, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE ISIN = :i AND date = :d
+                """
+            )
+            params2 = {"i": isin_param, "d": alloc_date_val}
+            # Log query before exec so it's always visible
+            try:
+                sql_txt = q2.text
+            except Exception:
+                sql_txt = str(q2)
+            debug_info["alloc_query"] = {"mode": "isin", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
+            if total2 and total2 > 0:
+                for r in rows2:
+                    isin = getattr(r, 'isin', None)
+                    v = float(getattr(r, 'v', 0) or 0)
+                    if isin and v is not None:
+                        alloc_weights[isin] = v / total2
+        elif alloc:
+            if alloc_date:
+                # Idem: dernière date <= celle choisie (nom normalisé)
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"), {"n": alloc, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
+                """
+            )
+            params2 = {"n": alloc, "d": alloc_date_val}
+            # Renseigner le debug AVANT l'exécution pour toujours afficher la requête
+            try:
+                sql_txt = q2.text
+            except Exception:
+                sql_txt = str(q2)
+            debug_info["alloc_query"] = {"mode": "nom", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
+            if total2 and total2 > 0:
+                for r in rows2:
+                    isin = getattr(r, 'isin', None)
+                    v = float(getattr(r, 'v', 0) or 0)
+                    if isin and v is not None:
+                        alloc_weights[isin] = v / total2
+    except Exception:
+        alloc_weights = {}
+
+    all_isins = set(client_weights.keys()) | set(alloc_weights.keys())
+    if not all_isins:
+        return {"fields": sel_fields, "results": []}
+
+    def quote_col(c: str) -> str:
+        c = c.strip()
+        if not c:
+            return c
+        return f"`{c}`"
+
+    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
+    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
+    esg_map: dict[str, dict[str, float]] = {}
+    try:
+        isin_list = list(all_isins)
+        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
+        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
+        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for (f, al) in aliases:
+                try:
+                    val = mm.get(al)
+                except Exception:
+                    val = None
+                try:
+                    d[f] = float(val) if val is not None else None
+                except Exception:
+                    d[f] = None
+            esg_map[isin] = d
+    except Exception:
+        esg_map = {}
+
+    results = []
+    for f in sel_fields:
+        cli_val = 0.0
+        cli_wsum = 0.0
+        for isin, w in client_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            cli_val += float(w) * float(v)
+            cli_wsum += float(w)
+        cli_val = (cli_val / cli_wsum) if cli_wsum > 0 else None
+
+        idx_val = 0.0
+        idx_wsum = 0.0
+        for isin, w in alloc_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            idx_val += float(w) * float(v)
+            idx_wsum += float(w)
+        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
+
+        cli_present = sum(1 for isin,_w in client_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+
+        if cli_val is None or idx_val is None or idx_val == 0:
+            results.append({"field": f, "index": None, "client": None, "cli_present": cli_present, "idx_present": idx_present})
+        else:
+            results.append({"field": f, "index": 100.0, "client": (cli_val / idx_val) * 100.0, "cli_present": cli_present, "idx_present": idx_present})
+
+    payload = {
+        "fields": sel_fields,
+        "alloc": alloc,
+        "alloc_isin": isin_param if 'isin_param' in locals() else None,
+        "as_of": as_of,
+        "alloc_date": alloc_date_val,
+        "results": results,
+    }
+    if debug:
+        payload["debug"] = {
+            "client": {
+                "weights_count": len(client_weights),
+                "weights_sum": sum(client_weights.values()) if client_weights else 0,
+                "query": debug_info.get("client_query"),
+                "isins": sorted(list(client_weights.keys())),
+            },
+            "allocation": {
+                "weights_count": len(alloc_weights),
+                "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                "date": alloc_date_val,
+                "query": debug_info.get("alloc_query"),
+                "isins": sorted(list(alloc_weights.keys())),
+            },
+            "esg": {
+                "isin_count": len(all_isins),
+                "query": debug_info.get("esg_query"),
+            }
+        }
+    return payload
+
+
+# ---------------- ESG data API (Global consolidé: tous contrats) ----------------
+@router.get("/esg", response_class=JSONResponse)
+def dashboard_global_esg(
+    alloc: str = Query(None, description="Nom de l'allocation de référence"),
+    alloc_isin: str = Query(None, description="ISIN de l'allocation (prioritaire si fourni)"),
+    fields: str = Query(None, description="Champs ESG séparés par des virgules"),
+    as_of: str | None = Query(None, description="Date d'analyse YYYY-MM-DD (supports consolidés sur toutes les affaires)"),
+    alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
+    debug: int = Query(0, description="Activer la sortie debug"),
+    db: Session = Depends(get_db),
+):
+    sel_fields: list[str] = []
+    if fields:
+        sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
+    if not sel_fields:
+        return {"error": "Aucun champ ESG sélectionné."}
+
+    # Simplification demandée: calcul Top-10 par valorisation globale et agrégation pondérée des champs
+    # On utilise MAX(date) sur mariadb_historique_support_w, prend les 10 plus gros fonds,
+    # calcule leur poids relatif et agrège SUM(weight * champ) pour chaque champ demandé.
+    try:
+        def _quote_ident(c: str) -> str:
+            c = str(c).replace('"', '""')
+            return f'"{c}"'
+
+        select_expr = ",\n  ".join([f"SUM(w.w * ef.{_quote_ident(col)}) AS {_quote_ident(col)}" for col in sel_fields])
+
+        # 1) Valeurs portefeuille global (Top 10 par valorisation à MAX(date))
+        sql_portfolio = f"""
+WITH last_date AS (
+  SELECT MAX(date) AS d FROM mariadb_historique_support_w
+),
+agg AS (
+  SELECT s.code_isin AS isin, s.nom, SUM(h.valo) AS total_valo
+  FROM mariadb_historique_support_w h
+  JOIN mariadb_support s ON s.id = h.id_support
+  JOIN last_date ld
+  WHERE h.date = ld.d
+  GROUP BY s.code_isin, s.nom
+),
+top10 AS (
+  SELECT * FROM agg ORDER BY total_valo DESC LIMIT 10
+),
+sum10 AS (
+  SELECT SUM(total_valo) AS total_10 FROM top10
+),
+weights AS (
+  SELECT t.isin, (t.total_valo / s.total_10) AS w
+  FROM top10 t
+  CROSS JOIN sum10 s
+)
+SELECT
+  {select_expr}
+FROM weights w
+LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
+"""
+
+        row_port = db.execute(text(sql_portfolio)).fetchone()
+        port_map = {}
+        if row_port is not None:
+            mm = getattr(row_port, "_mapping", row_port)
+            for f in sel_fields:
+                try:
+                    v = mm.get(f)
+                except Exception:
+                    v = None
+                try:
+                    port_map[f] = float(v) if v is not None else None
+                except Exception:
+                    port_map[f] = None
+
+        # 2) Valeurs indice (allocation de référence) — Top 10 de la composition à la date choisie (ou MAX)
+        alloc_date_val = None
+        # Déterminer la date d'allocation
+        if alloc:
+            if alloc_date:
+                alloc_date_val = db.execute(text(
+                    "SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"
+                ), {"n": alloc, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text(
+                        "SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"
+                    ), {"n": alloc}).scalar()
+            else:
+                alloc_date_val = db.execute(text(
+                    "SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"
+                ), {"n": alloc}).scalar()
+
+        sql_index = None
+        idx_map = {f: None for f in sel_fields}
+        if alloc and alloc_date_val:
+            sql_index = f"""
+WITH last_date AS (
+  SELECT MAX(date) AS d FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d
+),
+agg AS (
+  SELECT a.isin AS isin, SUM(COALESCE(a.valo, a.sicav)) AS total_valo
+  FROM allocations a
+  JOIN last_date ld
+  WHERE lower(trim(a.nom)) = lower(trim(:n)) AND a.date = ld.d
+  GROUP BY a.isin
+),
+top10 AS (
+  SELECT * FROM agg ORDER BY total_valo DESC LIMIT 10
+),
+sum10 AS (
+  SELECT SUM(total_valo) AS total_10 FROM top10
+),
+weights AS (
+  SELECT t.isin, (t.total_valo / s.total_10) AS w
+  FROM top10 t
+  CROSS JOIN sum10 s
+)
+SELECT
+  {select_expr}
+FROM weights w
+LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
+"""
+            row_idx = db.execute(text(sql_index), {"n": alloc, "d": alloc_date_val}).fetchone()
+            if row_idx is not None:
+                mm2 = getattr(row_idx, "_mapping", row_idx)
+                for f in sel_fields:
+                    try:
+                        v2 = mm2.get(f)
+                    except Exception:
+                        v2 = None
+                    try:
+                        idx_map[f] = float(v2) if v2 is not None else None
+                    except Exception:
+                        idx_map[f] = None
+
+        # 3) Résultats normalisés: indice=100 et portefeuille = (port/index) * 100
+        results_norm = []
+        for f in sel_fields:
+            p = port_map.get(f)
+            q = idx_map.get(f)
+            if p is None or q is None or q == 0:
+                results_norm.append({
+                    "field": f,
+                    "index": None,
+                    "global": None,
+                    "index_raw": q,
+                    "global_raw": p,
+                })
+            else:
+                results_norm.append({
+                    "field": f,
+                    "index": (q / q) * 100.0,
+                    "global": (p / q) * 100.0,
+                    "index_raw": q,
+                    "global_raw": p,
+                })
+
+        payload_top = {
+            "fields": sel_fields,
+            "alloc": alloc,
+            "alloc_isin": alloc_isin,
+            "as_of": None,
+            "alloc_date": alloc_date_val,
+            "results": results_norm,
+        }
+        if debug:
+            payload_top["debug"] = {
+                "sql_portfolio": sql_portfolio,
+                "sql_index": sql_index,
+                "alloc_date": str(alloc_date_val) if alloc_date_val is not None else None,
+                "portfolio_raw": port_map,
+                "index_raw": idx_map,
+            }
+        return payload_top
+    except Exception:
+        # En cas d'erreur, on retombe sur le comportement précédent (plus bas)
+        pass
+
+    debug_info = {"global_query": None, "alloc_query": None, "esg_query": None}
+
+    # Composition globale (toutes les affaires) — calquée sur Client/detail, sans filtre client
+    global_weights: dict[str, float] = {}
+    try:
+        affaire_ids = [rid for (rid,) in db.query(Affaire.id).all()]
+        sums: dict[str, float] = {}
+        total_valo = 0.0
+        params_list: list[dict] = []
+        # Même requête que client/detail: on fixe une date par affaire (as_of sinon dernière)
+        weight_sql = (
+            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
+            "FROM mariadb_historique_support_w h\n"
+            "JOIN mariadb_support s ON s.id = h.id_support\n"
+            "WHERE h.id_source = :aid AND h.date = :d\n"
+            "GROUP BY s.code_isin"
+        )
+        for aid in affaire_ids:
+            # Déterminer la date de référence pour cette affaire
+            if as_of:
+                ref_date = as_of
+            else:
+                ref_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"), {"aid": aid}).scalar()
+                if not ref_date:
+                    continue
+            q = text(weight_sql)
+            params = {"aid": aid, "d": ref_date}
+            rows = db.execute(q, params).fetchall()
+            params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
+            for r in rows or []:
+                isin = getattr(r, 'isin', None)
+                v = float(getattr(r, 'somme_valo', 0) or 0)
+                if isin:
+                    sums[isin] = sums.get(isin, 0.0) + v
+                    total_valo += v
+        if total_valo > 0:
+            for isin, v in sums.items():
+                if v is not None:
+                    global_weights[isin] = float(v) / float(total_valo)
+        debug_info["global_query"] = {"sql": weight_sql, "params_list": params_list, "weights_count": len(global_weights)}
+    except Exception:
+        global_weights = {}
+
+    # Allocation (identique aux autres endpoints)
+    alloc_weights: dict[str, float] = {}
+    alloc_date_val = None
+    try:
+        import re as _re
+        isin_param = alloc_isin or (alloc if alloc and _re.match(r'^[A-Z0-9]{9,12}$', str(alloc).strip()) else None)
+        if isin_param:
+            if alloc_date:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"), {"i": isin_param, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE ISIN = :i AND date = :d
+                """
+            )
+            params2 = {"i": isin_param, "d": alloc_date_val}
+            try:
+                sql_txt = q2.text
+            except Exception:
+                sql_txt = str(q2)
+            debug_info["alloc_query"] = {"mode": "isin", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
+            if total2 and total2 > 0:
+                for r in rows2:
+                    isin = getattr(r, 'isin', None)
+                    v = float(getattr(r, 'v', 0) or 0)
+                    if isin and v is not None:
+                        alloc_weights[isin] = v / total2
+        elif alloc:
+            if alloc_date:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"), {"n": alloc, "d": alloc_date}).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
+                """
+            )
+            params2 = {"n": alloc, "d": alloc_date_val}
+            try:
+                sql_txt = q2.text
+            except Exception:
+                sql_txt = str(q2)
+            debug_info["alloc_query"] = {"mode": "nom", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
+            rows2 = db.execute(q2, params2).fetchall()
+            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
+            if total2 and total2 > 0:
+                for r in rows2:
+                    isin = getattr(r, 'isin', None)
+                    v = float(getattr(r, 'v', 0) or 0)
+                    if isin and v is not None:
+                        alloc_weights[isin] = v / total2
+    except Exception:
+        alloc_weights = {}
+
+    all_isins = set(global_weights.keys()) | set(alloc_weights.keys())
+    if not all_isins:
+        payload = {
+            "fields": sel_fields,
+            "alloc": alloc,
+            "alloc_isin": isin_param if 'isin_param' in locals() else None,
+            "as_of": as_of,
+            "alloc_date": alloc_date_val,
+            "results": [],
+        }
+        if debug:
+            payload["debug"] = {
+                "global": {
+                    "weights_count": len(global_weights),
+                    "weights_sum": sum(global_weights.values()) if global_weights else 0,
+                    "query": debug_info.get("global_query"),
+                    "isins": sorted(list(global_weights.keys())),
+                },
+                "allocation": {
+                    "weights_count": len(alloc_weights),
+                    "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                    "date": alloc_date_val,
+                    "query": debug_info.get("alloc_query"),
+                    "isins": sorted(list(alloc_weights.keys())),
+                },
+                "esg": {
+                    "isin_count": 0,
+                    "query": None,
+                }
+            }
+        return payload
+
+    def quote_col(c: str) -> str:
+        c = c.strip()
+        if not c:
+            return c
+        return f"`{c}`"
+
+    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
+    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
+    esg_map: dict[str, dict[str, float]] = {}
+    try:
+        isin_list = list(all_isins)
+        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
+        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
+        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for (f, al) in aliases:
+                try:
+                    val = mm.get(al)
+                except Exception:
+                    val = None
+                try:
+                    d[f] = float(val) if val is not None else None
+                except Exception:
+                    d[f] = None
+            esg_map[isin] = d
+    except Exception:
+        esg_map = {}
+
+    results = []
+    for f in sel_fields:
+        g_val = 0.0
+        g_wsum = 0.0
+        for isin, w in global_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            g_val += float(w) * float(v)
+            g_wsum += float(w)
+        g_val = (g_val / g_wsum) if g_wsum > 0 else None
+
+        idx_val = 0.0
+        idx_wsum = 0.0
+        for isin, w in alloc_weights.items():
+            v = (esg_map.get(isin) or {}).get(f)
+            if v is None:
+                continue
+            idx_val += float(w) * float(v)
+            idx_wsum += float(w)
+        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
+
+        g_present = sum(1 for isin,_w in global_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+
+        if g_val is None or idx_val is None or idx_val == 0:
+            results.append({"field": f, "index": None, "global": None, "global_present": g_present, "idx_present": idx_present})
+        else:
+            results.append({"field": f, "index": 100.0, "global": (g_val / idx_val) * 100.0, "global_present": g_present, "idx_present": idx_present})
+
+    payload = {
+        "fields": sel_fields,
+        "alloc": alloc,
+        "alloc_isin": isin_param if 'isin_param' in locals() else None,
+        "as_of": as_of,
+        "alloc_date": alloc_date_val,
+        "results": results,
+    }
+    if debug:
+        payload["debug"] = {
+            "global": {
+                "weights_count": len(global_weights),
+                "weights_sum": sum(global_weights.values()) if global_weights else 0,
+                "query": debug_info.get("global_query"),
+                "isins": sorted(list(global_weights.keys())),
+            },
+            "allocation": {
+                "weights_count": len(alloc_weights),
+                "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                "date": alloc_date_val,
+                "query": debug_info.get("alloc_query"),
+                "isins": sorted(list(alloc_weights.keys())),
+            },
+            "esg": {
+                "isin_count": len(all_isins),
+                "query": debug_info.get("esg_query"),
+            }
+        }
+    return payload
 
 
 # ---------------- Supports ----------------
@@ -8077,7 +9304,6 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
         text("SELECT MAX(date) FROM mariadb_historique_support_w")
     ).scalar()
 
-    print(">>> Dernière date trouvée :", last_date, type(last_date))
     # Formatage robuste de la date pour l'affichage
     if isinstance(last_date, (datetime, _date)):
         last_date_str = last_date.strftime("%Y-%m-%d")
@@ -9839,6 +11065,234 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 })
     except Exception:
         DER_activites = []
+    # ESG UI context for client-level
+    try:
+        alloc_names_client = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
+    except Exception:
+        alloc_names_client = []
+    esg_fields_client: list[dict] = []
+    esg_field_labels_client: dict[str, str] = {}
+    try:
+        ok = False
+        # MariaDB/MySQL
+        try:
+            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            if rows_cols:
+                for rc in rows_cols:
+                    col = rc[0]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    esg_fields_client.append({"col": col, "label": col})
+                ok = True
+        except Exception:
+            ok = False
+        # SQLite fallback
+        if not ok:
+            try:
+                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+                def _labelize(name: str) -> str:
+                    if not name:
+                        return name
+                    s = str(name).replace('_', ' ')
+                    import re as _re
+                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
+                    return s.strip().capitalize()
+                for rc in rows_cols or []:
+                    # PRAGMA columns: (cid, name, type, notnull, dflt_value, pk)
+                    col = rc[1]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    label = _labelize(col)
+                    esg_fields_client.append({"col": col, "label": label})
+                ok = True
+            except Exception:
+                ok = False
+        # Generic fallback
+        if not ok:
+            try:
+                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
+                if row1 is not None:
+                    for k in row1._mapping.keys():
+                        if str(k).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields_client.append({"col": k, "label": k})
+                ok = True
+            except Exception:
+                ok = False
+    except Exception:
+        pass
+    # Déduplique et trie par libellé
+    seen_cli = set()
+    uniq_cli = []
+    for it in esg_fields_client:
+        key = str(it.get("col"))
+        if key in seen_cli:
+            continue
+        seen_cli.add(key)
+        uniq_cli.append(it)
+    esg_fields_client = sorted(uniq_cli, key=lambda x: str(x.get("label", "")).lower())
+    esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
+
+    # Contrat choisi (si défini via KYC_contrat_choisi)
+    contrat_choisi_nom = None
+    contrat_choisi_societe = None
+    try:
+        row = db.execute(text(
+            """
+            SELECT g.nom_contrat, COALESCE(s.nom,'') AS societe_nom
+            FROM KYC_contrat_choisi k
+            LEFT JOIN mariadb_affaires_generique g ON g.id = k.id_contrat
+            LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+            WHERE k.id_client = :cid
+            LIMIT 1
+            """
+        ), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            contrat_choisi_nom = m.get('nom_contrat') or row[0]
+            contrat_choisi_societe = m.get('societe_nom') if 'societe_nom' in m else (row[1] if len(row) > 1 else None)
+    except Exception:
+        contrat_choisi_nom = None
+        contrat_choisi_societe = None
+
+    # --- Lettre d'adéquation: données consolidées (requêtes directes) ---
+    etat_civil_latest = None
+    try:
+        row = db.execute(text("SELECT civilite, situation_familiale FROM etat_civil_client WHERE id_client = :cid ORDER BY id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            etat_civil_latest = {"civilite": m.get("civilite"), "situation_familiale": m.get("situation_familiale")}
+    except Exception:
+        etat_civil_latest = None
+
+    nb_enfants_latest = None
+    try:
+        row = db.execute(text("SELECT nb_enfants FROM KYC_Client_Situation_Matrimoniale WHERE client_id = :cid ORDER BY date_saisie DESC NULLS LAST, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+        if row is not None:
+            nb_enfants_latest = row[0]
+    except Exception:
+        nb_enfants_latest = None
+
+    synthese_latest = None
+    try:
+        row = db.execute(text("SELECT total_revenus, total_charges, total_actif, total_passif, commentaire FROM KYC_Client_Synthese WHERE client_id = :cid ORDER BY date_saisie DESC, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            synthese_latest = {k: m.get(k) for k in ("total_revenus","total_charges","total_actif","total_passif","commentaire")}
+    except Exception:
+        synthese_latest = None
+
+    risque_latest = None
+    try:
+        row = db.execute(text(
+            """
+            SELECT 
+              r.libelle AS niveau_risque,
+              k.niveau_id AS niveau_id,
+              k.duree AS horizon_placement,
+              k.experience,
+              k.connaissance,
+              k.commentaire,
+              k.confirmation_client
+            FROM KYC_Client_Risque k
+            JOIN ref_niveau_risque r ON k.niveau_id = r.id
+            WHERE k.client_id = :cid
+            ORDER BY k.date_saisie DESC, k.id DESC
+            LIMIT 1
+            """
+        ), {"cid": client_id}).fetchone()
+        if row:
+            risque_latest = dict(row._mapping)
+    except Exception:
+        risque_latest = None
+
+    # Contrats génériques (pour comparatif des offres)
+    adequation_contracts = []
+    try:
+        rows = db.execute(text(
+            """
+            SELECT g.id,
+                   g.nom_contrat,
+                   COALESCE(s.nom, '') AS societe_nom,
+                   COALESCE(g.frais_gestion_assureur,0) + COALESCE(g.frais_gestion_courtier,0) AS total_frais
+            FROM mariadb_affaires_generique g
+            LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+            WHERE COALESCE(g.actif, 1) = 1
+            ORDER BY s.nom, g.nom_contrat
+            """
+        )).fetchall()
+        adequation_contracts = [dict(r._mapping) for r in rows]
+    except Exception:
+        adequation_contracts = []
+
+    # Objectifs client (pour lettre d'adéquation)
+    adequation_objectifs = []
+    try:
+        rows = db.execute(text(
+            """
+            SELECT o.objectif_id,
+                   ro.libelle AS objectif_libelle,
+                   o.horizon_investissement,
+                   o.commentaire,
+                   COALESCE(o.niveau_id, 9999) AS _niv
+            FROM KYC_Client_Objectifs o
+            LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+            WHERE o.client_id = :cid
+            ORDER BY _niv, ro.libelle, o.id
+            """
+        ), {"cid": client_id}).fetchall()
+        adequation_objectifs = [dict(r._mapping) for r in rows]
+    except Exception:
+        adequation_objectifs = []
+
+    # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
+    adequation_allocation_html = None
+    try:
+        rid = None
+        if risque_latest and (risque_latest.get("niveau_id") is not None):
+            rid = int(risque_latest.get("niveau_id"))
+        if rid is not None:
+            row = db.execute(text(
+                """
+                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                       ar.texte
+                FROM allocation_risque ar
+                LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                WHERE ar.risque_id = :rid
+                ORDER BY ar.date_attribution DESC, ar.id DESC
+                LIMIT 1
+                """
+            ), {"rid": rid}).fetchone()
+            if row and row[1] is not None:
+                md = str(row[1])
+                try:
+                    import re, html as _html
+                    text_md = _html.escape(md)
+                    text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
+                    text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
+                    text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
+                    text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
+                    text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
+                    lines = text_md.split('\n')
+                    out = []
+                    in_ul = False
+                    for ln in lines:
+                        if re.match(r"^\s*-\s+", ln):
+                            if not in_ul:
+                                out.append("<ul>"); in_ul=True
+                            out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                        else:
+                            if in_ul:
+                                out.append("</ul>"); in_ul=False
+                            if ln.strip(): out.append("<p>"+ln+"</p>")
+                    if in_ul: out.append("</ul>")
+                    adequation_allocation_html = "\n".join(out)
+                except Exception:
+                    adequation_allocation_html = md.replace('\n','<br/>')
+    except Exception:
+        adequation_allocation_html = None
+
+
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -9889,6 +11343,25 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # Données pour graphique allocations (lignes)
             "alloc_series": alloc_series,
             "client_sicav": client_sicav,
+            # ESG UI context
+            "alloc_names": alloc_names_client,
+            "esg_fields": esg_fields_client,
+            "esg_field_labels": esg_field_labels_client,
+            "contrat_choisi_nom": contrat_choisi_nom,
+            "contrat_choisi_societe": contrat_choisi_societe,
+            # Lettre d'adéquation: infos consolidées
+            "etat_civil_latest": etat_civil_latest,
+            "nb_enfants_latest": nb_enfants_latest,
+            "synthese_latest": synthese_latest,
+            "risque_latest": risque_latest,
+            # Lettre d'adéquation: infos consolidées
+            "etat_civil_latest": etat_civil_latest,
+            "nb_enfants_latest": nb_enfants_latest,
+            "synthese_latest": synthese_latest,
+            "risque_latest": risque_latest,
+            "adequation_contracts": adequation_contracts,
+            "adequation_objectifs": adequation_objectifs,
+            "adequation_allocation_html": adequation_allocation_html,
             # Tâches: assistance création locale
             "types": types,
             "categories": cats,
@@ -10130,3 +11603,22 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
             "obs_by_risque": obs_by_risque,
         }
     )
+# List allocation dates for a given name (distinct)
+@router.get("/allocations/dates", response_class=JSONResponse)
+def list_allocation_dates(name: str | None = None, isin: str | None = None, db: Session = Depends(get_db)):
+    try:
+        if isin:
+            rows = db.execute(text("SELECT DISTINCT date FROM allocations WHERE ISIN = :i ORDER BY date DESC"), {"i": isin}).fetchall()
+        else:
+            rows = db.execute(text("SELECT DISTINCT date FROM allocations WHERE nom = :n ORDER BY date DESC"), {"n": name}).fetchall()
+        # Return ISO strings
+        out = []
+        for r in rows or []:
+            d = getattr(r, 'date', None)
+            try:
+                out.append(d.strftime('%Y-%m-%d'))
+            except Exception:
+                out.append(str(d)[:10] if d else None)
+        return {"name": name, "isin": isin, "dates": [x for x in out if x]}
+    except Exception as e:
+        return {"name": name, "isin": isin, "dates": [], "error": str(e)}

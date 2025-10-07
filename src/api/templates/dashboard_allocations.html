@@ -138,7 +138,7 @@
 
     <div class="card" style="margin-top:1.5rem;">
         <h3>Performance et Volatilité</h3>
-        <canvas id="sicavChart" height="140"></canvas>
+        <div id="sicavChart" style="height: 280px;"></div>
     </div>
     
     <div class="pagination-container">
@@ -151,11 +151,7 @@
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-// Chart.js: couleur par défaut (axes/labels) = bleu CSS
-try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
-</script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 
 <!-- FixedHeader -->
 <link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
@@ -236,9 +232,8 @@ $(document).ready(function () {
     (function(){try{var t=document.getElementById('quickToggleAlloc'),s=document.getElementById('quickSectionAlloc');if(!t||!s)return;function setOpen(o){s.style.display=o?'':'none';t.classList.toggle('collapsed',!o);localStorage.setItem('alloc_quick_open',o?'1':'');}var saved=localStorage.getItem('alloc_quick_open')==='1';setOpen(saved);t.addEventListener('click',function(){setOpen(s.style.display==='none');});}catch(e){}})();
     window.resetRestoredAllocations = function(){ try{ document.getElementById('restoreAllocations').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
 
-    // Chart.js combiné perf (gauche) + volat (droite)
-    var sicavCtx = document.getElementById('sicavChart').getContext('2d');
-    var sicavChart;
+    // Plotly: courbes SICAV (gauche) + Volatilité (droite)
+    var sicavEl = document.getElementById('sicavChart');
     var fullData2 = { labels: [], sicav: [], volat: [] };
     var seriesData = {{ series_data | tojson }};
     var currentAllocName = '';
@@ -282,46 +277,54 @@ $(document).ready(function () {
 
     function drawSicavChart(labels, sicav, vol) {
         var primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
-        if (sicavChart) sicavChart.destroy();
         // auto-ajustement axes selon min/max
         var smin = Math.min.apply(null, sicav), smax = Math.max.apply(null, sicav);
         var vmin = Math.min.apply(null, vol), vmax = Math.max.apply(null, vol);
         var smargin = (smax - smin) * 0.1 || 1;
         var vmargin = (vmax - vmin) * 0.1 || 1;
 
-        sicavChart = new Chart(sicavCtx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    { label: (currentAllocName || 'SICAV'), data: sicav, borderColor: primaryColor, yAxisID: 'y1', fill: false, pointRadius: 0, pointHoverRadius: 0 },
-                    { label: 'Volatilité (%)', data: vol, borderColor: '#ff6b6b', yAxisID: 'y2', fill: false, pointRadius: 0, pointHoverRadius: 0 }
-                ]
-            },
-            options: {
-                responsive: true,
-                interaction: { mode: 'index', intersect: false },
-                stacked: false,
-                scales: {
-                    y1: {
-                        type: 'linear', position: 'left',
-                        ticks: { callback: v => (Number(v).toLocaleString('fr-FR')) , color: primaryColor },
-                        border: { color: primaryColor },
-                        title: { display: true, text: (currentAllocName || 'SICAV'), color: primaryColor },
-                        suggestedMin: smin - smargin, suggestedMax: smax + smargin
-                    },
-                    y2: {
-                        type: 'linear', position: 'right',
-                        ticks: { callback: v => v + ' %', color: '#ff6b6b' },
-                        border: { color: '#ff6b6b' },
-                        grid: { drawOnChartArea: false },
-                        title: { display: true, text: 'Volatilité (%)', color: '#ff6b6b' },
-                        suggestedMin: vmin - vmargin, suggestedMax: vmax + vmargin
-                    }
-                },
-                plugins: { legend: { display: true } }
-            }
-        });
+        var traces = [
+          {
+            x: labels,
+            y: sicav,
+            type: 'scatter',
+            mode: 'lines',
+            name: (currentAllocName || 'SICAV'),
+            line: { color: primaryColor, width: 2 },
+            yaxis: 'y'
+          },
+          {
+            x: labels,
+            y: vol,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Volatilité (%)',
+            line: { color: '#ff6b6b', width: 2, dash: 'dot' },
+            yaxis: 'y2'
+          }
+        ];
+        var layout = {
+          margin: { l: 50, r: 50, t: 10, b: 30 },
+          xaxis: { type: 'date', tickformat: '%Y-%m-%d', automargin: true },
+          yaxis: {
+            title: (currentAllocName || 'SICAV'),
+            rangemode: 'normal',
+            range: [smin - smargin, smax + smargin],
+            tickformat: ',.0f',
+            zeroline: false
+          },
+          yaxis2: {
+            title: 'Volatilité (%)',
+            overlaying: 'y', side: 'right',
+            range: [vmin - vmargin, vmax + vmargin],
+            tickformat: '.2f',
+            zeroline: false
+          },
+          legend: { orientation: 'h', x: 0, y: 1.15 }
+        };
+        var config = { displayModeBar: true, responsive: true };
+        try { Plotly.react(sicavEl, traces, layout, config); }
+        catch(e) { Plotly.newPlot(sicavEl, traces, layout, config); }
     }
 
     // Actions Voir + boutons de fenêtre

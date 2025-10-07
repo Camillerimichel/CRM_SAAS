@@ -26,3 +26,6 @@ frontend/node_modules/.cache/
 
 # Notebooks auto files
 *.ipynb_checkpoints/
+
+# Local env (do not commit)
+backend/.env
