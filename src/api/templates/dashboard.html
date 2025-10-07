@@ -15,12 +15,39 @@
   .doc-filter-link { text-decoration:none; color:inherit; }
   .doc-filter-link:hover { text-decoration: underline; }
   /* Chevrons accordéon: rotation sur fermeture */
-  #risksToggle .chevron, #analysisToggle .chevron, #tasksToggle .chevron, #remToggle .chevron, #groupsToggle .chevron {
+  #risksToggle .chevron, #analysisToggle .chevron, #esgToggle .chevron, #tasksToggle .chevron, #remToggle .chevron, #groupsToggle .chevron,
+  #srriToggle .chevron, #clienteleToggle .chevron, #financeToggle .chevron {
     transition: transform .2s ease; color: var(--primary);
   }
-  #risksToggle.collapsed .chevron, #analysisToggle.collapsed .chevron, #tasksToggle.collapsed .chevron,
-  #remToggle.collapsed .chevron, #groupsToggle.collapsed .chevron {
+  #risksToggle.collapsed .chevron, #analysisToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #tasksToggle.collapsed .chevron,
+  #remToggle.collapsed .chevron, #groupsToggle.collapsed .chevron,
+  #srriToggle.collapsed .chevron, #clienteleToggle.collapsed .chevron, #financeToggle.collapsed .chevron {
     transform: rotate(-90deg);
+  }
+  /* Style bleu pour sous-accordéons de l'analyse */
+  #clienteleToggle, #srriToggle, #financeToggle,
+  #remFraisToggle, #remRetroToggle {
+    background: var(--primary);
+    color: #fff;
+    border: 1px solid var(--primary);
+  }
+  #clienteleToggle h3, #srriToggle h3, #financeToggle h3,
+  #remFraisToggle h3, #remRetroToggle h3 { color:#fff; }
+  #clienteleToggle .chevron, #srriToggle .chevron, #financeToggle .chevron,
+  #remFraisToggle .chevron, #remRetroToggle .chevron { color:#fff; }
+  /* Risk dots */
+  .dot { display:inline-block; width: 0.9em; height: 0.9em; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+  .dot-red { background:#ef4444; }
+  .dot-green { background:#16a34a; }
+  .dot-blue { background:#3b82f6; }
+  /* ESG global: boutons compacts */
+  #esgSection .esg-field-global {
+    font-size: 10px;
+    padding: 2px 6px;
+    height: auto;
+    line-height: 1.2;
+    border-radius: 6px;
+    margin: 2px;
   }
 </style>
 
@@ -43,8 +70,48 @@
   </div>
   </div>
 
-  <!-- Accordéon Risques -->
+  <!-- Accordéon Tâches en cours (remonté avant Risques) -->
   </div>
+  <div id="tasksToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="tasksSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+    <div class="muted">Période:</div>
+    {% set r = tasks_range or 14 %}
+    {% for n in [7,14,30] %}
+      {% if n == r %}
+        <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
+      {% else %}
+        <a class="btn btn-choice" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <div class="kpis" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="kpi-card">
+      <div>Tâches totales</div>
+      <div class="kpi-value">{{ tasks_total }}</div>
+    </div>
+    <div class="kpi-card">
+      <div>Ouvertes</div>
+      <div class="kpi-value">{{ tasks_open }}</div>
+    </div>
+    <div class="kpi-card">
+      <div>Clôturées</div>
+      <div class="kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
+    </div>
+    <div class="kpi-card">
+      <div>Aujourd'hui</div>
+      <div class="kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
+    </div>
+    <div class="kpi-card" style="grid-column: 1 / -1;">
+      <canvas id="chartTasks" height="120"></canvas>
+    </div>
+  </div>
+  </div>
+
+  <!-- Accordéon Risques -->
   <div id="risksToggle" class="card" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Risques</h3>
     <span class="chevron">▾</span>
@@ -95,17 +162,17 @@
     <div style="margin-top:8px; font-size:0.95rem; line-height:1.6;">
       <div>
         <a href="/dashboard/clients?risk=above" style="text-decoration:none; color:inherit;">
-          🔥 <strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
+          <span class="dot dot-red"></span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
         </a>
       </div>
       <div>
         <a href="/dashboard/clients?risk=equal" style="text-decoration:none; color:inherit;">
-          🙏 <strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
+          <span class="dot dot-green"></span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
         </a>
       </div>
       <div>
         <a href="/dashboard/clients?risk=below" style="text-decoration:none; color:inherit;">
-          ❄️ <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
+          <span class="dot dot-blue"></span><strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
         </a>
       </div>
     </div>
@@ -117,17 +184,17 @@
     <div style="margin-top:8px; font-size:0.95rem; line-height:1.6;">
       <div>
         <a href="/dashboard/affaires?risk=above" style="text-decoration:none; color:inherit;">
-          🔥 <strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
+          <span class="dot dot-red"></span><strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
         </a>
       </div>
       <div>
         <a href="/dashboard/affaires?risk=equal" style="text-decoration:none; color:inherit;">
-          🙏 <strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
+          <span class="dot dot-green"></span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
         </a>
       </div>
       <div>
         <a href="/dashboard/affaires?risk=below" style="text-decoration:none; color:inherit;">
-          ❄️ <strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
+          <span class="dot dot-blue"></span><strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
         </a>
       </div>
     </div>
@@ -140,124 +207,99 @@
   <span class="chevron">▾</span>
  </div>
 <div id="analysisSection" style="display:none;">
-  <!-- Découpage clients par détention (bar chart pleine largeur) -->
-  <div class="card" style="max-width: 1100px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
-    <h3>Découpage clients par détention</h3>
-    <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+  <!-- Sous-accordéon: Répartition par clientèle -->
+  <div id="clienteleToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="clienteleSection" style="display:none;">
+    <div class="card" style="max-width: 1100px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+      <h3>Découpage clients par détention</h3>
+      <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+    </div>
   </div>
 
-  <!-- Graphiques (réordonnés: 2-4 puis 3-5) -->
-  <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-    <div class="card">
-      <h3>Clients par SRRI</h3>
-      <canvas id="chartClientsCount"></canvas>
+  <!-- Sous-accordéon: Répartitions SRRI -->
+  <div id="srriToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Répartitions SRRI</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="srriSection" style="display:none;">
+    <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
+      <div class="card">
+        <h3>Clients par SRRI</h3>
+        <canvas id="chartClientsCount"></canvas>
+      </div>
+      <div class="card">
+        <h3>Montant par SRRI (Clients)</h3>
+        <canvas id="chartClientsAmount"></canvas>
+      </div>
     </div>
-    <div class="card">
-      <h3>Montant par SRRI (Clients)</h3>
-      <canvas id="chartClientsAmount"></canvas>
+    <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
+      <div class="card">
+        <h3>Affaires par SRRI</h3>
+        <canvas id="chartAffairesCount"></canvas>
+      </div>
+      <div class="card">
+        <h3>Montant par SRRI (Affaires)</h3>
+        <canvas id="chartAffairesAmount"></canvas>
+      </div>
     </div>
   </div>
-  <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-    <div class="card">
-      <h3>Affaires par SRRI</h3>
-      <canvas id="chartAffairesCount"></canvas>
-    </div>
-    <div class="card">
-      <h3>Montant par SRRI (Affaires)</h3>
-      <canvas id="chartAffairesAmount"></canvas>
+
+  <!-- Sous-accordéon: Analyse financière -->
+  <div id="financeToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Analyse financière</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="financeSection" style="display:none;">
+    <div class="card" style="max-width:1100px; margin: 0 auto 1rem auto;">
+      <div class="muted">À venir</div>
     </div>
   </div>
 </div>
 
-<!-- Accordéon Tâches en cours -->
-<div id="tasksToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-  <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
+<!-- Accordéon ESG (global) -->
+<div id="esgToggle" class="card" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <h3 style="margin:0; font-size:1.05rem;">ESG</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="tasksSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-    <div class="muted">Période:</div>
-    {% set r = tasks_range or 14 %}
-    {% for n in [7,14,30] %}
-      {% if n == r %}
-        <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
-      {% else %}
-        <a class="btn btn-choice" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
-      {% endif %}
-    {% endfor %}
-  </div>
-  <div class="kpis" style="grid-template-columns: repeat(4, 1fr);">
-    <div class="kpi-card">
-      <div>Tâches totales</div>
-      <div class="kpi-value">{{ tasks_total }}</div>
+<div id="esgSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div class="card" style="text-align:left;">
+    <h3 style="margin-top:0;">Comparaison ESG Portefeuille vs Indice - global</h3>
+    <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+        <select id="esgAllocSelectGlobal" style="min-width:220px; max-width:280px; width:auto;">
+          <option value="">— choisir —</option>
+          {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="display:none;">
+        <label class="muted" style="font-size:0.85rem;">Date</label><br>
+        <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;"></select>
+      </div>
+      <div style="flex:1 1 auto; min-width:260px;">
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <div id="esgFieldsGlobal" style="display:flex; gap:6px; flex-wrap:wrap;">
+          {% for it in esg_fields %}
+            {% set col = it.col if it is mapping else it %}
+            {% set label = it.label if it is mapping else it %}
+            <button type="button" class="btn btn-choice esg-field-global" data-field="{{ col }}" title="{{ label }}">{{ label }}</button>
+          {% endfor %}
+        </div>
+      </div>
     </div>
-    <div class="kpi-card">
-      <div>Ouvertes</div>
-      <div class="kpi-value">{{ tasks_open }}</div>
-    </div>
-    <div class="kpi-card">
-      <div>Clôturées</div>
-      <div class="kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
-    </div>
-    <div class="kpi-card">
-      <div>Aujourd'hui</div>
-      <div class="kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
-    </div>
-    <div class="kpi-card" style="grid-column: 1 / -1;">
-      <div>Délai moyen de clôture</div>
-      <div class="kpi-value">{{ '%.1f'|format(tasks_avg_close_days or 0) }} j</div>
-    </div>
-  </div>
-
-  <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); margin-top:1rem;">
-    <div class="card">
-      <h3>Par statut</h3>
-      <canvas id="chartTasksStatut"></canvas>
-    </div>
-    <div class="card">
-      <h3>Par catégorie</h3>
-      <canvas id="chartTasksCategorie"></canvas>
-    </div>
-    <div class="card" style="min-height:220px;">
-      <h3>Créations ({{ tasks_range }} jours)</h3>
-      <div style="height:220px;"><canvas id="chartTasksDays"></canvas></div>
-    </div>
-    <div class="card" style="min-height:220px;">
-      <h3>Durées jusqu'à clôture ({{ tasks_range }} jours)</h3>
-      <div style="height:220px;"><canvas id="chartTasksCloseDist"></canvas></div>
-    </div>
-  </div>
-
-  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-    <a class="btn btn-choice" href="/dashboard/taches?today=1">Mes tâches du jour</a>
-    <a class="btn btn-choice" href="/dashboard/taches?late=1">En retard</a>
-    <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé">Réclamations en cours</a>
-    <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente">En attente</a>
-  </div>
-
-  <div class="card" style="margin-top:12px; overflow-x:auto;">
-    <h3>Temps moyen passé par statut</h3>
-    <table style="width:100%; border-collapse:collapse; margin-top:6px;">
-      <thead>
-        <tr>
-          <th style="text-align:left; padding:6px 8px; background:#f8f9fa;">Statut</th>
-          <th style="text-align:right; padding:6px 8px; background:#f8f9fa;">Durée moyenne (jours)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in tasks_avg_by_statut %}
-        <tr>
-          <td style="padding:6px 8px;">{{ r.statut }}</td>
-          <td style="padding:6px 8px; text-align:right;">{{ '%.1f'|format(r.avg_days or 0) }}</td>
-        </tr>
-        {% endfor %}
-        {% if not tasks_avg_by_statut %}
-        <tr><td colspan="2" style="padding:6px 8px; color:#666;">Aucune donnée</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
+    <div id="esgChartGlobal" style="height:320px; width:100%;"></div>
+    <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Portefeuille = valeur relative (Portefeuille / Indice × 100).</div>
+    <details id="esgSqlGlobalDetails" style="margin-top:8px;">
+      <summary class="muted" style="cursor:pointer;">Voir les données brutes</summary>
+      <div id="esgDebugPanelGlobal" class="muted" style="font-size:12px; display:none;"></div>
+    </details>
   </div>
 </div>
+
+<!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
 <div id="remToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
@@ -265,70 +307,76 @@
   <span class="chevron">▾</span>
 </div>
 <div id="remSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div class="card" style="text-align:left;">
-    <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
-    {% if not rem_contracts %}
-      <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
-    {% else %}
-      <form id="remForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
-        <div style="display:flex; flex-direction:column;">
-          <label for="rem_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
-          <select id="rem_contract" name="rem_contract" style="min-width:220px; padding:8px 12px; height:38px;">
-            {% for contrat in rem_contracts %}
-              <option value="{{ contrat.id }}" {% if contrat.id == rem_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="rem_start" style="font-size:0.85rem; color:#555;">Date de début</label>
-          <input id="rem_start" name="rem_start" type="date" value="{{ rem_start_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="rem_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
-          <input id="rem_end" name="rem_end" type="date" value="{{ rem_end_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="rem_limit" style="font-size:0.85rem; color:#555;">Nombre de lignes</label>
-          <select id="rem_limit" name="rem_limit" style="padding:8px 12px; height:38px;">
-            {% for opt in rem_limit_options %}
-              <option value="{{ opt }}" {% if opt == rem_limit %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <input type="hidden" name="rem_page" value="1" />
-        <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
-      </form>
-
-      {% if rem_error %}
-        <div style="margin-top:12px; padding:10px 12px; background:#fdecea; color:#a94442; border-radius:6px;">{{ rem_error }}</div>
+  <!-- Sous-accordéon: Frais de gestion -->
+  <div id="remFraisToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Frais de gestion</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="remFraisSection" style="display:none;">
+    <div class="card" style="text-align:left;">
+      <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
+      {% if not rem_contracts %}
+        <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
       {% else %}
-        <div style="margin-top:12px; font-size:0.9rem; color:#555;">
-          <div>Période effective (vendredi) :
-            {% if rem_start_effective and rem_end_effective %}
-              du {{ rem_start_effective.strftime('%d/%m/%Y') }} au {{ rem_end_effective.strftime('%d/%m/%Y') }}
-            {% else %}
-              non définie
-            {% endif %}
+        <form id="remForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+          <div style="display:flex; flex-direction:column;">
+            <label for="rem_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
+            <select id="rem_contract" name="rem_contract" style="min-width:220px; padding:8px 12px; height:38px;">
+              {% for contrat in rem_contracts %}
+                <option value="{{ contrat.id }}" {% if contrat.id == rem_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
+              {% endfor %}
+            </select>
           </div>
-          <div>Total commissions dues : <strong>{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</strong></div>
-        </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="rem_start" style="font-size:0.85rem; color:#555;">Date de début</label>
+            <input id="rem_start" name="rem_start" type="date" value="{{ rem_start_input }}" style="padding:6px 8px;" />
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="rem_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
+            <input id="rem_end" name="rem_end" type="date" value="{{ rem_end_input }}" style="padding:6px 8px;" />
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="rem_limit" style="font-size:0.85rem; color:#555;">Nombre de lignes</label>
+            <select id="rem_limit" name="rem_limit" style="padding:8px 12px; height:38px;">
+              {% for opt in rem_limit_options %}
+                <option value="{{ opt }}" {% if opt == rem_limit %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <input type="hidden" name="rem_page" value="1" />
+          <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
+        </form>
 
-        <div style="overflow-x:auto; margin-top:12px;">
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Contrats</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation totale</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Commission frais de gestion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in rem_rows %}
+        {% if rem_error %}
+          <div style="margin-top:12px; padding:10px 12px; background:#fdecea; color:#a94442; border-radius:6px;">{{ rem_error }}</div>
+        {% else %}
+          <div style="margin-top:12px; font-size:0.9rem; color:#555;">
+            <div>Période effective (vendredi) :
+              {% if rem_start_effective and rem_end_effective %}
+                du {{ rem_start_effective.strftime('%d/%m/%Y') }} au {{ rem_end_effective.strftime('%d/%m/%Y') }}
+              {% else %}
+                non définie
+              {% endif %}
+            </div>
+            <div>Total commissions dues : <strong>{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</strong></div>
+          </div>
+
+          <div style="overflow-x:auto; margin-top:12px;">
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
                 <tr>
-                  <td style="padding:8px;">{{ row.date.strftime('%d/%m/%Y') if row.date else row.date or 'N/A' }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.contracts_count }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.total_valorisation or 0).replace(',', ' ') }} €</td>
+                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Contrats</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation totale</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Commission frais de gestion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rem_rows %}
+                  <tr>
+                    <td style="padding:8px;">{{ row.date.strftime('%d/%m/%Y') if row.date else row.date or 'N/A' }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.contracts_count }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.total_valorisation or 0).replace(',', ' ') }} €</td>
                   <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.commission or 0).replace(',', ' ') }} €</td>
                 </tr>
               {% endfor %}
@@ -362,137 +410,144 @@
         </div>
       {% endif %}
     {% endif %}
+    <div class="card" style="text-align:left; margin-top:12px;">
+      <h3 style="margin-top:0;">Rétrocession des supports</h3>
+      {% if retro_error %}
+        <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
+      {% elif not retro_contracts %}
+        <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
+      {% else %}
+        <form id="retroForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+          <input id="retroHiddenRemContract" type="hidden" name="rem_contract" value="{{ rem_selected_contract }}" />
+          <input id="retroHiddenRemStart" type="hidden" name="rem_start" value="{{ rem_start_input }}" />
+          <input id="retroHiddenRemEnd" type="hidden" name="rem_end" value="{{ rem_end_input }}" />
+          <input type="hidden" name="rem_limit" value="{{ rem_limit }}" />
+          <input type="hidden" name="rem_page" value="{{ rem_page }}" />
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
+            <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
+              {% for contrat in retro_contracts %}
+                <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
+            <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
+            <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
+            <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
+              <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
+              <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
+              <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
+              <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
+            <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
+              {% for opt in retro_week_limit_options %}
+                <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
+            <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
+              {% for opt in retro_support_limit_options %}
+                <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
+            <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
+          </div>
+          <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
+        </form>
+
+        <div style="margin-top:12px; font-size:0.9rem; color:#555;">
+          <div>Période effective (vendredi) :
+            {% if retro_start_effective and retro_end_effective %}
+              du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
+            {% else %}
+              non définie
+            {% endif %}
+          </div>
+          <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
+          <div style="overflow-x:auto;">
+            <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in retro_weeks %}
+                  <tr>
+                    <td style="padding:8px;">{{ row.date_str }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                  </tr>
+                {% endfor %}
+                {% if not retro_weeks %}
+                  <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div style="overflow-x:auto;">
+            <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
+                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
+                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
+                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in retro_supports %}
+                  <tr>
+                    <td style="padding:8px;">{{ row.promoteur }}</td>
+                    <td style="padding:8px;">{{ row.support_nom }}</td>
+                    <td style="padding:8px;">{{ row.code_isin }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
+                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                  </tr>
+                {% endfor %}
+                {% if not retro_supports %}
+                  <tr><td colspan="5" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+            <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
   </div>
-  <div class="card" style="text-align:left; margin-top:12px;">
-    <h3 style="margin-top:0;">Rétrocession des supports</h3>
-    {% if retro_error %}
-      <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
-    {% elif not retro_contracts %}
-      <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
-    {% else %}
-      <form id="retroForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
-        <input id="retroHiddenRemContract" type="hidden" name="rem_contract" value="{{ rem_selected_contract }}" />
-        <input id="retroHiddenRemStart" type="hidden" name="rem_start" value="{{ rem_start_input }}" />
-        <input id="retroHiddenRemEnd" type="hidden" name="rem_end" value="{{ rem_end_input }}" />
-        <input type="hidden" name="rem_limit" value="{{ rem_limit }}" />
-        <input type="hidden" name="rem_page" value="{{ rem_page }}" />
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
-          <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
-            {% for contrat in retro_contracts %}
-              <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
-          <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
-          <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
-          <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
-            <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
-            <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
-            <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
-            <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
-          <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
-            {% for opt in retro_week_limit_options %}
-              <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
-          <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
-            {% for opt in retro_support_limit_options %}
-              <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
-          <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
-        </div>
-        <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
-      </form>
-
-      <div style="margin-top:12px; font-size:0.9rem; color:#555;">
-        <div>Période effective (vendredi) :
-          {% if retro_start_effective and retro_end_effective %}
-            du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
-          {% else %}
-            non définie
-          {% endif %}
-        </div>
-        <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
-      </div>
-
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
-        <div style="overflow-x:auto;">
-          <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in retro_weeks %}
-                <tr>
-                  <td style="padding:8px;">{{ row.date_str }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                </tr>
-              {% endfor %}
-              {% if not retro_weeks %}
-                <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-        <div style="overflow-x:auto;">
-          <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in retro_supports %}
-                <tr>
-                  <td style="padding:8px;">{{ row.promoteur }}</td>
-                  <td style="padding:8px;">{{ row.support_nom }}</td>
-                  <td style="padding:8px;">{{ row.code_isin }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                </tr>
-              {% endfor %}
-              {% if not retro_supports %}
-                <tr><td colspan="5" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-          <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
-        </div>
-      </div>
-    {% endif %}
+  <div id="remRetroToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer; background: var(--primary); color:#fff; border:1px solid var(--primary); display:none;">
+    <h3 style="margin:0; font-size:1.0rem; color:#fff;">Rétrocession support</h3>
+    <span class="chevron" style="color:#fff;">▾</span>
+  </div>
+  <div id="remRetroSection" style="display:none;">
+    <!-- Rétrocession déplacée dans le bloc Frais de gestion -->
   </div>
 </div>
 
@@ -632,6 +687,7 @@
     const groups = [
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
+      { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'rem', toggle:'remToggle', section:'remSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
@@ -665,6 +721,184 @@
         }
       });
     });
+  })();
+
+  // Sous-accordéons de l'analyse portefeuille (exclusifs, tous fermés par défaut)
+  (function(){
+    const pairs = [
+      ['clienteleToggle','clienteleSection'],
+      ['srriToggle','srriSection'],
+      ['financeToggle','financeSection'],
+    ];
+    const nodes = pairs.map(([tid,sid]) => ({
+      t: document.getElementById(tid),
+      s: document.getElementById(sid)
+    })).filter(o => o.t && o.s);
+    function closeAll(){ nodes.forEach(o => { o.s.style.display='none'; o.t.classList.add('collapsed'); }); }
+    nodes.forEach(o => {
+      o.t.addEventListener('click', function(){
+        const isOpen = o.s.style.display !== 'none';
+        if (isOpen){ closeAll(); }
+        else { closeAll(); o.s.style.display=''; o.t.classList.remove('collapsed'); try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){} }
+      });
+      o.t.classList.add('collapsed');
+      o.s.style.display = 'none';
+    });
+  })();
+
+  // Sous-accordéons Rémunérations (exclusifs, tous fermés par défaut)
+  (function(){
+    const pairs = [
+      ['remFraisToggle','remFraisSection'],
+      ['remRetroToggle','remRetroSection'],
+    ];
+    const nodes = pairs.map(([tid,sid]) => ({
+      t: document.getElementById(tid),
+      s: document.getElementById(sid)
+    })).filter(o => o.t && o.s);
+    function closeAll(){ nodes.forEach(o => { o.s.style.display='none'; o.t.classList.add('collapsed'); }); }
+    nodes.forEach(o => {
+      o.t.addEventListener('click', function(){
+        const isOpen = o.s.style.display !== 'none';
+        if (isOpen){ closeAll(); }
+        else { closeAll(); o.s.style.display=''; o.t.classList.remove('collapsed'); try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){} }
+      });
+      o.t.classList.add('collapsed');
+      o.s.style.display = 'none';
+    });
+  })();
+
+  
+
+  // ESG Global logic (similar to Affaire/Client)
+  (function(){
+    var allocSel = document.getElementById('esgAllocSelectGlobal');
+    var allocDateSel = document.getElementById('esgAllocDateGlobal');
+    var fieldsWrap = document.getElementById('esgFieldsGlobal');
+    var refreshBtn = document.getElementById('esgRefreshBtnGlobal');
+    if (!allocSel || !fieldsWrap) return;
+
+    var keyAlloc = 'global_esg_alloc';
+    var keyFields = 'global_esg_fields';
+    var keyAllocDate = 'global_esg_alloc_date';
+
+    function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field-global.btn-choice-active')).map(b=> b.getAttribute('data-field')); }
+    fieldsWrap.addEventListener('click', function(e){
+      var b=e.target.closest('.esg-field-global'); if(!b) return;
+      var sel = selectedFields();
+      if (b.classList.contains('btn-choice-active')){ b.classList.remove('btn-choice-active'); }
+      else { if (sel.length >= 4) return; b.classList.add('btn-choice-active'); }
+      try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
+      drawESG();
+    });
+
+    function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
+    function drawESG(){
+      var fields = selectedFields();
+      var alloc = allocSel.value || '';
+      var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
+      if (!fields.length || !alloc) return;
+      ensurePlotly(function(){
+        var url = `/dashboard/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}&debug=1` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'');
+        fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
+          var rows = (data && data.results) || [];
+          // Keep only rows with at least one value
+          rows = rows.filter(r => r && (r.global != null || r.index != null));
+          var cats = rows.map(r=> r.field);
+          // Normalize: index baseline 100; portfolio = (global_raw / index_raw) * 100
+          var idx = rows.map(function(r){
+            if (r.index != null) return Number(r.index);
+            if (r.index_raw != null) return 100;
+            return null;
+          });
+          var g = rows.map(function(r){
+            if (r.global != null) return Number(r.global);
+            var pr = (r.global_raw==null? null : Number(r.global_raw));
+            var ir = (r.index_raw==null? null : Number(r.index_raw));
+            if (pr==null || ir==null || ir===0) return null;
+            return (pr/ir)*100.0;
+          });
+          // If portfolio values are all null, nothing to plot
+          if (!g.length || g.every(v => v == null)) { g = cats.map(() => null); }
+          var traces = [
+            { x: idx, y: cats, type:'bar', orientation:'h', name:(alloc||'Indice'), marker:{ color:'#9ca3af' } },
+            { x: g, y: cats, type:'bar', orientation:'h', name:'Portefeuille', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+          ];
+          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+          var cfg = { displayModeBar: false, responsive: true };
+          Plotly.react('esgChartGlobal', traces, layout, cfg);
+          // Debug panel (only raw values table)
+          try {
+            var dbgWrap = document.getElementById('esgDebugPanelGlobal');
+            if (dbgWrap){
+              var d = data && data.debug ? data.debug : null;
+              if (d){
+                function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+                var html = '';
+                try {
+                  var prow = d.portfolio_raw || {};
+                  var irow = d.index_raw || {};
+                  if (fields && fields.length){
+                    html += '<div style="margin-top:6px;"><strong>Valeurs brutes (par champ)</strong>';
+                    html += '<table style="border-collapse:collapse; margin-top:4px; font-family:monospace; font-size:12px;">';
+                    html += '<tr><th style="text-align:left; padding-right:12px;">Champ</th><th style="text-align:right; padding-right:12px;">' + esc(alloc||'Indice') + '</th><th style="text-align:right;">Portefeuille</th></tr>';
+                    fields.forEach(function(f){
+                      var iv = irow && Object.prototype.hasOwnProperty.call(irow, f) ? irow[f] : null;
+                      var pv = prow && Object.prototype.hasOwnProperty.call(prow, f) ? prow[f] : null;
+                      function fmt(v){ if(v==null||v===undefined||Number.isNaN(Number(v))) return '-'; try{ var n=Number(v); return (Math.abs(n)>=1000? n.toFixed(2): n.toFixed(4)); }catch(_e){ return esc(String(v)); } }
+                      html += '<tr><td style="padding-right:12px;">' + esc(f) + '</td>'+
+                              '<td style="text-align:right; padding-right:12px;">' + fmt(iv) + '</td>'+
+                              '<td style="text-align:right;">' + fmt(pv) + '</td></tr>';
+                    });
+                    html += '</table></div>';
+                  }
+                } catch(_er) {}
+                dbgWrap.innerHTML = html;
+                dbgWrap.style.display='';
+                try { document.getElementById('esgSqlGlobalDetails').open = true; } catch(_e) {}
+              }
+            }
+          } catch(_e) {}
+        }).catch(function(err){ try{ console.error('Global ESG fetch error', err); }catch(_){} });
+      });
+    }
+
+    function loadAllocDates(preferred){
+      if (!allocSel || !allocSel.value) { if (allocDateSel) allocDateSel.innerHTML=''; return; }
+      fetch(`/dashboard/allocations/dates?name=${encodeURIComponent(allocSel.value)}`)
+        .then(r=>r.json()).then(function(data){
+          if (!allocDateSel) return;
+          allocDateSel.innerHTML = '';
+          var ds = (data && data.dates) || [];
+          ds.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; allocDateSel.appendChild(o); });
+          var selected = false;
+          if (preferred){ for (var i=0;i<allocDateSel.options.length;i++){ if (allocDateSel.options[i].value===preferred){ allocDateSel.selectedIndex=i; selected=true; break; } } }
+          if (!selected && allocDateSel.options.length>0) allocDateSel.selectedIndex = 0;
+          drawESG();
+        }).catch(function(e){ try{ console.warn('alloc dates (global)', e);}catch(_){} });
+    }
+
+    allocSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAlloc, allocSel.value||''); }catch(_e){}; try{ localStorage.removeItem(keyAllocDate); }catch(_e){}; loadAllocDates(); });
+    if (allocDateSel) allocDateSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}; drawESG(); });
+    if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
+
+    // Init
+    (function init(){
+      try{
+        var savedAlloc = localStorage.getItem(keyAlloc) || '';
+        if (savedAlloc){ var found=false; for (var i=0;i<allocSel.options.length;i++){ if (allocSel.options[i].value===savedAlloc){ allocSel.selectedIndex=i; found=true; break; } } if(!found) savedAlloc=''; }
+        if (!savedAlloc){ for (var j=0;j<allocSel.options.length;j++){ if (allocSel.options[j].value){ allocSel.selectedIndex=j; savedAlloc=allocSel.options[j].value; break; } } if (savedAlloc){ try{ localStorage.setItem(keyAlloc, savedAlloc);}catch(_e){} } }
+      }catch(_e){}
+      try{
+        var raw = localStorage.getItem(keyFields); var saved=[]; if (raw){ try{ saved=JSON.parse(raw)||[]; }catch(_ee){ saved=[]; } }
+        var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field-global'));
+        buttons.forEach(b=> b.classList.remove('btn-choice-active'));
+        if (saved.length){ buttons.forEach(b=> { var v=b.getAttribute('data-field'); if (saved.indexOf(v)>=0) b.classList.add('btn-choice-active'); }); }
+        else { buttons.slice(0,3).forEach(b=> b.classList.add('btn-choice-active')); try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(b=> b.getAttribute('data-field')))); }catch(_e){} }
+      }catch(_e){}
+      var preferDate = ''; try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
+      if (allocSel && allocSel.value){ loadAllocDates(preferDate); } else { drawESG(); }
+    })();
   })();
 </script>
 
