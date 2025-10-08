@@ -2035,7 +2035,13 @@
                 </div>
                 <div class="field" style="min-width:0;">
                   <label for="objectifFormHorizon">Horizon d'investissement</label>
-                  <input type="text" id="objectifFormHorizon" name="horizon_investissement" placeholder="Court, moyen ou long terme..." style="width:100%; height:36px; min-height:36px;" />
+                  <select id="objectifFormHorizon" name="horizon_investissement" style="width:100%; height:36px; min-height:36px;">
+                    <option value="">-- Choisir --</option>
+                    <option value="1 à 3 ans">1 à 3 ans</option>
+                    <option value="3 à 5 ans">3 à 5 ans</option>
+                    <option value="5 à 8 ans">5 à 8 ans</option>
+                    <option value="plus de 8 ans">plus de 8 ans</option>
+                  </select>
                 </div>
               </div>
               <div class="field">
@@ -2732,6 +2738,68 @@ function updatePriorityOptions(preserveValue = true){
   objectifFormNiveau.appendChild(frag);
 }
 
+// Horizons possibles selon l'objectif sélectionné
+const HORIZON_ALL = [
+  '1 à 3 ans',
+  '3 à 5 ans',
+  '5 à 8 ans',
+  'plus de 8 ans'
+];
+
+function _normalizeLabel(s){
+  try {
+    return (s || '').toString().toLowerCase()
+      .normalize('NFD').replace(/\p{Diacritic}+/gu,'');
+  } catch(e){
+    return (s || '').toString().toLowerCase();
+  }
+}
+
+function allowedHorizonsForObjective(label){
+  const t = _normalizeLabel(label);
+  if (!t) return HORIZON_ALL.slice();
+  // de valoriser votre patrimoine
+  if (t.includes('valoriser')) return ['3 à 5 ans','5 à 8 ans','plus de 8 ans'];
+  // de disposer de revenus à court terme
+  if (t.includes('revenus') && (t.includes('court') || t.includes('court terme'))) return ['1 à 3 ans'];
+  // de disposer de revenus à terme (moyen/long)
+  if (t.includes('revenus')) return ['5 à 8 ans','plus de 8 ans'];
+  // de constituer une épargne de précaution
+  if (t.includes('precaution') || t.includes('précaution')) return ['1 à 3 ans','3 à 5 ans'];
+  // de transmettre un capital
+  if (t.includes('transmettre') || t.includes('transmission')) return ['3 à 5 ans','5 à 8 ans','plus de 8 ans'];
+  // d’utiliser vos placements comme instruments de garantie
+  if (t.includes('garantie')) return ['1 à 3 ans','3 à 5 ans'];
+  // autre
+  if (t.includes('autre')) return HORIZON_ALL.slice();
+  // par défaut: tout
+  return HORIZON_ALL.slice();
+}
+
+function setHorizonOptions(allowed, preserveValue=true){
+  if (!objectifFormHorizon) return;
+  const oldVal = preserveValue ? (objectifFormHorizon.value || '') : '';
+  const frag = document.createDocumentFragment();
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = '-- Choisir --';
+  frag.appendChild(opt0);
+  (allowed || HORIZON_ALL).forEach(function(h){
+    const o = document.createElement('option');
+    o.value = h;
+    o.textContent = h;
+    frag.appendChild(o);
+  });
+  objectifFormHorizon.innerHTML = '';
+  objectifFormHorizon.appendChild(frag);
+  // si l'ancienne valeur reste valide, la restaurer
+  if (oldVal && allowed && allowed.indexOf(oldVal) >= 0){
+    objectifFormHorizon.value = oldVal;
+  } else {
+    objectifFormHorizon.value = '';
+  }
+}
+
 if (objectifsDataEl){
   try {
     const parsed = JSON.parse(objectifsDataEl.textContent || '[]') || [];
@@ -2911,7 +2979,7 @@ function populateDetailForm(obj){
     if (objectifDetailTitle) objectifDetailTitle.textContent = 'Sélectionnez un objectif';
     if (objectifFormLinkId) objectifFormLinkId.value = '';
     if (objectifFormObjectifId) objectifFormObjectifId.value = '';
-    if (objectifFormHorizon) objectifFormHorizon.value = '';
+    if (objectifFormHorizon){ setHorizonOptions(HORIZON_ALL, false); objectifFormHorizon.value = ''; }
     if (objectifFormNiveau) objectifFormNiveau.value = '';
     if (objectifFormCommentaire) objectifFormCommentaire.value = '';
     if (objectifFormDateExpiration) objectifFormDateExpiration.value = '';
@@ -2925,7 +2993,13 @@ function populateDetailForm(obj){
   if (objectifDetailTitle) objectifDetailTitle.textContent = label;
   if (objectifFormLinkId) objectifFormLinkId.value = obj.linkId || '';
   if (objectifFormObjectifId) objectifFormObjectifId.value = obj.id;
-  if (objectifFormHorizon) objectifFormHorizon.value = obj.horizon || '';
+  // Adapter les horizons autorisés selon l'objectif
+  const allowed = allowedHorizonsForObjective(label);
+  if (objectifFormHorizon){
+    setHorizonOptions(allowed, false);
+    const desired = obj.horizon || '';
+    objectifFormHorizon.value = (desired && allowed.indexOf(desired) >= 0) ? desired : '';
+  }
   if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
   if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';
