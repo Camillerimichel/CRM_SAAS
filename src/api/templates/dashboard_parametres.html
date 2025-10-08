@@ -5,13 +5,15 @@
 {% block content %}
 <style>
   #paramContainer #assureursPanel,
-  #paramContainer #contratsPanel {
+  #paramContainer #contratsPanel,
+  #paramContainer #administrationPanel {
     padding: 0.75rem 0 1.25rem;
     background: var(--surface);
   }
   #paramContainer #assureursPanel > .accordion-subtoggle,
   #paramContainer #contratsPanel > .accordion-subtoggle,
-  #paramContainer #courtierPanel > .accordion-subtoggle {
+  #paramContainer #courtierPanel > .accordion-subtoggle,
+  #paramContainer #administrationPanel > .accordion-subtoggle {
     margin: 0 1.25rem 0.75rem;
     padding: 0.75rem 1rem 0.75rem 2.5rem;
     border-radius: 10px;
@@ -196,6 +198,75 @@
     height: 36px;
     padding: 6px 10px;
     line-height: 24px;
+  }
+  /* Harmoniser la hauteur de tous les champs dans les tableaux */
+  #paramContainer table td input[type="text"],
+  #paramContainer table td input[type="email"],
+  #paramContainer table td input[type="tel"],
+  #paramContainer table td input[type="number"],
+  #paramContainer table td input[type="date"],
+  #paramContainer table td input[type="time"],
+  #paramContainer table td select {
+    height: 36px;
+    padding: 6px 10px;
+    line-height: 24px;
+    font-size: .95rem;
+  }
+  /* Harmoniser la hauteur dans les blocs de création (sous les tableaux) */
+  #paramContainer .create-body input[type="text"],
+  #paramContainer .create-body input[type="email"],
+  #paramContainer .create-body input[type="tel"],
+  #paramContainer .create-body input[type="number"],
+  #paramContainer .create-body input[type="date"],
+  #paramContainer .create-body input[type="time"],
+  #paramContainer .create-body select,
+  #paramContainer .create-body textarea {
+    height: 36px;
+    padding: 6px 10px;
+    line-height: 24px;
+    box-sizing: border-box;
+    font-size: .95rem;
+  }
+  /* Administration > Intervenants: hauteur et largeur des champs tel/email */
+  #adminIntervenantsPanel input[type="tel"],
+  #adminIntervenantsPanel input[type="email"] {
+    height: 36px !important;
+    padding: 6px 10px !important;
+    line-height: 24px !important;
+  }
+  #adminIntervenantsPanel td input[type="email"] {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+  }
+  #adminIntervenantsPanel td input[type="tel"] {
+    width: 100%;
+    max-width: 200px;
+    box-sizing: border-box;
+  }
+  /* Administration > RH: hauteur/tailles inputs */
+  #adminRhPanel input[type="text"],
+  #adminRhPanel input[type="email"],
+  #adminRhPanel input[type="tel"],
+  #adminRhPanel select {
+    height: 36px !important;
+    padding: 6px 10px !important;
+    line-height: 24px !important;
+    font-size: .95rem;
+  }
+  #adminRhPanel td input[type="email"] {
+    width: 100%;
+    max-width: 360px;
+    box-sizing: border-box;
+  }
+  #adminRhPanel td input[type="tel"] {
+    width: 100%;
+    max-width: 200px;
+    box-sizing: border-box;
+  }
+  #adminRhPanel td input[name="commentaire"] {
+    width: 100%;
+    box-sizing: border-box;
   }
   /* Actions icons on one line */
   #paramContainer td.actions-cell { white-space: nowrap; }
@@ -1126,6 +1197,639 @@
           </div>
         </div>
       </div>
+      <div class="accordion-toggle" data-target="groupesPanel" data-level="root">
+        <span><i class="fa-solid fa-people-group" style="margin-right:6px;"></i> Groupes</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="groupesPanel" style="display:none; border-top:1px solid var(--border); padding: 1rem 1.25rem;">
+        <style>
+          /* Réduction des polices sur tout le panneau Groupes */
+          #groupesPanel, #groupesPanel table, #groupesPanel input, #groupesPanel select, #groupesPanel .btn, #groupesPanel .badge {
+            font-size: 0.9rem;
+          }
+          #groupesPanel thead th { font-size: 0.8rem; }
+          #groupesPanel table td input, #groupesPanel table td select { height: 32px; }
+        </style>
+        <h3 style="margin:0 0 .5rem 0;">Gestion des groupes</h3>
+        <p class="muted" style="margin:0 0 .75rem 0;">Créer, modifier et supprimer des groupes (Personnes / Affaires). Le responsable est choisi parmi les intervenants RH.</p>
+        <style>
+          #groupViewModal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999; }
+          #groupViewModal .modal-card { background:#fff; border-radius:12px; width: 880px; max-width: 96vw; max-height: 92vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+          #groupViewModal .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom:1px solid var(--border); }
+          #groupViewModal .modal-body { padding: 12px 14px; }
+          #groupViewModal .kv { display:grid; grid-template-columns: 160px 1fr; gap: 6px 10px; margin-bottom: 10px; }
+          #groupViewModal .kv div { padding: 2px 0; }
+          #groupViewModal .kv .label { color: var(--muted); }
+          /* Table membres: libellé ellipsé + Actif centré */
+          #groupViewMembers { table-layout: fixed; }
+          #groupViewMembers th:nth-child(2), #groupViewMembers td:nth-child(2) {
+            max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          }
+          #groupViewMembers th:nth-child(3), #groupViewMembers td:nth-child(3) { text-align: center; }
+        </style>
+        <div id="groupViewModal" onclick="if(event.target===this) this.style.display='none'">
+          <div class="modal-card">
+            <div class="modal-header">
+              <h3 id="groupViewTitle" style="margin:0;"><i class="fa-solid fa-eye" style="margin-right:8px;"></i>Détails du groupe</h3>
+              <button type="button" class="btn" onclick="document.getElementById('groupViewModal').style.display='none'">Fermer</button>
+            </div>
+            <div class="modal-body">
+              <div class="card" style="margin:0 0 10px 0;">
+                <div class="kv">
+                  <div class="label">Nom</div><div id="gv_nom"></div>
+                  <div class="label">Type</div><div id="gv_type"></div>
+                  <div class="label">Responsable</div><div id="gv_resp"></div>
+                  <div class="label">Création</div><div id="gv_crea" class="js-local-dt"></div>
+                  <div class="label">Fin</div><div id="gv_fin" class="js-local-dt"></div>
+                  <div class="label">Actif</div><div id="gv_actif"></div>
+                  <div class="label">Motif</div><div id="gv_motif"></div>
+                </div>
+              </div>
+              <h4 style="margin: 0 0 6px 0;">Membres</h4>
+              <table id="groupViewMembers">
+                <thead>
+                  <tr>
+                    <th style="width: 120px;">Type</th>
+                    <th style="min-width: 320px;">Libellé</th>
+                    <th class="center" style="width: 90px;">Actif</th>
+                    <th style="width: 80px;">Ajout</th>
+                    <th style="width: 80px;">Retrait</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <script>
+          async function openGroupView(key, by){
+            const modal = document.getElementById('groupViewModal');
+            if (!key){ return; }
+            try {
+              const url = '/api/groupes/overview/' + encodeURIComponent(key) + (by ? ('?by=' + encodeURIComponent(by)) : '');
+              const data = await fetch(url).then(r => r.json());
+              const d = data.detail || {};
+              document.getElementById('groupViewTitle').innerHTML = '<i class="fa-solid fa-eye" style="margin-right:8px;"></i>Détails du groupe – ' + (d.nom || '');
+              document.getElementById('gv_nom').textContent = d.nom || '';
+              document.getElementById('gv_type').textContent = d.type_display || d.type_groupe || '';
+              document.getElementById('gv_resp').textContent = d.responsable_nom || (d.responsable_id ? ('#' + d.responsable_id) : '');
+              const crea = document.getElementById('gv_crea'); crea.setAttribute('data-iso', d.date_creation || ''); crea.textContent = d.date_creation || '';
+              const fin = document.getElementById('gv_fin'); fin.setAttribute('data-iso', d.date_fin || ''); fin.textContent = d.date_fin || '';
+              document.getElementById('gv_actif').textContent = (String(d.actif) === '1' || String(d.actif).toLowerCase()==='true') ? 'Oui' : 'Non';
+              document.getElementById('gv_motif').textContent = d.motif || '';
+              const body = document.querySelector('#groupViewMembers tbody');
+              body.innerHTML = '';
+              (data.members || []).forEach(m => {
+                const tr = document.createElement('tr');
+                const t1 = document.createElement('td'); t1.textContent = (m.type==='client'?'Personne':(m.type==='affaire'?'Affaire':'—')); tr.appendChild(t1);
+                const t3 = document.createElement('td');
+                const lbl = m.label || '';
+                const id = m.entity_id;
+                if ((m.type==='client' || m.type==='affaire') && id){
+                  const a = document.createElement('a');
+                  a.href = m.type==='client' ? ('/dashboard/clients/' + encodeURIComponent(id)) : ('/dashboard/affaires/' + encodeURIComponent(id));
+                  a.textContent = lbl;
+                  a.title = lbl;
+                  a.target = '_blank';
+                  a.rel = 'noopener noreferrer';
+                  a.style.textDecoration = 'underline';
+                  t3.appendChild(a);
+                } else {
+                  t3.textContent = lbl; t3.title = lbl;
+                }
+                tr.appendChild(t3);
+                const t4 = document.createElement('td'); t4.textContent = (m.actif===1 || String(m.actif).toLowerCase()==='true')?'Oui':'Non'; t4.style.textAlign = 'center'; tr.appendChild(t4);
+                const t5 = document.createElement('td'); t5.className='js-local-dt'; t5.setAttribute('data-iso', m.date_ajout || ''); tr.appendChild(t5);
+                const t6 = document.createElement('td'); t6.className='js-local-dt'; t6.setAttribute('data-iso', m.date_retrait || ''); tr.appendChild(t6);
+                body.appendChild(tr);
+              });
+              // trigger client-side date localization for this modal
+              try { (function(){
+                var nodes = document.querySelectorAll('#groupViewModal .js-local-dt');
+                nodes.forEach(function (el) {
+                  var iso = el.getAttribute('data-iso') || (el.textContent || '').trim();
+                  if (!iso) { el.textContent=''; return; }
+                  var s = iso;
+                  if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) { s = s.replace(' ', 'T') + 'Z'; }
+                  var d = new Date(s);
+                  if (isNaN(d)) { el.textContent = iso; return; }
+                  try { el.textContent = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }); }
+                  catch(e){ el.textContent = d.toLocaleString(); }
+                });
+              })(); } catch(e){}
+              modal.style.display = 'flex';
+            } catch (e) {
+              console.error(e);
+              alert('Erreur lors du chargement des données du groupe');
+            }
+          }
+        </script>
+        <table id="groupesTable">
+          <thead>
+            <tr>
+              <th style="width: 120px;">Type</th>
+              <th style="min-width: 360px;">Nom</th>
+              <th style="width: 240px;">Responsable</th>
+              <th class="center" style="width: 80px;">Nbre</th>
+              <th style="width: 80px;">Actif</th>
+              <th class="center" style="width: 110px;">Actions</th>
+            </tr>
+            <tr>
+              <th><input id="gf_type" type="text" placeholder="Filtrer type" /></th>
+              <th><input id="gf_nom" type="text" placeholder="Filtrer nom" /></th>
+              <th><input id="gf_resp" type="text" placeholder="Filtrer responsable" /></th>
+              <th></th>
+              <th>
+                <select id="gf_actif">
+                  <option value="">Tous</option>
+                  <option value="oui">Oui</option>
+                  <option value="non">Non</option>
+                </select>
+              </th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in groupes_details %}
+            {% set tg = (g.type_groupe or '')|lower %}
+            {% if tg in ['client','clients','personne','personnes'] %}{% set typedisp = 'Personnes' %}
+            {% elif tg in ['affaire','affaires','contrat','contrats'] %}{% set typedisp = 'Affaires' %}
+            {% else %}{% set typedisp = g.type_groupe or '' %}{% endif %}
+            {% set rowkey = g.id if g.id is not none else g.__rid %}
+            {% set byrowid = 'rowid' if g.id is none else '' %}
+            <tr>
+              <td>
+                <form id="grp-{{ rowkey }}" method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;"></form>
+                <span class="badge">{{ typedisp }}</span>
+                <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ typedisp }}" />
+              </td>
+              <td><input form="grp-{{ rowkey }}" type="text" name="nom" value="{{ g.nom or '' }}" required style="min-width:340px; width:100%;" /></td>
+              <td>
+                <select form="grp-{{ rowkey }}" name="responsable_id" required>
+                  <option value="">Choisir…</option>
+                  {% for rh in admin_rh %}
+                    <option value="{{ rh.id }}" {% if (rh.id|int) == (g.responsable_id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td class="center">{{ g.nb_membres or 0 }}</td>
+              <td>
+                <select form="grp-{{ rowkey }}" name="actif">
+                  <option value="1" {% if (g.actif|int) == 1 %}selected{% endif %}>Oui</option>
+                  <option value="0" {% if (g.actif|int) != 1 %}selected{% endif %}>Non</option>
+                </select>
+              </td>
+              <td class="center actions-cell">
+                <button class="btn btn-list btn-list-primary" type="button" title="Voir" onclick="openGroupView({{ rowkey }}, '{{ byrowid }}')"><i class="fa-solid fa-eye"></i></button>
+                <button class="btn btn-list btn-list-primary" type="submit" form="grp-{{ rowkey }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                <form method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}/delete?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;" onsubmit="return confirm('Supprimer ce groupe ?\nLes liens d’adhésion seront aussi supprimés.');">
+                  <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="muted center">Aucun groupe défini.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <script>
+          (function(){
+            function norm(s){ return (String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()); }
+            function match(hay, needle){ hay = norm(hay); needle = norm(needle); return hay.indexOf(needle) !== -1; }
+            function applyFilters(){
+              var ftype = document.getElementById('gf_type').value || '';
+              var fnom = document.getElementById('gf_nom').value || '';
+              var fresp = document.getElementById('gf_resp').value || '';
+              var fact = document.getElementById('gf_actif').value || '';
+              var rows = document.querySelectorAll('#groupesTable tbody tr');
+              rows.forEach(function(tr){
+                var tds = tr.querySelectorAll('td');
+                var vtype = (tds[0] && tds[0].innerText) || '';
+                var vnom = (tds[1] && tds[1].querySelector('input') ? tds[1].querySelector('input').value : tds[1].innerText) || '';
+                var vresp = (tds[2] && tds[2].innerText) || '';
+                // tds[3] = Nbre (non filtré)
+                var vact = (tds[4] && tds[4].innerText) || '';
+                var ok = true;
+                if (ftype && !match(vtype, ftype)) ok = false;
+                if (fnom && !match(vnom, fnom)) ok = false;
+                if (fresp && !match(vresp, fresp)) ok = false;
+                if (fact) {
+                  var av = norm(vact).includes('oui') ? 'oui' : (norm(vact).includes('non') ? 'non' : '');
+                  if (av !== fact) ok = false;
+                }
+                tr.style.display = ok ? '' : 'none';
+              });
+            }
+            ['gf_type','gf_nom','gf_resp','gf_actif'].forEach(function(id){
+              var el = document.getElementById(id); if (!el) return;
+              el.addEventListener('input', applyFilters);
+              el.addEventListener('change', applyFilters);
+            });
+          })();
+        </script>
+        <div class="create-block">
+          <div class="create-header">
+            <button type="button" class="btn btn-add" data-toggle-form="groupCreate"><i class="fa-solid fa-plus"></i><span>Créer un groupe</span></button>
+          </div>
+          <div id="groupCreate" class="create-body">
+            <form method="post" action="/dashboard/parametres/administration/groupes?open=administration_groupes" class="card" style="margin:0;">
+              <div class="form-row">
+                <div class="field" style="min-width: 140px;">
+                  <label>Type</label>
+                  <select name="type_groupe" required>
+                    <option value="Personnes">Personnes</option>
+                    <option value="Affaires">Affaires</option>
+                  </select>
+                </div>
+                <div class="field" style="min-width: 220px;">
+                  <label>Nom</label>
+                  <input type="text" name="nom" required />
+                </div>
+                <div class="field" style="min-width: 160px;">
+                  <label>Création</label>
+                  <input type="date" name="date_creation" />
+                </div>
+                <div class="field" style="min-width: 160px;">
+                  <label>Fin</label>
+                  <input type="date" name="date_fin" />
+                </div>
+                <div class="field" style="min-width: 220px;">
+                  <label>Responsable</label>
+                  <select name="responsable_id" required>
+                    <option value="">Choisir…</option>
+                    {% for rh in admin_rh %}<option value="{{ rh.id }}">{{ rh.prenom }} {{ rh.nom }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="field" style="min-width: 200px;">
+                  <label>Actif</label>
+                  <select name="actif">
+                    <option value="1" selected>Oui</option>
+                    <option value="0">Non</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row" style="margin-top:.5rem;">
+                <div class="field" style="grid-column: 1 / -1;">
+                  <label>Motif</label>
+                  <input type="text" name="motif" />
+                </div>
+              </div>
+              <div class="create-btn-container">
+                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i>&nbsp;Créer le groupe</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="accordion-toggle" data-target="administrationPanel" data-level="root">
+        <span><i class="fa-solid fa-sitemap" style="margin-right:6px;"></i> Administration</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="administrationPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" data-target="adminRelationsIntro" data-group="adminSub">
+          <span><i class="fa-solid fa-circle-nodes" style="margin-right:6px;"></i> Gestion des relations</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="adminRelationsIntro" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <div class="card" style="margin:0 0 1rem 0;">
+            <h3 style="margin:0 0 .5rem 0;">Modèle relationnel</h3>
+            <ul class="muted" style="margin:0 0 .5rem 1rem;">
+              <li>Intervenants: interne, courtier, autre; personnes physiques ou morales.</li>
+              <li>Types de relations bidirectionnels avec inverse automatique.</li>
+              <li>Déduplication garantie par contrainte UNIQUE.</li>
+            </ul>
+          </div>
+          <h3>Types de relations</h3>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 45%;">Relation</th>
+                <th style="width: 45%;">Inverse</th>
+                <th class="center" style="width: 120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for t in admin_types %}
+              <tr>
+                <td><input form="admin-typerel-{{ t.id }}" type="text" name="nom" value="{{ t.nom }}" /></td>
+                <td>
+                  <input form="admin-typerel-{{ t.id }}" type="text" name="inverse_nom" value="{{ t.inverse_nom or '' }}" placeholder="Nom de la relation inverse (optionnel)" />
+                </td>
+                <td class="center actions-cell">
+                  <form id="admin-typerel-{{ t.id }}" method="post" action="/dashboard/parametres/administration/type_relation/{{ t.id }}?open=administration_types" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="admin-typerel-{{ t.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/administration/type_relation/{{ t.id }}/delete?open=administration_types" style="display:inline;" onsubmit="return confirm('Supprimer ce type de relation ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3" class="muted center">Aucun type défini.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="adminTypeRelCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="adminTypeRelCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/administration/type_relation?open=administration_types" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:280px;">
+                    <label>Relation</label>
+                    <input type="text" name="nom" required placeholder="Relation (ex. est en relation avec)" />
+                  </div>
+                  <div class="field" style="min-width:280px;">
+                    <label>Inverse (optionnel)</label>
+                    <input type="text" name="inverse_nom" placeholder="Nom de l'inverse (ex. dirige)" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter le type</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-toggle accordion-subtoggle" data-target="adminIntervenantsPanel" data-group="adminSub">
+          <span><i class="fa-solid fa-users" style="margin-right:6px;"></i> Intervenants</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="adminIntervenantsPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Intervenants</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th style="width: 140px;">Niveau</th>
+                <th style="width: 140px;">Personne</th>
+                <th style="width: 140px;">Téléphone</th>
+                <th style="width: 380px;">E-mail</th>
+                <th class="center" style="width: 120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for it in admin_intervenants %}
+              <tr>
+                <td><input form="admin-int-{{ it.id }}" type="text" name="nom" value="{{ it.nom }}" /></td>
+                <td>
+                  <select form="admin-int-{{ it.id }}" name="type_niveau" required>
+                    {% for nv in ['interne','courtier','autre'] %}
+                      <option value="{{ nv }}" {% if it.type_niveau == nv %}selected{% endif %}>{{ nv }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <select form="admin-int-{{ it.id }}" name="type_personne" required>
+                    {% for tp in ['physique','morale'] %}
+                      <option value="{{ tp }}" {% if it.type_personne == tp %}selected{% endif %}>{{ tp }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <input form="admin-int-{{ it.id }}" type="tel" name="telephone" value="{{ it.telephone or '' }}" placeholder="Ex: +33 6 12 34 56 78" inputmode="tel" pattern="^[+0-9()\.\s-]{6,}$" />
+                </td>
+                <td>
+                  <input form="admin-int-{{ it.id }}" type="email" name="mail" value="{{ it.mail or '' }}" placeholder="nom.prenom@domaine.fr" inputmode="email" />
+                </td>
+                <td class="center actions-cell">
+                  <form id="admin-int-{{ it.id }}" method="post" action="/dashboard/parametres/administration/intervenant/{{ it.id }}?open=administration_intervenants" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="admin-int-{{ it.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/administration/intervenant/{{ it.id }}/delete?open=administration_intervenants" style="display:inline;" onsubmit="return confirm('Supprimer cet intervenant et ses relations ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="muted center">Aucun intervenant enregistré.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="adminIntervenantCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="adminIntervenantCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/administration/intervenant?open=administration_intervenants" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:280px;">
+                    <label>Nom</label>
+                    <input type="text" name="nom" required placeholder="Nom de l'intervenant" />
+                  </div>
+                  <div class="field">
+                    <label>Niveau</label>
+                    <select name="type_niveau" required>
+                      <option value="interne">interne</option>
+                      <option value="courtier">courtier</option>
+                      <option value="autre">autre</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Type de personne</label>
+                    <select name="type_personne" required>
+                      <option value="physique">physique</option>
+                      <option value="morale">morale</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Téléphone</label>
+                    <input type="tel" name="telephone" placeholder="Ex: +33 6 12 34 56 78" inputmode="tel" pattern="^[+0-9()\.\s-]{6,}$" />
+                  </div>
+                  <div class="field" style="min-width:280px;">
+                    <label>E-mail</label>
+                    <input type="email" name="mail" placeholder="nom.prenom@domaine.fr" inputmode="email" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter l'intervenant</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-toggle accordion-subtoggle" data-target="adminRelationsPanel" data-group="adminSub">
+          <span><i class="fa-solid fa-link" style="margin-right:6px;"></i> Mise en place des relations</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="adminRelationsPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Relations</h3>
+          <div class="create-block">
+            <div id="adminRelationCreate" class="create-body active">
+              <form method="post" action="/dashboard/parametres/administration/relation?open=administration_relations" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field">
+                    <label>Source</label>
+                    <select name="id_source" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for it in admin_intervenants %}
+                        <option value="{{ it.id }}">{{ it.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Type</label>
+                    <select name="id_type" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for t in admin_types %}
+                        <option value="{{ t.id }}">{{ t.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Cible</label>
+                    <select name="id_cible" required>
+                      <option value="" disabled selected>Choisir…</option>
+                      {% for it in admin_intervenants %}
+                        <option value="{{ it.id }}">{{ it.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Créer la relation</button>
+                </div>
+              </form>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Type</th>
+                <th>Cible</th>
+                <th style="width: 140px;">Créée le</th>
+                <th class="center" style="width: 120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in admin_relations %}
+              <tr>
+                <td>{{ r.source_nom }}</td>
+                <td>
+                  <select form="admin-rel-{{ r.id }}" name="id_type">
+                    {% for t in admin_types %}
+                      <option value="{{ t.id }}" {% if r.id_type == t.id %}selected{% endif %}>{{ t.nom }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>{{ r.cible_nom }}</td>
+                <td>{{ r.date_creation }}</td>
+                <td class="center actions-cell">
+                  <form id="admin-rel-{{ r.id }}" method="post" action="/dashboard/parametres/administration/relation/{{ r.id }}?open=administration_relations" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="admin-rel-{{ r.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/administration/relation/{{ r.id }}/delete?open=administration_relations" style="display:inline;" onsubmit="return confirm('Supprimer cette relation (et son miroir) ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="muted center">Aucune relation enregistrée.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="accordion-toggle accordion-subtoggle" data-target="adminRhPanel" data-group="adminSub">
+          <span><i class="fa-solid fa-id-badge" style="margin-right:6px;"></i> Ressources humaines</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="adminRhPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3>Ressources humaines</h3>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 16%;">Nom</th>
+                <th style="width: 16%;">Prénom</th>
+                <th style="width: 12%;">Téléphone</th>
+                <th style="width: 22%;">E-mail</th>
+                <th style="width: 14%;">Niveau de poste</th>
+                <th style="width: 20%;">Commentaire</th>
+                <th class="center" style="width: 120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in admin_rh %}
+              <tr>
+                <td><input form="admin-rh-{{ p.id }}" type="text" name="nom" value="{{ p.nom }}" required /></td>
+                <td><input form="admin-rh-{{ p.id }}" type="text" name="prenom" value="{{ p.prenom }}" required /></td>
+                <td><input form="admin-rh-{{ p.id }}" type="tel" name="telephone" value="{{ p.telephone or '' }}" placeholder="Ex: +33 6 12 34 56 78" inputmode="tel" pattern="^[+0-9()\.\s-]{6,}$" /></td>
+                <td><input form="admin-rh-{{ p.id }}" type="email" name="mail" value="{{ p.mail or '' }}" placeholder="exemple@domaine.fr" inputmode="email" /></td>
+                <td>
+                  <select form="admin-rh-{{ p.id }}" name="niveau_poste" required>
+                    {% set _np = (p.niveau_poste or '') %}
+                    {% set _opts = [
+                      ('', '—'),
+                      ('dirigeant','Dirigeant'),
+                      ('directeur_commercial','Directeur commercial'),
+                      ('responsable_service','Responsable service'),
+                      ('commercial','Commercial'),
+                      ('back_office','Back office')
+                    ] %}
+                    {% for val, label in _opts %}
+                      <option value="{{ val }}" {% if _np == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td><input form="admin-rh-{{ p.id }}" type="text" name="commentaire" value="{{ p.commentaire or '' }}" placeholder="Remarques" /></td>
+                <td class="center actions-cell">
+                  <form id="admin-rh-{{ p.id }}" method="post" action="/dashboard/parametres/administration/rh/{{ p.id }}?open=administration_rh" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="admin-rh-{{ p.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/administration/rh/{{ p.id }}/delete?open=administration_rh" style="display:inline;" onsubmit="return confirm('Supprimer ce profil RH ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="muted center">Aucun profil RH enregistré.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="adminRhCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="adminRhCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/administration/rh?open=administration_rh" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:200px;">
+                    <label>Nom</label>
+                    <input type="text" name="nom" required />
+                  </div>
+                  <div class="field" style="min-width:200px;">
+                    <label>Prénom</label>
+                    <input type="text" name="prenom" required />
+                  </div>
+                  <div class="field">
+                    <label>Téléphone</label>
+                    <input type="tel" name="telephone" placeholder="Ex: +33 6 12 34 56 78" inputmode="tel" pattern="^[+0-9()\.\s-]{6,}$" />
+                  </div>
+                  <div class="field" style="min-width:280px;">
+                    <label>E-mail</label>
+                    <input type="email" name="mail" placeholder="nom.prenom@domaine.fr" inputmode="email" />
+                  </div>
+                  <div class="field">
+                    <label>Niveau de poste</label>
+                    <select name="niveau_poste" required>
+                      <option value="">—</option>
+                      <option value="dirigeant">Dirigeant</option>
+                      <option value="directeur_commercial">Directeur commercial</option>
+                      <option value="responsable_service">Responsable service</option>
+                      <option value="commercial">Commercial</option>
+                      <option value="back_office">Back office</option>
+                    </select>
+                  </div>
+                  <div class="field" style="min-width:260px;">
+                    <label>Commentaire</label>
+                    <input type="text" name="commentaire" placeholder="Remarques" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i>&nbsp;Ajouter</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1192,7 +1896,14 @@ document.addEventListener('DOMContentLoaded', function(){
       'contrats': ['contratsPanel','contratCatsPanel','contratGeneriquesPanel'],
       'contrats_categories': ['contratsPanel','contratCatsPanel'],
       'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
-      'supports': ['supportPanel']
+      'supports': ['supportPanel'],
+      'administration': ['administrationPanel'],
+      'administration_types': ['administrationPanel','adminRelationsIntro'],
+      'administration_intervenants': ['administrationPanel','adminIntervenantsPanel'],
+      'administration_relations': ['administrationPanel','adminRelationsPanel'],
+      'administration_rh': ['administrationPanel','adminRhPanel'],
+      'groupes': ['groupesPanel'],
+      'administration_groupes': ['groupesPanel']
     };
     const panels = mapping[open];
     if (panels){
@@ -1600,6 +2311,54 @@ document.addEventListener('DOMContentLoaded', function(){
       const apply = () => { inp.value = fmtPercent2(inp.value); };
       inp.addEventListener('blur', apply);
     });
+  })();
+
+  // Masque/formatage téléphone (Intervenants + RH)
+  (function(){
+    function normalizePhone(val){
+      if (!val) return '';
+      let s = String(val).replace(/[^+0-9]/g, '');
+      // Conserver un seul "+" en tête
+      if (s.includes('+')){
+        s = '+' + s.replace(/\+/g, '').replace(/[^0-9]/g, '');
+      }
+      return s;
+    }
+    function formatFRLike(val){
+      if (!val) return '';
+      let s = String(val).trim();
+      if (s.startsWith('+')){
+        // +CC puis regrouper par 2 après le préfixe pays
+        const m = s.match(/^(\+\d{1,3})(\d*)$/);
+        if (!m) return s;
+        const cc = m[1], rest = m[2];
+        return cc + ' ' + rest.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+      }
+      // Sans + : regrouper par 2, conserver 0 de tête si présent
+      const d = s.replace(/\D+/g, '');
+      if (!d) return '';
+      return d.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+    }
+    function attachMask(container){
+      if (!container) return;
+      const inputs = container.querySelectorAll('input[type="tel"]');
+      inputs.forEach(inp => {
+        const apply = () => { inp.value = formatFRLike(normalizePhone(inp.value)); };
+        inp.addEventListener('blur', apply);
+        // Optionnel: formater aussi en input sans gêner la saisie
+        inp.addEventListener('input', () => {
+          const pos = inp.selectionStart;
+          const before = inp.value;
+          const after = formatFRLike(normalizePhone(before));
+          if (before !== after){ inp.value = after; }
+          try { inp.setSelectionRange(pos, pos); } catch(e){}
+        });
+        // Format initial
+        apply();
+      });
+    }
+    attachMask(document.getElementById('adminIntervenantsPanel'));
+    attachMask(document.getElementById('adminRhPanel'));
   })();
 });
 </script>

@@ -15,8 +15,10 @@ app = FastAPI()
 templates = Jinja2Templates(directory="src/api/templates")
 from src.api import dashboard
 from src.api import events
+from src.api import groupes
 app.include_router(dashboard.router)
 app.include_router(events.router)
+app.include_router(groupes.router)
 
 
 # ---------------- Route d'accueil ----------------
