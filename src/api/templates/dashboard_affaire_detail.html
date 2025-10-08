@@ -195,6 +195,9 @@
         <button class="modal-close" onclick="closeAffTaskPopup()">✕</button>
       </div>
       <div class="modal-body task-block">
+        <style>
+          #affTaskModal select.select-choice { height: 36px; }
+        </style>
         <form method="post" action="/dashboard/affaires/{{ affaire.id }}/taches">
           <div class="form-row" style="margin-bottom:.6rem;">
             <div class="field">
@@ -206,8 +209,15 @@
               <input type="text" name="affaire_ref" list="affaires_list_aff_modal" placeholder="REF-0001" value="{{ affaire_ref_default or '' }}" />
             </div>
             <div class="field">
-              <label>Responsable</label>
-              <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+              <label>Affecter à (RH)</label>
+              <select class="select-choice" name="rh_id">
+                <option value="">-- aucun --</option>
+                {% for rh in rh_list %}
+                  {% set rid = rh.id if rh.id is not none else rh[0] %}
+                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
+                  <option value="{{ rid }}">{{ rnom.strip() }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
 
@@ -616,7 +626,11 @@ function openAffMsgs(kind){
     sb.href = '/dashboard/taches/' + (ev.id||'');
     sb.target = '_blank';
     sb.rel = 'noopener noreferrer';
-    tr.appendChild(tdEl(sb));
+    const statTd = document.createElement('td'); statTd.appendChild(sb);
+    // RH badge si présent
+    var rh = ev.rh_nom || ev.rh || ev.rhnom;
+    if (rh){ const b = document.createElement('span'); b.className='badge'; b.textContent = 'RH: ' + rh; b.style.marginLeft='6px'; statTd.appendChild(b); }
+    tr.appendChild(statTd);
     // Commentaire tronqué avec Voir plus/moins
     const ctd = document.createElement('td');
     const full = String(ev.commentaire||'');

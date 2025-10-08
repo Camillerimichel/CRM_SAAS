@@ -1245,6 +1245,55 @@
                   <div class="label">Motif</div><div id="gv_motif"></div>
                 </div>
               </div>
+
+              <div class="card" style="margin:0 0 10px 0;">
+                <h4 style="margin:0 0 6px 0;">Créer des tâches pour les membres</h4>
+                <div class="form-row" style="margin-bottom:.6rem;">
+                  <div class="field">
+                    <label>Catégorie</label>
+                    <select id="gt_cat">
+                      <option value="">-- choisir --</option>
+                      {% for c in evt_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Type</label>
+                    <select id="gt_type"><option value="">-- choisir une catégorie --</option></select>
+                  </div>
+                  <div class="field">
+                    <label>Statut initial</label>
+                    <select id="gt_statut">
+                      <option value="">(par défaut)</option>
+                      {% for s in evt_statuts %}<option value="{{ s.id }}">{{ s.libelle }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Affecter à (RH)</label>
+                    <select id="gt_rh" style="height:36px;">
+                      <option value="">(par défaut: responsable)</option>
+                      {% for rh in admin_rh %}
+                        <option value="{{ rh.id }}">{{ rh.prenom }} {{ rh.nom }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row" style="margin-bottom:.6rem;">
+                  <div class="field" style="grid-column:1/-1;">
+                    <label>Commentaire</label>
+                    <input type="text" id="gt_comment" placeholder="Commentaire commun (facultatif)" />
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="gt_active_only" checked /> Membres actifs uniquement</label>
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="gt_simulate" /> Simulation</label>
+                  <button class="btn btn-primary" id="gt_run_btn"><i class="fa-solid fa-play" style="margin-right:6px;"></i>Lancer</button>
+                  <span id="gt_result" class="muted"></span>
+                </div>
+              </div>
+
+              <h4 style="margin: 10px 0 6px 0;">Journal</h4>
+              <div id="groupTaskLogs" class="card" style="max-height:220px; overflow:auto; font-size:.9rem;"></div>
+
               <h4 style="margin: 0 0 6px 0;">Membres</h4>
               <table id="groupViewMembers">
                 <thead>
@@ -1277,6 +1326,28 @@
               const fin = document.getElementById('gv_fin'); fin.setAttribute('data-iso', d.date_fin || ''); fin.textContent = d.date_fin || '';
               document.getElementById('gv_actif').textContent = (String(d.actif) === '1' || String(d.actif).toLowerCase()==='true') ? 'Oui' : 'Non';
               document.getElementById('gv_motif').textContent = d.motif || '';
+              // Préselection type list en fonction de la catégorie
+              try {
+                const catSel = document.getElementById('gt_cat');
+                const typeSel = document.getElementById('gt_type');
+                const TYPES = [
+                  {% for t in evt_types %}
+                    { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
+                  {% endfor %}
+                ];
+                function syncTypes(){
+                  typeSel.innerHTML = '';
+                  if (!catSel.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typeSel.appendChild(o); return; }
+                  const opts = TYPES.filter(t=>t.categorie===catSel.value).map(t=>t.libelle);
+                  opts.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typeSel.appendChild(o); });
+                }
+                catSel.removeEventListener('change', catSel.__syncTypes || (()=>{}));
+                catSel.__syncTypes = syncTypes; catSel.addEventListener('change', syncTypes);
+                if (catSel.value) syncTypes();
+              } catch(e){}
+
+              // Charger le journal + état actif
+              loadGroupTaskLogs(key, by);
               const body = document.querySelector('#groupViewMembers tbody');
               body.innerHTML = '';
               (data.members || []).forEach(m => {
@@ -1322,6 +1393,49 @@
               console.error(e);
               alert('Erreur lors du chargement des données du groupe');
             }
+          }
+
+          async function loadGroupTaskLogs(key, by){
+            try{
+              const url = '/dashboard/parametres/administration/groupes/'+encodeURIComponent(key)+'/tasks/logs'+(by?('?by='+encodeURIComponent(by)):'');
+              const res = await fetch(url);
+              if (!res.ok) throw new Error('HTTP '+res.status);
+              const data = await res.json();
+              const logs = data.logs || [];
+              const box = document.getElementById('groupTaskLogs');
+              box.innerHTML = logs.length ? '' : '<div class="muted">Aucun journal.</div>';
+              logs.forEach(l=>{
+                const div = document.createElement('div');
+                div.style.padding='6px 8px'; div.style.borderBottom='1px solid var(--border)';
+                div.textContent = `[${l.created_at||''}] ${l.status||''} • ${l.summary||''}`;
+                box.appendChild(div);
+              });
+              const btn = document.getElementById('gt_run_btn');
+              const resSpan = document.getElementById('gt_result');
+              if (data.active){ btn.disabled = true; if(resSpan) resSpan.textContent = 'Une campagne est déjà en cours.'; }
+              else { btn.disabled = false; if(resSpan) resSpan.textContent = ''; }
+              // Binder le bouton run (simulation ou exécution)
+              btn.onclick = async function(){
+                const cat = document.getElementById('gt_cat').value || '';
+                const typ = document.getElementById('gt_type').value || '';
+                const sid = document.getElementById('gt_statut').value || '';
+                const comm = document.getElementById('gt_comment').value || '';
+                const activeOnly = document.getElementById('gt_active_only').checked ? 1 : 0;
+                const sim = document.getElementById('gt_simulate').checked ? 1 : 0;
+                const rh = document.getElementById('gt_rh').value || '';
+                const payload = { categorie: cat||null, type_libelle: typ||null, statut_id: sid? Number(sid): null, commentaire: comm||null, actifs_only: !!activeOnly, rh_id: rh? Number(rh): null };
+                const ep = sim ? '/simulate' : '/run';
+                btn.disabled = true; resSpan.textContent = sim? 'Simulation…' : 'Création…';
+                try{
+                  const r = await fetch('/dashboard/parametres/administration/groupes/'+encodeURIComponent(key)+'/tasks'+ep+(by?('?by='+encodeURIComponent(by)):'') , { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+                  const out = await r.json();
+                  if (!r.ok) throw new Error(out.detail || ('HTTP '+r.status));
+                  resSpan.textContent = (sim? 'Simulé: ' : 'Créé: ') + (out.created||0) + ' / ' + (out.total||0) + (out.ignored? (' (ignorés: '+out.ignored+')') : '');
+                  loadGroupTaskLogs(key, by);
+                } catch(e){ resSpan.textContent = 'Erreur: ' + (e.message||e); }
+                finally { btn.disabled = false; }
+              };
+            }catch(e){ console.warn('loadGroupTaskLogs error', e); }
           }
         </script>
         <table id="groupesTable">

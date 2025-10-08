@@ -12,7 +12,7 @@
 
     <div id="tache_accordion_body" class="task-block" style="display:none; margin-top:.8rem;">
     <form id="form-create-tache" method="post" action="/dashboard/taches">
-      <!-- Ligne 1: Client / Affaire / Responsable -->
+      <!-- Ligne 1: Client / Affaire / RH -->
       <div class="form-row" style="margin-bottom:.6rem;">
         <div class="field">
           <label>Client (Nom Prénom)</label>
@@ -23,8 +23,15 @@
           <input type="text" name="affaire_ref" list="affaires_list" placeholder="REF-0001" />
         </div>
         <div class="field">
-          <label>Responsable</label>
-          <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+          <label>Affecter à (RH)</label>
+          <select name="rh_id">
+            <option value="">-- aucun --</option>
+            {% for rh in rh_list %}
+              {% set rid = rh.id if rh.id is not none else rh[0] %}
+              {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
+              <option value="{{ rid }}">{{ rnom.strip() }}</option>
+            {% endfor %}
+          </select>
         </div>
       </div>
 
@@ -233,15 +240,31 @@
             <th>Type</th>
             <th>Client</th>
             <th>Affaire</th>
-            <th>Intervenants</th>
-            <th>Commentaire</th>
+            <th>RH</th>
             <th>Statut</th>
+          </tr>
+          <tr>
+            <th></th>
+            <th></th>
+            <th></th>
+            <th></th>
+            <th>
+              <select id="tasks_rh_filter" style="width:100%">
+                <option value="">Tous</option>
+                {% for rh in rh_list %}
+                  {% set rid = rh.id if rh.id is not none else rh[0] %}
+                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
+                  <option value="{{ rnom.strip() }}">{{ rnom.strip() }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {% for r in items %}
             <tr>
-              <td><span class="js-local-dt" data-iso="{{ r.date_evenement }}">{{ r.date_evenement }}</span></td>
+              <td class="js-dmy" data-iso="{{ r.date_evenement }}">{{ r.date_evenement }}</td>
               <td>{{ r.type_evenement }}</td>
               <td>
                 {% set nom_cli = r.nom_client or r.client_nom or r.client_name or r.client or r.client_fullname %}
@@ -259,16 +282,7 @@
                   <a href="/dashboard/affaires/{{ r.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ r.affaire_id }}</a>
                 {% else %}-{% endif %}
               </td>
-              <td>{{ r.intervenants or '' }}</td>
-              <td>
-                {% set full = r.commentaire or '' %}
-                {% set short = full[:180] %}
-                <div id="cmt-short-{{ r.evenement_id }}" style="white-space: pre-wrap; {{ 'display:none;' if (full|length) <= 180 else '' }}">{{ short }}{% if (full|length) > 180 %}…{% endif %}</div>
-                <div id="cmt-full-{{ r.evenement_id }}" style="white-space: pre-wrap; {{ '' if (full|length) <= 180 else 'display:none;' }}">{{ full }}</div>
-                {% if (full|length) > 180 %}
-                  <div><a href="#" onclick="return toggleComment({{ r.evenement_id }})" style="font-size:12px;">Voir plus</a></div>
-                {% endif %}
-              </td>
+              <td style="min-width:240px;">{{ r.rh_nom or '-' }}</td>
               <td>
                 {% set statut_label = (r.statut or 'à faire')|lower %}
                 {% set btn_class = 'btn-choice' %}
@@ -287,7 +301,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="7" class="center muted">Aucune tâche</td></tr>
+            <tr><td colspan="6" class="center muted">Aucune tâche</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -311,8 +325,25 @@
               buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'taches', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
               order: [[0,'desc']],
               columnDefs: [
-                { targets: [0,1,2,3,4,6], className: 'nowrap' },
+                { targets: [0,1,2,3,4,5], className: 'nowrap' },
+                { targets: 0, render: function(data, type){
+                    if (!data) return '';
+                    var s = String(data).trim();
+                    var d = /^\d{4}-\d{2}-\d{2}/.test(s) ? new Date(s.replace(' ', 'T')) : new Date(s);
+                    if (isNaN(d)) return data;
+                    var dd = String(d.getDate()).padStart(2,'0');
+                    var mm = String(d.getMonth()+1).padStart(2,'0');
+                    var yy = d.getFullYear();
+                    return (type==='display'||type==='filter') ? (dd+'/'+mm+'/'+yy) : d.toISOString();
+                  }},
               ]
+            });
+            // Filtre RH (col 4)
+            $('#tasks_rh_filter').on('change', function(){
+              var v = this.value || '';
+              if (!v) { window.tasksDT.column(4).search('').draw(); return; }
+              var esc = $.fn.dataTable.util.escapeRegex(v);
+              window.tasksDT.column(4).search('^'+esc+'$', true, false).draw();
             });
           } catch(e) {}
         });

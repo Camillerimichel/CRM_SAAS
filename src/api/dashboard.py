@@ -1819,6 +1819,19 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         admin_rh = []
         groupes_details = []
 
+    # Types / Statuts pour création de tâches de groupe dans la modale
+    try:
+        from sqlalchemy import text as _text
+        type_rows = db.execute(_text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
+        evt_types = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'libelle': (r._mapping.get('libelle') if hasattr(r,'_mapping') else r[1]), 'categorie': (r._mapping.get('categorie') if hasattr(r,'_mapping') else r[2]) } for r in (type_rows or []) ]
+        evt_categories = sorted({ t.get('categorie') for t in evt_types if t.get('categorie') is not None })
+        stat_rows = db.execute(_text("SELECT id, libelle FROM mariadb_statut_evenement ORDER BY id")).fetchall()
+        evt_statuts = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'libelle': (r._mapping.get('libelle') if hasattr(r,'_mapping') else r[1]) } for r in (stat_rows or []) ]
+    except Exception:
+        evt_types = []
+        evt_categories = []
+        evt_statuts = []
+
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
@@ -1852,6 +1865,9 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "admin_relations": admin_relations,
             "admin_rh": admin_rh,
             "groupes_details": groupes_details,
+            "evt_types": evt_types,
+            "evt_categories": evt_categories,
+            "evt_statuts": evt_statuts,
         },
     )
 
@@ -3586,7 +3602,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     except Exception:
         cli_counts = {"above": 0, "equal": 0, "below": 0}
 
-    # ------- Tâches / événements (vue_suivi_evenement) -------
+    # ------- Tâches / événements (comptage direct) -------
     try:
         from sqlalchemy import text as _text
         # Période sélectionnée pour la section Tâches
@@ -3596,12 +3612,12 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 range_days = 14
         except Exception:
             range_days = 14
-        # Compte total et par statut/catégorie
-        tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
-        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM vue_suivi_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall()
-        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(categorie)), '(non défini)') as c, COUNT(1) FROM vue_suivi_evenement GROUP BY c ORDER BY COUNT(1) DESC")).fetchall()
+        # Compte total et par statut/catégorie (sans vue)
+        tasks_total = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement")).scalar() or 0)
         # Ouvertes: non terminé / non annulé
-        open_count = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0
+        open_count = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0)
+        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM mariadb_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall() or []
+        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(t.categorie)), '(non défini)') as c, COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY c ORDER BY COUNT(1) DESC")).fetchall() or []
         # N derniers jours: créations par jour
         rows_days = db.execute(_text(
             """
@@ -3610,14 +3626,45 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
               UNION ALL SELECT x+1 FROM seq WHERE x < :n
             )
             SELECT date(julianday('now') - x) AS day,
-                   COALESCE((SELECT COUNT(1) FROM vue_suivi_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
+                   COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
             FROM seq
             ORDER BY day ASC
             """
-        ), {"n": range_days - 1}).fetchall()
+        ), {"n": range_days - 1}).fetchall() or []
         tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
         tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
         tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
+        # Fallback période si aucune tâche sur la fenêtre choisie
+        def _sum_days(lst):
+            try:
+                return sum(int(x.get('nb') or 0) for x in (lst or []))
+            except Exception:
+                return 0
+        tasks_days_sum = _sum_days(tasks_days)
+        if tasks_days_sum == 0:
+            alt_ranges = []
+            if range_days == 7:
+                alt_ranges = [14, 30]
+            elif range_days == 14:
+                alt_ranges = [30]
+            for rr in alt_ranges:
+                rows_days2 = db.execute(_text(
+                    """
+                    WITH RECURSIVE seq(x) AS (
+                      SELECT 0
+                      UNION ALL SELECT x+1 FROM seq WHERE x < :n
+                    )
+                    SELECT date(julianday('now') - x) AS day,
+                           COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
+                    FROM seq
+                    ORDER BY day ASC
+                    """
+                ), {"n": rr - 1}).fetchall() or []
+                tasks_days2 = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days2 ]
+                if _sum_days(tasks_days2) > 0:
+                    tasks_days = tasks_days2
+                    range_days = rr
+                    break
 
         # Durée moyenne passée dans chaque statut (en jours), basée sur historique
         rows_avg = db.execute(_text(
@@ -4183,9 +4230,37 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         except Exception:
             pass
     except Exception:
-        esg_fields_dash = []
-        esg_field_labels_dash = {}
-        esg_fields_debug_dash = {"source": "ERROR", "raw_cols": [], "final": []}
+        # Fallback: calculer les compteurs directement sur mariadb_evenement
+        try:
+            from sqlalchemy import text as _text
+            try:
+                range_days = int(request.query_params.get("tasks_range", 14))
+                if range_days not in (7, 14, 30):
+                    range_days = 14
+            except Exception:
+                range_days = 14
+            tasks_total = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement")).scalar() or 0)
+            open_count = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0)
+            rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM mariadb_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall() or []
+            tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
+            rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(t.categorie)), '(non défini)') as c, COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY c ORDER BY COUNT(1) DESC")).fetchall() or []
+            tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
+            rows_days = db.execute(_text(
+                """
+                WITH RECURSIVE seq(x) AS (
+                  SELECT 0
+                  UNION ALL SELECT x+1 FROM seq WHERE x < :n
+                )
+                SELECT date(julianday('now') - x) AS day,
+                       COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
+                FROM seq
+                ORDER BY day ASC
+                """
+            ), {"n": range_days - 1}).fetchall() or []
+            tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
+        except Exception:
+            tasks_total = 0; open_count = 0; tasks_statut = []; tasks_categorie = []; tasks_days = []
+        # Continuer pour la suite du tableau de bord (ESG etc.)
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -8738,6 +8813,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "statuts": statuts,
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
+            "rh_list": db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall(),
             "clients_suggest": clients_suggest,
             "affaires_suggest": affaires_suggest,
             "client_fullname_default": client_fullname_default,
@@ -9766,14 +9842,45 @@ def dashboard_taches(
         params["exclude_statut"] = exclude_statut
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
-    items = db.execute(text(sql), params).fetchall()
+    try:
+        items = db.execute(text(sql), params).fetchall()
+    except Exception:
+        # Fallback si la vue n'existe pas ou pointe vers une ancienne table
+        fallback_sql = f"""
+        WITH base AS (
+          SELECT
+            e.id AS evenement_id,
+            e.id AS id,
+            e.date_evenement AS date_evenement,
+            e.statut AS statut,
+            e.commentaire AS commentaire,
+            e.client_id AS client_id,
+            e.affaire_id AS affaire_id,
+            t.libelle AS type_evenement,
+            t.categorie AS categorie,
+            (
+              SELECT GROUP_CONCAT(
+                       COALESCE(i.role,'') || CASE WHEN i.nom_intervenant IS NOT NULL AND i.nom_intervenant<>'' THEN ':'||i.nom_intervenant ELSE '' END,
+                       ', '
+                     )
+              FROM mariadb_evenement_intervenant i
+              WHERE i.evenement_id = e.id
+            ) AS intervenants
+          FROM mariadb_evenement e
+          LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id
+        )
+        SELECT * FROM base{where} ORDER BY date_evenement DESC LIMIT 300
+        """
+        items = db.execute(text(fallback_sql), params).fetchall()
 
-    # Enrichir avec noms client et référence affaire pour l'affichage
+    # Enrichir avec noms client, référence affaire et RH affecté pour l'affichage
     try:
         client_ids = {getattr(r, 'client_id', None) for r in items if getattr(r, 'client_id', None) is not None}
         affaire_ids = {getattr(r, 'affaire_id', None) for r in items if getattr(r, 'affaire_id', None) is not None}
+        event_ids = {getattr(r, 'id', None) for r in items if getattr(r, 'id', None) is not None}
         clients_map_full = {}
         affaires_map_ref = {}
+        rh_name_by_event: dict[int, str] = {}
         if client_ids:
             rows_cli = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
             for cid, nom, prenom in rows_cli:
@@ -9783,12 +9890,35 @@ def dashboard_taches(
             rows_aff = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
             for aid, ref in rows_aff:
                 affaires_map_ref[aid] = ref or str(aid)
+        # RH: récupérer rh_id par événement puis étiquettes RH
+        if event_ids:
+            from sqlalchemy import text as _text
+            ev_rows = db.execute(_text("SELECT id, rh_id FROM mariadb_evenement WHERE id IN (%s)" % ",".join(str(int(i)) for i in event_ids))).fetchall()
+            rh_ids = { (r._mapping.get('rh_id') if hasattr(r,'_mapping') else r[1]) for r in (ev_rows or []) if (r._mapping.get('rh_id') if hasattr(r,'_mapping') else r[1]) is not None }
+            rh_map: dict[int,str] = {}
+            if rh_ids:
+                rh_rows = db.execute(_text("SELECT id, prenom, nom FROM administration_RH WHERE id IN (%s)" % ",".join(str(int(i)) for i in rh_ids))).fetchall()
+                for rr in rh_rows or []:
+                    m = rr._mapping if hasattr(rr,'_mapping') else None
+                    rid = int(m.get('id') if m else rr[0])
+                    label = f"{(m.get('prenom') if m else rr[1]) or ''} {(m.get('nom') if m else rr[2]) or ''}".strip()
+                    rh_map[rid] = label
+            for er in ev_rows or []:
+                m = er._mapping if hasattr(er,'_mapping') else None
+                evid = int(m.get('id') if m else er[0])
+                rid = m.get('rh_id') if m else er[1]
+                if rid is not None:
+                    try:
+                        rh_name_by_event[evid] = rh_map.get(int(rid))
+                    except Exception:
+                        rh_name_by_event[evid] = None
         # Convertir en dicts avec champs dérivés
         items = [
             {
                 **dict(getattr(r, '_mapping', r)),
                 'nom_client': clients_map_full.get(getattr(r, 'client_id', None)),
                 'affaire_ref': affaires_map_ref.get(getattr(r, 'affaire_id', None)),
+                'rh_nom': rh_name_by_event.get(getattr(r, 'id', None)),
             }
             for r in items
         ]
@@ -9797,8 +9927,12 @@ def dashboard_taches(
         items = items
 
     # Options types & catégories pour filtres/creation
-    types = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
-    cats = sorted({t.categorie for t in types if getattr(t, 'categorie', None)})
+    types_rows = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
+    # Convertir en dicts simples pour éviter tout souci d'accès attributaire côté template/JS
+    types = [ {'id': getattr(t,'id', None) if hasattr(t,'id') else (t[0] if len(t)>0 else None),
+               'libelle': getattr(t,'libelle', None) if hasattr(t,'libelle') else (t[1] if len(t)>1 else None),
+               'categorie': getattr(t,'categorie', None) if hasattr(t,'categorie') else (t[2] if len(t)>2 else None) } for t in types_rows ]
+    cats = sorted({ (d.get('categorie')) for d in types if d.get('categorie') is not None })
 
     # Statuts (pour formulaire inline)
     statuts = list_statuts(db)
@@ -9857,7 +9991,37 @@ def dashboard_taches(
         try:
             return int(db.execute(text(sql_text), params_).scalar() or 0)
         except Exception:
-            return 0
+            # Fallback si la vue n'est pas disponible: compter via mariadb_evenement (+ type pour categorie)
+            try:
+                from sqlalchemy import text as _text
+                where = []
+                fb_params = {}
+                # today / late
+                if 'date(date_evenement) = :d' in sql_text and 'd' in params_:
+                    where.append('date(e.date_evenement) = :d'); fb_params['d'] = params_['d']
+                if 'date(date_evenement) < :d' in sql_text and 'd' in params_:
+                    where.append('date(e.date_evenement) < :d'); fb_params['d'] = params_['d']
+                # catégories (réclamations)
+                if "categorie = 'reclamation'" in sql_text:
+                    where.append("t.categorie = 'reclamation'")
+                # statut inclusions/exclusions
+                if "NOT IN (" in sql_text and "statut" in sql_text:
+                    where.append("(e.statut IS NULL OR lower(e.statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé','annulé','annule'))")
+                if "lower(statut) = 'en attente'" in sql_text:
+                    where.append("lower(e.statut) = 'en attente'")
+                if "lower(statut) = 'en cours'" in sql_text:
+                    where.append("lower(e.statut) = 'en cours'")
+                if "IN ('terminé','termine')" in sql_text:
+                    where.append("lower(e.statut) IN ('terminé','termine')")
+                if "IN ('annulé','annule')" in sql_text:
+                    where.append("lower(e.statut) IN ('annulé','annule')")
+                if "IN ('à faire','a faire')" in sql_text or "IN ('Ã  faire','a faire')" in sql_text:
+                    where.append("lower(e.statut) IN ('à faire','a faire')")
+                where_clause = (" WHERE " + " AND ".join(where)) if where else ""
+                fb_sql = f"SELECT COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id{where_clause}"
+                return int(db.execute(_text(fb_sql), fb_params).scalar() or 0)
+            except Exception:
+                return 0
 
     today_count = _count(
         "SELECT COUNT(1) FROM vue_suivi_evenement WHERE date(date_evenement) = :d",
@@ -9906,6 +10070,7 @@ def dashboard_taches(
             "statuts": statuts,
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
+            "rh_list": db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall(),
             "clients_suggest": clients_suggest,
             "affaires_suggest": affaires_suggest,
             "counts": {
@@ -10056,6 +10221,7 @@ def dashboard_tache_edit(
             Evenement.commentaire,
             Evenement.client_id,
             Evenement.affaire_id,
+            Evenement.rh_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
         )
@@ -10119,6 +10285,14 @@ def dashboard_tache_edit(
     except Exception:
         comment_entries = []
 
+    # RH list for assignment dropdown
+    try:
+        rh_rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
+        rh_list = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'prenom': (r._mapping.get('prenom') if hasattr(r,'_mapping') else r[1]), 'nom': (r._mapping.get('nom') if hasattr(r,'_mapping') else r[2]) } for r in (rh_rows or []) ]
+    except Exception:
+        rh_list = []
+    rh_selected = getattr(ev, 'rh_id', None)
+
     return templates.TemplateResponse(
         "dashboard_tache_edit.html",
         {
@@ -10130,6 +10304,8 @@ def dashboard_tache_edit(
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
             "comment_entries": comment_entries,
+            "rh_list": rh_list,
+            "rh_selected": rh_selected,
         },
     )
 
@@ -10147,6 +10323,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
     clients_l = form.getlist("client_fullname")
     affaires_l = form.getlist("affaire_ref")
     responsables_l = form.getlist("utilisateur_responsable")
+    rh_ids_l = form.getlist("rh_id")
     commentaires_l = form.getlist("commentaire")
 
     def resolve_client(fullname: str):
@@ -10183,8 +10360,8 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
         return q.first()
 
     # Crée chaque ligne non vide
-    for type_lbl, cat, cli_full, aff_ref, resp, comm in zip_longest(
-        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, fillvalue=""
+    for type_lbl, cat, cli_full, aff_ref, resp, comm, rhid in zip_longest(
+        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, rh_ids_l, fillvalue=""
     ):
         has_content = (type_lbl or comm or cli_full or aff_ref)
         if not has_content:
@@ -10200,6 +10377,10 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
                     type_lbl = row[0]
             except Exception:
                 pass
+        try:
+            rh_id_val = int(rhid) if (rhid and str(rhid).strip().isdigit()) else None
+        except Exception:
+            rh_id_val = None
         payload = TacheCreateSchema(
             type_libelle=(type_lbl or "tâche").strip(),
             categorie=(cat or "tache").strip() or "tache",
@@ -10207,6 +10388,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             affaire_id=getattr(aff, "id", None),
             commentaire=comm or None,
             utilisateur_responsable=(resp or None),
+            rh_id=rh_id_val,
         )
         ev = create_tache(db, payload)
 
@@ -10235,6 +10417,7 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
     statut_id = form.get("statut_id")
     commentaire = form.get("commentaire")
     user = form.get("utilisateur_responsable")
+    rh_id_raw = form.get("rh_id")
     redirect_to = form.get("redirect") or "/dashboard/taches"
     # Mise à jour du commentaire de la tâche: préfixer avec date-heure
     if commentaire and commentaire.strip():
@@ -10258,6 +10441,20 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
         sid = int(statut_id) if statut_id else None
     except Exception:
         sid = None
+    # Mise à jour RH si fourni
+    if rh_id_raw is not None:
+        try:
+            from src.models.evenement import Evenement as _Ev
+            ev = db.query(_Ev).filter(_Ev.id == evenement_id).first()
+            if ev:
+                try:
+                    ev.rh_id = int(rh_id_raw) if (rh_id_raw and str(rh_id_raw).strip().isdigit()) else None
+                except Exception:
+                    ev.rh_id = None
+                db.add(ev)
+                db.commit()
+        except Exception:
+            pass
     if sid is not None:
         payload = EvenementStatutCreateSchema(statut_id=sid, commentaire=commentaire, utilisateur_responsable=user)
         add_statut_to_evenement(db, evenement_id, payload)
@@ -12592,3 +12789,194 @@ async def admin_delete_groupe(row_id: int, db: Session = Depends(get_db), reques
         db.rollback()
         from urllib.parse import quote
         return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---- Groupes: campagnes de tâches (simulation / exécution) ----
+def _ensure_group_task_schema(db: Session):
+    from sqlalchemy import text as _text
+    try:
+        db.execute(_text(
+            """
+            CREATE TABLE IF NOT EXISTS administration_groupe_task_campaign (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                groupe_id INTEGER NOT NULL,
+                type_groupe TEXT,
+                created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+                initiated_by TEXT,
+                params TEXT,
+                status TEXT,
+                total INTEGER,
+                created INTEGER,
+                ignored INTEGER,
+                errors INTEGER
+            )
+            """
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+@router.get("/parametres/administration/groupes/{groupe_key}/tasks/logs")
+def groupes_tasks_logs(groupe_key: int, by: str | None = None, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    _ensure_group_task_schema(db)
+    # Resolve real id if by=rowid
+    if by == 'rowid':
+        row = db.execute(_text("SELECT id FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
+        if row and (row[0] is not None):
+            groupe_id = int(row[0])
+        else:
+            return JSONResponse({"logs": [], "active": False})
+    else:
+        groupe_id = int(groupe_key)
+    # Active flag
+    active = False
+    try:
+        r = db.execute(_text("SELECT COUNT(1) FROM administration_groupe_task_campaign WHERE groupe_id = :gid AND status = 'active'"), {"gid": groupe_id}).fetchone()
+        active = (int(r[0]) > 0) if r else False
+    except Exception:
+        active = False
+    # Logs (last 20)
+    rows = db.execute(_text("SELECT created_at, status, total, created, ignored, errors, params FROM administration_groupe_task_campaign WHERE groupe_id = :gid ORDER BY id DESC LIMIT 20"), {"gid": groupe_id}).fetchall() or []
+    logs = []
+    for r in rows:
+        m = r._mapping if hasattr(r,'_mapping') else None
+        created_at = (m.get('created_at') if m else r[0])
+        status = (m.get('status') if m else r[1])
+        total = (m.get('total') if m else r[2])
+        created = (m.get('created') if m else r[3])
+        ignored = (m.get('ignored') if m else r[4])
+        errors = (m.get('errors') if m else r[5])
+        summary = f"total={total or 0}, créées={created or 0}, ignorées={ignored or 0}, erreurs={errors or 0}"
+        logs.append({"created_at": created_at, "status": status, "summary": summary})
+    return JSONResponse({"logs": logs, "active": active})
+
+
+def _group_type_norm(s: str | None) -> str | None:
+    if not s:
+        return None
+    x = (s or '').strip().lower()
+    if x in ('client','clients','personne','personnes'):
+        return 'client'
+    if x in ('affaire','affaires','contrat','contrats'):
+        return 'affaire'
+    return x
+
+
+def _group_members(db: Session, groupe_id: int, scope: str, actifs_only: bool = True) -> list[dict]:
+    from sqlalchemy import text as _text
+    cond_actif = " AND COALESCE(actif,1) != 0 AND date_retrait IS NULL" if actifs_only else ""
+    if scope == 'client':
+        sql = f"SELECT client_id AS id FROM administration_groupe WHERE groupe_id = :gid AND client_id IS NOT NULL{cond_actif}"
+    else:
+        sql = f"SELECT affaire_id AS id FROM administration_groupe WHERE groupe_id = :gid AND affaire_id IS NOT NULL{cond_actif}"
+    rows = db.execute(_text(sql), {"gid": groupe_id}).fetchall() or []
+    out = []
+    for r in rows:
+        m = r._mapping if hasattr(r,'_mapping') else None
+        vid = m.get('id') if m else r[0]
+        if vid is not None:
+            out.append({"id": int(vid)})
+    return out
+
+
+@router.post("/parametres/administration/groupes/{groupe_key}/tasks/simulate")
+async def groupes_tasks_simulate(groupe_key: int, request: Request, by: str | None = None, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    _ensure_group_task_schema(db)
+    payload = await request.json()
+    # Resolve groupe id + scope
+    if by == 'rowid':
+        row = db.execute(_text("SELECT id, type_groupe FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
+        if not row:
+            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
+        groupe_id = int(row._mapping.get('id') if hasattr(row,'_mapping') else row[0])
+        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[1]) or 'client'
+    else:
+        row = db.execute(_text("SELECT type_groupe FROM administration_groupe_detail WHERE id = :id"), {"id": groupe_key}).fetchone()
+        if not row:
+            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
+        groupe_id = int(groupe_key)
+        scope = _group_type_norm(row[0] if not hasattr(row,'_mapping') else row._mapping.get('type_groupe')) or 'client'
+    actifs_only = bool(payload.get('actifs_only', True))
+    members = _group_members(db, groupe_id, scope, actifs_only=actifs_only)
+    return JSONResponse({"total": len(members), "created": 0, "ignored": 0})
+
+
+@router.post("/parametres/administration/groupes/{groupe_key}/tasks/run")
+async def groupes_tasks_run(groupe_key: int, request: Request, by: str | None = None, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    _ensure_group_task_schema(db)
+    payload = await request.json()
+    # Resolve groupe id + scope + RH responsable par défaut
+    if by == 'rowid':
+        row = db.execute(_text("SELECT id, type_groupe, responsable_id FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
+        if not row:
+            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
+        groupe_id = int(row._mapping.get('id') if hasattr(row,'_mapping') else row[0])
+        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[1]) or 'client'
+        rh_default = row._mapping.get('responsable_id') if hasattr(row,'_mapping') else row[2]
+    else:
+        row = db.execute(_text("SELECT type_groupe, responsable_id FROM administration_groupe_detail WHERE id = :id"), {"id": groupe_key}).fetchone()
+        if not row:
+            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
+        groupe_id = int(groupe_key)
+        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[0]) or 'client'
+        rh_default = row._mapping.get('responsable_id') if hasattr(row,'_mapping') else row[1]
+    # Lock: active campaign?
+    r = db.execute(_text("SELECT COUNT(1) FROM administration_groupe_task_campaign WHERE groupe_id = :gid AND status = 'active'"), {"gid": groupe_id}).fetchone()
+    if r and int(r[0]) > 0:
+        return JSONResponse({"detail": "Une campagne est déjà en cours pour ce groupe."}, status_code=400)
+    actifs_only = bool(payload.get('actifs_only', True))
+    categorie = (payload.get('categorie') or '').strip() or None
+    type_libelle = (payload.get('type_libelle') or '').strip() or None
+    statut_id = payload.get('statut_id')
+    rh_override = payload.get('rh_id')
+    commentaire = payload.get('commentaire') or None
+    # Members
+    members = _group_members(db, groupe_id, scope, actifs_only=actifs_only)
+    total = len(members)
+    created = 0
+    ignored = 0
+    errors = 0
+    # Create campaign row (active)
+    try:
+        db.execute(_text("INSERT INTO administration_groupe_task_campaign (groupe_id, type_groupe, initiated_by, params, status, total, created, ignored, errors) VALUES (:gid, :scope, :by, :params, 'active', :total, 0, 0, 0)"),
+                   {"gid": groupe_id, "scope": scope, "by": "dashboard", "params": str(payload), "total": total})
+        db.commit()
+    except Exception:
+        db.rollback()
+    # Create tasks
+    from src.schemas.evenement import TacheCreateSchema
+    from src.services.evenements import create_tache, add_statut_to_evenement
+    from src.schemas.evenement_statut import EvenementStatutCreateSchema
+    from datetime import datetime as _dt
+    for m in members:
+        try:
+            p = TacheCreateSchema(
+                type_libelle=type_libelle or 'tâche',
+                categorie=categorie or 'tache',
+                client_id=(m['id'] if scope=='client' else None),
+                affaire_id=(m['id'] if scope=='affaire' else None),
+                commentaire=commentaire,
+                rh_id=(int(rh_override) if (rh_override is not None and str(rh_override).strip()!='') else (int(rh_default) if rh_default is not None else None)),
+            )
+            ev = create_tache(db, p)
+            if statut_id:
+                try:
+                    sid = int(statut_id)
+                    add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire='Créé via groupe', utilisateur_responsable=None))
+                except Exception:
+                    pass
+            created += 1
+        except Exception:
+            errors += 1
+    # Update campaign row to completed
+    try:
+        db.execute(_text("UPDATE administration_groupe_task_campaign SET status = 'completed', created = :c, ignored = :i, errors = :e WHERE groupe_id = :gid AND status = 'active' ORDER BY id DESC LIMIT 1"),
+                   {"c": created, "i": ignored, "e": errors, "gid": groupe_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    return JSONResponse({"total": total, "created": created, "ignored": ignored, "errors": errors})

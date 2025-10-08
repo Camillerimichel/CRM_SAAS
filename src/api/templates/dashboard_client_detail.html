@@ -564,6 +564,9 @@
         <button class="modal-close" onclick="closeTaskPopup()">✕</button>
       </div>
       <div class="modal-body task-block">
+        <style>
+          #taskCreateForm select.select-choice { height: 36px; }
+        </style>
         <div id="taskToast" class="badge success" style="display:none; margin-bottom:8px;">Tâche enregistrée.</div>
         <form method="post" action="/dashboard/clients/{{ client.id }}/taches" id="taskCreateForm">
           <div class="form-row" style="margin-bottom:.6rem;">
@@ -576,8 +579,15 @@
               <input type="text" name="affaire_ref" list="affaires_list_client_modal" placeholder="REF-0001" />
             </div>
             <div class="field">
-              <label>Responsable</label>
-              <input type="text" name="utilisateur_responsable" placeholder="agent.login" />
+              <label>Affecter à (RH)</label>
+              <select class="select-choice" name="rh_id">
+                <option value="">-- aucun --</option>
+                {% for rh in rh_list %}
+                  {% set rid = rh.id if rh.id is not none else rh[0] %}
+                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
+                  <option value="{{ rid }}">{{ rnom.strip() }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
 
@@ -713,7 +723,10 @@
         sb.href = '/dashboard/taches/' + (ev.id||'');
         sb.target = '_blank';
         sb.rel = 'noopener noreferrer';
-        tr.appendChild(tdEl(sb));
+        const statTd = document.createElement('td'); statTd.appendChild(sb);
+        var rh = ev.rh_nom || ev.rh || ev.rhnom;
+        if (rh){ const b=document.createElement('span'); b.className='badge'; b.textContent='RH: '+rh; b.style.marginLeft='6px'; statTd.appendChild(b); }
+        tr.appendChild(statTd);
         // contrat (ref)
         tr.appendChild(td(ev.affaire_ref||''));
         // commentaire avec voir plus/moins
