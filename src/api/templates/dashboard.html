@@ -105,8 +105,13 @@
       <div>Aujourd'hui</div>
       <div class="kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
     </div>
-    <div class="kpi-card" style="grid-column: 1 / -1;">
-      <canvas id="chartTasks" height="120"></canvas>
+    <div class="kpi-card" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
+      {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
+      {% if total_tasks_days and total_tasks_days > 0 %}
+        <canvas id="chartTasksDays" height="120"></canvas>
+      {% else %}
+        <div class="muted">Aucune tâche sur la période sélectionnée</div>
+      {% endif %}
     </div>
   </div>
   </div>

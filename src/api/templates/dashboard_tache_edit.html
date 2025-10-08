@@ -21,6 +21,19 @@
             <a href="/dashboard/affaires/{{ ev.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ ref_affaire or ('#' ~ ev.affaire_id) }}</a>
           {% else %}-{% endif %}
         </div>
+        <div><strong>Assigné (RH):</strong>
+          <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
+            <select name="rh_id" onchange="this.form.submit()">
+              <option value="">-- aucun --</option>
+              {% for rh in rh_list %}
+                {% set rid = rh.id if rh.id is not none else rh[0] %}
+                {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
+                <option value="{{ rid }}" {% if rh_selected and (rid|int) == (rh_selected|int) %}selected{% endif %}>{{ rnom.strip() }}</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
+          </form>
+        </div>
       </div>
       <div style="margin-top:8px;"><strong>Commentaires:</strong>
         {% if comment_entries and comment_entries|length > 0 %}

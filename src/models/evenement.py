@@ -14,4 +14,5 @@ class Evenement(Base):
     statut = Column(String, nullable=False, default="à faire")
     commentaire = Column(String, nullable=True)
     utilisateur_responsable = Column(String, nullable=True)
-
+    # Stocke l'affectation RH sans contrainte FK pour rester compatible si la table administration_RH n'est pas gérée par SQLAlchemy
+    rh_id = Column(Integer, nullable=True)
