@@ -16,6 +16,8 @@ from .evenement_intervenant import EvenementIntervenant
 from .evenement_lien import EvenementLien
 from .evenement_envoi import EvenementEnvoi
 from .modele_document import ModeleDocument
+from .administration_groupe_detail import AdministrationGroupeDetail
+from .administration_groupe import AdministrationGroupe
 
 
 __all__ = [
@@ -37,4 +39,6 @@ __all__ = [
     "EvenementLien",
     "EvenementEnvoi",
     "ModeleDocument",
+    "AdministrationGroupeDetail",
+    "AdministrationGroupe",
 ]

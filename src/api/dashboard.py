@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from sqlalchemy import text
@@ -473,21 +473,41 @@ async def dashboard_client_kyc_report(
         row = db.execute(text(
             """
             SELECT 
+              k.niveau_id,
               r.libelle AS niveau_risque,
-              k.duree AS horizon_placement,
+              COALESCE(du.label, k.duree) AS horizon_placement,
               k.experience,
               k.connaissance,
+              COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
+              COALESCE(pe.label, k.contraintes) AS perte_label,
+              pp.code AS patrimoine_code,
+              du.code AS duree_code,
+              pe.code AS perte_code,
               k.commentaire
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r 
-              ON k.niveau_id = r.id
+            LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
+            LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
+            LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
+            LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
             LIMIT 1
             """
         ), {"cid": client_id}).fetchone()
         if row:
-            risque_latest_info = dict(row._mapping)
+            m = row._mapping
+            risque_latest_info = dict(m)
+            # Allocation (nom) liée au niveau
+            try:
+                rid = m.get('niveau_id')
+                if rid is not None:
+                    row_alloc = db.execute(text(
+                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
+                    ), {"rid": rid}).fetchone()
+                    if row_alloc:
+                        risque_latest_info['allocation_nom'] = row_alloc[0]
+            except Exception:
+                pass
     except Exception:
         risque_latest_info = None
 
@@ -1586,6 +1606,219 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"load garanties normes failed: {e}")
 
+    # ---------------- Administration: Intervenants & Relations ----------------
+    admin_intervenants: list[dict] = []
+    admin_types: list[dict] = []
+    admin_relations: list[dict] = []
+
+    def _ensure_admin_schema(_db: Session) -> None:
+        try:
+            from sqlalchemy import text as _text
+            # Tables
+            _db.execute(_text(
+                """
+                CREATE TABLE IF NOT EXISTS administration_intervenant (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom TEXT NOT NULL,
+                    type_niveau TEXT NOT NULL CHECK (type_niveau IN ('interne','courtier','autre')),
+                    type_personne TEXT NOT NULL CHECK (type_personne IN ('physique','morale'))
+                )
+                """
+            ))
+            # Ensure optional columns exist (telephone, mail)
+            try:
+                cols = rows_to_dicts(_db.execute(_text("PRAGMA table_info('administration_intervenant')")).fetchall())
+                names = {str(c.get('name') or '').lower() for c in (cols or [])}
+            except Exception:
+                names = set()
+            if 'telephone' not in names:
+                try:
+                    _db.execute(_text("ALTER TABLE administration_intervenant ADD COLUMN telephone TEXT"))
+                except Exception:
+                    pass
+            if 'mail' not in names:
+                try:
+                    _db.execute(_text("ALTER TABLE administration_intervenant ADD COLUMN mail TEXT"))
+                except Exception:
+                    pass
+            _db.execute(_text(
+                """
+                CREATE TABLE IF NOT EXISTS administration_type_relation (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom TEXT NOT NULL UNIQUE,
+                    inverse_id INTEGER,
+                    FOREIGN KEY(inverse_id) REFERENCES administration_type_relation(id)
+                )
+                """
+            ))
+            _db.execute(_text(
+                """
+                CREATE TABLE IF NOT EXISTS administration_relation (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_source INTEGER NOT NULL,
+                    id_cible INTEGER NOT NULL,
+                    id_type INTEGER NOT NULL,
+                    date_creation TEXT DEFAULT (CURRENT_TIMESTAMP),
+                    UNIQUE(id_source, id_cible, id_type),
+                    FOREIGN KEY(id_source) REFERENCES administration_intervenant(id),
+                    FOREIGN KEY(id_cible) REFERENCES administration_intervenant(id),
+                    FOREIGN KEY(id_type) REFERENCES administration_type_relation(id)
+                )
+                """
+            ))
+            # Trigger for inverse relation
+            _db.execute(_text(
+                """
+                CREATE TRIGGER IF NOT EXISTS administration_relation_inverse
+                AFTER INSERT ON administration_relation
+                BEGIN
+                    INSERT OR IGNORE INTO administration_relation (id_source, id_cible, id_type, date_creation)
+                    SELECT NEW.id_cible,
+                           NEW.id_source,
+                           COALESCE((SELECT inverse_id FROM administration_type_relation WHERE id = NEW.id_type), NEW.id_type),
+                           CURRENT_TIMESTAMP;
+                END;
+                """
+            ))
+            # Seed default relation types if missing
+            # Types: "est en relation avec" <-> "est en relation avec" (auto-inverse)
+            #        "est en affaire avec" <-> "est en affaire avec"
+            #        "est dirigé par" <-> "dirige"
+            rows = _db.execute(_text("SELECT COUNT(*) AS c FROM administration_type_relation")).fetchone()
+            cnt = int((rows._mapping.get('c') if rows is not None else 0) or 0)
+            if cnt == 0:
+                # Insert basic rows first
+                names = [
+                    "est en relation avec",
+                    "est en affaire avec",
+                    "est dirigé par",
+                    "dirige",
+                ]
+                for nm in names:
+                    _db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": nm})
+                # Resolve IDs
+                all_types = _db.execute(_text("SELECT id, nom FROM administration_type_relation")).fetchall()
+                inv = {r._mapping.get('nom'): r._mapping.get('id') for r in all_types}
+                # Self inverses
+                for nm in ["est en relation avec", "est en affaire avec"]:
+                    tid = inv.get(nm)
+                    if tid:
+                        _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": tid, "id": tid})
+                # Directed pair
+                edp = inv.get("est dirigé par")
+                dirg = inv.get("dirige")
+                if edp and dirg:
+                    _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": dirg, "id": edp})
+                    _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": edp, "id": dirg})
+            _db.commit()
+        except Exception:
+            _db.rollback()
+            # Do not raise to keep page rendering robust
+            pass
+
+    try:
+        _ensure_admin_schema(db)
+        from sqlalchemy import text as _text
+        admin_intervenants = rows_to_dicts(
+            db.execute(_text("SELECT id, nom, type_niveau, type_personne, telephone, mail FROM administration_intervenant ORDER BY nom")).fetchall()
+        )
+        admin_types = rows_to_dicts(
+            db.execute(_text(
+                """
+                SELECT t.id,
+                       t.nom,
+                       t.inverse_id,
+                       inv.nom AS inverse_nom
+                FROM administration_type_relation t
+                LEFT JOIN administration_type_relation inv ON inv.id = t.inverse_id
+                ORDER BY t.nom
+                """
+            )).fetchall()
+        )
+        admin_relations = rows_to_dicts(
+            db.execute(_text(
+                """
+                SELECT r.id,
+                       r.id_source,
+                       r.id_cible,
+                       r.id_type,
+                       r.date_creation,
+                       s.nom AS source_nom,
+                       c.nom AS cible_nom,
+                       t.nom AS type_nom
+                FROM administration_relation r
+                JOIN administration_intervenant s ON s.id = r.id_source
+                JOIN administration_intervenant c ON c.id = r.id_cible
+                JOIN administration_type_relation t ON t.id = r.id_type
+                ORDER BY r.date_creation DESC, r.id DESC
+                """
+            )).fetchall()
+        )
+        # Administration RH: ensure table and load rows
+        try:
+            db.execute(_text(
+                """
+                CREATE TABLE IF NOT EXISTS administration_RH (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom TEXT NOT NULL,
+                    prenom TEXT NOT NULL,
+                    telephone TEXT,
+                    mail TEXT,
+                    niveau_poste TEXT,
+                    commentaire TEXT
+                )
+                """
+            ))
+        except Exception:
+            pass
+        admin_rh = rows_to_dicts(
+            db.execute(_text(
+                "SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom"
+            )).fetchall()
+        )
+        # Groupes: charger la liste si la table existe
+        try:
+            db.execute(_text("SELECT 1 FROM administration_groupe_detail LIMIT 1"))
+            groupes_details = rows_to_dicts(
+                db.execute(_text(
+                    """
+                    SELECT rowid AS __rid,
+                           id,
+                           type_groupe,
+                           nom,
+                           date_creation,
+                           date_fin,
+                           responsable_id,
+                           motif,
+                           actif,
+                           (
+                             SELECT COUNT(1)
+                             FROM administration_groupe g
+                             WHERE g.groupe_id = administration_groupe_detail.id
+                               AND (COALESCE(g.actif,1) != 0)
+                               AND (g.date_retrait IS NULL)
+                           ) AS nb_membres
+                    FROM administration_groupe_detail
+                    ORDER BY CASE lower(type_groupe)
+                               WHEN 'personnes' THEN 0
+                               WHEN 'personne' THEN 0
+                               WHEN 'client' THEN 0
+                               WHEN 'affaires' THEN 1
+                               WHEN 'affaire' THEN 1
+                               ELSE 2
+                             END, nom
+                    """
+                )).fetchall()
+            )
+        except Exception:
+            groupes_details = []
+    except Exception:
+        admin_intervenants = []
+        admin_types = []
+        admin_relations = []
+        admin_rh = []
+        groupes_details = []
+
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
@@ -1613,10 +1846,149 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "remun_items": remun_items,
             "remun_extra_cols": remun_extra_cols,
             "garanties_normes": garanties_normes,
+            # Admin
+            "admin_intervenants": admin_intervenants,
+            "admin_types": admin_types,
+            "admin_relations": admin_relations,
+            "admin_rh": admin_rh,
+            "groupes_details": groupes_details,
         },
     )
 
 
+@router.get("/clients/{client_id}/adequation.json", response_class=JSONResponse)
+def adequation_json(client_id: int, db: Session = Depends(get_db)):
+    def _safe(v):
+        return v if v is not None else None
+    objectifs = []
+    try:
+        rows = db.execute(text(
+            """
+            SELECT ro.libelle AS objectif_libelle,
+                   o.horizon_investissement,
+                   o.commentaire,
+                   COALESCE(o.niveau_id, 9999) AS _niv
+            FROM KYC_Client_Objectifs o
+            LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+            WHERE o.client_id = :cid
+            ORDER BY _niv, ro.libelle, o.id
+            """
+        ), {"cid": client_id}).fetchall()
+        for r in rows or []:
+            m = r._mapping
+            objectifs.append({
+                "objectif_libelle": _safe(m.get("objectif_libelle")),
+                "horizon_investissement": _safe(m.get("horizon_investissement")),
+                "commentaire": _safe(m.get("commentaire")),
+            })
+    except Exception:
+        objectifs = []
+    offre_commentaire = None
+    risque_summary = None
+    try:
+        # Rendre la requête robuste aux schémas legacy (sans *_option_id)
+        cols = _sqlite_table_columns(db, "KYC_Client_Risque")
+        colnames = {str(c.get("name") or "").lower() for c in (cols or [])}
+        has_opt_cols = all(x in colnames for x in (
+            "patrimoine_part_option_id", "duree_option_id", "perte_option_id"
+        ))
+        if has_opt_cols:
+            sql = """
+                SELECT k.niveau_id,
+                       r.libelle AS niveau_label,
+                       k.experience,
+                       k.connaissance,
+                       COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
+                       COALESCE(du.label, k.duree) AS duree_label,
+                       COALESCE(pe.label, k.contraintes) AS perte_label,
+                       pp.code AS patrimoine_code,
+                       du.code AS duree_code,
+                       pe.code AS perte_code,
+                       k.commentaire
+                FROM KYC_Client_Risque k
+                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
+                LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
+                LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
+                LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
+            """
+        else:
+            sql = """
+                SELECT k.niveau_id,
+                       r.libelle AS niveau_label,
+                       k.experience,
+                       k.connaissance,
+                       k.patrimoine AS patrimoine_label,
+                       k.duree AS duree_label,
+                       k.contraintes AS perte_label,
+                       NULL AS patrimoine_code,
+                       NULL AS duree_code,
+                       NULL AS perte_code,
+                       k.commentaire
+                FROM KYC_Client_Risque k
+                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
+            """
+        row = db.execute(text(sql), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            offre_commentaire = m.get('commentaire')
+            # Allocation liée au niveau (si disponible)
+            allocation_nom = None
+            try:
+                rid = m.get('niveau_id')
+                if rid is not None:
+                    row_alloc = db.execute(text(
+                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
+                    ), {"rid": rid}).fetchone()
+                    if row_alloc:
+                        allocation_nom = row_alloc[0]
+            except Exception:
+                allocation_nom = None
+            risque_summary = {
+                "niveau_label": m.get('niveau_label'),
+                "experience": m.get('experience'),
+                "connaissance": m.get('connaissance'),
+                "patrimoine": m.get('patrimoine_label'),
+                "duree": m.get('duree_label'),
+                "contraintes": m.get('perte_label'),
+                "patrimoine_code": m.get('patrimoine_code'),
+                "duree_code": m.get('duree_code'),
+                "perte_code": m.get('perte_code'),
+                "allocation_nom": allocation_nom,
+            }
+    except Exception:
+        pass
+    contrat_nom = None
+    contrat_societe = None
+    try:
+        row = db.execute(text(
+            """
+            SELECT g.nom_contrat, COALESCE(s.nom,'') AS societe_nom
+            FROM KYC_contrat_choisi k
+            LEFT JOIN mariadb_affaires_generique g ON g.id = k.id_contrat
+            LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+            WHERE k.id_client = :cid
+            LIMIT 1
+            """
+        ), {"cid": client_id}).fetchone()
+        if row:
+            m = row._mapping
+            contrat_nom = m.get('nom_contrat') or row[0]
+            contrat_societe = m.get('societe_nom') if 'societe_nom' in m else (row[1] if len(row) > 1 else None)
+    except Exception:
+        pass
+    return {
+        "objectifs": objectifs,
+        "offre_commentaire": offre_commentaire,
+        "contrat_nom": contrat_nom,
+        "contrat_societe": contrat_societe,
+        "risque_summary": risque_summary,
+    }
 @router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
 async def update_courtier_garanties(row_id: str, request: Request, db: Session = Depends(get_db)):
     table = _resolve_table_name(db, ["DER_courtier_garanties_normes"]) or "DER_courtier_garanties_normes"
@@ -11184,25 +11556,74 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     risque_latest = None
     try:
-        row = db.execute(text(
+        # Rendre la requête résiliente selon le schéma (option_id présents ou non)
+        cols = _sqlite_table_columns(db, "KYC_Client_Risque")
+        colnames = {str(c.get("name") or "").lower() for c in (cols or [])}
+        has_opt_cols = all(x in colnames for x in (
+            "patrimoine_part_option_id", "duree_option_id", "perte_option_id"
+        ))
+        if has_opt_cols:
+            sql = """
+                SELECT 
+                  k.niveau_id,
+                  r.libelle AS niveau_risque,
+                  COALESCE(du.label, k.duree) AS horizon_placement,
+                  k.experience,
+                  k.connaissance,
+                  COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
+                  COALESCE(pe.label, k.contraintes) AS perte_label,
+                  pp.code AS patrimoine_code,
+                  du.code AS duree_code,
+                  pe.code AS perte_code,
+                  k.commentaire,
+                  k.confirmation_client
+                FROM KYC_Client_Risque k
+                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
+                LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
+                LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
+                LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
             """
-            SELECT 
-              r.libelle AS niveau_risque,
-              k.niveau_id AS niveau_id,
-              k.duree AS horizon_placement,
-              k.experience,
-              k.connaissance,
-              k.commentaire,
-              k.confirmation_client
-            FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r ON k.niveau_id = r.id
-            WHERE k.client_id = :cid
-            ORDER BY k.date_saisie DESC, k.id DESC
-            LIMIT 1
+        else:
+            # Schéma "legacy" sans colonnes *_option_id: utiliser les colonnes texte directes
+            sql = """
+                SELECT 
+                  k.niveau_id,
+                  r.libelle AS niveau_risque,
+                  k.duree AS horizon_placement,
+                  k.experience,
+                  k.connaissance,
+                  k.patrimoine AS patrimoine_label,
+                  k.contraintes AS perte_label,
+                  NULL AS patrimoine_code,
+                  NULL AS duree_code,
+                  NULL AS perte_code,
+                  k.commentaire,
+                  k.confirmation_client
+                FROM KYC_Client_Risque k
+                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
             """
-        ), {"cid": client_id}).fetchone()
+        row = db.execute(text(sql), {"cid": client_id}).fetchone()
         if row:
-            risque_latest = dict(row._mapping)
+            m = row._mapping
+            d = dict(m)
+            # Allocation nom pour ce niveau
+            try:
+                rid = m.get('niveau_id')
+                if rid is not None:
+                    row_alloc = db.execute(text(
+                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
+                    ), {"rid": rid}).fetchone()
+                    if row_alloc:
+                        d['allocation_nom'] = row_alloc[0]
+            except Exception:
+                pass
+            risque_latest = d
     except Exception:
         risque_latest = None
 
@@ -11622,3 +12043,552 @@ def list_allocation_dates(name: str | None = None, isin: str | None = None, db: 
         return {"name": name, "isin": isin, "dates": [x for x in out if x]}
     except Exception as e:
         return {"name": name, "isin": isin, "dates": [], "error": str(e)}
+
+
+# ---------------- Administration: Intervenants CRUD ----------------
+@router.post("/parametres/administration/intervenant", response_class=HTMLResponse)
+async def admin_create_intervenant(request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    nom = (form.get("nom") or "").strip()
+    type_niveau = (form.get("type_niveau") or "").strip().lower()
+    type_personne = (form.get("type_personne") or "").strip().lower()
+    from urllib.parse import quote
+    if not nom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote('Le nom est requis.')}", status_code=303)
+    try:
+        telephone = (form.get("telephone") or "").strip() or None
+        mail = (form.get("mail") or "").strip() or None
+        db.execute(_text(
+            """
+            INSERT INTO administration_intervenant(nom, type_niveau, type_personne, telephone, mail)
+            VALUES(:nom, :type_niveau, :type_personne, :telephone, :mail)
+            """
+        ), {"nom": nom, "type_niveau": type_niveau, "type_personne": type_personne, "telephone": telephone, "mail": mail})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/intervenant/{row_id}", response_class=HTMLResponse)
+async def admin_update_intervenant(row_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    nom = (form.get("nom") or "").strip()
+    type_niveau = (form.get("type_niveau") or "").strip().lower()
+    type_personne = (form.get("type_personne") or "").strip().lower()
+    from urllib.parse import quote
+    if not nom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote('Le nom est requis.')}", status_code=303)
+    try:
+        telephone = (form.get("telephone") or "").strip() or None
+        mail = (form.get("mail") or "").strip() or None
+        db.execute(_text(
+            """
+            UPDATE administration_intervenant
+            SET nom = :nom, type_niveau = :type_niveau, type_personne = :type_personne,
+                telephone = :telephone, mail = :mail
+            WHERE id = :id
+            """
+        ), {"id": row_id, "nom": nom, "type_niveau": type_niveau, "type_personne": type_personne, "telephone": telephone, "mail": mail})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/intervenant/{row_id}/delete", response_class=HTMLResponse)
+async def admin_delete_intervenant(row_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    from urllib.parse import quote
+    try:
+        # Purge relations referencing this intervenant
+        db.execute(_text("DELETE FROM administration_relation WHERE id_source = :i OR id_cible = :i"), {"i": row_id})
+        db.execute(_text("DELETE FROM administration_intervenant WHERE id = :i"), {"i": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---------------- Administration: Relations CRUD ----------------
+@router.post("/parametres/administration/relation", response_class=HTMLResponse)
+async def admin_create_relation(request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    try:
+        id_source = int(form.get("id_source"))
+        id_cible = int(form.get("id_cible"))
+        id_type = int(form.get("id_type"))
+    except Exception:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('Champs invalides.')}", status_code=303)
+    if id_source == id_cible:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('La source et la cible doivent être différentes.')}", status_code=303)
+    try:
+        db.execute(_text(
+            """
+            INSERT OR IGNORE INTO administration_relation(id_source, id_cible, id_type, date_creation)
+            VALUES(:s, :c, :t, CURRENT_TIMESTAMP)
+            """
+        ), {"s": id_source, "c": id_cible, "t": id_type})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/relation/{row_id}", response_class=HTMLResponse)
+async def admin_update_relation(row_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    # Allow updating type only to keep inverse consistency simple
+    try:
+        id_type = int(form.get("id_type"))
+    except Exception:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('Type invalide.')}", status_code=303)
+    try:
+        # Update main row
+        db.execute(_text("UPDATE administration_relation SET id_type = :t WHERE id = :id"), {"t": id_type, "id": row_id})
+        # Sync mirror row type as inverse of the chosen type
+        row = db.execute(_text("SELECT id_source AS s, id_cible AS c FROM administration_relation WHERE id = :id"), {"id": row_id}).fetchone()
+        if row:
+            m = row._mapping if hasattr(row, '_mapping') else None
+            s = (m.get('s') if m else row[0])
+            c = (m.get('c') if m else row[1])
+            inv = db.execute(_text("SELECT COALESCE(inverse_id, :t) AS inv FROM administration_type_relation WHERE id = :t"), {"t": id_type}).fetchone()
+            inv_t = (inv._mapping.get('inv') if inv and hasattr(inv, '_mapping') else (inv[0] if inv else id_type))
+            db.execute(_text("UPDATE administration_relation SET id_type = :t WHERE id_source = :s AND id_cible = :c"), {"t": inv_t, "s": c, "c": s})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/relation/{row_id}/delete", response_class=HTMLResponse)
+async def admin_delete_relation(row_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    from urllib.parse import quote
+    try:
+        # Find the row to delete and compute its inverse, then delete both
+        row = db.execute(_text(
+            "SELECT id_source, id_cible, id_type FROM administration_relation WHERE id = :id"
+        ), {"id": row_id}).fetchone()
+        if row:
+            m = row._mapping if hasattr(row, '_mapping') else None
+            s = (m.get('id_source') if m else row[0])
+            c = (m.get('id_cible') if m else row[1])
+            t = (m.get('id_type') if m else row[2])
+            inv = db.execute(_text("SELECT COALESCE(inverse_id, :t) AS inv FROM administration_type_relation WHERE id = :t"), {"t": t}).fetchone()
+            inv_t = (inv._mapping.get('inv') if inv and hasattr(inv, '_mapping') else (inv[0] if inv else t))
+            # Delete primary row
+            db.execute(_text("DELETE FROM administration_relation WHERE id = :id"), {"id": row_id})
+            # Delete mirrored row
+            db.execute(_text(
+                "DELETE FROM administration_relation WHERE id_source = :s AND id_cible = :c AND id_type = :t"
+            ), {"s": c, "c": s, "t": inv_t})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---------------- Administration: Type Relation CRUD ----------------
+def _sync_inverse_pair(db: Session, a_id: int, b_id: int | None) -> None:
+    from sqlalchemy import text as _text
+    if b_id is None or b_id == 0:
+        # clear any previous counterpart pointing to a
+        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a"), {"a": a_id})
+        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE id = :a"), {"a": a_id})
+        return
+    if a_id == b_id:
+        # self-inverse
+        db.execute(_text("UPDATE administration_type_relation SET inverse_id = :a WHERE id = :a"), {"a": a_id})
+        # clear others pointing to a
+        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a AND id <> :a"), {"a": a_id})
+        return
+    # Make them point to each other
+    # Detach previous partners for both
+    db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a AND id <> :b"), {"a": a_id, "b": b_id})
+    db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :b AND id <> :a"), {"a": a_id, "b": b_id})
+    db.execute(_text("UPDATE administration_type_relation SET inverse_id = :b WHERE id = :a"), {"a": a_id, "b": b_id})
+    db.execute(_text("UPDATE administration_type_relation SET inverse_id = :a WHERE id = :b"), {"a": a_id, "b": b_id})
+
+
+@router.post("/parametres/administration/type_relation", response_class=HTMLResponse)
+async def admin_create_type_relation(request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    nom = (form.get("nom") or "").strip()
+    inv_name_raw = form.get("inverse_nom")
+    inv_name = (inv_name_raw or "").strip()
+    if not nom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote('Le nom du type est requis.')}", status_code=303)
+    try:
+        # Ensure main type exists
+        try:
+            db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": nom})
+        except Exception:
+            pass
+        row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": nom}).fetchone()
+        if row:
+            new_id = int(row._mapping.get('id') if hasattr(row, '_mapping') else row[0])
+            # Resolve or create inverse by name
+            if inv_name:
+                if inv_name.lower() == nom.lower():
+                    _sync_inverse_pair(db, new_id, new_id)
+                else:
+                    inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
+                    if inv_row is None:
+                        try:
+                            db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": inv_name})
+                        except Exception:
+                            pass
+                        inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
+                    if inv_row:
+                        inv_id = int(inv_row._mapping.get('id') if hasattr(inv_row, '_mapping') else inv_row[0])
+                        _sync_inverse_pair(db, new_id, inv_id)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---------------- Administration: Ressources Humaines CRUD ----------------
+@router.post("/parametres/administration/rh", response_class=HTMLResponse)
+async def admin_create_rh(request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    nom = (form.get("nom") or "").strip()
+    prenom = (form.get("prenom") or "").strip()
+    telephone = (form.get("telephone") or "").strip() or None
+    mail = (form.get("mail") or "").strip() or None
+    niveau_poste_raw = (form.get("niveau_poste") or "").strip() or None
+    commentaire = (form.get("commentaire") or "").strip() or None
+    if not nom or not prenom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Nom et prénom sont requis.')}", status_code=303)
+    try:
+        def _canon_np(s: str | None) -> str | None:
+            if not s:
+                return None
+            import unicodedata, re
+            s2 = unicodedata.normalize('NFKD', s)
+            s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+            s2 = s2.lower().strip()
+            s2 = re.sub(r"[^a-z0-9]+", "_", s2).strip("_")
+            # synonyms
+            aliases = {
+                'dirigeant': 'dirigeant',
+                'directeur_commercial': 'directeur_commercial',
+                'directeurcommercial': 'directeur_commercial',
+                'responsable_service': 'responsable_service',
+                'responsableservice': 'responsable_service',
+                'commercial': 'commercial',
+                'back_office': 'back_office',
+                'backoffice': 'back_office',
+            }
+            return aliases.get(s2, s2)
+        niveau_poste = _canon_np(niveau_poste_raw)
+        # Enforce required + allowed set (even if DB allows NULL)
+        allowed = { 'dirigeant','directeur_commercial','responsable_service','commercial','back_office' }
+        if not niveau_poste:
+            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Niveau de poste est requis.')}", status_code=303)
+        if niveau_poste is not None and niveau_poste not in allowed:
+            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Valeur niveau_poste invalide. Valeurs autorisées: dirigeant, directeur_commercial, responsable_service, commercial, back_office.')}", status_code=303)
+        db.execute(_text(
+            """
+            INSERT INTO administration_RH(nom, prenom, telephone, mail, niveau_poste, commentaire)
+            VALUES(:nom, :prenom, :telephone, :mail, :niveau_poste, :commentaire)
+            """
+        ), {"nom": nom, "prenom": prenom, "telephone": telephone, "mail": mail, "niveau_poste": niveau_poste, "commentaire": commentaire})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/rh/{row_id}", response_class=HTMLResponse)
+async def admin_update_rh(row_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    nom = (form.get("nom") or "").strip()
+    prenom = (form.get("prenom") or "").strip()
+    telephone = (form.get("telephone") or "").strip() or None
+    mail = (form.get("mail") or "").strip() or None
+    niveau_poste_raw = (form.get("niveau_poste") or "").strip() or None
+    commentaire = (form.get("commentaire") or "").strip() or None
+    if not nom or not prenom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Nom et prénom sont requis.')}", status_code=303)
+    try:
+        def _canon_np(s: str | None) -> str | None:
+            if not s:
+                return None
+            import unicodedata, re
+            s2 = unicodedata.normalize('NFKD', s)
+            s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+            s2 = s2.lower().strip()
+            s2 = re.sub(r"[^a-z0-9]+", "_", s2).strip("_")
+            aliases = {
+                'dirigeant': 'dirigeant',
+                'directeur_commercial': 'directeur_commercial',
+                'directeurcommercial': 'directeur_commercial',
+                'responsable_service': 'responsable_service',
+                'responsableservice': 'responsable_service',
+                'commercial': 'commercial',
+                'back_office': 'back_office',
+                'backoffice': 'back_office',
+            }
+            return aliases.get(s2, s2)
+        niveau_poste = _canon_np(niveau_poste_raw)
+        allowed = { 'dirigeant','directeur_commercial','responsable_service','commercial','back_office' }
+        if not niveau_poste:
+            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Niveau de poste est requis.')}", status_code=303)
+        if niveau_poste is not None and niveau_poste not in allowed:
+            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Valeur niveau_poste invalide. Valeurs autorisées: dirigeant, directeur_commercial, responsable_service, commercial, back_office.')}", status_code=303)
+        db.execute(_text(
+            """
+            UPDATE administration_RH
+            SET nom = :nom, prenom = :prenom, telephone = :telephone, mail = :mail,
+                niveau_poste = :niveau_poste, commentaire = :commentaire
+            WHERE id = :id
+            """
+        ), {"id": row_id, "nom": nom, "prenom": prenom, "telephone": telephone, "mail": mail, "niveau_poste": niveau_poste, "commentaire": commentaire})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/rh/{row_id}/delete", response_class=HTMLResponse)
+async def admin_delete_rh(row_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    from urllib.parse import quote
+    try:
+        db.execute(_text("DELETE FROM administration_RH WHERE id = :id"), {"id": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/type_relation/{row_id}", response_class=HTMLResponse)
+async def admin_update_type_relation(row_id: int, request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    form = await request.form()
+    from urllib.parse import quote
+    nom = (form.get("nom") or "").strip()
+    inv_name_raw = form.get("inverse_nom")
+    inv_name = (inv_name_raw or "").strip()
+    if not nom:
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote('Le nom du type est requis.')}", status_code=303)
+    try:
+        db.execute(_text("UPDATE administration_type_relation SET nom = :n WHERE id = :id"), {"n": nom, "id": row_id})
+        # compute inverse id by name
+        inv_id: int | None = None
+        if inv_name:
+            if inv_name.lower() == nom.lower():
+                inv_id = int(row_id)
+            else:
+                inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
+                if inv_row is None:
+                    try:
+                        db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": inv_name})
+                    except Exception:
+                        pass
+                    inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
+                if inv_row:
+                    inv_id = int(inv_row._mapping.get('id') if hasattr(inv_row, '_mapping') else inv_row[0])
+        _sync_inverse_pair(db, int(row_id), inv_id)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/type_relation/{row_id}/delete", response_class=HTMLResponse)
+async def admin_delete_type_relation(row_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
+    from urllib.parse import quote
+    try:
+        # Clear inverse references pointing to this type
+        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :id"), {"id": row_id})
+        # Attempt delete (will fail if used by administration_relation)
+        db.execute(_text("DELETE FROM administration_type_relation WHERE id = :id"), {"id": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+# ---- Administration: Groupes (CRUD sur administration_groupe_detail) ----
+@router.post("/parametres/administration/groupes", response_class=HTMLResponse)
+async def admin_create_groupe(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    type_raw = (form.get("type_groupe") or "").strip()
+    nom = (form.get("nom") or "").strip()
+    date_creation = (form.get("date_creation") or None)
+    date_fin = (form.get("date_fin") or None)
+    responsable_id = form.get("responsable_id")
+    motif = (form.get("motif") or None)
+    actif_str = form.get("actif")
+    actif = 1 if (str(actif_str).lower() in ("1","true","yes","on")) else 0
+    # Normaliser type (accepte Personnes/Affaires et client/affaire)
+    t = type_raw.lower()
+    if t in ("personnes", "personne", "client", "clients"):
+        type_norm = "Personnes"; type_store = "client"
+    elif t in ("affaires", "affaire", "contrat", "contrats"):
+        type_norm = "Affaires"; type_store = "affaire"
+    else:
+        type_norm = type_raw or "Personnes"; type_store = "client"
+    from sqlalchemy import text as _text
+    # Validation minimale
+    if not nom:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote('Le nom du groupe est requis.')}", status_code=303)
+    try:
+        # Déterminer si la colonne id existe et si des id NULL sont présents (schéma legacy)
+        try:
+            cols = rows_to_dicts(db.execute(_text("PRAGMA table_info('administration_groupe_detail')")).fetchall())
+            colnames = {str(c.get('name') or '').lower() for c in (cols or [])}
+        except Exception:
+            colnames = set()
+        params = {
+            "type_groupe": type_store,
+            "nom": nom,
+            "date_creation": date_creation,
+            "date_fin": date_fin,
+            "responsable_id": int(responsable_id) if responsable_id else None,
+            "motif": motif,
+            "actif": int(actif),
+        }
+        if 'id' in colnames:
+            row = db.execute(_text("SELECT MAX(id) AS max_id FROM administration_groupe_detail")); row = row.fetchone()
+            next_id = ((row[0] if row else 0) or 0) + 1
+            db.execute(_text(
+                """
+                INSERT INTO administration_groupe_detail (id, type_groupe, nom, date_creation, date_fin, responsable_id, motif, actif)
+                VALUES (:id, :type_groupe, :nom, COALESCE(:date_creation, DATE('now')), :date_fin, :responsable_id, :motif, :actif)
+                """
+            ), {"id": next_id, **params})
+        else:
+            db.execute(_text(
+                """
+                INSERT INTO administration_groupe_detail (type_groupe, nom, date_creation, date_fin, responsable_id, motif, actif)
+                VALUES (:type_groupe, :nom, COALESCE(:date_creation, DATE('now')), :date_fin, :responsable_id, :motif, :actif)
+                """
+            ), params)
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/groupes/{row_id}", response_class=HTMLResponse)
+async def admin_update_groupe(row_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    by = request.query_params.get("by") or ""
+    type_raw = (form.get("type_groupe") or "").strip()
+    nom = (form.get("nom") or "").strip()
+    date_creation = (form.get("date_creation") or None)
+    date_fin = (form.get("date_fin") or None)
+    responsable_id = form.get("responsable_id")
+    motif = (form.get("motif") or None)
+    actif_str = form.get("actif")
+    actif = 1 if (str(actif_str).lower() in ("1","true","yes","on")) else 0
+    t = type_raw.lower()
+    if t in ("personnes", "personne", "client", "clients"):
+        type_norm = "Personnes"; type_store = "client"
+    elif t in ("affaires", "affaire", "contrat", "contrats"):
+        type_norm = "Affaires"; type_store = "affaire"
+    else:
+        type_norm = type_raw or "Personnes"; type_store = "client"
+    from sqlalchemy import text as _text
+    try:
+        if by == 'rowid':
+            db.execute(_text(
+                """
+                UPDATE administration_groupe_detail
+                SET type_groupe = :type_groupe,
+                    nom = :nom,
+                    date_creation = COALESCE(:date_creation, date_creation),
+                    date_fin = :date_fin,
+                    responsable_id = :responsable_id,
+                    motif = :motif,
+                    actif = :actif
+                WHERE rowid = :id
+                """
+            ), {
+                "id": row_id,
+                "type_groupe": type_store,
+                "nom": nom,
+                "date_creation": date_creation,
+                "date_fin": date_fin,
+                "responsable_id": int(responsable_id) if responsable_id else None,
+                "motif": motif,
+                "actif": int(actif),
+            })
+        else:
+            db.execute(_text(
+                """
+                UPDATE administration_groupe_detail
+                SET type_groupe = :type_groupe,
+                    nom = :nom,
+                    date_creation = COALESCE(:date_creation, date_creation),
+                    date_fin = :date_fin,
+                    responsable_id = :responsable_id,
+                    motif = :motif,
+                    actif = :actif
+                WHERE id = :id
+                """
+            ), {
+                "id": row_id,
+                "type_groupe": type_store,
+                "nom": nom,
+                "date_creation": date_creation,
+                "date_fin": date_fin,
+                "responsable_id": int(responsable_id) if responsable_id else None,
+                "motif": motif,
+                "actif": int(actif),
+            })
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
+
+
+@router.post("/parametres/administration/groupes/{row_id}/delete", response_class=HTMLResponse)
+async def admin_delete_groupe(row_id: int, db: Session = Depends(get_db), request: Request = None):
+    from sqlalchemy import text as _text
+    try:
+        by = request.query_params.get("by") if request else None
+        if by == 'rowid':
+            db.execute(_text("DELETE FROM administration_groupe_detail WHERE rowid = :id"), {"id": row_id})
+        else:
+            db.execute(_text("DELETE FROM administration_groupe_detail WHERE id = :id"), {"id": row_id})
+        db.commit()
+        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)

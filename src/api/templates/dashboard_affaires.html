@@ -110,43 +110,41 @@
 </style>
 
 <div class="main-container">
-    <div class="header-section">
-        <p><strong>Total affaires :</strong> {{ total_affaires }}</p>
+    <!-- Bandeau total retiré -->
+
+    <!-- Accordéon: Risque rapide -->
+    <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
+      <h3 style="margin:0;">Risque rapide</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="quickSectionAff" style="display:none;">
+      <div class="top-row">
+          <div class="srri-info">
+              <h3>Répartition SRRI (barres)</h3>
+              <canvas id="srriBarChart"></canvas>
+          </div>
+          <div class="srri-chart">
+              <h3>Contrats vs risque (barres)</h3>
+              <canvas id="compareBarChart"></canvas>
+              <div style="margin-top:8px; font-size: 13px;">
+                  Au-dessus: <strong>{{ srri_compare_counts.above }}</strong> |
+                  Identique: <strong>{{ srri_compare_counts.equal }}</strong> |
+                  En‑dessous: <strong>{{ srri_compare_counts.below }}</strong>
+              </div>
+          </div>
+      </div>
     </div>
 
-    <!-- Ligne avec SRRI texte + graphique -->
-    <div class="top-row">
-        <div class="srri-info">
-            <h3>Répartition SRRI (barres)</h3>
-            <canvas id="srriBarChart"></canvas>
-        </div>
-        <div class="srri-chart">
-            <h3>Contrats vs risque (barres)</h3>
-            <canvas id="compareBarChart"></canvas>
-            <div style="margin-top:8px; font-size: 13px;">
-                Au-dessus: <strong>{{ srri_compare_counts.above }}</strong> |
-                Identique: <strong>{{ srri_compare_counts.equal }}</strong> |
-                En-dessous: <strong>{{ srri_compare_counts.below }}</strong>
-            </div>
-        </div>
-    </div>
-
-    <h2>Liste des affaires</h2>
+    
     <div class="table-container">
-        <div id="quickToggleAff" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
-            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
-            <span class="chevron">▾</span>
-        </div>
-        <div id="quickSectionAff" style="display:none;">
-            <div class="toolbar">
-                <div class="chips">
-                    <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
-                    <a class="chip" href="#" onclick="return chipRiskAff('all')">Risque: Tous</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('🔥')"><span class="srri-dot srri-blue" aria-hidden="true"></span> Au‑dessus</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('🙏')"><span class="srri-dot srri-green" aria-hidden="true"></span> Identique</a>
-                    <a class="chip" href="#" onclick="return chipRiskAff('❄️')"><span class="srri-dot srri-red" aria-hidden="true"></span> En‑dessous</a>
-                </div>
-            </div>
+        <div class="toolbar">
+          <div class="muted" id="aff_info" style="font-size:.9rem;"></div>
+          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+            <select id="aff_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
+              <option value="">Choisir un groupe (Affaires)</option>
+            </select>
+            <button class="btn" id="aff_add_to_group_btn" title="Ajouter toutes les affaires filtrées au groupe sélectionné">Ajouter au groupe</button>
+          </div>
         </div>
         <table id="affairesTable" class="display nowrap" style="width:100%">
             <thead>
@@ -154,7 +152,6 @@
                     <th>Contrat / Client</th>
                     <th>SRRI</th>
                     <th>Date début</th>
-                    <th>Frais négociés (€)</th>
                     <th>Montant</th>
                     <th>Perf 52 sem. (%)</th>
                     <th>Vol. 52s (%)</th>
@@ -171,15 +168,14 @@
                         </select>
                     </th>
                     <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ"></th>
-                    <th></th>
-                    <th></th>
-                    <th><input type="text" id="perf-filter" placeholder="Filtrer..."></th>
-                    <th><input type="text" id="volat-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="montant-filter" placeholder="Ex: >100k, 100k-500k"></th>
+                    <th><input type="text" id="perf-filter" placeholder="Ex: >5, 3-7"></th>
+                    <th><input type="text" id="volat-filter" placeholder="Ex: <10, 2-6"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for a in affaires %}
-                <tr class="{% if a.date_cle %}highlight-cle{% endif %}">
+                <tr class="{% if a.date_cle %}highlight-cle{% endif %}" data-affaire-id="{{ a.id }}">
                     <td>
                         <a href="/dashboard/affaires/{{ a.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
                           {{ a.ref }} - {{ a.client_nom }} {{ a.client_prenom }}
@@ -197,7 +193,6 @@
                         {% endif %}
                     </td>
                     <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
-                    <td style="text-align:right;" data-order="{{ a.frais_negocies if a.frais_negocies is not none else '' }}">{{ a.frais_negocies if a.frais_negocies is not none else '' }}</td>
                     <td style="text-align:right;">{{ a.last_valo }}</td>
                     <td style="text-align:right;">{{ a.last_perf }}</td>
                     <td style="text-align:right;">{{ a.last_volat }}</td>
@@ -223,49 +218,35 @@
 <script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
 
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
 <script>
 // Chart.js: couleur par défaut (axes/labels) = bleu CSS
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
 $(document).ready(function () {
     var table = $('#affairesTable').DataTable({
-        order: [[4, "desc"]], // trier sur le montant
+        dom: 'rtip', // retire la barre de recherche et le sélecteur "show"
+        order: [[3, "desc"]], // trier sur le montant (col 3)
         pageLength: 25,
         fixedHeader: true,
         columnDefs: [
-          // Largeur dédiée pour donner plus d'espace au montant (col 4)
-          { targets: 4, width: '140px' },
-          // Réduire la largeur de la dernière colonne Vol. 52s (col 6)
-          { targets: 6, width: '90px' },
-          {
-            targets: 3,
-            render: function (data, type) {
-              if (data === null || data === undefined || data === '') {
-                return type === 'display' ? '' : null;
-              }
-              var normalized = String(data).replace(/\s+/g, '').replace(',', '.');
-              var n = parseFloat(normalized);
-              if (isNaN(n)) {
-                return data;
-              }
-              if (type === 'display' || type === 'filter') {
-                return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-              }
-              return n;
-            }
-          },
-          { targets: 4, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
-          { targets: 5, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
-          { targets: 6, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }
+          // Réduire Contrat/Client, élargir SRRI et Montant
+          { targets: 0, width: '260px' },
+          { targets: 1, width: '120px', className: 'dt-center' },
+          { targets: 3, width: '200px' },
+          // Réduire la dernière colonne Vol.
+          { targets: 5, width: '90px' },
+          // Montant (col 3)
+          { targets: 3, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
+          // Perf/Vol (cols 4 et 5) → afficher en % si fourni sous forme fraction
+          { targets: 4, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
+          { targets: 5, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }
         ]
     });
 
-    // filtres texte
+    // Filtres texte simples
     $('#contrat-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); });
     $('#date-debut-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
-    $('#perf-filter').on('keyup change', function () { table.column(5).search(this.value).draw(); });
-    $('#volat-filter').on('keyup change', function () { table.column(6).search(this.value).draw(); });
 
     // filtre par icône SRRI (colonne 1) — recherche par emoji
     $('#srri-icon-filter').on('change', function(){
@@ -276,7 +257,7 @@ $(document).ready(function () {
 
     // bouton effacer (réinitialise aussi le filtre SRRI)
     window.clearFilters = function() {
-        $('#contrat-filter, #date-debut-filter, #perf-filter, #volat-filter').val('');
+        $('#contrat-filter, #date-debut-filter, #montant-filter, #perf-filter, #volat-filter').val('');
         $('#srri-icon-filter').val('');
         table.search('');
         for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
@@ -301,8 +282,17 @@ $(document).ready(function () {
     // Chips Risque (émoticônes)
     window.chipRiskAff = function(val){ var sel=document.getElementById('srri-icon-filter'); if(val==='all'){ sel.value=''; } else { sel.value=val; } sel.dispatchEvent(new Event('change')); return false; };
 
-    // Accordéon Filtres rapides (persistant)
-    (function(){ try { var t=document.getElementById('quickToggleAff'), s=document.getElementById('quickSectionAff'); if(!t||!s) return; function setOpen(o){ s.style.display=o?'':'none'; t.classList.toggle('collapsed', !o); localStorage.setItem('aff_quick_open', o?'1':''); } var saved=localStorage.getItem('aff_quick_open')==='1'; setOpen(saved); t.addEventListener('click', function(){ setOpen(s.style.display==='none'); }); } catch(e) {} })();
+    // Accordéon Risque rapide (persistant, fermé par défaut)
+    (function(){
+      try {
+        var t = document.getElementById('quickToggleAff'), s = document.getElementById('quickSectionAff');
+        if (!t || !s) return;
+        function setOpen(o){ s.style.display = o ? '' : 'none'; t.classList.toggle('collapsed', !o); localStorage.setItem('aff_quick_open', o ? '1' : ''); }
+        var saved = localStorage.getItem('aff_quick_open') === '1';
+        setOpen(saved); // par défaut fermé (saved false)
+        t.addEventListener('click', function(){ setOpen(s.style.display === 'none'); });
+      } catch(e) {}
+    })();
 
     // Chart.js données depuis Jinja
     var ctx = document.getElementById('srriBarChart').getContext('2d');
@@ -344,6 +334,138 @@ $(document).ready(function () {
             scales: { y: { beginAtZero: true, ticks: { precision:0 } } }
         }
     });
+
+    // -------- Filtres numériques avancés (Montant/Perf/Vol) --------
+    function parseNumToken(raw){
+      var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
+      s = s.replace(',', '.');
+      var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
+      if (!m) return NaN;
+      var n = parseFloat(m[1]);
+      if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
+      return n;
+    }
+    function numFromCell(txt){
+      var s = String(txt||'').replace(/\s+/g,'').replace(',', '.');
+      var m = s.match(/-?\d*\.?\d+/);
+      return m ? parseFloat(m[0]) : NaN;
+    }
+    function buildNumPredicate(expr, isPercent){
+      var q = String(expr||'').trim();
+      if (!q) return function(){ return true; };
+      var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
+      if (range){
+        var a = isPercent ? parseFloat(String(range[1]).replace('%','').replace(',','.')) : parseNumToken(range[1]);
+        var b = isPercent ? parseFloat(String(range[2]).replace('%','').replace(',','.')) : parseNumToken(range[2]);
+        if (isFinite(a) && isFinite(b)){
+          var lo = Math.min(a,b), hi = Math.max(a,b);
+          return function(x){ return isFinite(x) && x >= lo && x <= hi; };
+        }
+      }
+      var tokens = [];
+      q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
+        var n = parseFloat(String(num).replace(',','.'));
+        if (isFinite(n)) tokens.push({op: op, n: n});
+        return '';
+      });
+      if (tokens.length){
+        return function(x){
+          if (!isFinite(x)) return false;
+          for (var i=0;i<tokens.length;i++){
+            var t = tokens[i];
+            if (t.op === '>' && !(x > t.n)) return false;
+            if (t.op === '>=' && !(x >= t.n)) return false;
+            if (t.op === '<' && !(x < t.n)) return false;
+            if (t.op === '<=' && !(x <= t.n)) return false;
+            if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
+            if (t.op === '!=' && !(x !== t.n)) return false;
+          }
+          return true;
+        };
+      }
+      var single = isPercent ? parseFloat(q.replace('%','').replace(',','.')) : parseNumToken(q);
+      if (isFinite(single)){
+        return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
+      }
+      return function(){ return true; };
+    }
+
+    function applyAdvancedFilters(){
+      var qMontant = $('#montant-filter').val() || '';
+      var qPerf = $('#perf-filter').val() || '';
+      var qVol = $('#volat-filter').val() || '';
+      var predMontant = buildNumPredicate(qMontant, false);
+      var predPerf = buildNumPredicate(qPerf, true);
+      var predVol = buildNumPredicate(qVol, true);
+      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__aff_advanced; });
+      $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
+        if (settings.nTable !== document.getElementById('affairesTable')) return true;
+        // Montant (col 3), Perf (col 4), Vol (col 5)
+        var montantTxt = data[3];
+        var perfTxt = data[4];
+        var volTxt = data[5];
+        var montantNum = numFromCell(montantTxt);
+        var perfNum = numFromCell(perfTxt);
+        var volNum = numFromCell(volTxt);
+        var ok = true;
+        if (qMontant && !predMontant(montantNum)) ok = false;
+        if (ok && qPerf && !predPerf(perfNum)) ok = false;
+        if (ok && qVol && !predVol(volNum)) ok = false;
+        return ok;
+      });
+      var last = $.fn.dataTable.ext.search[$.fn.dataTable.ext.search.length-1];
+      if (last) last.__aff_advanced = true;
+      table.draw();
+    }
+    $('#montant-filter, #perf-filter, #volat-filter').on('keyup change', applyAdvancedFilters);
+
+    // -------- Ajout en masse au groupe (Affaires) --------
+    async function loadAffGroupsForBulk(){
+      try {
+        const sel = document.getElementById('aff_group_select');
+        if (!sel) return;
+        const r = await fetch('/api/groupes/details?type=affaire&actifs_only=true');
+        const arr = r.ok ? await r.json() : [];
+        (arr||[]).forEach(function(g){
+          const opt = document.createElement('option');
+          opt.value = g.id; opt.textContent = g.nom + ((String(g.actif)==='0')?' (inactif)':'');
+          sel.appendChild(opt);
+        });
+      } catch(e){ console.warn('load aff groups failed', e); }
+    }
+    loadAffGroupsForBulk();
+
+    function visibleAffaireIds(){
+      var out = [];
+      table.rows({ filter: 'applied' }).nodes().to$().each(function(){
+        var id = $(this).attr('data-affaire-id');
+        if (id) out.push(parseInt(id,10));
+      });
+      return out;
+    }
+
+    async function addVisibleAffToGroup(){
+      const sel = document.getElementById('aff_group_select');
+      const info = document.getElementById('aff_info');
+      const gid = sel && sel.value ? parseInt(sel.value,10) : null;
+      if (!gid){ alert('Sélectionnez un groupe cible.'); return; }
+      const ids = visibleAffaireIds();
+      if (!ids.length){ alert('Aucune affaire filtrée à ajouter.'); return; }
+      const btn = document.getElementById('aff_add_to_group_btn');
+      if (btn){ btn.disabled = true; btn.textContent = 'Ajout…'; }
+      let ok = 0, ko = 0;
+      for (const aid of ids){
+        try {
+          const r = await fetch('/api/groupes/memberships', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupe_id: gid, affaire_id: aid }) });
+          if (r.ok) ok++; else ko++;
+        } catch(e){ ko++; }
+      }
+      if (btn){ btn.disabled = false; btn.textContent = 'Ajouter au groupe'; }
+      if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
+      alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
+    }
+    var bulkBtn = document.getElementById('aff_add_to_group_btn');
+    if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleAffToGroup); }
 });
 </script>
 

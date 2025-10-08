@@ -33,18 +33,17 @@
 
 <div class="main-container">
   <h2>Liste des clients</h2>
-
-  <div class="filters">
-    <input type="text" id="fNom" placeholder="Filtrer Nom…" />
-    <input type="text" id="fPrenom" placeholder="Filtrer Prénom…" />
-    <select id="fSrri"><option value="">SRRI: Tous</option></select>
-    <select id="fSrriCalc"><option value="">SRRI calculé: Tous</option></select>
+  <div style="display:flex; gap:.5rem; justify-content:space-between; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;">
+    <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
+    <div style="display:flex; gap:.5rem; align-items:center;">
+      <select id="cf_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
+        <option value="">Choisir un groupe (Personnes)</option>
+      </select>
+      <button class="btn" id="cf_add_to_group_btn" title="Ajouter tous les clients filtrés au groupe sélectionné">Ajouter au groupe</button>
+      <button class="btn" id="cf_reset_btn">Réinitialiser les filtres</button>
+    </div>
   </div>
-
-  <div class="toolbar">
-    <div class="muted" id="resultsInfo"></div>
-    <button class="btn" id="btnClear">Effacer les filtres</button>
-  </div>
+  <!-- Filtres intégrés dans l'en-tête du tableau -->
 
   <table id="clientsTbl">
     <thead>
@@ -57,10 +56,19 @@
         <th class="right">Perf 52 sem.</th>
         <th class="right">Volatilité</th>
       </tr>
+      <tr>
+        <th><input id="cf_nom" type="text" placeholder="Filtrer" /></th>
+        <th><input id="cf_prenom" type="text" placeholder="Filtrer" /></th>
+        <th><select id="cf_srri"><option value="">Tous</option></select></th>
+        <th><select id="cf_srri_calc"><option value="">Tous</option></select></th>
+        <th><input id="cf_valo" type="text" placeholder="Ex: >100k, 100k-500k" /></th>
+        <th><input id="cf_perf" type="text" placeholder="Ex: >5, 3-7" /></th>
+        <th><input id="cf_vol" type="text" placeholder="Ex: <10, 2-6" /></th>
+      </tr>
     </thead>
     <tbody>
       {% for c in clients %}
-      <tr>
+      <tr data-client-id="{{ c.id }}">
         <td><a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ c.nom }}</a></td>
         <td>{{ c.prenom }}</td>
         <td>{{ c.SRRI }}</td>
@@ -92,6 +100,109 @@
   function text(el){ return (el?.textContent || '').trim(); }
   function setText(el, v){ if (el) el.textContent = v; }
 
+  // Helpers: numeric parsing and conditional filter for Valorisation
+  function _toNumberToken(raw){
+    var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
+    s = s.replace(',', '.');
+    var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
+    if (!m) return NaN;
+    var n = parseFloat(m[1]);
+    if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
+    return n;
+  }
+  function _numFromCell(txt){
+    var s = String(txt||'').replace(/\s+/g,'').replace(',', '.');
+    var m = s.match(/-?\d*\.?\d+/);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+  function buildValoPredicate(expr){
+    var q = String(expr||'').trim();
+    if (!q) return function(){ return true; };
+    // Range: a-b
+    var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
+    if (range){
+      var a = _toNumberToken(range[1]);
+      var b = _toNumberToken(range[2]);
+      if (isFinite(a) && isFinite(b)){
+        var lo = Math.min(a,b), hi = Math.max(a,b);
+        return function(x){ return isFinite(x) && x >= lo && x <= hi; };
+      }
+    }
+    // Multiple comparators: e.g. ">=100k <=500k"
+    var tokens = [];
+    q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)/gi, function(_,op,num,suf){
+      var n = _toNumberToken(num + (suf||''));
+      if (isFinite(n)) tokens.push({op: op, n: n});
+      return '';
+    });
+    if (tokens.length){
+      return function(x){
+        if (!isFinite(x)) return false;
+        for (var i=0;i<tokens.length;i++){
+          var t = tokens[i];
+          if (t.op === '>' && !(x > t.n)) return false;
+          if (t.op === '>=' && !(x >= t.n)) return false;
+          if (t.op === '<' && !(x < t.n)) return false;
+          if (t.op === '<=' && !(x <= t.n)) return false;
+          if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
+          if (t.op === '!=' && !(x !== t.n)) return false;
+        }
+        return true;
+      };
+    }
+    // Fallback: bare number means contains
+    var single = _toNumberToken(q);
+    if (isFinite(single)){
+      return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
+    }
+    // Unknown pattern → match all
+    return function(){ return true; };
+  }
+
+  // Generic numeric predicate builder for percentage-like columns (Perf/Vol)
+  function buildNumericPredicate(expr){
+    var q = String(expr||'').trim();
+    if (!q) return function(){ return true; };
+    // Range: a-b (optionally with %)
+    var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
+    if (range){
+      var a = parseFloat(String(range[1]).replace('%','').replace(',','.'));
+      var b = parseFloat(String(range[2]).replace('%','').replace(',','.'));
+      if (isFinite(a) && isFinite(b)){
+        var lo = Math.min(a,b), hi = Math.max(a,b);
+        return function(x){ return isFinite(x) && x >= lo && x <= hi; };
+      }
+    }
+    // Comparators: >, >=, <, <=, =, != (optional %)
+    var tokens = [];
+    q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
+      var n = parseFloat(String(num).replace(',','.'));
+      if (isFinite(n)) tokens.push({op: op, n: n});
+      return '';
+    });
+    if (tokens.length){
+      return function(x){
+        if (!isFinite(x)) return false;
+        for (var i=0;i<tokens.length;i++){
+          var t = tokens[i];
+          if (t.op === '>' && !(x > t.n)) return false;
+          if (t.op === '>=' && !(x >= t.n)) return false;
+          if (t.op === '<' && !(x < t.n)) return false;
+          if (t.op === '<=' && !(x <= t.n)) return false;
+          if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
+          if (t.op === '!=' && !(x !== t.n)) return false;
+        }
+        return true;
+      };
+    }
+    // Fallback: bare number → contains
+    var single = parseFloat(q.replace('%','').replace(',','.'));
+    if (isFinite(single)){
+      return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
+    }
+    return function(){ return true; };
+  }
+
   var tbl = document.getElementById('clientsTbl');
   var rows = Array.prototype.slice.call(tbl.querySelectorAll('tbody tr'));
 
@@ -119,18 +230,20 @@
     if (srri) srriSet.add(srri);
     if (srriCalc) srriCalcSet.add(srriCalc);
   });
-  var fSrri = document.getElementById('fSrri');
+  var fSrri = document.getElementById('cf_srri');
   Array.from(srriSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
     var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrri.appendChild(opt);
   });
-  var fSrriCalc = document.getElementById('fSrriCalc');
+  var fSrriCalc = document.getElementById('cf_srri_calc');
   Array.from(srriCalcSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
     var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrriCalc.appendChild(opt);
   });
 
-  var fNom = document.getElementById('fNom');
-  var fPrenom = document.getElementById('fPrenom');
-  var resultsInfo = document.getElementById('resultsInfo');
+  var fNom = document.getElementById('cf_nom');
+  var fPrenom = document.getElementById('cf_prenom');
+  var fValo = document.getElementById('cf_valo');
+  var fPerf = document.getElementById('cf_perf');
+  var fVol = document.getElementById('cf_vol');
 
   // Coloration conditionnelle du SRRI calculé vs SRRI
   rows.forEach(function(tr){
@@ -143,7 +256,8 @@
       else tds[3].style.color = getComputedStyle(document.documentElement).getPropertyValue('--primary-600') || '#1e3a8a'; /* bleu foncé */
       // Ajouter une pastille colorée pour indiquer le rapport (Au‑dessus=bleu / Identique=vert / En‑dessous=rouge)
       var dot = document.createElement('span');
-      dot.className = 'srri-dot ' + (calc>srri ? 'srri-blue' : (calc===srri ? 'srri-green' : 'srri-red'));
+      // Inversion rouge/bleu pour les icônes: Au‑dessus=rouge, En‑dessous=bleu
+      dot.className = 'srri-dot ' + (calc>srri ? 'srri-red' : (calc===srri ? 'srri-green' : 'srri-blue'));
       dot.title = (calc>srri ? 'Au‑dessus' : (calc===srri ? 'Identique' : 'En‑dessous'));
       dot.style.marginLeft = '6px';
       tds[3].appendChild(dot);
@@ -155,21 +269,35 @@
     var qPre = (fPrenom.value||'').toLowerCase();
     var qSrri = fSrri.value||'';
     var qSrriCalc = fSrriCalc.value||'';
+    var qValo = (fValo.value||'').toLowerCase();
+    var qPerf = (fPerf.value||'').toLowerCase();
+    var qVol = (fVol.value||'').toLowerCase();
+    var predValo = buildValoPredicate(qValo);
+    var predPerf = buildNumericPredicate(qPerf);
+    var predVol = buildNumericPredicate(qVol);
     // Risk mode from URL (?risk=above|equal|below)
     var params = new URLSearchParams(window.location.search);
     var riskMode = (params.get('risk')||'').toLowerCase();
-    var visible = 0;
     rows.forEach(function(tr){
       var tds = tr.querySelectorAll('td');
       var nom = text(tds[0]).toLowerCase();
       var prenom = text(tds[1]).toLowerCase();
       var srri = text(tds[2]);
       var srriCalc = text(tds[3]);
+      var valoTxt = text(tds[4]);
+      var valoNum = _numFromCell(valoTxt);
+      var perfTxt = text(tds[5]);
+      var perfNum = _numFromCell(perfTxt);
+      var volTxt = text(tds[6]);
+      var volNum = _numFromCell(volTxt);
       var ok = true;
       if (qNom && nom.indexOf(qNom) === -1) ok = false;
       if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
       if (ok && qSrri && srri !== qSrri) ok = false;
       if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
+      if (ok && qValo && !predValo(valoNum)) ok = false;
+      if (ok && qPerf && !predPerf(perfNum)) ok = false;
+      if (ok && qVol && !predVol(volNum)) ok = false;
       if (ok && riskMode){
         var s = Number(srri), c = Number(srriCalc);
         if (isFinite(s) && isFinite(c)){
@@ -179,17 +307,70 @@
         }
       }
       tr.style.display = ok ? '' : 'none';
-      if (ok) visible++;
     });
-    resultsInfo.textContent = visible + ' / ' + rows.length + ' affichés';
   }
 
-  ['input','change'].forEach(function(ev){ fNom.addEventListener(ev, applyFilters); fPrenom.addEventListener(ev, applyFilters); });
-  fSrri.addEventListener('change', applyFilters);
-  fSrriCalc.addEventListener('change', applyFilters);
-  document.getElementById('btnClear').addEventListener('click', function(){
-    fNom.value = ''; fPrenom.value = ''; fSrri.value = ''; fSrriCalc.value = ''; applyFilters();
+  ['input','change'].forEach(function(ev){
+    [fNom,fPrenom,fSrri,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.addEventListener(ev, applyFilters); });
   });
+
+  // Bouton réinitialiser les filtres
+  var resetBtn = document.getElementById('cf_reset_btn');
+  if (resetBtn){
+    resetBtn.addEventListener('click', function(){
+      [fNom,fPrenom,fSrri,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
+      applyFilters();
+    });
+  }
+
+  // Charger la liste des groupes (Personnes)
+  async function loadClientGroupsForBulk(){
+    try {
+      const sel = document.getElementById('cf_group_select');
+      if (!sel) return;
+      const r = await fetch('/api/groupes/details?type=client&actifs_only=true');
+      const arr = r.ok ? await r.json() : [];
+      (arr||[]).forEach(function(g){
+        const opt = document.createElement('option');
+        opt.value = g.id; opt.textContent = g.nom + ((String(g.actif)==='0')?' (inactif)':'');
+        sel.appendChild(opt);
+      });
+    } catch(e){ console.warn('load groups failed', e); }
+  }
+  loadClientGroupsForBulk();
+
+  function visibleClientIds(){
+    var out = [];
+    rows.forEach(function(tr){
+      if (tr.style.display === 'none') return;
+      var id = tr.getAttribute('data-client-id');
+      if (id) out.push(parseInt(id,10));
+    });
+    return out;
+  }
+
+  async function addVisibleToGroup(){
+    const sel = document.getElementById('cf_group_select');
+    const info = document.getElementById('cf_info');
+    const gid = sel && sel.value ? parseInt(sel.value,10) : null;
+    if (!gid){ alert('Sélectionnez un groupe cible.'); return; }
+    const ids = visibleClientIds();
+    if (!ids.length){ alert('Aucun client filtré à ajouter.'); return; }
+    const btn = document.getElementById('cf_add_to_group_btn');
+    if (btn){ btn.disabled = true; btn.textContent = 'Ajout…'; }
+    let ok = 0, ko = 0;
+    for (const cid of ids){
+      try {
+        const r = await fetch('/api/groupes/memberships', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupe_id: gid, client_id: cid }) });
+        if (r.ok) ok++; else ko++;
+      } catch(e){ ko++; }
+    }
+    if (btn){ btn.disabled = false; btn.textContent = 'Ajouter au groupe'; }
+    if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
+    alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
+  }
+  var bulkBtn = document.getElementById('cf_add_to_group_btn');
+  if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
 
   // Initial state
   applyFilters();

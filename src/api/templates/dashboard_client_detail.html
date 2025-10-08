@@ -12,6 +12,7 @@
         {% if msgs_reg_count and msgs_reg_count > 0 %}
           <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
         {% endif %}
+        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openClientAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
       </span>
     </span>
   {% else %}
@@ -146,6 +147,153 @@
   </div>
 
   
+
+<!-- Modale Administration Groupes (Client) -->
+<style>
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
+  .modal-card { background: #fff; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+  .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .modal-header h3 { margin: 0; font-size: 1.05rem; }
+  .modal-body { padding: 12px 14px; }
+  .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+</style>
+<div id="clientAdminGroupsModal" class="modal-overlay" onclick="if(event.target===this) document.getElementById('clientAdminGroupsModal').style.display='none'">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-user-gear" style="margin-right:8px;"></i>Groupes du client</h3>
+      <button class="modal-close" onclick="document.getElementById('clientAdminGroupsModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="field">
+          <label>Ajouter le client à un groupe</label>
+          <select id="clientGroupsSelect"></select>
+          <div id="clientGroupsNotice" class="muted" style="margin-top:6px; display:none;"></div>
+        </div>
+        <div class="field" style="align-self:end;">
+          <button class="btn btn-primary" onclick="addClientGroup()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter</button>
+        </div>
+      </div>
+      <table id="clientGroupsTable">
+        <thead>
+          <tr>
+            <th>Groupe</th>
+            <th>Actif</th>
+            <th>Ajout</th>
+            <th>Retrait</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    const CLIENT_ID = {{ client.id if client else 'null' }};
+    let clientGroupDetails = [];
+    let clientGroupLinks = [];
+    function openClientAdminGroups(){
+      const el = document.getElementById('clientAdminGroupsModal');
+      el.style.display = 'flex';
+      console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
+      loadClientGroups();
+    }
+    async function loadClientGroups(){
+      const notice = document.getElementById('clientGroupsNotice');
+      if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
+      try {
+        let detailsRes = await fetch('/api/groupes/details?type=client&actifs_only=true');
+        console.log('[Admin][Client] fetch details (active) → status', detailsRes.status);
+        clientGroupDetails = detailsRes.ok ? await detailsRes.json() : [];
+        console.log('[Admin][Client] details (active) payload:', clientGroupDetails);
+        if (!Array.isArray(clientGroupDetails) || clientGroupDetails.length === 0){
+          console.warn('[Admin][Client] no active groups, retry including inactive');
+          const r2 = await fetch('/api/groupes/details?type=client&actifs_only=false');
+          console.log('[Admin][Client] fetch details (all) → status', r2.status);
+          if (r2.ok) clientGroupDetails = await r2.json();
+          console.log('[Admin][Client] details (all) payload:', clientGroupDetails);
+        }
+        const linksRes = await fetch('/api/groupes/memberships?client_id=' + encodeURIComponent(CLIENT_ID));
+        console.log('[Admin][Client] fetch memberships → status', linksRes.status);
+        clientGroupLinks = linksRes.ok ? await linksRes.json() : [];
+        console.log('[Admin][Client] memberships payload:', clientGroupLinks);
+        renderClientGroupSelect();
+        renderClientGroupsTable();
+      } catch (e) {
+        console.error('[Admin][Client] loadClientGroups error:', e);
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Erreur de chargement des groupes.'; }
+      }
+    }
+    function renderClientGroupSelect(){
+      const sel = document.getElementById('clientGroupsSelect');
+      sel.innerHTML = '';
+      const notice = document.getElementById('clientGroupsNotice');
+      if (!Array.isArray(clientGroupDetails) || clientGroupDetails.length === 0){
+        const opt = document.createElement('option'); opt.value=''; opt.textContent='Aucun groupe Personnes'; sel.appendChild(opt);
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Personnes trouvé. Allez dans Paramètres > Groupes pour en créer.'; }
+        return;
+      }
+      if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
+      clientGroupDetails.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id; opt.textContent = g.nom + (g.actif===0?' (inactif)':'');
+        sel.appendChild(opt);
+      });
+    }
+    function renderClientGroupsTable(){
+      const body = document.querySelector('#clientGroupsTable tbody');
+      body.innerHTML = '';
+      const nameById = Object.fromEntries(clientGroupDetails.map(g => [g.id, g.nom]));
+      (clientGroupLinks||[]).forEach(link => {
+        const tr = document.createElement('tr');
+        const tdNom = document.createElement('td'); tdNom.textContent = nameById[link.groupe_id] || ('#'+link.groupe_id);
+        const tdActif = document.createElement('td'); tdActif.textContent = (link.actif===1 || link.actif===null)?'Oui':'Non';
+        const tdAj = document.createElement('td'); tdAj.className='js-local-dt'; tdAj.setAttribute('data-iso', link.date_ajout || '');
+        const tdRt = document.createElement('td'); tdRt.className='js-local-dt'; tdRt.setAttribute('data-iso', link.date_retrait || '');
+        const tdAct = document.createElement('td');
+        const btn = document.createElement('button'); btn.className = 'btn btn-danger'; btn.textContent = 'Retirer'; btn.onclick = () => removeClientGroup(link.id);
+        tdAct.appendChild(btn);
+        tr.appendChild(tdNom); tr.appendChild(tdActif); tr.appendChild(tdAj); tr.appendChild(tdRt); tr.appendChild(tdAct);
+        body.appendChild(tr);
+      });
+      // trigger client-side date localization
+      try { (function(){
+        var nodes = document.querySelectorAll('#clientGroupsTable .js-local-dt');
+        nodes.forEach(function (el) {
+          var iso = el.getAttribute('data-iso') || (el.textContent || '').trim();
+          if (!iso) { el.textContent=''; return; }
+          var s = iso;
+          if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) {
+            s = s.replace(' ', 'T') + 'Z';
+          }
+          var d = new Date(s);
+          if (isNaN(d)) { el.textContent = iso; return; }
+          try { el.textContent = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }); }
+          catch(e){ el.textContent = d.toLocaleString(); }
+        });
+      })(); } catch(e){}
+    }
+    async function addClientGroup(){
+      const sel = document.getElementById('clientGroupsSelect');
+      const gid = parseInt(sel.value, 10);
+      if (!gid || !CLIENT_ID) return;
+      try {
+        await fetch('/api/groupes/memberships', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupe_id: gid, client_id: CLIENT_ID })
+        });
+        await loadClientGroups();
+      } catch (e) { console.error(e); }
+    }
+    async function removeClientGroup(linkId){
+      if (!linkId) return;
+      try {
+        await fetch('/api/groupes/memberships/' + linkId, { method: 'DELETE' });
+        await loadClientGroups();
+      } catch (e) { console.error(e); }
+    }
+  </script>
+</div>
 
 <!-- Modale dédiée: Lettre de Mission -->
 <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
@@ -416,7 +564,8 @@
         <button class="modal-close" onclick="closeTaskPopup()">✕</button>
       </div>
       <div class="modal-body task-block">
-        <form method="post" action="/dashboard/clients/{{ client.id }}/taches">
+        <div id="taskToast" class="badge success" style="display:none; margin-bottom:8px;">Tâche enregistrée.</div>
+        <form method="post" action="/dashboard/clients/{{ client.id }}/taches" id="taskCreateForm">
           <div class="form-row" style="margin-bottom:.6rem;">
             <div class="field">
               <label>Client (Nom Prénom)</label>
@@ -640,6 +789,22 @@
       const cat=document.getElementById('client_cat_select_modal'); const typ=document.getElementById('client_type_select_modal');
       function sync(){ typ.innerHTML=''; if(!cat.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o); return; } const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle); list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); }); if(list.length>0) typ.value=list[0]; }
       if (cat){ cat.addEventListener('change', sync); if(cat.value) sync(); }
+    })();
+    // Interception envoi tâche pour rester dans la modale
+    (function(){
+      try{
+        var tf = document.getElementById('taskCreateForm');
+        if (tf){
+          tf.addEventListener('submit', function(ev){
+            try{ ev.preventDefault(); }catch(e){}
+            var fd = new FormData(tf);
+            fetch(tf.getAttribute('action') || window.location.href, { method: 'POST', body: fd, credentials: 'same-origin' })
+              .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+              .then(function(){ var t=document.getElementById('taskToast'); if(t){ t.style.display='inline-block'; setTimeout(function(){ t.style.display='none'; closeTaskPopup(); }, 1200); } })
+              .catch(function(err){ console.warn('Task save failed', err); });
+          });
+        }
+      }catch(e){}
     })();
     function clientSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('client_statut_id_modal').value=sid; const peers=document.getElementById('client_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('client_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
 
@@ -1368,18 +1533,19 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 </script>
 
 <!-- Modales Conformité (détail) -->
-  <div class="modal-overlay" id="confConnaissanceDetailModal" onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal-overlay" id="confConnaissanceDetailModal" onclick="if(event.target===this) closeConfConnaissanceDetail()">
     <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
-      <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="document.getElementById('confConnaissanceDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="closeConfConnaissanceDetail()">✕</button></div>
       <div class="modal-body" style="padding:0; flex:1 1 auto;">
         <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1" style="width:100%; height:100%; border:0;"></iframe>
       </div>
     </div>
   </div>
-  <div class="modal-overlay" id="confTacfinDetailModal" onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal-overlay" id="confTacfinDetailModal" onclick="if(event.target===this) closeConfTacfinDetail()">
     <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
-      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3><button class="modal-close" onclick="document.getElementById('confTacfinDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3><button class="modal-close" onclick="closeConfTacfinDetail()">✕</button></div>
       <div class="modal-body" style="flex:1 1 auto; overflow:auto;">
+        <div id="lcbftDetailToast" class="badge success" style="display:none; margin-bottom:8px;">Questionnaire LCB-FT enregistré.</div>
         <style>
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
@@ -1777,7 +1943,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   <!-- Modale dédiée: Lettre d’adéquation -->
   <div class="modal-overlay" id="confAdequationDetailModal" style="z-index:10001;" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal-card" style="width:760px; max-width:96vw;">
-      <div class="modal-header"><h3><i class="fa-solid fa-file-circle-check" style="margin-right:8px;"></i>Lettre d’adéquation</h3><button class="modal-close" onclick="document.getElementById('confAdequationDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-header"><h3><i class="fa-solid fa-file-circle-check" style="margin-right:8px;"></i>Lettre d’adéquation</h3><span style="flex:1"></span><span id="laToast" class="badge success" style="display:none; margin-right:8px;">Lettre mise à jour</span><button class="btn" type="button" id="laRefreshBtn" style="margin-right:8px;">Mettre à jour</button><button class="modal-close" onclick="document.getElementById('confAdequationDetailModal').style.display='none'">✕</button></div>
       <div class="modal-body">
         <style>
           .la h1 { font-size: 1.25rem; margin: 0 0 6px; }
@@ -1857,7 +2023,40 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
               <p>Un questionnaire de détermination du profil investisseur a été complété : le risque choisi est différent de celui déterminé par le questionnaire. Vous reconnaissez avoir été informé de cet écart et assumez pleinement la responsabilité de ce choix.</p>
             {% endif %}
           {% endif %}
+
+          <!-- Synthèse connaissance client (résumé) -->
+          <style>
+            .la-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin:10px 0; }
+            .la-card {
+              border:1px solid var(--border);
+              border-radius:12px;
+              padding:12px;
+              background:#fff;
+              box-shadow:0 2px 8px rgba(0,0,0,0.06);
+              text-align:center;
+              display:flex;
+              flex-direction:column;
+              align-items:center;
+              justify-content:center;
+              min-height:96px;
+            }
+            .la-card .label { color:#6b7280; font-size:.9rem; line-height:1.2; margin:0; }
+            .la-card .value { color:#1d4ed8; font-weight:700; font-size:1.05rem; line-height:1.2; margin:4px 0 0 0; }
+            /* indicateurs cohérence objectifs vs durée KYC */
+            .dot { display:inline-block; width:1em; height:1em; border-radius:50%; vertical-align:middle; }
+            .dot-ok { background:#16a34a; }
+            .dot-ko { background:#ef4444; }
+          </style>
           
+          <div class="la-grid" id="laRiskGrid">
+            <div class="la-card"><div class="label">Connaissance générale</div><div class="value" id="laConnaissance">{{ (risque_latest.connaissance if risque_latest else (risque_snapshot.connaissance if risque_snapshot else '—')) or '—' }}</div></div>
+            <div class="la-card"><div class="label">Expérience</div><div class="value" id="laExperience">{{ (risque_latest.experience if risque_latest else (risque_snapshot.experience if risque_snapshot else '—')) or '—' }}</div></div>
+            <div class="la-card"><div class="label">Perte acceptée</div><div class="value" id="laPerte">{{ (risque_latest.perte_label if risque_latest and risque_latest.perte_label else (risque_snapshot.contraintes if risque_snapshot else '—')) or '—' }}</div><div class="label" id="laPerteCode" style="margin-top:4px; font-size:.8rem; color:#94a3b8;">{{ risque_latest.perte_code if risque_latest and risque_latest.perte_code else '' }}</div></div>
+            <div class="la-card"><div class="label">Durée envisagée</div><div class="value" id="laDuree">{{ (risque_latest.horizon_placement if risque_latest and risque_latest.horizon_placement else (risque_snapshot.duree if risque_snapshot else '—')) or '—' }}</div><div class="label" id="laDureeCode" style="margin-top:4px; font-size:.8rem; color:#94a3b8;">{{ risque_latest.duree_code if risque_latest and risque_latest.duree_code else '' }}</div></div>
+            <div class="la-card"><div class="label">Part du patrimoine</div><div class="value" id="laPatrimoine">{{ (risque_latest.patrimoine_label if risque_latest and risque_latest.patrimoine_label else (risque_snapshot.patrimoine if risque_snapshot else '—')) or '—' }}</div><div class="label" id="laPatrimoineCode" style="margin-top:4px; font-size:.8rem; color:#94a3b8;">{{ risque_latest.patrimoine_code if risque_latest and risque_latest.patrimoine_code else '' }}</div></div>
+            <div class="la-card"><div class="label">Niveau final</div><div class="value" id="laNiveau">{{ (risque_latest.niveau_risque if risque_latest else (risque_snapshot.niveau_label if risque_snapshot else '—')) or '—' }}</div></div>
+            <div class="la-card"><div class="label">Allocation</div><div class="value" id="laAllocation">{{ (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if risque_snapshot else '—')) or '—' }}</div></div>
+          </div>
 
           <h2><strong>3. Comparatif des offres étudiées</strong></h2>
           <table>
@@ -1890,35 +2089,46 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           <p class="muted">Les informations détaillées sur chaque contrat sont fournies en annexe du présent document.</p>
 
           <h2><strong>4. Recommandation du courtier</strong></h2>
-          <p>Le contrat recommandé est <strong>{{ contrat_choisi_nom or '—' }}</strong>, assuré par <strong>{{ contrat_choisi_societe or '—' }}</strong>. Ce produit répond aux <strong>objectifs</strong> et au <strong>profil d’investissement</strong> du client.</p>
+          <p>Le contrat recommandé est <strong id="laContratNom">{{ contrat_choisi_nom or '—' }}</strong>, assuré par <strong id="laContratSociete">{{ contrat_choisi_societe or '—' }}</strong>. Ce produit répond aux <strong>objectifs</strong> et au <strong>profil d’investissement</strong> du client.</p>
           <ul>
             <li><strong>Supports proposés :</strong> fonds euros, unités de compte.</li>
-            <li><strong>Offre financière choisie :</strong> {{ (risque_latest.commentaire if risque_latest else '') or '—' }}</li>
+            <li><strong>Offre financière choisie :</strong> <span id="laOffre">{{ (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if risque_snapshot else (risque_latest.commentaire if risque_latest else '—'))) }}</span></li>
             <li>
               <strong>Objectifs :</strong>
               <div style="margin-top:6px;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Objectif</th>
-                      <th>Horizon</th>
-                      <th>Commentaire</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% if adequation_objectifs and (adequation_objectifs|length>0) %}
-                      {% for o in adequation_objectifs %}
-                        <tr>
-                          <td>{{ o.objectif_libelle or '—' }}</td>
-                          <td>{{ o.horizon_investissement or '—' }}</td>
-                          <td>{{ o.commentaire or '—' }}</td>
-                        </tr>
-                      {% endfor %}
-                    {% else %}
-                      <tr><td colspan="3" class="muted">Aucun objectif enregistré.</td></tr>
-                    {% endif %}
-                  </tbody>
-                </table>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:1.8rem; text-align:center;">&nbsp;</th>
+                <th>Objectif</th>
+                <th>Horizon</th>
+                <th>Commentaire</th>
+              </tr>
+            </thead>
+            <tbody id="laObjTbody">
+              {% if adequation_objectifs and (adequation_objectifs|length>0) %}
+                {# calcul rang de la durée KYC #}
+                {% set _d = (_dur2 or '')|lower %}
+                {% set _kidx = 4 if 'plus de 8' in _d else (3 if '5 à 8' in _d or '5 a 8' in _d else (2 if '3 à 5' in _d or '3 a 5' in _d else (1 if '1 à 3' in _d or '1 a 3' in _d else 0))) %}
+                {% for o in adequation_objectifs %}
+                  {% set _h = (o.horizon_investissement or '')|lower %}
+                  {% set _oidx = 4 if 'plus de 8' in _h else (3 if '5 à 8' in _h or '5 a 8' in _h else (2 if '3 à 5' in _h or '3 a 5' in _h else (1 if '1 à 3' in _h or '1 a 3' in _h else 0))) %}
+                  {% set _ok = (_oidx >= _kidx) and (_kidx > 0) and (_oidx > 0) %}
+                  <tr>
+                    <td style="text-align:center;"><span class="dot {{ 'dot-ok' if _ok else 'dot-ko' }}" title="{{ 'Cohérent' if _ok else 'Incohérent' }}"></span></td>
+                    <td>{{ o.objectif_libelle or '—' }}</td>
+                    <td>{{ o.horizon_investissement or '—' }}</td>
+                    <td>{{ o.commentaire or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="4" class="muted">Aucun objectif enregistré.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+          <p style="font-style: italic; margin:6px 0 0 0;">
+            Les objectifs en cohérence avec votre durée d'investissement issue du questionnaire celient sont en vert, en rouge dans le cas contraire.
+          </p>
               </div>
             </li>
           </ul>
@@ -1964,7 +2174,23 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
     function openConfConnaissanceDetail(){ __showOverlay('confConnaissanceDetailModal'); }
+    function closeConfConnaissanceDetail(){
+      var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
+      var la = document.getElementById('confAdequationDetailModal');
+      if (la && la.style.display === 'flex'){
+        var btn = document.getElementById('laRefreshBtn');
+        if (btn){ btn.click(); }
+      }
+    }
     function openConfTacfinDetail(){ __showOverlay('confTacfinDetailModal'); }
+    function closeConfTacfinDetail(){
+      var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='none';
+      var la = document.getElementById('confAdequationDetailModal');
+      if (la && la.style.display === 'flex'){
+        var btn = document.getElementById('laRefreshBtn');
+        if (btn){ btn.click(); }
+      }
+    }
     function openConfEerDetail(){ __showOverlay('confEerDetailModal'); }
     function openConfMissionDetail(){ __showOverlay('confMissionDetailModal'); }
     function openConfAdequationDetail(){
@@ -1982,6 +2208,94 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 <script>
   // Inject today date in Lettre d’adéquation
   (function(){ try{ var el=document.getElementById('laDate'); if(el){ var d=new Date(); var s=d.toLocaleDateString(); el.textContent=s; } }catch(e){} })();
+</script>
+<script>
+  (function(){
+    // Interception de l'envoi LCBFT pour rester dans la modale
+    try{
+      var lcbftForm = document.getElementById('lcbftFormDetail');
+      if (lcbftForm){
+        lcbftForm.addEventListener('submit', function(ev){
+          try{ ev.preventDefault(); }catch(e){}
+          var fd = new FormData(lcbftForm);
+          fetch(lcbftForm.getAttribute('action') || window.location.href, { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+            .then(function(){
+              var toast = document.getElementById('lcbftDetailToast');
+              if (toast){ toast.style.display='inline-block'; setTimeout(function(){ toast.style.display='none'; }, 3000); }
+              // Si la lettre d’adéquation est ouverte, rafraîchir son contenu
+              if (typeof window.refreshAdequation === 'function'){ window.refreshAdequation(); }
+            })
+            .catch(function(err){ console.warn('LCBFT save failed', err); });
+        });
+      }
+    }catch(e){}
+    function doRefresh(){
+      try{
+        fetch('/dashboard/clients/{{ client.id }}/adequation.json').then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
+          try{ document.getElementById('laOffre').textContent = (data.offre_commentaire || '—'); }catch(e){}
+          try{ document.getElementById('laContratNom').textContent = (data.contrat_nom || '—'); }catch(e){}
+          try{ document.getElementById('laContratSociete').textContent = (data.contrat_societe || '—'); }catch(e){}
+          try{
+            var rs = data.risque_summary || {};
+            var map = {
+              laConnaissance: rs.connaissance,
+              laExperience: rs.experience,
+              laPerte: rs.contraintes,
+              laDuree: rs.duree,
+              laPatrimoine: rs.patrimoine,
+              laNiveau: rs.niveau_label,
+              laAllocation: rs.allocation_nom
+            };
+            Object.keys(map).forEach(function(id){ var el=document.getElementById(id); if(el){ el.textContent = (map[id] || '—'); }});
+            // codes debug
+            try{ var el=document.getElementById('laPerteCode'); if(el){ el.textContent = rs.perte_code || ''; } }catch(e){}
+            try{ var el=document.getElementById('laDureeCode'); if(el){ el.textContent = rs.duree_code || ''; } }catch(e){}
+            try{ var el=document.getElementById('laPatrimoineCode'); if(el){ el.textContent = rs.patrimoine_code || ''; } }catch(e){}
+          }catch(e){}
+          try{
+            var tb = document.getElementById('laObjTbody');
+            if (tb){
+              tb.innerHTML = '';
+              var rows = (data.objectifs || []);
+              if (!rows.length){ tb.innerHTML = '<tr><td colspan="4" class="muted">Aucun objectif enregistré.</td></tr>'; }
+              else {
+                function rankDur(txt){
+                  if(!txt) return 0;
+                  var s = String(txt).toLowerCase();
+                  if(s.indexOf('plus de 8') >= 0) return 4;
+                  if(s.indexOf('5 à 8') >= 0 || s.indexOf('5 a 8') >= 0) return 3;
+                  if(s.indexOf('3 à 5') >= 0 || s.indexOf('3 a 5') >= 0) return 2;
+                  if(s.indexOf('1 à 3') >= 0 || s.indexOf('1 a 3') >= 0) return 1;
+                  return 0;
+                }
+                // KYC duration from JSON or fallback to DOM value
+                var kycDur = (data.risque_summary && data.risque_summary.duree) || (document.getElementById('laDuree') ? document.getElementById('laDuree').textContent : null);
+                var kidx = rankDur(kycDur);
+                rows.forEach(function(o){
+                  var tr = document.createElement('tr');
+                  var ok = false;
+                  try{ ok = rankDur(o.horizon_investissement) >= kidx && kidx > 0 && rankDur(o.horizon_investissement) > 0; }catch(e){ ok = false; }
+                  var td0 = document.createElement('td');
+                  var dot = document.createElement('span'); dot.className = 'dot ' + (ok ? 'dot-ok':'dot-ko'); dot.title = ok ? 'Cohérent':'Incohérent';
+                  td0.style.textAlign = 'center'; td0.appendChild(dot);
+                  var td1 = document.createElement('td'); td1.textContent = o.objectif_libelle || '—';
+                  var td2 = document.createElement('td'); td2.textContent = o.horizon_investissement || '—';
+                  var td3 = document.createElement('td'); td3.textContent = o.commentaire || '—';
+                  tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+                  tb.appendChild(tr);
+                });
+              }
+            }
+          }catch(e){}
+          try{ var t=document.getElementById('laToast'); if(t){ t.style.display='inline-block'; setTimeout(function(){ t.style.display='none'; }, 1500); } }catch(e){}
+        }).catch(function(err){ console.warn('Refresh adequation failed', err); });
+      }catch(e){ /* noop */ }
+    }
+    var btn = document.getElementById('laRefreshBtn');
+    if (btn){ btn.addEventListener('click', doRefresh); }
+    window.refreshAdequation = doRefresh;
+  })();
 </script>
 <script>
   // Charger la liste des documents de base pour le select

@@ -11,6 +11,7 @@
       {% if msgs_reg_count and msgs_reg_count > 0 %}
         <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
       {% endif %}
+      <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openAffAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
     </span>
   </span>
 {% endblock %}
@@ -1157,5 +1158,144 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     function openAvisModal(){ var el=document.getElementById('avisModal'); if(el){ el.style.display='flex'; } }
     function closeAvisModal(){ var el=document.getElementById('avisModal'); if(el){ el.style.display='none'; } }
   </script>
+
+  <!-- Modale Administration Groupes (Affaire) -->
+  <div id="affAdminGroupsModal" class="modal-overlay" onclick="if(event.target===this) document.getElementById('affAdminGroupsModal').style.display='none'">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Groupes de l'affaire</h3>
+        <button class="modal-close" onclick="document.getElementById('affAdminGroupsModal').style.display='none'">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+        <div class="field">
+          <label>Ajouter l'affaire à un groupe</label>
+          <select id="affGroupsSelect"></select>
+          <div id="affGroupsNotice" class="muted" style="margin-top:6px; display:none;"></div>
+        </div>
+          <div class="field" style="align-self:end;">
+            <button class="btn btn-primary" onclick="addAffGroup()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Ajouter</button>
+          </div>
+        </div>
+        <table id="affGroupsTable">
+          <thead>
+            <tr>
+              <th>Groupe</th>
+              <th>Actif</th>
+              <th>Ajout</th>
+              <th>Retrait</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <script>
+      const AFFAIRE_ID = {{ affaire.id if affaire else 'null' }};
+      let affGroupDetails = [];
+      let affGroupLinks = [];
+    function openAffAdminGroups(){
+      const el = document.getElementById('affAdminGroupsModal');
+      el.style.display = 'flex';
+      console.log('[Admin][Affaire] open modal for affaire_id=', AFFAIRE_ID);
+      loadAffGroups();
+    }
+    async function loadAffGroups(){
+      const notice = document.getElementById('affGroupsNotice');
+      if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
+      try {
+        let detailsRes = await fetch('/api/groupes/details?type=affaire&actifs_only=true');
+        console.log('[Admin][Affaire] fetch details (active) → status', detailsRes.status);
+        affGroupDetails = detailsRes.ok ? await detailsRes.json() : [];
+        console.log('[Admin][Affaire] details (active) payload:', affGroupDetails);
+        if (!Array.isArray(affGroupDetails) || affGroupDetails.length === 0){
+          console.warn('[Admin][Affaire] no active groups, retry including inactive');
+          const r2 = await fetch('/api/groupes/details?type=affaire&actifs_only=false');
+          console.log('[Admin][Affaire] fetch details (all) → status', r2.status);
+          if (r2.ok) affGroupDetails = await r2.json();
+          console.log('[Admin][Affaire] details (all) payload:', affGroupDetails);
+        }
+        const linksRes = await fetch('/api/groupes/memberships?affaire_id=' + encodeURIComponent(AFFAIRE_ID));
+        console.log('[Admin][Affaire] fetch memberships → status', linksRes.status);
+        affGroupLinks = linksRes.ok ? await linksRes.json() : [];
+        console.log('[Admin][Affaire] memberships payload:', affGroupLinks);
+        renderAffGroupSelect();
+        renderAffGroupsTable();
+      } catch (e) {
+        console.error('[Admin][Affaire] loadAffGroups error:', e);
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Erreur de chargement des groupes.'; }
+      }
+    }
+      function renderAffGroupSelect(){
+        const sel = document.getElementById('affGroupsSelect');
+        sel.innerHTML = '';
+      const notice = document.getElementById('affGroupsNotice');
+      if (!Array.isArray(affGroupDetails) || affGroupDetails.length === 0){
+        const opt = document.createElement('option'); opt.value=''; opt.textContent='Aucun groupe Affaires'; sel.appendChild(opt);
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Affaires trouvé. Allez dans Paramètres > Groupes pour en créer.'; }
+        return;
+      }
+      if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
+      affGroupDetails.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id; opt.textContent = g.nom + (g.actif===0?' (inactif)':'');
+        sel.appendChild(opt);
+      });
+    }
+      function renderAffGroupsTable(){
+        const body = document.querySelector('#affGroupsTable tbody');
+        body.innerHTML = '';
+        const nameById = Object.fromEntries(affGroupDetails.map(g => [g.id, g.nom]));
+        (affGroupLinks||[]).forEach(link => {
+          const tr = document.createElement('tr');
+          const tdNom = document.createElement('td'); tdNom.textContent = nameById[link.groupe_id] || ('#'+link.groupe_id);
+          const tdActif = document.createElement('td'); tdActif.textContent = (link.actif===1 || link.actif===null)?'Oui':'Non';
+          const tdAj = document.createElement('td'); tdAj.className='js-local-dt'; tdAj.setAttribute('data-iso', link.date_ajout || '');
+          const tdRt = document.createElement('td'); tdRt.className='js-local-dt'; tdRt.setAttribute('data-iso', link.date_retrait || '');
+          const tdAct = document.createElement('td');
+          const btn = document.createElement('button'); btn.className = 'btn btn-danger'; btn.textContent = 'Retirer'; btn.onclick = () => removeAffGroup(link.id);
+          tdAct.appendChild(btn);
+          tr.appendChild(tdNom); tr.appendChild(tdActif); tr.appendChild(tdAj); tr.appendChild(tdRt); tr.appendChild(tdAct);
+          body.appendChild(tr);
+        });
+        // trigger client-side date localization
+        try { (function(){
+          var nodes = document.querySelectorAll('#affGroupsTable .js-local-dt');
+          nodes.forEach(function (el) {
+            var iso = el.getAttribute('data-iso') || (el.textContent || '').trim();
+            if (!iso) { el.textContent=''; return; }
+            var s = iso;
+            if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) {
+              s = s.replace(' ', 'T') + 'Z';
+            }
+            var d = new Date(s);
+            if (isNaN(d)) { el.textContent = iso; return; }
+            try { el.textContent = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }); }
+            catch(e){ el.textContent = d.toLocaleString(); }
+          });
+        })(); } catch(e){}
+      }
+      async function addAffGroup(){
+        const sel = document.getElementById('affGroupsSelect');
+        const gid = parseInt(sel.value, 10);
+        if (!gid || !AFFAIRE_ID) return;
+        try {
+          await fetch('/api/groupes/memberships', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ groupe_id: gid, affaire_id: AFFAIRE_ID })
+          });
+          await loadAffGroups();
+        } catch (e) { console.error(e); }
+      }
+      async function removeAffGroup(linkId){
+        if (!linkId) return;
+        try {
+          await fetch('/api/groupes/memberships/' + linkId, { method: 'DELETE' });
+          await loadAffGroups();
+        } catch (e) { console.error(e); }
+      }
+    </script>
+  </div>
 
 {% endblock %}
