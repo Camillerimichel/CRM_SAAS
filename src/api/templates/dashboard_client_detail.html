@@ -1576,6 +1576,10 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
           .risk-block h5 { background:#2563eb; color:#fff; padding:6px 10px; border-radius:6px; margin:-10px -10px 10px -10px; font-size:1rem; }
+          .risk-block label { color:#2563eb; font-weight:600; }
+          .lcbft-prof-table { width:100%; border-collapse:collapse; margin-top:8px; }
+          .lcbft-prof-table th, .lcbft-prof-table td { border:1px solid var(--border); padding:6px 8px; font-size:0.9rem; }
+          .lcbft-prof-table th { background:#eef2ff; color:#1d4ed8; font-weight:600; }
           .btn-group .btn-choice { margin-right:6px; }
           .btn-choice-active { background: var(--primary); color:#fff; }
           .step-hidden { display:none; }
@@ -1627,6 +1631,33 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                   <textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?" style="width:100%;">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea>
                 </div>
               </div>
+              {% if kyc_situations_professionnelles %}
+              <div class="field" style="margin-top:8px;">
+                <label style="display:block; margin-bottom:4px;">Situation professionnelle (référence KYC)</label>
+                <table class="lcbft-prof-table">
+                  <thead>
+                    <tr>
+                      <th>Profession</th>
+                      <th>Secteur</th>
+                      <th>Statut</th>
+                      <th>Employeur</th>
+                      <th>Ancienneté (ans)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for prof in kyc_situations_professionnelles %}
+                    <tr>
+                      <td>{{ prof.profession or '—' }}</td>
+                      <td>{{ prof.secteur_libelle or '—' }}</td>
+                      <td>{{ prof.statut_libelle or '—' }}</td>
+                      <td>{{ prof.employeur or '—' }}</td>
+                      <td class="center">{{ prof.anciennete_annees if prof.anciennete_annees is not none else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% endif %}
               <div class="field"><label>Contrats similaires déjà souscrits ?</label>
                 <div class="btn-group" data-name="has_existing_contracts">
                   <button type="button" class="btn btn-choice" data-value="1">Oui</button>
