@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from sqlalchemy import text
@@ -473,41 +473,21 @@ async def dashboard_client_kyc_report(
         row = db.execute(text(
             """
             SELECT 
-              k.niveau_id,
               r.libelle AS niveau_risque,
-              COALESCE(du.label, k.duree) AS horizon_placement,
+              k.duree AS horizon_placement,
               k.experience,
               k.connaissance,
-              COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
-              COALESCE(pe.label, k.contraintes) AS perte_label,
-              pp.code AS patrimoine_code,
-              du.code AS duree_code,
-              pe.code AS perte_code,
               k.commentaire
             FROM KYC_Client_Risque k
-            LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
-            LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
-            LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
-            LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
+            JOIN ref_niveau_risque r 
+              ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
             LIMIT 1
             """
         ), {"cid": client_id}).fetchone()
         if row:
-            m = row._mapping
-            risque_latest_info = dict(m)
-            # Allocation (nom) liée au niveau
-            try:
-                rid = m.get('niveau_id')
-                if rid is not None:
-                    row_alloc = db.execute(text(
-                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
-                    ), {"rid": rid}).fetchone()
-                    if row_alloc:
-                        risque_latest_info['allocation_nom'] = row_alloc[0]
-            except Exception:
-                pass
+            risque_latest_info = dict(row._mapping)
     except Exception:
         risque_latest_info = None
 
@@ -1606,232 +1586,6 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"load garanties normes failed: {e}")
 
-    # ---------------- Administration: Intervenants & Relations ----------------
-    admin_intervenants: list[dict] = []
-    admin_types: list[dict] = []
-    admin_relations: list[dict] = []
-
-    def _ensure_admin_schema(_db: Session) -> None:
-        try:
-            from sqlalchemy import text as _text
-            # Tables
-            _db.execute(_text(
-                """
-                CREATE TABLE IF NOT EXISTS administration_intervenant (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nom TEXT NOT NULL,
-                    type_niveau TEXT NOT NULL CHECK (type_niveau IN ('interne','courtier','autre')),
-                    type_personne TEXT NOT NULL CHECK (type_personne IN ('physique','morale'))
-                )
-                """
-            ))
-            # Ensure optional columns exist (telephone, mail)
-            try:
-                cols = rows_to_dicts(_db.execute(_text("PRAGMA table_info('administration_intervenant')")).fetchall())
-                names = {str(c.get('name') or '').lower() for c in (cols or [])}
-            except Exception:
-                names = set()
-            if 'telephone' not in names:
-                try:
-                    _db.execute(_text("ALTER TABLE administration_intervenant ADD COLUMN telephone TEXT"))
-                except Exception:
-                    pass
-            if 'mail' not in names:
-                try:
-                    _db.execute(_text("ALTER TABLE administration_intervenant ADD COLUMN mail TEXT"))
-                except Exception:
-                    pass
-            _db.execute(_text(
-                """
-                CREATE TABLE IF NOT EXISTS administration_type_relation (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nom TEXT NOT NULL UNIQUE,
-                    inverse_id INTEGER,
-                    FOREIGN KEY(inverse_id) REFERENCES administration_type_relation(id)
-                )
-                """
-            ))
-            _db.execute(_text(
-                """
-                CREATE TABLE IF NOT EXISTS administration_relation (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    id_source INTEGER NOT NULL,
-                    id_cible INTEGER NOT NULL,
-                    id_type INTEGER NOT NULL,
-                    date_creation TEXT DEFAULT (CURRENT_TIMESTAMP),
-                    UNIQUE(id_source, id_cible, id_type),
-                    FOREIGN KEY(id_source) REFERENCES administration_intervenant(id),
-                    FOREIGN KEY(id_cible) REFERENCES administration_intervenant(id),
-                    FOREIGN KEY(id_type) REFERENCES administration_type_relation(id)
-                )
-                """
-            ))
-            # Trigger for inverse relation
-            _db.execute(_text(
-                """
-                CREATE TRIGGER IF NOT EXISTS administration_relation_inverse
-                AFTER INSERT ON administration_relation
-                BEGIN
-                    INSERT OR IGNORE INTO administration_relation (id_source, id_cible, id_type, date_creation)
-                    SELECT NEW.id_cible,
-                           NEW.id_source,
-                           COALESCE((SELECT inverse_id FROM administration_type_relation WHERE id = NEW.id_type), NEW.id_type),
-                           CURRENT_TIMESTAMP;
-                END;
-                """
-            ))
-            # Seed default relation types if missing
-            # Types: "est en relation avec" <-> "est en relation avec" (auto-inverse)
-            #        "est en affaire avec" <-> "est en affaire avec"
-            #        "est dirigé par" <-> "dirige"
-            rows = _db.execute(_text("SELECT COUNT(*) AS c FROM administration_type_relation")).fetchone()
-            cnt = int((rows._mapping.get('c') if rows is not None else 0) or 0)
-            if cnt == 0:
-                # Insert basic rows first
-                names = [
-                    "est en relation avec",
-                    "est en affaire avec",
-                    "est dirigé par",
-                    "dirige",
-                ]
-                for nm in names:
-                    _db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": nm})
-                # Resolve IDs
-                all_types = _db.execute(_text("SELECT id, nom FROM administration_type_relation")).fetchall()
-                inv = {r._mapping.get('nom'): r._mapping.get('id') for r in all_types}
-                # Self inverses
-                for nm in ["est en relation avec", "est en affaire avec"]:
-                    tid = inv.get(nm)
-                    if tid:
-                        _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": tid, "id": tid})
-                # Directed pair
-                edp = inv.get("est dirigé par")
-                dirg = inv.get("dirige")
-                if edp and dirg:
-                    _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": dirg, "id": edp})
-                    _db.execute(_text("UPDATE administration_type_relation SET inverse_id = :i WHERE id = :id"), {"i": edp, "id": dirg})
-            _db.commit()
-        except Exception:
-            _db.rollback()
-            # Do not raise to keep page rendering robust
-            pass
-
-    try:
-        _ensure_admin_schema(db)
-        from sqlalchemy import text as _text
-        admin_intervenants = rows_to_dicts(
-            db.execute(_text("SELECT id, nom, type_niveau, type_personne, telephone, mail FROM administration_intervenant ORDER BY nom")).fetchall()
-        )
-        admin_types = rows_to_dicts(
-            db.execute(_text(
-                """
-                SELECT t.id,
-                       t.nom,
-                       t.inverse_id,
-                       inv.nom AS inverse_nom
-                FROM administration_type_relation t
-                LEFT JOIN administration_type_relation inv ON inv.id = t.inverse_id
-                ORDER BY t.nom
-                """
-            )).fetchall()
-        )
-        admin_relations = rows_to_dicts(
-            db.execute(_text(
-                """
-                SELECT r.id,
-                       r.id_source,
-                       r.id_cible,
-                       r.id_type,
-                       r.date_creation,
-                       s.nom AS source_nom,
-                       c.nom AS cible_nom,
-                       t.nom AS type_nom
-                FROM administration_relation r
-                JOIN administration_intervenant s ON s.id = r.id_source
-                JOIN administration_intervenant c ON c.id = r.id_cible
-                JOIN administration_type_relation t ON t.id = r.id_type
-                ORDER BY r.date_creation DESC, r.id DESC
-                """
-            )).fetchall()
-        )
-        # Administration RH: ensure table and load rows
-        try:
-            db.execute(_text(
-                """
-                CREATE TABLE IF NOT EXISTS administration_RH (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nom TEXT NOT NULL,
-                    prenom TEXT NOT NULL,
-                    telephone TEXT,
-                    mail TEXT,
-                    niveau_poste TEXT,
-                    commentaire TEXT
-                )
-                """
-            ))
-        except Exception:
-            pass
-        admin_rh = rows_to_dicts(
-            db.execute(_text(
-                "SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom"
-            )).fetchall()
-        )
-        # Groupes: charger la liste si la table existe
-        try:
-            db.execute(_text("SELECT 1 FROM administration_groupe_detail LIMIT 1"))
-            groupes_details = rows_to_dicts(
-                db.execute(_text(
-                    """
-                    SELECT rowid AS __rid,
-                           id,
-                           type_groupe,
-                           nom,
-                           date_creation,
-                           date_fin,
-                           responsable_id,
-                           motif,
-                           actif,
-                           (
-                             SELECT COUNT(1)
-                             FROM administration_groupe g
-                             WHERE g.groupe_id = administration_groupe_detail.id
-                               AND (COALESCE(g.actif,1) != 0)
-                               AND (g.date_retrait IS NULL)
-                           ) AS nb_membres
-                    FROM administration_groupe_detail
-                    ORDER BY CASE lower(type_groupe)
-                               WHEN 'personnes' THEN 0
-                               WHEN 'personne' THEN 0
-                               WHEN 'client' THEN 0
-                               WHEN 'affaires' THEN 1
-                               WHEN 'affaire' THEN 1
-                               ELSE 2
-                             END, nom
-                    """
-                )).fetchall()
-            )
-        except Exception:
-            groupes_details = []
-    except Exception:
-        admin_intervenants = []
-        admin_types = []
-        admin_relations = []
-        admin_rh = []
-        groupes_details = []
-
-    # Types / Statuts pour création de tâches de groupe dans la modale
-    try:
-        from sqlalchemy import text as _text
-        type_rows = db.execute(_text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
-        evt_types = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'libelle': (r._mapping.get('libelle') if hasattr(r,'_mapping') else r[1]), 'categorie': (r._mapping.get('categorie') if hasattr(r,'_mapping') else r[2]) } for r in (type_rows or []) ]
-        evt_categories = sorted({ t.get('categorie') for t in evt_types if t.get('categorie') is not None })
-        stat_rows = db.execute(_text("SELECT id, libelle FROM mariadb_statut_evenement ORDER BY id")).fetchall()
-        evt_statuts = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'libelle': (r._mapping.get('libelle') if hasattr(r,'_mapping') else r[1]) } for r in (stat_rows or []) ]
-    except Exception:
-        evt_types = []
-        evt_categories = []
-        evt_statuts = []
-
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
@@ -1859,152 +1613,10 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "remun_items": remun_items,
             "remun_extra_cols": remun_extra_cols,
             "garanties_normes": garanties_normes,
-            # Admin
-            "admin_intervenants": admin_intervenants,
-            "admin_types": admin_types,
-            "admin_relations": admin_relations,
-            "admin_rh": admin_rh,
-            "groupes_details": groupes_details,
-            "evt_types": evt_types,
-            "evt_categories": evt_categories,
-            "evt_statuts": evt_statuts,
         },
     )
 
 
-@router.get("/clients/{client_id}/adequation.json", response_class=JSONResponse)
-def adequation_json(client_id: int, db: Session = Depends(get_db)):
-    def _safe(v):
-        return v if v is not None else None
-    objectifs = []
-    try:
-        rows = db.execute(text(
-            """
-            SELECT ro.libelle AS objectif_libelle,
-                   o.horizon_investissement,
-                   o.commentaire,
-                   COALESCE(o.niveau_id, 9999) AS _niv
-            FROM KYC_Client_Objectifs o
-            LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
-            WHERE o.client_id = :cid
-            ORDER BY _niv, ro.libelle, o.id
-            """
-        ), {"cid": client_id}).fetchall()
-        for r in rows or []:
-            m = r._mapping
-            objectifs.append({
-                "objectif_libelle": _safe(m.get("objectif_libelle")),
-                "horizon_investissement": _safe(m.get("horizon_investissement")),
-                "commentaire": _safe(m.get("commentaire")),
-            })
-    except Exception:
-        objectifs = []
-    offre_commentaire = None
-    risque_summary = None
-    try:
-        # Rendre la requête robuste aux schémas legacy (sans *_option_id)
-        cols = _sqlite_table_columns(db, "KYC_Client_Risque")
-        colnames = {str(c.get("name") or "").lower() for c in (cols or [])}
-        has_opt_cols = all(x in colnames for x in (
-            "patrimoine_part_option_id", "duree_option_id", "perte_option_id"
-        ))
-        if has_opt_cols:
-            sql = """
-                SELECT k.niveau_id,
-                       r.libelle AS niveau_label,
-                       k.experience,
-                       k.connaissance,
-                       COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
-                       COALESCE(du.label, k.duree) AS duree_label,
-                       COALESCE(pe.label, k.contraintes) AS perte_label,
-                       pp.code AS patrimoine_code,
-                       du.code AS duree_code,
-                       pe.code AS perte_code,
-                       k.commentaire
-                FROM KYC_Client_Risque k
-                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
-                LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
-                LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
-                LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
-                WHERE k.client_id = :cid
-                ORDER BY k.date_saisie DESC, k.id DESC
-                LIMIT 1
-            """
-        else:
-            sql = """
-                SELECT k.niveau_id,
-                       r.libelle AS niveau_label,
-                       k.experience,
-                       k.connaissance,
-                       k.patrimoine AS patrimoine_label,
-                       k.duree AS duree_label,
-                       k.contraintes AS perte_label,
-                       NULL AS patrimoine_code,
-                       NULL AS duree_code,
-                       NULL AS perte_code,
-                       k.commentaire
-                FROM KYC_Client_Risque k
-                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
-                WHERE k.client_id = :cid
-                ORDER BY k.date_saisie DESC, k.id DESC
-                LIMIT 1
-            """
-        row = db.execute(text(sql), {"cid": client_id}).fetchone()
-        if row:
-            m = row._mapping
-            offre_commentaire = m.get('commentaire')
-            # Allocation liée au niveau (si disponible)
-            allocation_nom = None
-            try:
-                rid = m.get('niveau_id')
-                if rid is not None:
-                    row_alloc = db.execute(text(
-                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
-                    ), {"rid": rid}).fetchone()
-                    if row_alloc:
-                        allocation_nom = row_alloc[0]
-            except Exception:
-                allocation_nom = None
-            risque_summary = {
-                "niveau_label": m.get('niveau_label'),
-                "experience": m.get('experience'),
-                "connaissance": m.get('connaissance'),
-                "patrimoine": m.get('patrimoine_label'),
-                "duree": m.get('duree_label'),
-                "contraintes": m.get('perte_label'),
-                "patrimoine_code": m.get('patrimoine_code'),
-                "duree_code": m.get('duree_code'),
-                "perte_code": m.get('perte_code'),
-                "allocation_nom": allocation_nom,
-            }
-    except Exception:
-        pass
-    contrat_nom = None
-    contrat_societe = None
-    try:
-        row = db.execute(text(
-            """
-            SELECT g.nom_contrat, COALESCE(s.nom,'') AS societe_nom
-            FROM KYC_contrat_choisi k
-            LEFT JOIN mariadb_affaires_generique g ON g.id = k.id_contrat
-            LEFT JOIN mariadb_societe s ON s.id = g.id_societe
-            WHERE k.id_client = :cid
-            LIMIT 1
-            """
-        ), {"cid": client_id}).fetchone()
-        if row:
-            m = row._mapping
-            contrat_nom = m.get('nom_contrat') or row[0]
-            contrat_societe = m.get('societe_nom') if 'societe_nom' in m else (row[1] if len(row) > 1 else None)
-    except Exception:
-        pass
-    return {
-        "objectifs": objectifs,
-        "offre_commentaire": offre_commentaire,
-        "contrat_nom": contrat_nom,
-        "contrat_societe": contrat_societe,
-        "risque_summary": risque_summary,
-    }
 @router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
 async def update_courtier_garanties(row_id: str, request: Request, db: Session = Depends(get_db)):
     table = _resolve_table_name(db, ["DER_courtier_garanties_normes"]) or "DER_courtier_garanties_normes"
@@ -3426,7 +3038,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             cnt = sum(1 for v in last_vals if v is not None and lo <= v < hi)
         clients_buckets.append({"label": label, "nb": cnt})
 
-
     # Comptes par SRRI
     srri_clients_count = [
         {"srri": s, "nb": n}
@@ -3603,7 +3214,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     except Exception:
         cli_counts = {"above": 0, "equal": 0, "below": 0}
 
-    # ------- Tâches / événements (comptage direct) -------
+    # ------- Tâches / événements (vue_suivi_evenement) -------
     try:
         from sqlalchemy import text as _text
         # Période sélectionnée pour la section Tâches
@@ -3613,29 +3224,12 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 range_days = 14
         except Exception:
             range_days = 14
-        # Compte total et par statut/catégorie (sans vue)
-        tasks_total = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement")).scalar() or 0)
+        # Compte total et par statut/catégorie
+        tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
+        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM vue_suivi_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall()
+        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(categorie)), '(non défini)') as c, COUNT(1) FROM vue_suivi_evenement GROUP BY c ORDER BY COUNT(1) DESC")).fetchall()
         # Ouvertes: non terminé / non annulé
-        open_count = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0)
-        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM mariadb_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall() or []
-        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(t.categorie)), '(non défini)') as c, COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY c ORDER BY COUNT(1) DESC")).fetchall() or []
-        # Par type + RH (pour graphique)
-        rows_type_by_rh = db.execute(_text(
-            """
-            SELECT COALESCE(t.libelle, '(non défini)') AS type_libelle,
-                   e.rh_id,
-                   COALESCE(r.prenom || ' ' || r.nom, '') AS rh_nom,
-                   COUNT(1) AS nb
-            FROM mariadb_evenement e
-            LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id
-            LEFT JOIN administration_RH r ON r.id = e.rh_id
-            GROUP BY type_libelle, e.rh_id, rh_nom
-            ORDER BY type_libelle
-            """
-        )).fetchall() or []
-        rows_type_total = db.execute(_text(
-            "SELECT COALESCE(t.libelle, '(non défini)') AS type_libelle, COUNT(1) AS nb FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY type_libelle ORDER BY type_libelle"
-        )).fetchall() or []
+        open_count = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0
         # N derniers jours: créations par jour
         rows_days = db.execute(_text(
             """
@@ -3644,51 +3238,14 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
               UNION ALL SELECT x+1 FROM seq WHERE x < :n
             )
             SELECT date(julianday('now') - x) AS day,
-                   COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
+                   COALESCE((SELECT COUNT(1) FROM vue_suivi_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
             FROM seq
             ORDER BY day ASC
             """
-        ), {"n": range_days - 1}).fetchall() or []
+        ), {"n": range_days - 1}).fetchall()
         tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
         tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
         tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
-        tasks_type_by_rh = [ {"type": (getattr(r, 'type_libelle', None) if hasattr(r, '_mapping') else r[0]),
-                               "rh_id": (getattr(r, 'rh_id', None) if hasattr(r, '_mapping') else r[1]),
-                               "rh_nom": (getattr(r, 'rh_nom', None) if hasattr(r, '_mapping') else (r[2] if len(r)>2 else '')),
-                               "nb": int((getattr(r, 'nb', 0) if hasattr(r, '_mapping') else (r[3] if len(r)>3 else 0)) or 0) } for r in rows_type_by_rh ]
-        tasks_type_total = [ {"type": (getattr(r, 'type_libelle', None) if hasattr(r, '_mapping') else r[0]),
-                               "nb": int((getattr(r, 'nb', 0) if hasattr(r, '_mapping') else (r[1] if len(r)>1 else 0)) or 0) } for r in rows_type_total ]
-        # Fallback période si aucune tâche sur la fenêtre choisie
-        def _sum_days(lst):
-            try:
-                return sum(int(x.get('nb') or 0) for x in (lst or []))
-            except Exception:
-                return 0
-        tasks_days_sum = _sum_days(tasks_days)
-        if tasks_days_sum == 0:
-            alt_ranges = []
-            if range_days == 7:
-                alt_ranges = [14, 30]
-            elif range_days == 14:
-                alt_ranges = [30]
-            for rr in alt_ranges:
-                rows_days2 = db.execute(_text(
-                    """
-                    WITH RECURSIVE seq(x) AS (
-                      SELECT 0
-                      UNION ALL SELECT x+1 FROM seq WHERE x < :n
-                    )
-                    SELECT date(julianday('now') - x) AS day,
-                           COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
-                    FROM seq
-                    ORDER BY day ASC
-                    """
-                ), {"n": rr - 1}).fetchall() or []
-                tasks_days2 = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days2 ]
-                if _sum_days(tasks_days2) > 0:
-                    tasks_days = tasks_days2
-                    range_days = rr
-                    break
 
         # Durée moyenne passée dans chaque statut (en jours), basée sur historique
         rows_avg = db.execute(_text(
@@ -4254,37 +3811,9 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         except Exception:
             pass
     except Exception:
-        # Fallback: calculer les compteurs directement sur mariadb_evenement
-        try:
-            from sqlalchemy import text as _text
-            try:
-                range_days = int(request.query_params.get("tasks_range", 14))
-                if range_days not in (7, 14, 30):
-                    range_days = 14
-            except Exception:
-                range_days = 14
-            tasks_total = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement")).scalar() or 0)
-            open_count = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0)
-            rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM mariadb_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall() or []
-            tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
-            rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(t.categorie)), '(non défini)') as c, COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY c ORDER BY COUNT(1) DESC")).fetchall() or []
-            tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
-            rows_days = db.execute(_text(
-                """
-                WITH RECURSIVE seq(x) AS (
-                  SELECT 0
-                  UNION ALL SELECT x+1 FROM seq WHERE x < :n
-                )
-                SELECT date(julianday('now') - x) AS day,
-                       COALESCE((SELECT COUNT(1) FROM mariadb_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
-                FROM seq
-                ORDER BY day ASC
-                """
-            ), {"n": range_days - 1}).fetchall() or []
-            tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
-        except Exception:
-            tasks_total = 0; open_count = 0; tasks_statut = []; tasks_categorie = []; tasks_days = []; tasks_type_by_rh = []; tasks_type_total = []
-        # Continuer pour la suite du tableau de bord (ESG etc.)
+        esg_fields_dash = []
+        esg_field_labels_dash = {}
+        esg_fields_debug_dash = {"source": "ERROR", "raw_cols": [], "final": []}
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -4297,7 +3826,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "srri_clients_count": srri_clients_count,
             "srri_affaires_count": srri_affaires_count,
             "srri_clients_amount": srri_clients_amount,
-            
             "srri_affaires_amount": srri_affaires_amount,
             # Infos Documents pour la carte Risque Documents
             "docs_total": total_documents,
@@ -4313,8 +3841,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "tasks_statut": tasks_statut,
             "tasks_categorie": tasks_categorie,
             "tasks_days": tasks_days,
-            "tasks_type_by_rh": locals().get('tasks_type_by_rh', []),
-            "tasks_type_total": locals().get('tasks_type_total', []),
             "tasks_avg_by_statut": tasks_avg_by_statut,
             "tasks_avg_close_days": tasks_avg_close_days,
             "tasks_close_dist": tasks_close_dist,
@@ -5483,8 +5009,6 @@ async def dashboard_client_kyc(
 
         elif action == "objectifs_delete":
             active_section = "objectifs"
-            ui_focus_section = "objectifs"
-            ui_focus_panel = "objectifsPanel"
             link_id_raw = form.get("link_id")
             objectif_id_raw = form.get("objectif_id")
             if objectif_id_raw:
@@ -7263,7 +6787,6 @@ async def dashboard_client_kyc(
 
     preselected_objectifs: list[dict] = []
     preselected_objectifs_ids: list[int] = []
-    objectifs_total_montant = 0.0
     try:
         objectifs_rows = db.execute(
             text(
@@ -7310,10 +6833,6 @@ async def dashboard_client_kyc(
                 }
             )
             preselected_objectifs_ids.append(objectif_id)
-            try:
-                objectifs_total_montant += float(data.get("montant") or 0.0)
-            except Exception:
-                pass
     except Exception as exc:
         preselected_objectifs = []
         preselected_objectifs_ids = []
@@ -7379,31 +6898,11 @@ async def dashboard_client_kyc(
     lcbft_current: dict | None = None
     lcbft_vigilance_ids: list[int] = []
     lcbft_vigilance_options: list[dict] = []
-    lcbft_ppe_options: list[dict] = []
     try:
         rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
         lcbft_vigilance_options = [dict(r._mapping) for r in rows]
-        if not lcbft_vigilance_options:
-            # Seed default vigilance options if table is empty
-            defaults = [
-                ("OP_COMPLEXE", "Opération complexe / inhabituelle"),
-                ("FONDS_SENSIBLES", "Provenance des fonds sensible"),
-                ("PAYS_RISQUE", "Pays à risque / sanctionné"),
-                ("PERS_EXPOSEE", "Personne politiquement exposée (PPE)"),
-                ("STRUCTURE_OPAQUE", "Structure juridique opaque (trust, etc.)"),
-            ]
-            for code, label in defaults:
-                db.execute(text("INSERT OR IGNORE INTO LCBFT_vigilance_option(code,label) VALUES(:c,:l)"), {"c": code, "l": label})
-            rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
-            lcbft_vigilance_options = [dict(r._mapping) for r in rows]
-        try:
-            rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib")).fetchall()
-            lcbft_ppe_options = [dict(r._mapping) if hasattr(r, '_mapping') else {"id": r[0], "lib": r[1]} for r in rows]
-        except Exception:
-            lcbft_ppe_options = []
     except Exception:
         lcbft_vigilance_options = []
-        lcbft_ppe_options = []
     try:
         row = db.execute(
             text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
@@ -7426,14 +6925,6 @@ async def dashboard_client_kyc(
     fatca_client_country: str | None = None
     fatca_client_nif: str | None = None
     fatca_today = _date.today().isoformat()
-
-    # Liste des commerciaux (administration_RH) pour le sélecteur Responsable
-    rh_list = []
-    try:
-        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
-        rh_list = [dict(r._mapping) for r in rows]
-    except Exception:
-        rh_list = []
 
     # --- DER data for Conformité modal (client detail) ---
     DER_courtier = None
@@ -7565,14 +7056,6 @@ async def dashboard_client_kyc(
                 })
     except Exception:
         DER_courtier_garanties_normes = []
-
-    # --- Liste des commerciaux (administration_RH) pour édition dans la synthèse ---
-    rh_list = []
-    try:
-        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
-        rh_list = [dict(r._mapping) for r in rows]
-    except Exception:
-        rh_list = []
 
     # Load DER activities (courtier_id/activite_id) to feed section 2 — joined with reference for labels
     DER_activites: list[dict] = []
@@ -8077,11 +7560,9 @@ async def dashboard_client_kyc(
             "ref_profession_secteur": ref_profession_secteur,
             "ref_statut_professionnel": ref_statut_professionnel,
             "active_section": active_section,
-            "active_objectif_id": active_objectif_id,
             # LCBFT
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
-            "lcbft_ppe_options": lcbft_ppe_options,
             "lcbft_vigilance_ids": lcbft_vigilance_ids,
             # RISK (connaissance financière)
             "risque_opts": risque_opts,
@@ -8141,23 +7622,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
     rows = get_clients(db)
-    # Map des responsables (commercial) depuis administration_RH
-    resp_map: dict[int, str] = {}
-    try:
-        ids = sorted({int(getattr(r, 'commercial_id')) for r in rows if getattr(r, 'commercial_id', None) is not None})
-    except Exception:
-        ids = []
-    if ids:
-        try:
-            from sqlalchemy import text as _text
-            rh_rows = db.execute(_text("SELECT id, prenom, nom FROM administration_RH WHERE id IN (%s)" % ",".join(str(i) for i in ids))).fetchall()
-            for rr in rh_rows or []:
-                rid = getattr(rr, 'id', None)
-                nom = f"{getattr(rr, 'prenom', '') or ''} {getattr(rr, 'nom', '') or ''}".strip()
-                if rid is not None:
-                    resp_map[int(rid)] = nom
-        except Exception:
-            resp_map = {}
 
     def icon_for_compare(client_srri, hist_srri):
         if client_srri is None or hist_srri is None:
@@ -8180,7 +7644,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "id": getattr(r, "id", None),
             "nom": getattr(r, "nom", None),
             "prenom": getattr(r, "prenom", None),
-            "responsable": resp_map.get(int(getattr(r, "commercial_id", 0) or 0), None),
             "SRRI": getattr(r, "SRRI", None),
             "srri_hist": getattr(r, "srri_hist", None),
             "srri_icon": icon_for_compare(getattr(r, "SRRI", None), getattr(r, "srri_hist", None)),
@@ -8188,32 +7651,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "perf_52_sem": getattr(r, "perf_52_sem", None),
             "volatilite": getattr(r, "volatilite", None),
         })
-
-    # Filtre "risk" depuis le tableau de bord: above/equal/below
-    risk_filter = (request.query_params.get("risk") or "").strip().lower()
-    risk_label = None
-    if risk_filter in ("above", "equal", "below"):
-        risk_label = {
-            "above": "Au‑dessus du risque",
-            "equal": "Dans le risque",
-            "below": "Sous le risque",
-        }.get(risk_filter)
-        def keep(c):
-            cs = c.get("SRRI")
-            hs = c.get("srri_hist")
-            if cs is None or hs is None:
-                return False
-            try:
-                client_srri = int(cs)
-                hist_srri = int(hs)
-            except Exception:
-                return False
-            if risk_filter == "above":
-                return hist_srri > client_srri
-            if risk_filter == "equal":
-                return hist_srri == client_srri
-            return hist_srri < client_srri
-        clients = [c for c in clients if keep(c)]
 
     # (Graphiques SRRI supprimés sur la page Clients — calcul montants par SRRI non nécessaire ici)
 
@@ -8225,8 +7662,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_clients": total_clients,
             "srri_chart": srri_chart,
             "clients": clients,
-            "risk_filter": risk_filter,
-            "risk_label": risk_label,
         }
     )
 
@@ -8344,23 +7779,6 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         elif a["srri_icon"] == "snowflake":
             compare_counts["below"] += 1
 
-    # Badge filtre risque (query ?risk=...)
-    risk_q = (request.query_params.get("risk") or "").strip().lower()
-    risk_label = None
-    if risk_q:
-        mapping = {
-            "above": "Au‑dessus du risque",
-            "equal": "Dans le risque",
-            "below": "Sous le risque",
-            "fire": "Au‑dessus du risque",
-            "hands-praying": "Dans le risque",
-            "snowflake": "Sous le risque",
-            "🔥": "Au‑dessus du risque",
-            "🙏": "Dans le risque",
-            "❄️": "Sous le risque",
-        }
-        risk_label = mapping.get(risk_q)
-
     return templates.TemplateResponse(
         "dashboard_affaires.html",
         {
@@ -8369,7 +7787,6 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
-            "risk_label": risk_label,
         }
     )
 
@@ -8385,7 +7802,6 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     client_nom = None
     client_prenom = None
     client_id = None
-    client_responsable = None
     try:
         if getattr(affaire, 'id_personne', None) is not None:
             cli = db.query(Client).filter(Client.id == affaire.id_personne).first()
@@ -8393,20 +7809,6 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 client_id = cli.id
                 client_nom = getattr(cli, 'nom', None)
                 client_prenom = getattr(cli, 'prenom', None)
-                # Responsable (commercial)
-                try:
-                    from sqlalchemy import text as _text
-                    row = db.execute(_text("SELECT commercial_id FROM mariadb_clients WHERE id = :cid"), {"cid": cli.id}).fetchone()
-                    rh_id = int(row[0]) if row and row[0] is not None else None
-                    if rh_id is not None:
-                        rh = db.execute(_text("SELECT prenom, nom FROM administration_RH WHERE id = :id"), {"id": rh_id}).fetchone()
-                        if rh:
-                            mm = rh._mapping if hasattr(rh, '_mapping') else None
-                            p = (mm.get('prenom') if mm else rh[0]) if rh else ''
-                            n = (mm.get('nom') if mm else rh[1]) if rh else ''
-                            client_responsable = f"{p or ''} {n or ''}".strip()
-                except Exception:
-                    client_responsable = None
     except Exception:
         pass
 
@@ -8958,14 +8360,12 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "client_id": client_id,
             "client_nom": client_nom,
             "client_prenom": client_prenom,
-            "client_responsable": client_responsable,
             # Tâches: assistance création locale
             "types": types,
             "categories": cats,
             "statuts": statuts,
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
-            "rh_list": db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall(),
             "clients_suggest": clients_suggest,
             "affaires_suggest": affaires_suggest,
             "client_fullname_default": client_fullname_default,
@@ -9994,75 +9394,14 @@ def dashboard_taches(
         params["exclude_statut"] = exclude_statut
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
-    try:
-        items = db.execute(text(sql), params).fetchall()
-    except Exception:
-        # Fallback si la vue n'existe pas ou pointe vers une ancienne table
-        fallback_sql = f"""
-        WITH base AS (
-          SELECT
-            e.id AS evenement_id,
-            e.id AS id,
-            e.date_evenement AS date_evenement,
-            e.statut AS statut,
-            e.commentaire AS commentaire,
-            e.client_id AS client_id,
-            e.affaire_id AS affaire_id,
-            t.libelle AS type_evenement,
-            t.categorie AS categorie,
-            (
-              SELECT GROUP_CONCAT(
-                       COALESCE(i.role,'') || CASE WHEN i.nom_intervenant IS NOT NULL AND i.nom_intervenant<>'' THEN ':'||i.nom_intervenant ELSE '' END,
-                       ', '
-                     )
-              FROM mariadb_evenement_intervenant i
-              WHERE i.evenement_id = e.id
-            ) AS intervenants
-          FROM mariadb_evenement e
-          LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id
-        )
-        SELECT * FROM base{where} ORDER BY date_evenement DESC LIMIT 300
-        """
-        items = db.execute(text(fallback_sql), params).fetchall()
+    items = db.execute(text(sql), params).fetchall()
 
-    # Enrichir avec noms client, référence affaire et RH affecté pour l'affichage
+    # Enrichir avec noms client et référence affaire pour l'affichage
     try:
-        def _field(row, *names):
-            m = getattr(row, '_mapping', None)
-            for nm in names:
-                try:
-                    if m is not None and nm in m and m.get(nm) is not None:
-                        return m.get(nm)
-                except Exception:
-                    pass
-                try:
-                    v = getattr(row, nm)
-                    if v is not None:
-                        return v
-                except Exception:
-                    continue
-            return None
-
-        client_ids = set()
-        affaire_ids = set()
-        event_ids = set()
-        for r in items:
-            cid = _field(r, 'client_id')
-            if cid is not None:
-                try: client_ids.add(int(cid))
-                except Exception: pass
-            aid = _field(r, 'affaire_id')
-            if aid is not None:
-                try: affaire_ids.add(int(aid))
-                except Exception: pass
-            evid = _field(r, 'id', 'evenement_id')
-            if evid is not None:
-                try: event_ids.add(int(evid))
-                except Exception: pass
+        client_ids = {getattr(r, 'client_id', None) for r in items if getattr(r, 'client_id', None) is not None}
+        affaire_ids = {getattr(r, 'affaire_id', None) for r in items if getattr(r, 'affaire_id', None) is not None}
         clients_map_full = {}
         affaires_map_ref = {}
-        rh_name_by_event: dict[int, str] = {}
-        client_resp_by_client: dict[int, str] = {}
         if client_ids:
             rows_cli = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
             for cid, nom, prenom in rows_cli:
@@ -10072,68 +9411,22 @@ def dashboard_taches(
             rows_aff = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
             for aid, ref in rows_aff:
                 affaires_map_ref[aid] = ref or str(aid)
-        # Fallback "commercial" du client si aucune affectation RH sur l'évènement
-        if client_ids:
-            try:
-                from sqlalchemy import text as _text
-                rows_cli_resp = db.execute(_text("SELECT c.id, c.commercial_id, r.prenom, r.nom FROM mariadb_clients c LEFT JOIN administration_RH r ON r.id = c.commercial_id WHERE c.id IN (%s)" % ",".join(str(int(i)) for i in client_ids))).fetchall()
-                for rr in rows_cli_resp or []:
-                    mm = rr._mapping if hasattr(rr, '_mapping') else None
-                    cid = int(mm.get('id') if mm else rr[0])
-                    p = (mm.get('prenom') if mm else (rr[2] if len(rr)>2 else None)) or ''
-                    n = (mm.get('nom') if mm else (rr[3] if len(rr)>3 else None)) or ''
-                    label = f"{p} {n}".strip()
-                    if label:
-                        client_resp_by_client[cid] = label
-            except Exception:
-                client_resp_by_client = {}
-        # RH: récupérer rh_id par événement puis étiquettes RH
-        if event_ids:
-            from sqlalchemy import text as _text
-            ev_rows = db.execute(_text("SELECT id, rh_id FROM mariadb_evenement WHERE id IN (%s)" % ",".join(str(int(i)) for i in event_ids))).fetchall()
-            rh_ids = { (r._mapping.get('rh_id') if hasattr(r,'_mapping') else r[1]) for r in (ev_rows or []) if (r._mapping.get('rh_id') if hasattr(r,'_mapping') else r[1]) is not None }
-            rh_map: dict[int,str] = {}
-            if rh_ids:
-                rh_rows = db.execute(_text("SELECT id, prenom, nom FROM administration_RH WHERE id IN (%s)" % ",".join(str(int(i)) for i in rh_ids))).fetchall()
-                for rr in rh_rows or []:
-                    m = rr._mapping if hasattr(rr,'_mapping') else None
-                    rid = int(m.get('id') if m else rr[0])
-                    label = f"{(m.get('prenom') if m else rr[1]) or ''} {(m.get('nom') if m else rr[2]) or ''}".strip()
-                    rh_map[rid] = label
-            for er in ev_rows or []:
-                m = er._mapping if hasattr(er,'_mapping') else None
-                evid = int(m.get('id') if m else er[0])
-                rid = m.get('rh_id') if m else er[1]
-                if rid is not None:
-                    try:
-                        rh_name_by_event[evid] = rh_map.get(int(rid))
-                    except Exception:
-                        rh_name_by_event[evid] = None
         # Convertir en dicts avec champs dérivés
-        new_items = []
-        for r in items:
-            base = dict(getattr(r, '_mapping', r))
-            ev_id = _field(r, 'id', 'evenement_id')
-            if 'evenement_id' not in base or base.get('evenement_id') is None:
-                base['evenement_id'] = ev_id
-            cid = _field(r, 'client_id')
-            aid = _field(r, 'affaire_id')
-            base['nom_client'] = clients_map_full.get(cid)
-            base['affaire_ref'] = affaires_map_ref.get(aid)
-            base['rh_nom'] = rh_name_by_event.get(ev_id) or client_resp_by_client.get(cid)
-            new_items.append(base)
-        items = new_items
+        items = [
+            {
+                **dict(getattr(r, '_mapping', r)),
+                'nom_client': clients_map_full.get(getattr(r, 'client_id', None)),
+                'affaire_ref': affaires_map_ref.get(getattr(r, 'affaire_id', None)),
+            }
+            for r in items
+        ]
     except Exception:
         # En cas d'échec, garder items bruts
         items = items
 
     # Options types & catégories pour filtres/creation
-    types_rows = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
-    # Convertir en dicts simples pour éviter tout souci d'accès attributaire côté template/JS
-    types = [ {'id': getattr(t,'id', None) if hasattr(t,'id') else (t[0] if len(t)>0 else None),
-               'libelle': getattr(t,'libelle', None) if hasattr(t,'libelle') else (t[1] if len(t)>1 else None),
-               'categorie': getattr(t,'categorie', None) if hasattr(t,'categorie') else (t[2] if len(t)>2 else None) } for t in types_rows ]
-    cats = sorted({ (d.get('categorie')) for d in types if d.get('categorie') is not None })
+    types = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
+    cats = sorted({t.categorie for t in types if getattr(t, 'categorie', None)})
 
     # Statuts (pour formulaire inline)
     statuts = list_statuts(db)
@@ -10192,37 +9485,7 @@ def dashboard_taches(
         try:
             return int(db.execute(text(sql_text), params_).scalar() or 0)
         except Exception:
-            # Fallback si la vue n'est pas disponible: compter via mariadb_evenement (+ type pour categorie)
-            try:
-                from sqlalchemy import text as _text
-                where = []
-                fb_params = {}
-                # today / late
-                if 'date(date_evenement) = :d' in sql_text and 'd' in params_:
-                    where.append('date(e.date_evenement) = :d'); fb_params['d'] = params_['d']
-                if 'date(date_evenement) < :d' in sql_text and 'd' in params_:
-                    where.append('date(e.date_evenement) < :d'); fb_params['d'] = params_['d']
-                # catégories (réclamations)
-                if "categorie = 'reclamation'" in sql_text:
-                    where.append("t.categorie = 'reclamation'")
-                # statut inclusions/exclusions
-                if "NOT IN (" in sql_text and "statut" in sql_text:
-                    where.append("(e.statut IS NULL OR lower(e.statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé','annulé','annule'))")
-                if "lower(statut) = 'en attente'" in sql_text:
-                    where.append("lower(e.statut) = 'en attente'")
-                if "lower(statut) = 'en cours'" in sql_text:
-                    where.append("lower(e.statut) = 'en cours'")
-                if "IN ('terminé','termine')" in sql_text:
-                    where.append("lower(e.statut) IN ('terminé','termine')")
-                if "IN ('annulé','annule')" in sql_text:
-                    where.append("lower(e.statut) IN ('annulé','annule')")
-                if "IN ('à faire','a faire')" in sql_text or "IN ('Ã  faire','a faire')" in sql_text:
-                    where.append("lower(e.statut) IN ('à faire','a faire')")
-                where_clause = (" WHERE " + " AND ".join(where)) if where else ""
-                fb_sql = f"SELECT COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id{where_clause}"
-                return int(db.execute(_text(fb_sql), fb_params).scalar() or 0)
-            except Exception:
-                return 0
+            return 0
 
     today_count = _count(
         "SELECT COUNT(1) FROM vue_suivi_evenement WHERE date(date_evenement) = :d",
@@ -10271,7 +9534,6 @@ def dashboard_taches(
             "statuts": statuts,
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
-            "rh_list": db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall(),
             "clients_suggest": clients_suggest,
             "affaires_suggest": affaires_suggest,
             "counts": {
@@ -10422,7 +9684,6 @@ def dashboard_tache_edit(
             Evenement.commentaire,
             Evenement.client_id,
             Evenement.affaire_id,
-            Evenement.rh_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
         )
@@ -10486,14 +9747,6 @@ def dashboard_tache_edit(
     except Exception:
         comment_entries = []
 
-    # RH list for assignment dropdown
-    try:
-        rh_rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
-        rh_list = [ { 'id': (r._mapping.get('id') if hasattr(r,'_mapping') else r[0]), 'prenom': (r._mapping.get('prenom') if hasattr(r,'_mapping') else r[1]), 'nom': (r._mapping.get('nom') if hasattr(r,'_mapping') else r[2]) } for r in (rh_rows or []) ]
-    except Exception:
-        rh_list = []
-    rh_selected = getattr(ev, 'rh_id', None)
-
     return templates.TemplateResponse(
         "dashboard_tache_edit.html",
         {
@@ -10505,8 +9758,6 @@ def dashboard_tache_edit(
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
             "comment_entries": comment_entries,
-            "rh_list": rh_list,
-            "rh_selected": rh_selected,
         },
     )
 
@@ -10524,7 +9775,6 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
     clients_l = form.getlist("client_fullname")
     affaires_l = form.getlist("affaire_ref")
     responsables_l = form.getlist("utilisateur_responsable")
-    rh_ids_l = form.getlist("rh_id")
     commentaires_l = form.getlist("commentaire")
 
     def resolve_client(fullname: str):
@@ -10561,8 +9811,8 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
         return q.first()
 
     # Crée chaque ligne non vide
-    for type_lbl, cat, cli_full, aff_ref, resp, comm, rhid in zip_longest(
-        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, rh_ids_l, fillvalue=""
+    for type_lbl, cat, cli_full, aff_ref, resp, comm in zip_longest(
+        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, fillvalue=""
     ):
         has_content = (type_lbl or comm or cli_full or aff_ref)
         if not has_content:
@@ -10578,10 +9828,6 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
                     type_lbl = row[0]
             except Exception:
                 pass
-        try:
-            rh_id_val = int(rhid) if (rhid and str(rhid).strip().isdigit()) else None
-        except Exception:
-            rh_id_val = None
         payload = TacheCreateSchema(
             type_libelle=(type_lbl or "tâche").strip(),
             categorie=(cat or "tache").strip() or "tache",
@@ -10589,7 +9835,6 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             affaire_id=getattr(aff, "id", None),
             commentaire=comm or None,
             utilisateur_responsable=(resp or None),
-            rh_id=rh_id_val,
         )
         ev = create_tache(db, payload)
 
@@ -10618,7 +9863,6 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
     statut_id = form.get("statut_id")
     commentaire = form.get("commentaire")
     user = form.get("utilisateur_responsable")
-    rh_id_raw = form.get("rh_id")
     redirect_to = form.get("redirect") or "/dashboard/taches"
     # Mise à jour du commentaire de la tâche: préfixer avec date-heure
     if commentaire and commentaire.strip():
@@ -10642,20 +9886,6 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
         sid = int(statut_id) if statut_id else None
     except Exception:
         sid = None
-    # Mise à jour RH si fourni
-    if rh_id_raw is not None:
-        try:
-            from src.models.evenement import Evenement as _Ev
-            ev = db.query(_Ev).filter(_Ev.id == evenement_id).first()
-            if ev:
-                try:
-                    ev.rh_id = int(rh_id_raw) if (rh_id_raw and str(rh_id_raw).strip().isdigit()) else None
-                except Exception:
-                    ev.rh_id = None
-                db.add(ev)
-                db.commit()
-        except Exception:
-            pass
     if sid is not None:
         payload = EvenementStatutCreateSchema(statut_id=sid, commentaire=commentaire, utilisateur_responsable=user)
         add_statut_to_evenement(db, evenement_id, payload)
@@ -10828,8 +10058,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     DER_courtier_activite: list[dict] = []
     DER_sql_activite: str | None = None
     DER_sql_mediation: str | None = None
-    # Ensure RH list exists (used by template Synthèse block)
-    rh_list: list[dict] = []
 
     client = db.query(Client).filter(Client.id == client_id).first()
 
@@ -11601,30 +10829,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     lcbft_current = None
     lcbft_vigilance_options: list[dict] = []
     lcbft_vigilance_ids: list[int] = []
-    lcbft_ppe_options: list[dict] = []
     try:
         rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
         lcbft_vigilance_options = [dict(r._mapping) for r in rows]
-        if not lcbft_vigilance_options:
-            defaults = [
-                ("OP_COMPLEXE", "Opération complexe / inhabituelle"),
-                ("FONDS_SENSIBLES", "Provenance des fonds sensible"),
-                ("PAYS_RISQUE", "Pays à risque / sanctionné"),
-                ("PERS_EXPOSEE", "Personne politiquement exposée (PPE)"),
-                ("STRUCTURE_OPAQUE", "Structure juridique opaque (trust, etc.)"),
-            ]
-            for code, label in defaults:
-                db.execute(text("INSERT OR IGNORE INTO LCBFT_vigilance_option(code,label) VALUES(:c,:l)"), {"c": code, "l": label})
-            rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
-            lcbft_vigilance_options = [dict(r._mapping) for r in rows]
-        try:
-            rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib")).fetchall()
-            lcbft_ppe_options = [dict(r._mapping) if hasattr(r, '_mapping') else {"id": r[0], "lib": r[1]} for r in rows]
-        except Exception:
-            lcbft_ppe_options = []
     except Exception:
         lcbft_vigilance_options = []
-        lcbft_ppe_options = []
     try:
         row = db.execute(text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
         if row:
@@ -11975,74 +11184,25 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     risque_latest = None
     try:
-        # Rendre la requête résiliente selon le schéma (option_id présents ou non)
-        cols = _sqlite_table_columns(db, "KYC_Client_Risque")
-        colnames = {str(c.get("name") or "").lower() for c in (cols or [])}
-        has_opt_cols = all(x in colnames for x in (
-            "patrimoine_part_option_id", "duree_option_id", "perte_option_id"
-        ))
-        if has_opt_cols:
-            sql = """
-                SELECT 
-                  k.niveau_id,
-                  r.libelle AS niveau_risque,
-                  COALESCE(du.label, k.duree) AS horizon_placement,
-                  k.experience,
-                  k.connaissance,
-                  COALESCE(pp.label, k.patrimoine) AS patrimoine_label,
-                  COALESCE(pe.label, k.contraintes) AS perte_label,
-                  pp.code AS patrimoine_code,
-                  du.code AS duree_code,
-                  pe.code AS perte_code,
-                  k.commentaire,
-                  k.confirmation_client
-                FROM KYC_Client_Risque k
-                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
-                LEFT JOIN risque_patrimoine_part_option pp ON pp.id = k.patrimoine_part_option_id
-                LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
-                LEFT JOIN risque_perte_option pe ON pe.id = k.perte_option_id
-                WHERE k.client_id = :cid
-                ORDER BY k.date_saisie DESC, k.id DESC
-                LIMIT 1
+        row = db.execute(text(
             """
-        else:
-            # Schéma "legacy" sans colonnes *_option_id: utiliser les colonnes texte directes
-            sql = """
-                SELECT 
-                  k.niveau_id,
-                  r.libelle AS niveau_risque,
-                  k.duree AS horizon_placement,
-                  k.experience,
-                  k.connaissance,
-                  k.patrimoine AS patrimoine_label,
-                  k.contraintes AS perte_label,
-                  NULL AS patrimoine_code,
-                  NULL AS duree_code,
-                  NULL AS perte_code,
-                  k.commentaire,
-                  k.confirmation_client
-                FROM KYC_Client_Risque k
-                LEFT JOIN ref_niveau_risque r ON r.id = k.niveau_id
-                WHERE k.client_id = :cid
-                ORDER BY k.date_saisie DESC, k.id DESC
-                LIMIT 1
+            SELECT 
+              r.libelle AS niveau_risque,
+              k.niveau_id AS niveau_id,
+              k.duree AS horizon_placement,
+              k.experience,
+              k.connaissance,
+              k.commentaire,
+              k.confirmation_client
+            FROM KYC_Client_Risque k
+            JOIN ref_niveau_risque r ON k.niveau_id = r.id
+            WHERE k.client_id = :cid
+            ORDER BY k.date_saisie DESC, k.id DESC
+            LIMIT 1
             """
-        row = db.execute(text(sql), {"cid": client_id}).fetchone()
+        ), {"cid": client_id}).fetchone()
         if row:
-            m = row._mapping
-            d = dict(m)
-            # Allocation nom pour ce niveau
-            try:
-                rid = m.get('niveau_id')
-                if rid is not None:
-                    row_alloc = db.execute(text(
-                        "SELECT COALESCE(a.nom, ar.allocation_name) FROM allocation_risque ar LEFT JOIN allocations a ON a.nom = ar.allocation_name WHERE ar.risque_id = :rid ORDER BY ar.date_attribution DESC, ar.id DESC LIMIT 1"
-                    ), {"rid": rid}).fetchone()
-                    if row_alloc:
-                        d['allocation_nom'] = row_alloc[0]
-            except Exception:
-                pass
-            risque_latest = d
+            risque_latest = dict(row._mapping)
     except Exception:
         risque_latest = None
 
@@ -12133,28 +11293,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         adequation_allocation_html = None
 
 
-    # Calculs synthèse financière pour modale TRACFIN/FATCA
-    patrimoine_net_value = None
-    budget_net_value = None
-    try:
-        if synthese_latest:
-            ta = float(synthese_latest.get("total_actif") or 0)
-            tp = float(synthese_latest.get("total_passif") or 0)
-            trv = float(synthese_latest.get("total_revenus") or 0)
-            tch = float(synthese_latest.get("total_charges") or 0)
-            patrimoine_net_value = ta - tp
-            budget_net_value = trv - tch
-    except Exception:
-        patrimoine_net_value = None
-        budget_net_value = None
-
-    # Rafraîchir la liste des commerciaux juste avant rendu (évite écrasements ultérieurs)
-    try:
-        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
-        rh_list = [dict(r._mapping) for r in rows]
-    except Exception:
-        rh_list = []
-
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -12216,8 +11354,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "nb_enfants_latest": nb_enfants_latest,
             "synthese_latest": synthese_latest,
             "risque_latest": risque_latest,
-            "patrimoine_net_value": patrimoine_net_value,
-            "budget_net_value": budget_net_value,
             # Lettre d'adéquation: infos consolidées
             "etat_civil_latest": etat_civil_latest,
             "nb_enfants_latest": nb_enfants_latest,
@@ -12245,7 +11381,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # Conformité (LCBFT / FATCA) context for detail page modal
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
-            "lcbft_ppe_options": lcbft_ppe_options,
             "lcbft_vigilance_ids": lcbft_vigilance_ids,
             "fatca_contracts": fatca_contracts,
             "fatca_saved": fatca_saved,
@@ -12259,33 +11394,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "DER_courtier_garanties_normes": DER_courtier_garanties_normes,
             "lm_remunerations": lm_remunerations,
             "centre_mediation_lib": centre_mediation_lib,
-        "DER_activites": DER_activites,
-        # points 2 et 8 retirés temporairement
-        "rh_list": rh_list,
-    }
+            "DER_activites": DER_activites,
+            # points 2 et 8 retirés temporairement
+        }
     )
-
-
-@router.post("/clients/{client_id}/commercial", response_class=HTMLResponse)
-async def dashboard_client_update_commercial(client_id: int, request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    raw = form.get("commercial_id")
-    cid_val = None
-    try:
-        cid_val = int(raw) if (raw is not None and str(raw).strip() != "") else None
-    except Exception:
-        cid_val = None
-    from sqlalchemy import text as _text
-    try:
-        if cid_val is None:
-            db.execute(_text("UPDATE mariadb_clients SET commercial_id = NULL WHERE id = :id"), {"id": client_id})
-        else:
-            db.execute(_text("UPDATE mariadb_clients SET commercial_id = :cid WHERE id = :id"), {"cid": cid_val, "id": client_id})
-        db.commit()
-    except Exception:
-        db.rollback()
-    from starlette.responses import RedirectResponse
-    return RedirectResponse(url=f"/dashboard/clients/{client_id}", status_code=303)
 
 
 @router.post("/clients/{client_id}/actifs", response_class=HTMLResponse)
@@ -12481,27 +11593,6 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     obs_by_risque = [{"risque": r, "nb": int(nb)} for r, nb in obs_by_risque]
-
-    # Optionnel: afficher Responsable dans l'en-tête si un client est ciblé via ?client_id=
-    header_client = None
-    header_responsable = None
-    try:
-        qcid = request.query_params.get("client_id")
-        if qcid:
-            cid = int(qcid)
-            row = db.execute(text("SELECT nom, prenom, commercial_id FROM mariadb_clients WHERE id = :cid"), {"cid": cid}).fetchone()
-            if row:
-                m = row._mapping if hasattr(row, '_mapping') else None
-                header_client = f"{(m.get('prenom') if m else row[1]) or ''} {(m.get('nom') if m else row[0]) or ''}".strip()
-                rh_id = (m.get('commercial_id') if m else row[2]) if len(row) >= 3 else None
-                if rh_id is not None:
-                    rh = db.execute(text("SELECT prenom, nom FROM administration_RH WHERE id = :id"), {"id": rh_id}).fetchone()
-                    if rh:
-                        mm = rh._mapping if hasattr(rh, '_mapping') else None
-                        header_responsable = f"{(mm.get('prenom') if mm else rh[0]) or ''} {(mm.get('nom') if mm else rh[1]) or ''}".strip()
-    except Exception:
-        pass
-
     return templates.TemplateResponse(
         "dashboard_documents.html",
         {
@@ -12510,8 +11601,6 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
             "documents": documents,
             "obs_by_niveau": obs_by_niveau,
             "obs_by_risque": obs_by_risque,
-            "header_client": header_client,
-            "header_responsable": header_responsable,
         }
     )
 # List allocation dates for a given name (distinct)
@@ -12533,743 +11622,3 @@ def list_allocation_dates(name: str | None = None, isin: str | None = None, db: 
         return {"name": name, "isin": isin, "dates": [x for x in out if x]}
     except Exception as e:
         return {"name": name, "isin": isin, "dates": [], "error": str(e)}
-
-
-# ---------------- Administration: Intervenants CRUD ----------------
-@router.post("/parametres/administration/intervenant", response_class=HTMLResponse)
-async def admin_create_intervenant(request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    nom = (form.get("nom") or "").strip()
-    type_niveau = (form.get("type_niveau") or "").strip().lower()
-    type_personne = (form.get("type_personne") or "").strip().lower()
-    from urllib.parse import quote
-    if not nom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote('Le nom est requis.')}", status_code=303)
-    try:
-        telephone = (form.get("telephone") or "").strip() or None
-        mail = (form.get("mail") or "").strip() or None
-        db.execute(_text(
-            """
-            INSERT INTO administration_intervenant(nom, type_niveau, type_personne, telephone, mail)
-            VALUES(:nom, :type_niveau, :type_personne, :telephone, :mail)
-            """
-        ), {"nom": nom, "type_niveau": type_niveau, "type_personne": type_personne, "telephone": telephone, "mail": mail})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/intervenant/{row_id}", response_class=HTMLResponse)
-async def admin_update_intervenant(row_id: int, request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    nom = (form.get("nom") or "").strip()
-    type_niveau = (form.get("type_niveau") or "").strip().lower()
-    type_personne = (form.get("type_personne") or "").strip().lower()
-    from urllib.parse import quote
-    if not nom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote('Le nom est requis.')}", status_code=303)
-    try:
-        telephone = (form.get("telephone") or "").strip() or None
-        mail = (form.get("mail") or "").strip() or None
-        db.execute(_text(
-            """
-            UPDATE administration_intervenant
-            SET nom = :nom, type_niveau = :type_niveau, type_personne = :type_personne,
-                telephone = :telephone, mail = :mail
-            WHERE id = :id
-            """
-        ), {"id": row_id, "nom": nom, "type_niveau": type_niveau, "type_personne": type_personne, "telephone": telephone, "mail": mail})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/intervenant/{row_id}/delete", response_class=HTMLResponse)
-async def admin_delete_intervenant(row_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    from urllib.parse import quote
-    try:
-        # Purge relations referencing this intervenant
-        db.execute(_text("DELETE FROM administration_relation WHERE id_source = :i OR id_cible = :i"), {"i": row_id})
-        db.execute(_text("DELETE FROM administration_intervenant WHERE id = :i"), {"i": row_id})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_intervenants&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_intervenants&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-# ---------------- Administration: Relations CRUD ----------------
-@router.post("/parametres/administration/relation", response_class=HTMLResponse)
-async def admin_create_relation(request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    try:
-        id_source = int(form.get("id_source"))
-        id_cible = int(form.get("id_cible"))
-        id_type = int(form.get("id_type"))
-    except Exception:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('Champs invalides.')}", status_code=303)
-    if id_source == id_cible:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('La source et la cible doivent être différentes.')}", status_code=303)
-    try:
-        db.execute(_text(
-            """
-            INSERT OR IGNORE INTO administration_relation(id_source, id_cible, id_type, date_creation)
-            VALUES(:s, :c, :t, CURRENT_TIMESTAMP)
-            """
-        ), {"s": id_source, "c": id_cible, "t": id_type})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/relation/{row_id}", response_class=HTMLResponse)
-async def admin_update_relation(row_id: int, request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    # Allow updating type only to keep inverse consistency simple
-    try:
-        id_type = int(form.get("id_type"))
-    except Exception:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote('Type invalide.')}", status_code=303)
-    try:
-        # Update main row
-        db.execute(_text("UPDATE administration_relation SET id_type = :t WHERE id = :id"), {"t": id_type, "id": row_id})
-        # Sync mirror row type as inverse of the chosen type
-        row = db.execute(_text("SELECT id_source AS s, id_cible AS c FROM administration_relation WHERE id = :id"), {"id": row_id}).fetchone()
-        if row:
-            m = row._mapping if hasattr(row, '_mapping') else None
-            s = (m.get('s') if m else row[0])
-            c = (m.get('c') if m else row[1])
-            inv = db.execute(_text("SELECT COALESCE(inverse_id, :t) AS inv FROM administration_type_relation WHERE id = :t"), {"t": id_type}).fetchone()
-            inv_t = (inv._mapping.get('inv') if inv and hasattr(inv, '_mapping') else (inv[0] if inv else id_type))
-            db.execute(_text("UPDATE administration_relation SET id_type = :t WHERE id_source = :s AND id_cible = :c"), {"t": inv_t, "s": c, "c": s})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/relation/{row_id}/delete", response_class=HTMLResponse)
-async def admin_delete_relation(row_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    from urllib.parse import quote
-    try:
-        # Find the row to delete and compute its inverse, then delete both
-        row = db.execute(_text(
-            "SELECT id_source, id_cible, id_type FROM administration_relation WHERE id = :id"
-        ), {"id": row_id}).fetchone()
-        if row:
-            m = row._mapping if hasattr(row, '_mapping') else None
-            s = (m.get('id_source') if m else row[0])
-            c = (m.get('id_cible') if m else row[1])
-            t = (m.get('id_type') if m else row[2])
-            inv = db.execute(_text("SELECT COALESCE(inverse_id, :t) AS inv FROM administration_type_relation WHERE id = :t"), {"t": t}).fetchone()
-            inv_t = (inv._mapping.get('inv') if inv and hasattr(inv, '_mapping') else (inv[0] if inv else t))
-            # Delete primary row
-            db.execute(_text("DELETE FROM administration_relation WHERE id = :id"), {"id": row_id})
-            # Delete mirrored row
-            db.execute(_text(
-                "DELETE FROM administration_relation WHERE id_source = :s AND id_cible = :c AND id_type = :t"
-            ), {"s": c, "c": s, "t": inv_t})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_relations&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_relations&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-# ---------------- Administration: Type Relation CRUD ----------------
-def _sync_inverse_pair(db: Session, a_id: int, b_id: int | None) -> None:
-    from sqlalchemy import text as _text
-    if b_id is None or b_id == 0:
-        # clear any previous counterpart pointing to a
-        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a"), {"a": a_id})
-        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE id = :a"), {"a": a_id})
-        return
-    if a_id == b_id:
-        # self-inverse
-        db.execute(_text("UPDATE administration_type_relation SET inverse_id = :a WHERE id = :a"), {"a": a_id})
-        # clear others pointing to a
-        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a AND id <> :a"), {"a": a_id})
-        return
-    # Make them point to each other
-    # Detach previous partners for both
-    db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :a AND id <> :b"), {"a": a_id, "b": b_id})
-    db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :b AND id <> :a"), {"a": a_id, "b": b_id})
-    db.execute(_text("UPDATE administration_type_relation SET inverse_id = :b WHERE id = :a"), {"a": a_id, "b": b_id})
-    db.execute(_text("UPDATE administration_type_relation SET inverse_id = :a WHERE id = :b"), {"a": a_id, "b": b_id})
-
-
-@router.post("/parametres/administration/type_relation", response_class=HTMLResponse)
-async def admin_create_type_relation(request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    nom = (form.get("nom") or "").strip()
-    inv_name_raw = form.get("inverse_nom")
-    inv_name = (inv_name_raw or "").strip()
-    if not nom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote('Le nom du type est requis.')}", status_code=303)
-    try:
-        # Ensure main type exists
-        try:
-            db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": nom})
-        except Exception:
-            pass
-        row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": nom}).fetchone()
-        if row:
-            new_id = int(row._mapping.get('id') if hasattr(row, '_mapping') else row[0])
-            # Resolve or create inverse by name
-            if inv_name:
-                if inv_name.lower() == nom.lower():
-                    _sync_inverse_pair(db, new_id, new_id)
-                else:
-                    inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
-                    if inv_row is None:
-                        try:
-                            db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": inv_name})
-                        except Exception:
-                            pass
-                        inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
-                    if inv_row:
-                        inv_id = int(inv_row._mapping.get('id') if hasattr(inv_row, '_mapping') else inv_row[0])
-                        _sync_inverse_pair(db, new_id, inv_id)
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-# ---------------- Administration: Ressources Humaines CRUD ----------------
-@router.post("/parametres/administration/rh", response_class=HTMLResponse)
-async def admin_create_rh(request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    nom = (form.get("nom") or "").strip()
-    prenom = (form.get("prenom") or "").strip()
-    telephone = (form.get("telephone") or "").strip() or None
-    mail = (form.get("mail") or "").strip() or None
-    niveau_poste_raw = (form.get("niveau_poste") or "").strip() or None
-    commentaire = (form.get("commentaire") or "").strip() or None
-    if not nom or not prenom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Nom et prénom sont requis.')}", status_code=303)
-    try:
-        def _canon_np(s: str | None) -> str | None:
-            if not s:
-                return None
-            import unicodedata, re
-            s2 = unicodedata.normalize('NFKD', s)
-            s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
-            s2 = s2.lower().strip()
-            s2 = re.sub(r"[^a-z0-9]+", "_", s2).strip("_")
-            # synonyms
-            aliases = {
-                'dirigeant': 'dirigeant',
-                'directeur_commercial': 'directeur_commercial',
-                'directeurcommercial': 'directeur_commercial',
-                'responsable_service': 'responsable_service',
-                'responsableservice': 'responsable_service',
-                'commercial': 'commercial',
-                'back_office': 'back_office',
-                'backoffice': 'back_office',
-            }
-            return aliases.get(s2, s2)
-        niveau_poste = _canon_np(niveau_poste_raw)
-        # Enforce required + allowed set (even if DB allows NULL)
-        allowed = { 'dirigeant','directeur_commercial','responsable_service','commercial','back_office' }
-        if not niveau_poste:
-            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Niveau de poste est requis.')}", status_code=303)
-        if niveau_poste is not None and niveau_poste not in allowed:
-            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Valeur niveau_poste invalide. Valeurs autorisées: dirigeant, directeur_commercial, responsable_service, commercial, back_office.')}", status_code=303)
-        db.execute(_text(
-            """
-            INSERT INTO administration_RH(nom, prenom, telephone, mail, niveau_poste, commentaire)
-            VALUES(:nom, :prenom, :telephone, :mail, :niveau_poste, :commentaire)
-            """
-        ), {"nom": nom, "prenom": prenom, "telephone": telephone, "mail": mail, "niveau_poste": niveau_poste, "commentaire": commentaire})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/rh/{row_id}", response_class=HTMLResponse)
-async def admin_update_rh(row_id: int, request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    nom = (form.get("nom") or "").strip()
-    prenom = (form.get("prenom") or "").strip()
-    telephone = (form.get("telephone") or "").strip() or None
-    mail = (form.get("mail") or "").strip() or None
-    niveau_poste_raw = (form.get("niveau_poste") or "").strip() or None
-    commentaire = (form.get("commentaire") or "").strip() or None
-    if not nom or not prenom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Nom et prénom sont requis.')}", status_code=303)
-    try:
-        def _canon_np(s: str | None) -> str | None:
-            if not s:
-                return None
-            import unicodedata, re
-            s2 = unicodedata.normalize('NFKD', s)
-            s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
-            s2 = s2.lower().strip()
-            s2 = re.sub(r"[^a-z0-9]+", "_", s2).strip("_")
-            aliases = {
-                'dirigeant': 'dirigeant',
-                'directeur_commercial': 'directeur_commercial',
-                'directeurcommercial': 'directeur_commercial',
-                'responsable_service': 'responsable_service',
-                'responsableservice': 'responsable_service',
-                'commercial': 'commercial',
-                'back_office': 'back_office',
-                'backoffice': 'back_office',
-            }
-            return aliases.get(s2, s2)
-        niveau_poste = _canon_np(niveau_poste_raw)
-        allowed = { 'dirigeant','directeur_commercial','responsable_service','commercial','back_office' }
-        if not niveau_poste:
-            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Niveau de poste est requis.')}", status_code=303)
-        if niveau_poste is not None and niveau_poste not in allowed:
-            return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote('Valeur niveau_poste invalide. Valeurs autorisées: dirigeant, directeur_commercial, responsable_service, commercial, back_office.')}", status_code=303)
-        db.execute(_text(
-            """
-            UPDATE administration_RH
-            SET nom = :nom, prenom = :prenom, telephone = :telephone, mail = :mail,
-                niveau_poste = :niveau_poste, commentaire = :commentaire
-            WHERE id = :id
-            """
-        ), {"id": row_id, "nom": nom, "prenom": prenom, "telephone": telephone, "mail": mail, "niveau_poste": niveau_poste, "commentaire": commentaire})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/rh/{row_id}/delete", response_class=HTMLResponse)
-async def admin_delete_rh(row_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    from urllib.parse import quote
-    try:
-        db.execute(_text("DELETE FROM administration_RH WHERE id = :id"), {"id": row_id})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_rh&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_rh&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/type_relation/{row_id}", response_class=HTMLResponse)
-async def admin_update_type_relation(row_id: int, request: Request, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    form = await request.form()
-    from urllib.parse import quote
-    nom = (form.get("nom") or "").strip()
-    inv_name_raw = form.get("inverse_nom")
-    inv_name = (inv_name_raw or "").strip()
-    if not nom:
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote('Le nom du type est requis.')}", status_code=303)
-    try:
-        db.execute(_text("UPDATE administration_type_relation SET nom = :n WHERE id = :id"), {"n": nom, "id": row_id})
-        # compute inverse id by name
-        inv_id: int | None = None
-        if inv_name:
-            if inv_name.lower() == nom.lower():
-                inv_id = int(row_id)
-            else:
-                inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
-                if inv_row is None:
-                    try:
-                        db.execute(_text("INSERT INTO administration_type_relation(nom) VALUES(:n)"), {"n": inv_name})
-                    except Exception:
-                        pass
-                    inv_row = db.execute(_text("SELECT id FROM administration_type_relation WHERE lower(nom) = lower(:n)"), {"n": inv_name}).fetchone()
-                if inv_row:
-                    inv_id = int(inv_row._mapping.get('id') if hasattr(inv_row, '_mapping') else inv_row[0])
-        _sync_inverse_pair(db, int(row_id), inv_id)
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/type_relation/{row_id}/delete", response_class=HTMLResponse)
-async def admin_delete_type_relation(row_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    from urllib.parse import quote
-    try:
-        # Clear inverse references pointing to this type
-        db.execute(_text("UPDATE administration_type_relation SET inverse_id = NULL WHERE inverse_id = :id"), {"id": row_id})
-        # Attempt delete (will fail if used by administration_relation)
-        db.execute(_text("DELETE FROM administration_type_relation WHERE id = :id"), {"id": row_id})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_types&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_types&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-# ---- Administration: Groupes (CRUD sur administration_groupe_detail) ----
-@router.post("/parametres/administration/groupes", response_class=HTMLResponse)
-async def admin_create_groupe(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    type_raw = (form.get("type_groupe") or "").strip()
-    nom = (form.get("nom") or "").strip()
-    date_creation = (form.get("date_creation") or None)
-    date_fin = (form.get("date_fin") or None)
-    responsable_id = form.get("responsable_id")
-    motif = (form.get("motif") or None)
-    actif_str = form.get("actif")
-    actif = 1 if (str(actif_str).lower() in ("1","true","yes","on")) else 0
-    # Normaliser type (accepte Personnes/Affaires et client/affaire)
-    t = type_raw.lower()
-    if t in ("personnes", "personne", "client", "clients"):
-        type_norm = "Personnes"; type_store = "client"
-    elif t in ("affaires", "affaire", "contrat", "contrats"):
-        type_norm = "Affaires"; type_store = "affaire"
-    else:
-        type_norm = type_raw or "Personnes"; type_store = "client"
-    from sqlalchemy import text as _text
-    # Validation minimale
-    if not nom:
-        from urllib.parse import quote
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote('Le nom du groupe est requis.')}", status_code=303)
-    try:
-        # Déterminer si la colonne id existe et si des id NULL sont présents (schéma legacy)
-        try:
-            cols = rows_to_dicts(db.execute(_text("PRAGMA table_info('administration_groupe_detail')")).fetchall())
-            colnames = {str(c.get('name') or '').lower() for c in (cols or [])}
-        except Exception:
-            colnames = set()
-        params = {
-            "type_groupe": type_store,
-            "nom": nom,
-            "date_creation": date_creation,
-            "date_fin": date_fin,
-            "responsable_id": int(responsable_id) if responsable_id else None,
-            "motif": motif,
-            "actif": int(actif),
-        }
-        if 'id' in colnames:
-            row = db.execute(_text("SELECT MAX(id) AS max_id FROM administration_groupe_detail")); row = row.fetchone()
-            next_id = ((row[0] if row else 0) or 0) + 1
-            db.execute(_text(
-                """
-                INSERT INTO administration_groupe_detail (id, type_groupe, nom, date_creation, date_fin, responsable_id, motif, actif)
-                VALUES (:id, :type_groupe, :nom, COALESCE(:date_creation, DATE('now')), :date_fin, :responsable_id, :motif, :actif)
-                """
-            ), {"id": next_id, **params})
-        else:
-            db.execute(_text(
-                """
-                INSERT INTO administration_groupe_detail (type_groupe, nom, date_creation, date_fin, responsable_id, motif, actif)
-                VALUES (:type_groupe, :nom, COALESCE(:date_creation, DATE('now')), :date_fin, :responsable_id, :motif, :actif)
-                """
-            ), params)
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        from urllib.parse import quote
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/groupes/{row_id}", response_class=HTMLResponse)
-async def admin_update_groupe(row_id: int, request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    by = request.query_params.get("by") or ""
-    type_raw = (form.get("type_groupe") or "").strip()
-    nom = (form.get("nom") or "").strip()
-    date_creation = (form.get("date_creation") or None)
-    date_fin = (form.get("date_fin") or None)
-    responsable_id = form.get("responsable_id")
-    motif = (form.get("motif") or None)
-    actif_str = form.get("actif")
-    actif = 1 if (str(actif_str).lower() in ("1","true","yes","on")) else 0
-    t = type_raw.lower()
-    if t in ("personnes", "personne", "client", "clients"):
-        type_norm = "Personnes"; type_store = "client"
-    elif t in ("affaires", "affaire", "contrat", "contrats"):
-        type_norm = "Affaires"; type_store = "affaire"
-    else:
-        type_norm = type_raw or "Personnes"; type_store = "client"
-    from sqlalchemy import text as _text
-    try:
-        if by == 'rowid':
-            db.execute(_text(
-                """
-                UPDATE administration_groupe_detail
-                SET type_groupe = :type_groupe,
-                    nom = :nom,
-                    date_creation = COALESCE(:date_creation, date_creation),
-                    date_fin = :date_fin,
-                    responsable_id = :responsable_id,
-                    motif = :motif,
-                    actif = :actif
-                WHERE rowid = :id
-                """
-            ), {
-                "id": row_id,
-                "type_groupe": type_store,
-                "nom": nom,
-                "date_creation": date_creation,
-                "date_fin": date_fin,
-                "responsable_id": int(responsable_id) if responsable_id else None,
-                "motif": motif,
-                "actif": int(actif),
-            })
-        else:
-            db.execute(_text(
-                """
-                UPDATE administration_groupe_detail
-                SET type_groupe = :type_groupe,
-                    nom = :nom,
-                    date_creation = COALESCE(:date_creation, date_creation),
-                    date_fin = :date_fin,
-                    responsable_id = :responsable_id,
-                    motif = :motif,
-                    actif = :actif
-                WHERE id = :id
-                """
-            ), {
-                "id": row_id,
-                "type_groupe": type_store,
-                "nom": nom,
-                "date_creation": date_creation,
-                "date_fin": date_fin,
-                "responsable_id": int(responsable_id) if responsable_id else None,
-                "motif": motif,
-                "actif": int(actif),
-            })
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        from urllib.parse import quote
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-@router.post("/parametres/administration/groupes/{row_id}/delete", response_class=HTMLResponse)
-async def admin_delete_groupe(row_id: int, db: Session = Depends(get_db), request: Request = None):
-    from sqlalchemy import text as _text
-    try:
-        by = request.query_params.get("by") if request else None
-        if by == 'rowid':
-            db.execute(_text("DELETE FROM administration_groupe_detail WHERE rowid = :id"), {"id": row_id})
-        else:
-            db.execute(_text("DELETE FROM administration_groupe_detail WHERE id = :id"), {"id": row_id})
-        db.commit()
-        return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
-    except Exception as e:
-        db.rollback()
-        from urllib.parse import quote
-        return RedirectResponse(url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(str(e))}", status_code=303)
-
-
-# ---- Groupes: campagnes de tâches (simulation / exécution) ----
-def _ensure_group_task_schema(db: Session):
-    from sqlalchemy import text as _text
-    try:
-        db.execute(_text(
-            """
-            CREATE TABLE IF NOT EXISTS administration_groupe_task_campaign (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                groupe_id INTEGER NOT NULL,
-                type_groupe TEXT,
-                created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
-                initiated_by TEXT,
-                params TEXT,
-                status TEXT,
-                total INTEGER,
-                created INTEGER,
-                ignored INTEGER,
-                errors INTEGER
-            )
-            """
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-
-
-@router.get("/parametres/administration/groupes/{groupe_key}/tasks/logs")
-def groupes_tasks_logs(groupe_key: int, by: str | None = None, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    _ensure_group_task_schema(db)
-    # Resolve real id if by=rowid
-    if by == 'rowid':
-        row = db.execute(_text("SELECT id FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
-        if row and (row[0] is not None):
-            groupe_id = int(row[0])
-        else:
-            return JSONResponse({"logs": [], "active": False})
-    else:
-        groupe_id = int(groupe_key)
-    # Active flag
-    active = False
-    try:
-        r = db.execute(_text("SELECT COUNT(1) FROM administration_groupe_task_campaign WHERE groupe_id = :gid AND status = 'active'"), {"gid": groupe_id}).fetchone()
-        active = (int(r[0]) > 0) if r else False
-    except Exception:
-        active = False
-    # Logs (last 20)
-    rows = db.execute(_text("SELECT created_at, status, total, created, ignored, errors, params FROM administration_groupe_task_campaign WHERE groupe_id = :gid ORDER BY id DESC LIMIT 20"), {"gid": groupe_id}).fetchall() or []
-    logs = []
-    for r in rows:
-        m = r._mapping if hasattr(r,'_mapping') else None
-        created_at = (m.get('created_at') if m else r[0])
-        status = (m.get('status') if m else r[1])
-        total = (m.get('total') if m else r[2])
-        created = (m.get('created') if m else r[3])
-        ignored = (m.get('ignored') if m else r[4])
-        errors = (m.get('errors') if m else r[5])
-        summary = f"total={total or 0}, créées={created or 0}, ignorées={ignored or 0}, erreurs={errors or 0}"
-        logs.append({"created_at": created_at, "status": status, "summary": summary})
-    return JSONResponse({"logs": logs, "active": active})
-
-
-def _group_type_norm(s: str | None) -> str | None:
-    if not s:
-        return None
-    x = (s or '').strip().lower()
-    if x in ('client','clients','personne','personnes'):
-        return 'client'
-    if x in ('affaire','affaires','contrat','contrats'):
-        return 'affaire'
-    return x
-
-
-def _group_members(db: Session, groupe_id: int, scope: str, actifs_only: bool = True) -> list[dict]:
-    from sqlalchemy import text as _text
-    cond_actif = " AND COALESCE(actif,1) != 0 AND date_retrait IS NULL" if actifs_only else ""
-    if scope == 'client':
-        sql = f"SELECT client_id AS id FROM administration_groupe WHERE groupe_id = :gid AND client_id IS NOT NULL{cond_actif}"
-    else:
-        sql = f"SELECT affaire_id AS id FROM administration_groupe WHERE groupe_id = :gid AND affaire_id IS NOT NULL{cond_actif}"
-    rows = db.execute(_text(sql), {"gid": groupe_id}).fetchall() or []
-    out = []
-    for r in rows:
-        m = r._mapping if hasattr(r,'_mapping') else None
-        vid = m.get('id') if m else r[0]
-        if vid is not None:
-            out.append({"id": int(vid)})
-    return out
-
-
-@router.post("/parametres/administration/groupes/{groupe_key}/tasks/simulate")
-async def groupes_tasks_simulate(groupe_key: int, request: Request, by: str | None = None, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    _ensure_group_task_schema(db)
-    payload = await request.json()
-    # Resolve groupe id + scope
-    if by == 'rowid':
-        row = db.execute(_text("SELECT id, type_groupe FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
-        if not row:
-            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
-        groupe_id = int(row._mapping.get('id') if hasattr(row,'_mapping') else row[0])
-        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[1]) or 'client'
-    else:
-        row = db.execute(_text("SELECT type_groupe FROM administration_groupe_detail WHERE id = :id"), {"id": groupe_key}).fetchone()
-        if not row:
-            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
-        groupe_id = int(groupe_key)
-        scope = _group_type_norm(row[0] if not hasattr(row,'_mapping') else row._mapping.get('type_groupe')) or 'client'
-    actifs_only = bool(payload.get('actifs_only', True))
-    members = _group_members(db, groupe_id, scope, actifs_only=actifs_only)
-    return JSONResponse({"total": len(members), "created": 0, "ignored": 0})
-
-
-@router.post("/parametres/administration/groupes/{groupe_key}/tasks/run")
-async def groupes_tasks_run(groupe_key: int, request: Request, by: str | None = None, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _text
-    _ensure_group_task_schema(db)
-    payload = await request.json()
-    # Resolve groupe id + scope + RH responsable par défaut
-    if by == 'rowid':
-        row = db.execute(_text("SELECT id, type_groupe, responsable_id FROM administration_groupe_detail WHERE rowid = :rid"), {"rid": groupe_key}).fetchone()
-        if not row:
-            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
-        groupe_id = int(row._mapping.get('id') if hasattr(row,'_mapping') else row[0])
-        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[1]) or 'client'
-        rh_default = row._mapping.get('responsable_id') if hasattr(row,'_mapping') else row[2]
-    else:
-        row = db.execute(_text("SELECT type_groupe, responsable_id FROM administration_groupe_detail WHERE id = :id"), {"id": groupe_key}).fetchone()
-        if not row:
-            return JSONResponse({"detail": "Groupe introuvable"}, status_code=404)
-        groupe_id = int(groupe_key)
-        scope = _group_type_norm(row._mapping.get('type_groupe') if hasattr(row,'_mapping') else row[0]) or 'client'
-        rh_default = row._mapping.get('responsable_id') if hasattr(row,'_mapping') else row[1]
-    # Lock: active campaign?
-    r = db.execute(_text("SELECT COUNT(1) FROM administration_groupe_task_campaign WHERE groupe_id = :gid AND status = 'active'"), {"gid": groupe_id}).fetchone()
-    if r and int(r[0]) > 0:
-        return JSONResponse({"detail": "Une campagne est déjà en cours pour ce groupe."}, status_code=400)
-    actifs_only = bool(payload.get('actifs_only', True))
-    categorie = (payload.get('categorie') or '').strip() or None
-    type_libelle = (payload.get('type_libelle') or '').strip() or None
-    statut_id = payload.get('statut_id')
-    rh_override = payload.get('rh_id')
-    commentaire = payload.get('commentaire') or None
-    # Members
-    members = _group_members(db, groupe_id, scope, actifs_only=actifs_only)
-    total = len(members)
-    created = 0
-    ignored = 0
-    errors = 0
-    # Create campaign row (active)
-    try:
-        db.execute(_text("INSERT INTO administration_groupe_task_campaign (groupe_id, type_groupe, initiated_by, params, status, total, created, ignored, errors) VALUES (:gid, :scope, :by, :params, 'active', :total, 0, 0, 0)"),
-                   {"gid": groupe_id, "scope": scope, "by": "dashboard", "params": str(payload), "total": total})
-        db.commit()
-    except Exception:
-        db.rollback()
-    # Create tasks
-    from src.schemas.evenement import TacheCreateSchema
-    from src.services.evenements import create_tache, add_statut_to_evenement
-    from src.schemas.evenement_statut import EvenementStatutCreateSchema
-    from datetime import datetime as _dt
-    for m in members:
-        try:
-            p = TacheCreateSchema(
-                type_libelle=type_libelle or 'tâche',
-                categorie=categorie or 'tache',
-                client_id=(m['id'] if scope=='client' else None),
-                affaire_id=(m['id'] if scope=='affaire' else None),
-                commentaire=commentaire,
-                rh_id=(int(rh_override) if (rh_override is not None and str(rh_override).strip()!='') else (int(rh_default) if rh_default is not None else None)),
-            )
-            ev = create_tache(db, p)
-            if statut_id:
-                try:
-                    sid = int(statut_id)
-                    add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire='Créé via groupe', utilisateur_responsable=None))
-                except Exception:
-                    pass
-            created += 1
-        except Exception:
-            errors += 1
-    # Update campaign row to completed
-    try:
-        db.execute(_text("UPDATE administration_groupe_task_campaign SET status = 'completed', created = :c, ignored = :i, errors = :e WHERE groupe_id = :gid AND status = 'active' ORDER BY id DESC LIMIT 1"),
-                   {"c": created, "i": ignored, "e": errors, "gid": groupe_id})
-        db.commit()
-    except Exception:
-        db.rollback()
-    return JSONResponse({"total": total, "created": created, "ignored": ignored, "errors": errors})
