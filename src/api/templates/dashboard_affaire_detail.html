@@ -4,6 +4,9 @@
 {% block header_title %}
   <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
     <span><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Suivi de l'affaire{% if affaire %} – {{ affaire.ref }}{% endif %}</span>
+    {% if client_responsable %}
+      <span class="badge" style="background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:2px 8px; border-radius:999px; font-size:.85rem;">Responsable: {{ client_responsable }}</span>
+    {% endif %}
     <span style="display:inline-flex; gap:6px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
         <button type="button" class="btn" style="background:#16a34a; color:#fff; border:1px solid #16a34a; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')">{{ msgs_nonreg_count }} message{{ 's' if msgs_nonreg_count>1 }} en cours</button>

@@ -19,9 +19,7 @@
   .btn { border:1px solid var(--border); border-radius:8px; padding:.4rem .7rem; background:#fff; cursor:pointer; }
   /* en-tête supprimé */
   .center { text-align:center; }
-  /* Centrer SRRI (col 3) et SRRI calculé (col 4) */
-  #clientsTbl thead th:nth-child(3),
-  #clientsTbl tbody td:nth-child(3),
+  /* Centrer SRRI calculé (col 4) */
   #clientsTbl thead th:nth-child(4),
   #clientsTbl tbody td:nth-child(4) { text-align: center; }
   /* Pastilles SRRI */
@@ -29,10 +27,20 @@
   .srri-red { background:#ef4444; }
   .srri-green { background:#16a34a; }
   .srri-blue { background:#3b82f6; }
+  .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
+  .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
+  .badge-filter .x:hover { opacity:1; }
+  .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
 </style>
 
 <div class="main-container">
   <h2>Liste des clients</h2>
+  {% if risk_label %}
+  <div class="badge-row">
+    <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/clients" title="Effacer le filtre">✕</a></span>
+  </div>
+  {% endif %}
+  <div id="cf_active_badges" class="badge-row"></div>
   <div style="display:flex; gap:.5rem; justify-content:space-between; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;">
     <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
     <div style="display:flex; gap:.5rem; align-items:center;">
@@ -50,16 +58,16 @@
       <tr>
         <th>Nom</th>
         <th>Prénom</th>
-        <th>SRRI</th>
+        <th>Responsable</th>
         <th>SRRI calculé</th>
-        <th class="right">Valorisation</th>
-        <th class="right">Perf 52 sem.</th>
-        <th class="right">Volatilité</th>
+        <th class="right" style="width:120px;">Valorisation</th>
+        <th class="right" style="width:100px;">Perf 52 sem.</th>
+        <th class="right" style="width:100px;">Volatilité</th>
       </tr>
       <tr>
         <th><input id="cf_nom" type="text" placeholder="Filtrer" /></th>
         <th><input id="cf_prenom" type="text" placeholder="Filtrer" /></th>
-        <th><select id="cf_srri"><option value="">Tous</option></select></th>
+        <th><select id="cf_resp"><option value="">Tous</option></select></th>
         <th><select id="cf_srri_calc"><option value="">Tous</option></select></th>
         <th><input id="cf_valo" type="text" placeholder="Ex: >100k, 100k-500k" /></th>
         <th><input id="cf_perf" type="text" placeholder="Ex: >5, 3-7" /></th>
@@ -68,10 +76,10 @@
     </thead>
     <tbody>
       {% for c in clients %}
-      <tr data-client-id="{{ c.id }}">
+      <tr data-client-id="{{ c.id }}" data-srri="{{ c.SRRI if c.SRRI is not none else '' }}">
         <td><a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ c.nom }}</a></td>
         <td>{{ c.prenom }}</td>
-        <td>{{ c.SRRI }}</td>
+        <td>{{ c.responsable or '—' }}</td>
         <td>{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
         <td class="right">{{ c.total_valo }}</td>
         <td class="right">{{ c.perf_52_sem }}</td>
@@ -220,19 +228,19 @@
     setText(tds[6], fmtPct(vol));
   });
 
-  // Build filter options (SRRI + Risque)
-  var srriSet = new Set();
+  // Build filter options (Responsable + SRRI calculé)
+  var respSet = new Set();
   var srriCalcSet = new Set();
   rows.forEach(function(tr){
     var tds = tr.querySelectorAll('td');
-    var srri = text(tds[2]);
+    var resp = text(tds[2]);
     var srriCalc = text(tds[3]);
-    if (srri) srriSet.add(srri);
+    if (resp) respSet.add(resp);
     if (srriCalc) srriCalcSet.add(srriCalc);
   });
-  var fSrri = document.getElementById('cf_srri');
-  Array.from(srriSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
-    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrri.appendChild(opt);
+  var fResp = document.getElementById('cf_resp');
+  Array.from(respSet).sort(function(a,b){ return a.localeCompare(b, 'fr', {sensitivity:'base'}); }).forEach(function(v){
+    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fResp.appendChild(opt);
   });
   var fSrriCalc = document.getElementById('cf_srri_calc');
   Array.from(srriCalcSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
@@ -245,20 +253,15 @@
   var fPerf = document.getElementById('cf_perf');
   var fVol = document.getElementById('cf_vol');
 
-  // Coloration conditionnelle du SRRI calculé vs SRRI
+  // Pastille de comparaison (SRRI calculé vs SRRI du client)
   rows.forEach(function(tr){
     var tds = tr.querySelectorAll('td');
-    var srri = Number(text(tds[2]));
-    var calc = Number(text(tds[3]));
-    if (!isNaN(srri) && !isNaN(calc)){
-      if (calc > srri) tds[3].style.color = '#dc2626'; /* rouge */
-      else if (calc === srri) tds[3].style.color = '#16a34a'; /* vert */
-      else tds[3].style.color = getComputedStyle(document.documentElement).getPropertyValue('--primary-600') || '#1e3a8a'; /* bleu foncé */
-      // Ajouter une pastille colorée pour indiquer le rapport (Au‑dessus=bleu / Identique=vert / En‑dessous=rouge)
+    var srriBase = Number(tr.getAttribute('data-srri'));
+    var srriCalc = Number(text(tds[3]));
+    if (!isNaN(srriBase) && !isNaN(srriCalc)){
       var dot = document.createElement('span');
-      // Inversion rouge/bleu pour les icônes: Au‑dessus=rouge, En‑dessous=bleu
-      dot.className = 'srri-dot ' + (calc>srri ? 'srri-red' : (calc===srri ? 'srri-green' : 'srri-blue'));
-      dot.title = (calc>srri ? 'Au‑dessus' : (calc===srri ? 'Identique' : 'En‑dessous'));
+      dot.className = 'srri-dot ' + (srriCalc>srriBase ? 'srri-red' : (srriCalc===srriBase ? 'srri-green' : 'srri-blue'));
+      dot.title = (srriCalc>srriBase ? 'Au‑dessus' : (srriCalc===srriBase ? 'Identique' : 'En‑dessous'));
       dot.style.marginLeft = '6px';
       tds[3].appendChild(dot);
     }
@@ -267,22 +270,19 @@
   function applyFilters(){
     var qNom = (fNom.value||'').toLowerCase();
     var qPre = (fPrenom.value||'').toLowerCase();
-    var qSrri = fSrri.value||'';
     var qSrriCalc = fSrriCalc.value||'';
+    var qResp = (fResp.value||'').toLowerCase();
     var qValo = (fValo.value||'').toLowerCase();
     var qPerf = (fPerf.value||'').toLowerCase();
     var qVol = (fVol.value||'').toLowerCase();
     var predValo = buildValoPredicate(qValo);
     var predPerf = buildNumericPredicate(qPerf);
     var predVol = buildNumericPredicate(qVol);
-    // Risk mode from URL (?risk=above|equal|below)
-    var params = new URLSearchParams(window.location.search);
-    var riskMode = (params.get('risk')||'').toLowerCase();
     rows.forEach(function(tr){
       var tds = tr.querySelectorAll('td');
       var nom = text(tds[0]).toLowerCase();
       var prenom = text(tds[1]).toLowerCase();
-      var srri = text(tds[2]);
+      var resp = text(tds[2]).toLowerCase();
       var srriCalc = text(tds[3]);
       var valoTxt = text(tds[4]);
       var valoNum = _numFromCell(valoTxt);
@@ -293,32 +293,24 @@
       var ok = true;
       if (qNom && nom.indexOf(qNom) === -1) ok = false;
       if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
-      if (ok && qSrri && srri !== qSrri) ok = false;
+      if (ok && qResp && resp !== qResp) ok = false;
       if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
       if (ok && qValo && !predValo(valoNum)) ok = false;
       if (ok && qPerf && !predPerf(perfNum)) ok = false;
       if (ok && qVol && !predVol(volNum)) ok = false;
-      if (ok && riskMode){
-        var s = Number(srri), c = Number(srriCalc);
-        if (isFinite(s) && isFinite(c)){
-          if (riskMode === 'above' && !(c > s)) ok = false;
-          else if (riskMode === 'equal' && !(c === s)) ok = false;
-          else if (riskMode === 'below' && !(c < s)) ok = false;
-        }
-      }
       tr.style.display = ok ? '' : 'none';
     });
   }
 
   ['input','change'].forEach(function(ev){
-    [fNom,fPrenom,fSrri,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.addEventListener(ev, applyFilters); });
+    [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.addEventListener(ev, function(){ applyFilters(); renderBadges(); }); });
   });
 
   // Bouton réinitialiser les filtres
   var resetBtn = document.getElementById('cf_reset_btn');
   if (resetBtn){
     resetBtn.addEventListener('click', function(){
-      [fNom,fPrenom,fSrri,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
+      [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
       applyFilters();
     });
   }
@@ -373,7 +365,38 @@
   if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
 
   // Initial state
+  function renderBadges(){
+    var host = document.getElementById('cf_active_badges');
+    if (!host) return;
+    host.innerHTML = '';
+    // Responsable badge
+    var respSel = document.getElementById('cf_resp');
+    if (respSel && respSel.value){
+      var label = 'Responsable: ' + (respSel.options[respSel.selectedIndex]?.textContent || respSel.value);
+      var span = document.createElement('span');
+      span.className = 'badge-filter';
+      span.appendChild(document.createTextNode(label + ' '));
+      var a = document.createElement('a'); a.href = '#'; a.className = 'x'; a.title = 'Effacer le filtre'; a.textContent = '✕';
+      a.addEventListener('click', function(e){ e.preventDefault(); respSel.value = ''; applyFilters(); renderBadges(); });
+      span.appendChild(a);
+      host.appendChild(span);
+    }
+    // SRRI calculé badge
+    var srriSel = document.getElementById('cf_srri_calc');
+    if (srriSel && srriSel.value){
+      var label2 = 'SRRI calculé: ' + (srriSel.options[srriSel.selectedIndex]?.textContent || srriSel.value);
+      var span2 = document.createElement('span');
+      span2.className = 'badge-filter';
+      span2.appendChild(document.createTextNode(label2 + ' '));
+      var a2 = document.createElement('a'); a2.href = '#'; a2.className = 'x'; a2.title = 'Effacer le filtre'; a2.textContent = '✕';
+      a2.addEventListener('click', function(e){ e.preventDefault(); srriSel.value = ''; applyFilters(); renderBadges(); });
+      span2.appendChild(a2);
+      host.appendChild(span2);
+    }
+  }
+
   applyFilters();
+  renderBadges();
 })();
 </script>
 

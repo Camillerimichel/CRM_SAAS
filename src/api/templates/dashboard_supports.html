@@ -95,12 +95,19 @@
         cursor: pointer;
         font-weight: bold;
     }
+    /* Badges actifs */
+    .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
+    .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.85; }
+    .badge-filter .x:hover { opacity:1; }
+    .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
 </style>
 
 <div class="main-container">
     <div class="header-section">
         <p><strong>Date:</strong> <span class="js-local-dt" data-iso="{{ last_date }}">{{ last_date }}</span> | <strong>Total:</strong> {{ total_supports }} supports</p>
     </div>
+
+    <div id="sup_active_badges" class="badge-row"></div>
 
     <div class="table-container">
         <div id="restoreSupports" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredSupports()">×</a></span></div>
@@ -240,6 +247,8 @@ $(document).ready(function () {
                     } catch(e) {}
                     // Sauver état
                     try { saveSupportsState(); } catch(e) {}
+                    // Badges actifs
+                    try { renderBadges(); } catch(e) {}
                 });
             });
 
@@ -276,6 +285,8 @@ $(document).ready(function () {
                 }
               } catch(e) {}
             })();
+            // Rendu initial des badges
+            try { renderBadges(); } catch(e) {}
         }
     });
 
@@ -302,9 +313,9 @@ $(document).ready(function () {
       } catch(e) {}
     }
     $('#isin-filter').on('keyup change', function () { multiTextSearch(this.value, 0); saveSupportsState(); });
-    $('#nom-filter').on('keyup change', function () { multiTextSearch(this.value, 1); saveSupportsState(); });
+    $('#nom-filter').on('keyup change', function () { multiTextSearch(this.value, 1); saveSupportsState(); try { renderBadges(); } catch(e) {} });
 
-    // chips SRRI
+    // chips SRRI (raccourcis)
     window.chipSrri = function(val){ if(val===''){ $('#srri-filter').val(['']).trigger('change'); } else { $('#srri-filter').val([val]).trigger('change'); } return false; };
 
     // bouton effacer
@@ -324,6 +335,39 @@ $(document).ready(function () {
 
     // reset depuis le badge restauré
     window.resetRestoredSupports = function(){ try{ document.getElementById('restoreSupports').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
+
+    // Badges actifs (Catégorie / Zone / SRRI et ISIN/Nom)
+    window.renderBadges = function(){
+      var host = document.getElementById('sup_active_badges');
+      if (!host) return; host.innerHTML = '';
+      function makeBadge(label, onClear){
+        var span = document.createElement('span'); span.className='badge-filter';
+        span.appendChild(document.createTextNode(label+' '));
+        var a = document.createElement('a'); a.href='#'; a.className='x'; a.title='Effacer le filtre'; a.textContent='✕';
+        a.addEventListener('click', function(e){ e.preventDefault(); try{ onClear(); }catch(_){} });
+        span.appendChild(a); host.appendChild(span);
+      }
+      // Catégorie
+      try {
+        var catVals = ($('#categorie-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (catVals.length){ makeBadge('Catégorie: '+catVals.join(', '), function(){ $('#categorie-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      // Zone
+      try {
+        var zoneVals = ($('#zone-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (zoneVals.length){ makeBadge('Zone géo: '+zoneVals.join(', '), function(){ $('#zone-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      // SRRI
+      try {
+        var srriVals = ($('#srri-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (srriVals.length){ makeBadge('SRRI: '+srriVals.join(', '), function(){ $('#srri-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      // Optionnel: ISIN / Nom si non vides
+      try { var isin = $('#isin-filter').val()||''; if (isin){ makeBadge('ISIN: '+isin, function(){ $('#isin-filter').val('').trigger('change'); }); } } catch(e) {}
+      try { var nom = $('#nom-filter').val()||''; if (nom){ makeBadge('Nom: '+nom, function(){ $('#nom-filter').val('').trigger('change'); }); } } catch(e) {}
+    };
+    // Premier rendu badges au chargement
+    try { renderBadges(); } catch(e) {}
 });
 </script>
 

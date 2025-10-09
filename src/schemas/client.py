@@ -9,6 +9,7 @@ class ClientSchema(BaseModel):
     telephone: str | None = None
     adresse_postale: str | None = None
     email: str | None = None
+    commercial_id: int | None = None
     total_valo: float | None = None
     perf_52_sem: float | None = None
     volatilite: float | None = None
@@ -25,6 +26,7 @@ class ClientCreateSchema(BaseModel):
     telephone: str | None = None
     adresse_postale: str | None = None
     email: str | None = None
+    commercial_id: int | None = None
 
 
 # Schéma pour la mise à jour (API → DB)
@@ -35,3 +37,4 @@ class ClientUpdateSchema(BaseModel):
     telephone: str | None = None
     adresse_postale: str | None = None
     email: str | None = None
+    commercial_id: int | None = None

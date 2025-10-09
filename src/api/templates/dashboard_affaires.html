@@ -107,10 +107,20 @@
     .srri-green { background:#16a34a; }
     .srri-blue { background:#3b82f6; }
     .srri-hidden { display:none; }
+    .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
+    .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
+    .badge-filter .x:hover { opacity:1; }
+    .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
 </style>
 
 <div class="main-container">
     <!-- Bandeau total retiré -->
+
+    {% if risk_label %}
+    <div class="badge-row">
+      <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/affaires" title="Effacer le filtre">✕</a></span>
+    </div>
+    {% endif %}
 
     <!-- Accordéon: Risque rapide -->
     <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">

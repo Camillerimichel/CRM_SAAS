@@ -28,6 +28,7 @@ def get_clients(db: Session):
             Client.id,
             Client.nom,
             Client.prenom,
+            Client.commercial_id,
             Client.SRRI,
             HistoriquePersonne.SRRI.label("srri_hist"),
             HistoriquePersonne.valo.label("total_valo"),
@@ -60,6 +61,7 @@ def create_client(db: Session, client: ClientCreateSchema):
         telephone=client.telephone,
         adresse_postale=client.adresse_postale,
         email=client.email,
+        commercial_id=client.commercial_id,
     )
     db.add(db_client)
     db.commit()
