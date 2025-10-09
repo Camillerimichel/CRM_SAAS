@@ -1575,6 +1575,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         <style>
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
+          .risk-block h5 { background:#2563eb; color:#fff; padding:6px 10px; border-radius:6px; margin:-10px -10px 10px -10px; font-size:1rem; }
           .btn-group .btn-choice { margin-right:6px; }
           .btn-choice-active { background: var(--primary); color:#fff; }
           .step-hidden { display:none; }
@@ -1643,6 +1644,56 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                 </div>
                 <div class="field"><label>Référence du contrat</label><input type="text" name="existing_contract_ref" placeholder="REF-..." value="{{ lcbft_current.existing_contract_ref if lcbft_current else '' }}"/></div>
                 <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
+              </div>
+              <!-- Rappels de vigilance (1.a à 3.a) déplacés ici -->
+              <div class="field"><label>1.a – Comportement suspect du client (réticence à fournir des pièces, incohérences)</label>
+                <div class="btn-group" data-name="flag_1a">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_1a" value="{{ lcbft_current.flag_1a if lcbft_current and lcbft_current.flag_1a is not none else '0' }}" />
+              </div>
+              <div class="field"><label>1.b – Profil professionnel (dirigeant, artisan, prof. réglementée, non‑résident, etc.)</label>
+                <div class="btn-group" data-name="flag_1b">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_1b" value="{{ lcbft_current.flag_1b if lcbft_current and lcbft_current.flag_1b is not none else '0' }}" />
+              </div>
+              <div class="field"><label>1.c – Représentation par un tiers / résident hors France / EEE</label>
+                <div class="btn-group" data-name="flag_1c">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_1c" value="{{ lcbft_current.flag_1c if lcbft_current and lcbft_current.flag_1c is not none else '0' }}" />
+              </div>
+              <div class="field"><label>1.d – Refus d’indiquer l’origine des fonds / PPE / pays sous sanctions</label>
+                <div class="btn-group" data-name="flag_1d">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_1d" value="{{ lcbft_current.flag_1d if lcbft_current and lcbft_current.flag_1d is not none else '0' }}" />
+              </div>
+              <div class="field"><label>2.a – Versement trop important / complexe / non justifié (ex. &gt; 100 000 €)</label>
+                <div class="btn-group" data-name="flag_2a">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_2a" value="{{ lcbft_current.flag_2a if lcbft_current and lcbft_current.flag_2a is not none else '0' }}" />
+              </div>
+              <div class="field"><label>2.b – Opération favorisant l’anonymat / optimisation fiscale / fiducie</label>
+                <div class="btn-group" data-name="flag_2b">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_2b" value="{{ lcbft_current.flag_2b if lcbft_current and lcbft_current.flag_2b is not none else '0' }}" />
+              </div>
+              <div class="field"><label>3.a – Modalités de paiement présentant des anomalies manifestes</label>
+                <div class="btn-group" data-name="flag_3a">
+                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+                </div>
+                <input type="hidden" name="flag_3a" value="{{ lcbft_current.flag_3a if lcbft_current and lcbft_current.flag_3a is not none else '0' }}" />
               </div>
             </div>
             {# Bloc Synthèse financière retiré (revenu/charges/patrimoine/montant) — rebasculé à l'état antérieur #}
