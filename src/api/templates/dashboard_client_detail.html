@@ -129,6 +129,19 @@
       <div class="kpi-small"><strong>Contrats ouverts:</strong> {{ nb_contrats_ouverts }}</div>
       <div class="kpi-small"><strong>Contrats fermés:</strong> {{ nb_contrats_fermes }}</div>
       <div class="kpi-small"><strong>Durée historique:</strong> {{ duree_historique_str }}</div>
+      <div class="kpi-mini kpi-line">
+        <span>Responsable</span>
+        <span class="kv">
+          <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
+            <select name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
+              <option value="">— Aucun —</option>
+              {% for rh in rh_list %}
+                <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </span>
+      </div>
     </div>
     <div class="card">
       <div class="muted">Valorisation</div>
@@ -1633,6 +1646,41 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
               </div>
             </div>
             <div class="risk-block">
+              <h5>Synthèse financière</h5>
+              {% set _prof = (lcbft_current.prof_profession if lcbft_current else '') %}
+              {% set _revenus = (synthese_latest.total_revenus if synthese_latest else None) %}
+              {% set _charges = (synthese_latest.total_charges if synthese_latest else None) %}
+              {% set _patrimoine = (patrimoine_net_value if patrimoine_net_value is not none else None) %}
+              {% set _montant = (lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else None) %}
+              {% set _pct = ( (_montant|float * 100.0 / (_patrimoine if _patrimoine else 0.0)) if (_montant is not none and _patrimoine and _patrimoine != 0) else None ) %}
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="field">
+                  <label>Profession</label>
+                  <div class="value-display">{{ _prof or '—' }}</div>
+                </div>
+                <div class="field">
+                  <label>Patrimoine net</label>
+                  <div class="value-display">{% if _patrimoine is not none %}{{ '{:,.0f}'.format(_patrimoine|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
+                </div>
+                <div class="field">
+                  <label>Revenus annuels</label>
+                  <div class="value-display">{% if _revenus is not none %}{{ '{:,.0f}'.format(_revenus|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
+                </div>
+                <div class="field">
+                  <label>Charges annuelles</label>
+                  <div class="value-display">{% if _charges is not none %}{{ '{:,.0f}'.format(_charges|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
+                </div>
+                <div class="field">
+                  <label>Montant de l'opération</label>
+                  <div class="value-display">{% if _montant is not none %}{{ '{:,.0f}'.format(_montant|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
+                </div>
+                <div class="field">
+                  <label>% du patrimoine</label>
+                  <div class="value-display">{% if _pct is not none %}{{ '%.2f'|format(_pct|float) }} %{% else %}—{% endif %}</div>
+                </div>
+              </div>
+            </div>
+            <div class="risk-block">
               <h5>PPE</h5>
               <div class="muted-small" style="margin-bottom:6px;">Reportez-vous aux fonctions PPE (chef d’État, parlement, haute juridiction, ambassadeur, etc.).</div>
               <div class="field"><label>Client PPE ?</label>
@@ -1643,7 +1691,21 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                 <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
               </div>
               <div id="ppeSelfBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_self_fonction" value="{{ lcbft_current.ppe_self_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Fonction exercée</label>
+                  {% set _cur_self_fn_raw = (lcbft_current.ppe_self_fonction if lcbft_current else none) %}
+                  {% set _cur_self_fn_l = (_cur_self_fn_raw if _cur_self_fn_raw is not none else '') | string | trim %}
+                  {% set _libs = lcbft_ppe_options | map(attribute='lib') | list %}
+                  {% set _illegal = ['non','oui','0','1','false','true','—','-','none'] %}
+                  <select name="ppe_self_fonction">
+                    <option value="">—</option>
+                    {% if (_cur_self_fn_raw is not none) and _cur_self_fn_l and (_cur_self_fn_l|lower not in _illegal) and (_cur_self_fn_l not in _libs) %}
+                      <option value="{{ _cur_self_fn_l }}" selected>{{ _cur_self_fn_l }}</option>
+                    {% endif %}
+                    {% for opt in lcbft_ppe_options %}
+                      <option value="{{ opt.lib }}" {% if _cur_self_fn_l and (_cur_self_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
                 <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
               </div>
               <div class="field"><label>Membre de la famille PPE ?</label>
@@ -1654,7 +1716,21 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                 <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
               </div>
               <div id="ppeFamilyBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction du membre</label><input type="text" name="ppe_family_fonction" value="{{ lcbft_current.ppe_family_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Fonction du membre</label>
+                  {% set _cur_fam_fn_raw = (lcbft_current.ppe_family_fonction if lcbft_current else none) %}
+                  {% set _cur_fam_fn_l = (_cur_fam_fn_raw if _cur_fam_fn_raw is not none else '') | string | trim %}
+                  {% set _libs2 = lcbft_ppe_options | map(attribute='lib') | list %}
+                  {% set _illegal2 = ['non','oui','0','1','false','true','—','-','none'] %}
+                  <select name="ppe_family_fonction">
+                    <option value="">—</option>
+                    {% if (_cur_fam_fn_raw is not none) and _cur_fam_fn_l and (_cur_fam_fn_l|lower not in _illegal2) and (_cur_fam_fn_l not in _libs2) %}
+                      <option value="{{ _cur_fam_fn_l }}" selected>{{ _cur_fam_fn_l }}</option>
+                    {% endif %}
+                    {% for opt in lcbft_ppe_options %}
+                      <option value="{{ opt.lib }}" {% if _cur_fam_fn_l and (_cur_fam_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
                 <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_family_pays" value="{{ lcbft_current.ppe_family_pays if lcbft_current else '' }}"/></div>
               </div>
             </div>
@@ -1699,6 +1775,16 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
             }
             const form = document.getElementById('lcbftFormDetail');
             if (!form) return;
+            function updatePPERequired(){
+              try {
+                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
+                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
+                const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
+                const famSel = form.querySelector('select[name="ppe_family_fonction"]');
+                if (selfSel) selfSel.required = (selfVal === '1');
+                if (famSel) famSel.required = (famVal === '1');
+              } catch(e) {}
+            }
             function initSingle(group){
               const name = group.getAttribute('data-name'); const input = form.querySelector('input[name="'+name+'"]'); const current = input? String(input.value||'') : '';
               group.querySelectorAll('button[data-value]').forEach(function(btn){ const v=String(btn.getAttribute('data-value')||''); if(current===v&&v!==''){ btn.classList.add('btn-choice-active'); }
@@ -1706,6 +1792,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                   if (name==='has_existing_contracts'){ const blk=document.getElementById('lcbftExistingBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
                   if (name==='ppe_self'){ const blk=document.getElementById('ppeSelfBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
                   if (name==='ppe_family'){ const blk=document.getElementById('ppeFamilyBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
+                  updatePPERequired();
                 });
               });
             }
@@ -1719,7 +1806,23 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
               document.getElementById('lcbftExistingBlockDetail')?.classList.toggle('step-hidden', val('has_existing_contracts')!=='1');
               document.getElementById('ppeSelfBlockDetail')?.classList.toggle('step-hidden', val('ppe_self')!=='1');
               document.getElementById('ppeFamilyBlockDetail')?.classList.toggle('step-hidden', val('ppe_family')!=='1');
+              updatePPERequired();
             })();
+            // Simple client-side validation: if PPE=Oui, fonction must be selected
+            form.addEventListener('submit', function(e){
+              try {
+                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
+                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
+                if (selfVal === '1'){
+                  const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
+                  if (selfSel && !selfSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le client.'); selfSel.focus(); return false; }
+                }
+                if (famVal === '1'){
+                  const famSel = form.querySelector('select[name="ppe_family_fonction"]');
+                  if (famSel && !famSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le membre de la famille.'); famSel.focus(); return false; }
+                }
+              } catch(err) {}
+            });
           })();
         </script>
       </div>

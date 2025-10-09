@@ -245,7 +245,11 @@
           </tr>
           <tr>
             <th></th>
-            <th></th>
+            <th>
+              <select id="tasks_type_filter" style="width:100%">
+                <option value="">Tous</option>
+              </select>
+            </th>
             <th></th>
             <th></th>
             <th>
@@ -300,8 +304,6 @@
                 <a class="btn {{ btn_class }}" href="/dashboard/taches/{{ r.evenement_id }}" style="padding:2px 6px; font-size:11px; border-radius:4px; {{ btn_style }}">{{ r.statut or 'à faire' }}</a>
               </td>
             </tr>
-          {% else %}
-            <tr><td colspan="6" class="center muted">Aucune tâche</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -324,6 +326,7 @@
               dom: 'Bfrtip',
               buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'taches', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
               order: [[0,'desc']],
+              language: { emptyTable: 'Aucune tâche' },
               columnDefs: [
                 { targets: [0,1,2,3,4,5], className: 'nowrap' },
                 { targets: 0, render: function(data, type){
@@ -338,12 +341,42 @@
                   }},
               ]
             });
+            // Build Type options using DataTables API (ignore pagination)
+            function buildTypeOptions(useApplied){
+              try {
+                var sel = document.getElementById('tasks_type_filter');
+                if (!sel || !window.tasksDT) return;
+                var data = window.tasksDT.column(1, { search: (useApplied? 'applied' : 'none') }).data();
+                var seen = new Set();
+                for (var i=0;i<data.length;i++){
+                  var txt = String(data[i]||'').trim();
+                  if (txt) seen.add(txt);
+                }
+                var opts = Array.from(seen).sort(function(a,b){ return a.localeCompare(b, 'fr', {sensitivity:'base'}); });
+                // Preserve current selection if still available
+                var current = sel.value || '';
+                sel.length = 1; // keep "Tous"
+                opts.forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+                if (current && opts.indexOf(current) >= 0) sel.value = current; else sel.value = '';
+              } catch(e) {}
+            }
+            // Initial build from full dataset
+            buildTypeOptions(false);
+            // Rebuild on table redraw to reflect filters (applied)
+            $('#tasksTable').on('draw.dt', function(){ buildTypeOptions(true); });
             // Filtre RH (col 4)
             $('#tasks_rh_filter').on('change', function(){
               var v = this.value || '';
               if (!v) { window.tasksDT.column(4).search('').draw(); return; }
               var esc = $.fn.dataTable.util.escapeRegex(v);
               window.tasksDT.column(4).search('^'+esc+'$', true, false).draw();
+            });
+            // Filtre Type (col 1)
+            $('#tasks_type_filter').on('change', function(){
+              var v = this.value || '';
+              if (!v) { window.tasksDT.column(1).search('').draw(); return; }
+              var esc = $.fn.dataTable.util.escapeRegex(v);
+              window.tasksDT.column(1).search('^'+esc+'$', true, false).draw();
             });
           } catch(e) {}
         });

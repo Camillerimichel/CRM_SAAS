@@ -11,3 +11,5 @@ class Client(Base):
     telephone = Column(String, nullable=True)
     adresse_postale = Column(Text, nullable=True)
     email = Column(String, nullable=True)
+    # Nouveau champ: commercial_id (FK logique vers administration_RH.id)
+    commercial_id = Column(Integer, nullable=True)

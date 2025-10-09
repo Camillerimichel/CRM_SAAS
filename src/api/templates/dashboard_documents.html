@@ -1,7 +1,17 @@
 {% extends "base.html" %}
 
 {% block title %}Documents{% endblock %}
-{% block header_title %}<i class="fa-solid fa-file" style="margin-right:8px;"></i>Documents{% endblock %}
+{% block header_title %}
+  <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <span><i class="fa-solid fa-file" style="margin-right:8px;"></i>Documents</span>
+    {% if header_client %}
+      <span class="badge" style="background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:2px 8px; border-radius:999px; font-size:.85rem;">Client: {{ header_client }}</span>
+    {% endif %}
+    {% if header_responsable %}
+      <span class="badge" style="background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:2px 8px; border-radius:999px; font-size:.85rem;">Responsable: {{ header_responsable }}</span>
+    {% endif %}
+  </span>
+{% endblock %}
 
 {% block content %}
 <style>

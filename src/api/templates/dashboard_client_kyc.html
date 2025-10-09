@@ -2904,6 +2904,7 @@ function hydrateInitialObjectifs(){
   }
 
   objectifsSelected = Array.from(merged.values());
+  updateObjectifsTotal();
 }
 
 function getAvailableObjectifs(){
@@ -2930,6 +2931,7 @@ function updateHiddenInput(){
     .filter(function(val){ return val !== null; });
   objectifsInput.value = JSON.stringify(ids);
 }
+
 
 function highlightObjectiveButtons(){
   if (!objectifsSelectedContainer) return;
@@ -3090,6 +3092,12 @@ function updateObjectifsUI(){
   refreshAddObjectiveBtnState();
   updatePriorityOptions(true);
   highlightObjectiveButtons();
+  // Fallback: si rien n'est sélectionné, sélectionner le premier et peupler le formulaire
+  if (!getCurrentObjective() && objectifsSelected.length){
+    currentObjectiveId = toNumber(objectifsSelected[0].id);
+    populateDetailForm(objectifsSelected[0]);
+    highlightObjectiveButtons();
+  }
 }
 
 function selectObjective(id){
@@ -3250,6 +3258,7 @@ if (objectifDetailForm){
 [objectifFormHorizon, objectifFormCommentaire, objectifFormDateExpiration].forEach(function(field){
   if (!field) return;
   field.addEventListener('input', syncCurrentObjectiveFromForm);
+  field.addEventListener('change', syncCurrentObjectiveFromForm);
 });
 if (objectifFormNiveau){
   objectifFormNiveau.addEventListener('change', syncCurrentObjectiveFromForm);

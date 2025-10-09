@@ -3426,6 +3426,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             cnt = sum(1 for v in last_vals if v is not None and lo <= v < hi)
         clients_buckets.append({"label": label, "nb": cnt})
 
+
     # Comptes par SRRI
     srri_clients_count = [
         {"srri": s, "nb": n}
@@ -3618,6 +3619,23 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         open_count = int(db.execute(_text("SELECT COUNT(1) FROM mariadb_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0)
         rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM mariadb_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall() or []
         rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(t.categorie)), '(non défini)') as c, COUNT(1) FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY c ORDER BY COUNT(1) DESC")).fetchall() or []
+        # Par type + RH (pour graphique)
+        rows_type_by_rh = db.execute(_text(
+            """
+            SELECT COALESCE(t.libelle, '(non défini)') AS type_libelle,
+                   e.rh_id,
+                   COALESCE(r.prenom || ' ' || r.nom, '') AS rh_nom,
+                   COUNT(1) AS nb
+            FROM mariadb_evenement e
+            LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id
+            LEFT JOIN administration_RH r ON r.id = e.rh_id
+            GROUP BY type_libelle, e.rh_id, rh_nom
+            ORDER BY type_libelle
+            """
+        )).fetchall() or []
+        rows_type_total = db.execute(_text(
+            "SELECT COALESCE(t.libelle, '(non défini)') AS type_libelle, COUNT(1) AS nb FROM mariadb_evenement e LEFT JOIN mariadb_type_evenement t ON t.id = e.type_id GROUP BY type_libelle ORDER BY type_libelle"
+        )).fetchall() or []
         # N derniers jours: créations par jour
         rows_days = db.execute(_text(
             """
@@ -3634,6 +3652,12 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
         tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
         tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
+        tasks_type_by_rh = [ {"type": (getattr(r, 'type_libelle', None) if hasattr(r, '_mapping') else r[0]),
+                               "rh_id": (getattr(r, 'rh_id', None) if hasattr(r, '_mapping') else r[1]),
+                               "rh_nom": (getattr(r, 'rh_nom', None) if hasattr(r, '_mapping') else (r[2] if len(r)>2 else '')),
+                               "nb": int((getattr(r, 'nb', 0) if hasattr(r, '_mapping') else (r[3] if len(r)>3 else 0)) or 0) } for r in rows_type_by_rh ]
+        tasks_type_total = [ {"type": (getattr(r, 'type_libelle', None) if hasattr(r, '_mapping') else r[0]),
+                               "nb": int((getattr(r, 'nb', 0) if hasattr(r, '_mapping') else (r[1] if len(r)>1 else 0)) or 0) } for r in rows_type_total ]
         # Fallback période si aucune tâche sur la fenêtre choisie
         def _sum_days(lst):
             try:
@@ -4259,7 +4283,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             ), {"n": range_days - 1}).fetchall() or []
             tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
         except Exception:
-            tasks_total = 0; open_count = 0; tasks_statut = []; tasks_categorie = []; tasks_days = []
+            tasks_total = 0; open_count = 0; tasks_statut = []; tasks_categorie = []; tasks_days = []; tasks_type_by_rh = []; tasks_type_total = []
         # Continuer pour la suite du tableau de bord (ESG etc.)
 
     return templates.TemplateResponse(
@@ -4273,6 +4297,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "srri_clients_count": srri_clients_count,
             "srri_affaires_count": srri_affaires_count,
             "srri_clients_amount": srri_clients_amount,
+            
             "srri_affaires_amount": srri_affaires_amount,
             # Infos Documents pour la carte Risque Documents
             "docs_total": total_documents,
@@ -4288,6 +4313,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "tasks_statut": tasks_statut,
             "tasks_categorie": tasks_categorie,
             "tasks_days": tasks_days,
+            "tasks_type_by_rh": locals().get('tasks_type_by_rh', []),
+            "tasks_type_total": locals().get('tasks_type_total', []),
             "tasks_avg_by_statut": tasks_avg_by_statut,
             "tasks_avg_close_days": tasks_avg_close_days,
             "tasks_close_dist": tasks_close_dist,
@@ -5456,6 +5483,8 @@ async def dashboard_client_kyc(
 
         elif action == "objectifs_delete":
             active_section = "objectifs"
+            ui_focus_section = "objectifs"
+            ui_focus_panel = "objectifsPanel"
             link_id_raw = form.get("link_id")
             objectif_id_raw = form.get("objectif_id")
             if objectif_id_raw:
@@ -7234,6 +7263,7 @@ async def dashboard_client_kyc(
 
     preselected_objectifs: list[dict] = []
     preselected_objectifs_ids: list[int] = []
+    objectifs_total_montant = 0.0
     try:
         objectifs_rows = db.execute(
             text(
@@ -7280,6 +7310,10 @@ async def dashboard_client_kyc(
                 }
             )
             preselected_objectifs_ids.append(objectif_id)
+            try:
+                objectifs_total_montant += float(data.get("montant") or 0.0)
+            except Exception:
+                pass
     except Exception as exc:
         preselected_objectifs = []
         preselected_objectifs_ids = []
@@ -7345,11 +7379,31 @@ async def dashboard_client_kyc(
     lcbft_current: dict | None = None
     lcbft_vigilance_ids: list[int] = []
     lcbft_vigilance_options: list[dict] = []
+    lcbft_ppe_options: list[dict] = []
     try:
         rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
         lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+        if not lcbft_vigilance_options:
+            # Seed default vigilance options if table is empty
+            defaults = [
+                ("OP_COMPLEXE", "Opération complexe / inhabituelle"),
+                ("FONDS_SENSIBLES", "Provenance des fonds sensible"),
+                ("PAYS_RISQUE", "Pays à risque / sanctionné"),
+                ("PERS_EXPOSEE", "Personne politiquement exposée (PPE)"),
+                ("STRUCTURE_OPAQUE", "Structure juridique opaque (trust, etc.)"),
+            ]
+            for code, label in defaults:
+                db.execute(text("INSERT OR IGNORE INTO LCBFT_vigilance_option(code,label) VALUES(:c,:l)"), {"c": code, "l": label})
+            rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
+            lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+        try:
+            rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib")).fetchall()
+            lcbft_ppe_options = [dict(r._mapping) if hasattr(r, '_mapping') else {"id": r[0], "lib": r[1]} for r in rows]
+        except Exception:
+            lcbft_ppe_options = []
     except Exception:
         lcbft_vigilance_options = []
+        lcbft_ppe_options = []
     try:
         row = db.execute(
             text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
@@ -7372,6 +7426,14 @@ async def dashboard_client_kyc(
     fatca_client_country: str | None = None
     fatca_client_nif: str | None = None
     fatca_today = _date.today().isoformat()
+
+    # Liste des commerciaux (administration_RH) pour le sélecteur Responsable
+    rh_list = []
+    try:
+        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
+        rh_list = [dict(r._mapping) for r in rows]
+    except Exception:
+        rh_list = []
 
     # --- DER data for Conformité modal (client detail) ---
     DER_courtier = None
@@ -7503,6 +7565,14 @@ async def dashboard_client_kyc(
                 })
     except Exception:
         DER_courtier_garanties_normes = []
+
+    # --- Liste des commerciaux (administration_RH) pour édition dans la synthèse ---
+    rh_list = []
+    try:
+        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
+        rh_list = [dict(r._mapping) for r in rows]
+    except Exception:
+        rh_list = []
 
     # Load DER activities (courtier_id/activite_id) to feed section 2 — joined with reference for labels
     DER_activites: list[dict] = []
@@ -8007,9 +8077,11 @@ async def dashboard_client_kyc(
             "ref_profession_secteur": ref_profession_secteur,
             "ref_statut_professionnel": ref_statut_professionnel,
             "active_section": active_section,
+            "active_objectif_id": active_objectif_id,
             # LCBFT
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
+            "lcbft_ppe_options": lcbft_ppe_options,
             "lcbft_vigilance_ids": lcbft_vigilance_ids,
             # RISK (connaissance financière)
             "risque_opts": risque_opts,
@@ -8069,6 +8141,23 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
     rows = get_clients(db)
+    # Map des responsables (commercial) depuis administration_RH
+    resp_map: dict[int, str] = {}
+    try:
+        ids = sorted({int(getattr(r, 'commercial_id')) for r in rows if getattr(r, 'commercial_id', None) is not None})
+    except Exception:
+        ids = []
+    if ids:
+        try:
+            from sqlalchemy import text as _text
+            rh_rows = db.execute(_text("SELECT id, prenom, nom FROM administration_RH WHERE id IN (%s)" % ",".join(str(i) for i in ids))).fetchall()
+            for rr in rh_rows or []:
+                rid = getattr(rr, 'id', None)
+                nom = f"{getattr(rr, 'prenom', '') or ''} {getattr(rr, 'nom', '') or ''}".strip()
+                if rid is not None:
+                    resp_map[int(rid)] = nom
+        except Exception:
+            resp_map = {}
 
     def icon_for_compare(client_srri, hist_srri):
         if client_srri is None or hist_srri is None:
@@ -8091,6 +8180,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "id": getattr(r, "id", None),
             "nom": getattr(r, "nom", None),
             "prenom": getattr(r, "prenom", None),
+            "responsable": resp_map.get(int(getattr(r, "commercial_id", 0) or 0), None),
             "SRRI": getattr(r, "SRRI", None),
             "srri_hist": getattr(r, "srri_hist", None),
             "srri_icon": icon_for_compare(getattr(r, "SRRI", None), getattr(r, "srri_hist", None)),
@@ -8098,6 +8188,32 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "perf_52_sem": getattr(r, "perf_52_sem", None),
             "volatilite": getattr(r, "volatilite", None),
         })
+
+    # Filtre "risk" depuis le tableau de bord: above/equal/below
+    risk_filter = (request.query_params.get("risk") or "").strip().lower()
+    risk_label = None
+    if risk_filter in ("above", "equal", "below"):
+        risk_label = {
+            "above": "Au‑dessus du risque",
+            "equal": "Dans le risque",
+            "below": "Sous le risque",
+        }.get(risk_filter)
+        def keep(c):
+            cs = c.get("SRRI")
+            hs = c.get("srri_hist")
+            if cs is None or hs is None:
+                return False
+            try:
+                client_srri = int(cs)
+                hist_srri = int(hs)
+            except Exception:
+                return False
+            if risk_filter == "above":
+                return hist_srri > client_srri
+            if risk_filter == "equal":
+                return hist_srri == client_srri
+            return hist_srri < client_srri
+        clients = [c for c in clients if keep(c)]
 
     # (Graphiques SRRI supprimés sur la page Clients — calcul montants par SRRI non nécessaire ici)
 
@@ -8109,6 +8225,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_clients": total_clients,
             "srri_chart": srri_chart,
             "clients": clients,
+            "risk_filter": risk_filter,
+            "risk_label": risk_label,
         }
     )
 
@@ -8226,6 +8344,23 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         elif a["srri_icon"] == "snowflake":
             compare_counts["below"] += 1
 
+    # Badge filtre risque (query ?risk=...)
+    risk_q = (request.query_params.get("risk") or "").strip().lower()
+    risk_label = None
+    if risk_q:
+        mapping = {
+            "above": "Au‑dessus du risque",
+            "equal": "Dans le risque",
+            "below": "Sous le risque",
+            "fire": "Au‑dessus du risque",
+            "hands-praying": "Dans le risque",
+            "snowflake": "Sous le risque",
+            "🔥": "Au‑dessus du risque",
+            "🙏": "Dans le risque",
+            "❄️": "Sous le risque",
+        }
+        risk_label = mapping.get(risk_q)
+
     return templates.TemplateResponse(
         "dashboard_affaires.html",
         {
@@ -8234,6 +8369,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
+            "risk_label": risk_label,
         }
     )
 
@@ -8249,6 +8385,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     client_nom = None
     client_prenom = None
     client_id = None
+    client_responsable = None
     try:
         if getattr(affaire, 'id_personne', None) is not None:
             cli = db.query(Client).filter(Client.id == affaire.id_personne).first()
@@ -8256,6 +8393,20 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 client_id = cli.id
                 client_nom = getattr(cli, 'nom', None)
                 client_prenom = getattr(cli, 'prenom', None)
+                # Responsable (commercial)
+                try:
+                    from sqlalchemy import text as _text
+                    row = db.execute(_text("SELECT commercial_id FROM mariadb_clients WHERE id = :cid"), {"cid": cli.id}).fetchone()
+                    rh_id = int(row[0]) if row and row[0] is not None else None
+                    if rh_id is not None:
+                        rh = db.execute(_text("SELECT prenom, nom FROM administration_RH WHERE id = :id"), {"id": rh_id}).fetchone()
+                        if rh:
+                            mm = rh._mapping if hasattr(rh, '_mapping') else None
+                            p = (mm.get('prenom') if mm else rh[0]) if rh else ''
+                            n = (mm.get('nom') if mm else rh[1]) if rh else ''
+                            client_responsable = f"{p or ''} {n or ''}".strip()
+                except Exception:
+                    client_responsable = None
     except Exception:
         pass
 
@@ -8807,6 +8958,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "client_id": client_id,
             "client_nom": client_nom,
             "client_prenom": client_prenom,
+            "client_responsable": client_responsable,
             # Tâches: assistance création locale
             "types": types,
             "categories": cats,
@@ -9875,12 +10027,42 @@ def dashboard_taches(
 
     # Enrichir avec noms client, référence affaire et RH affecté pour l'affichage
     try:
-        client_ids = {getattr(r, 'client_id', None) for r in items if getattr(r, 'client_id', None) is not None}
-        affaire_ids = {getattr(r, 'affaire_id', None) for r in items if getattr(r, 'affaire_id', None) is not None}
-        event_ids = {getattr(r, 'id', None) for r in items if getattr(r, 'id', None) is not None}
+        def _field(row, *names):
+            m = getattr(row, '_mapping', None)
+            for nm in names:
+                try:
+                    if m is not None and nm in m and m.get(nm) is not None:
+                        return m.get(nm)
+                except Exception:
+                    pass
+                try:
+                    v = getattr(row, nm)
+                    if v is not None:
+                        return v
+                except Exception:
+                    continue
+            return None
+
+        client_ids = set()
+        affaire_ids = set()
+        event_ids = set()
+        for r in items:
+            cid = _field(r, 'client_id')
+            if cid is not None:
+                try: client_ids.add(int(cid))
+                except Exception: pass
+            aid = _field(r, 'affaire_id')
+            if aid is not None:
+                try: affaire_ids.add(int(aid))
+                except Exception: pass
+            evid = _field(r, 'id', 'evenement_id')
+            if evid is not None:
+                try: event_ids.add(int(evid))
+                except Exception: pass
         clients_map_full = {}
         affaires_map_ref = {}
         rh_name_by_event: dict[int, str] = {}
+        client_resp_by_client: dict[int, str] = {}
         if client_ids:
             rows_cli = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
             for cid, nom, prenom in rows_cli:
@@ -9890,6 +10072,21 @@ def dashboard_taches(
             rows_aff = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
             for aid, ref in rows_aff:
                 affaires_map_ref[aid] = ref or str(aid)
+        # Fallback "commercial" du client si aucune affectation RH sur l'évènement
+        if client_ids:
+            try:
+                from sqlalchemy import text as _text
+                rows_cli_resp = db.execute(_text("SELECT c.id, c.commercial_id, r.prenom, r.nom FROM mariadb_clients c LEFT JOIN administration_RH r ON r.id = c.commercial_id WHERE c.id IN (%s)" % ",".join(str(int(i)) for i in client_ids))).fetchall()
+                for rr in rows_cli_resp or []:
+                    mm = rr._mapping if hasattr(rr, '_mapping') else None
+                    cid = int(mm.get('id') if mm else rr[0])
+                    p = (mm.get('prenom') if mm else (rr[2] if len(rr)>2 else None)) or ''
+                    n = (mm.get('nom') if mm else (rr[3] if len(rr)>3 else None)) or ''
+                    label = f"{p} {n}".strip()
+                    if label:
+                        client_resp_by_client[cid] = label
+            except Exception:
+                client_resp_by_client = {}
         # RH: récupérer rh_id par événement puis étiquettes RH
         if event_ids:
             from sqlalchemy import text as _text
@@ -9913,15 +10110,19 @@ def dashboard_taches(
                     except Exception:
                         rh_name_by_event[evid] = None
         # Convertir en dicts avec champs dérivés
-        items = [
-            {
-                **dict(getattr(r, '_mapping', r)),
-                'nom_client': clients_map_full.get(getattr(r, 'client_id', None)),
-                'affaire_ref': affaires_map_ref.get(getattr(r, 'affaire_id', None)),
-                'rh_nom': rh_name_by_event.get(getattr(r, 'id', None)),
-            }
-            for r in items
-        ]
+        new_items = []
+        for r in items:
+            base = dict(getattr(r, '_mapping', r))
+            ev_id = _field(r, 'id', 'evenement_id')
+            if 'evenement_id' not in base or base.get('evenement_id') is None:
+                base['evenement_id'] = ev_id
+            cid = _field(r, 'client_id')
+            aid = _field(r, 'affaire_id')
+            base['nom_client'] = clients_map_full.get(cid)
+            base['affaire_ref'] = affaires_map_ref.get(aid)
+            base['rh_nom'] = rh_name_by_event.get(ev_id) or client_resp_by_client.get(cid)
+            new_items.append(base)
+        items = new_items
     except Exception:
         # En cas d'échec, garder items bruts
         items = items
@@ -10627,6 +10828,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     DER_courtier_activite: list[dict] = []
     DER_sql_activite: str | None = None
     DER_sql_mediation: str | None = None
+    # Ensure RH list exists (used by template Synthèse block)
+    rh_list: list[dict] = []
 
     client = db.query(Client).filter(Client.id == client_id).first()
 
@@ -11398,11 +11601,30 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     lcbft_current = None
     lcbft_vigilance_options: list[dict] = []
     lcbft_vigilance_ids: list[int] = []
+    lcbft_ppe_options: list[dict] = []
     try:
         rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
         lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+        if not lcbft_vigilance_options:
+            defaults = [
+                ("OP_COMPLEXE", "Opération complexe / inhabituelle"),
+                ("FONDS_SENSIBLES", "Provenance des fonds sensible"),
+                ("PAYS_RISQUE", "Pays à risque / sanctionné"),
+                ("PERS_EXPOSEE", "Personne politiquement exposée (PPE)"),
+                ("STRUCTURE_OPAQUE", "Structure juridique opaque (trust, etc.)"),
+            ]
+            for code, label in defaults:
+                db.execute(text("INSERT OR IGNORE INTO LCBFT_vigilance_option(code,label) VALUES(:c,:l)"), {"c": code, "l": label})
+            rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
+            lcbft_vigilance_options = [dict(r._mapping) for r in rows]
+        try:
+            rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib")).fetchall()
+            lcbft_ppe_options = [dict(r._mapping) if hasattr(r, '_mapping') else {"id": r[0], "lib": r[1]} for r in rows]
+        except Exception:
+            lcbft_ppe_options = []
     except Exception:
         lcbft_vigilance_options = []
+        lcbft_ppe_options = []
     try:
         row = db.execute(text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
         if row:
@@ -11911,6 +12133,28 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         adequation_allocation_html = None
 
 
+    # Calculs synthèse financière pour modale TRACFIN/FATCA
+    patrimoine_net_value = None
+    budget_net_value = None
+    try:
+        if synthese_latest:
+            ta = float(synthese_latest.get("total_actif") or 0)
+            tp = float(synthese_latest.get("total_passif") or 0)
+            trv = float(synthese_latest.get("total_revenus") or 0)
+            tch = float(synthese_latest.get("total_charges") or 0)
+            patrimoine_net_value = ta - tp
+            budget_net_value = trv - tch
+    except Exception:
+        patrimoine_net_value = None
+        budget_net_value = None
+
+    # Rafraîchir la liste des commerciaux juste avant rendu (évite écrasements ultérieurs)
+    try:
+        rows = db.execute(text("SELECT id, prenom, nom FROM administration_RH ORDER BY nom, prenom")).fetchall()
+        rh_list = [dict(r._mapping) for r in rows]
+    except Exception:
+        rh_list = []
+
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -11972,6 +12216,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "nb_enfants_latest": nb_enfants_latest,
             "synthese_latest": synthese_latest,
             "risque_latest": risque_latest,
+            "patrimoine_net_value": patrimoine_net_value,
+            "budget_net_value": budget_net_value,
             # Lettre d'adéquation: infos consolidées
             "etat_civil_latest": etat_civil_latest,
             "nb_enfants_latest": nb_enfants_latest,
@@ -11999,6 +12245,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # Conformité (LCBFT / FATCA) context for detail page modal
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
+            "lcbft_ppe_options": lcbft_ppe_options,
             "lcbft_vigilance_ids": lcbft_vigilance_ids,
             "fatca_contracts": fatca_contracts,
             "fatca_saved": fatca_saved,
@@ -12012,10 +12259,33 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "DER_courtier_garanties_normes": DER_courtier_garanties_normes,
             "lm_remunerations": lm_remunerations,
             "centre_mediation_lib": centre_mediation_lib,
-            "DER_activites": DER_activites,
-            # points 2 et 8 retirés temporairement
-        }
+        "DER_activites": DER_activites,
+        # points 2 et 8 retirés temporairement
+        "rh_list": rh_list,
+    }
     )
+
+
+@router.post("/clients/{client_id}/commercial", response_class=HTMLResponse)
+async def dashboard_client_update_commercial(client_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    raw = form.get("commercial_id")
+    cid_val = None
+    try:
+        cid_val = int(raw) if (raw is not None and str(raw).strip() != "") else None
+    except Exception:
+        cid_val = None
+    from sqlalchemy import text as _text
+    try:
+        if cid_val is None:
+            db.execute(_text("UPDATE mariadb_clients SET commercial_id = NULL WHERE id = :id"), {"id": client_id})
+        else:
+            db.execute(_text("UPDATE mariadb_clients SET commercial_id = :cid WHERE id = :id"), {"cid": cid_val, "id": client_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url=f"/dashboard/clients/{client_id}", status_code=303)
 
 
 @router.post("/clients/{client_id}/actifs", response_class=HTMLResponse)
@@ -12211,6 +12481,27 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     obs_by_risque = [{"risque": r, "nb": int(nb)} for r, nb in obs_by_risque]
+
+    # Optionnel: afficher Responsable dans l'en-tête si un client est ciblé via ?client_id=
+    header_client = None
+    header_responsable = None
+    try:
+        qcid = request.query_params.get("client_id")
+        if qcid:
+            cid = int(qcid)
+            row = db.execute(text("SELECT nom, prenom, commercial_id FROM mariadb_clients WHERE id = :cid"), {"cid": cid}).fetchone()
+            if row:
+                m = row._mapping if hasattr(row, '_mapping') else None
+                header_client = f"{(m.get('prenom') if m else row[1]) or ''} {(m.get('nom') if m else row[0]) or ''}".strip()
+                rh_id = (m.get('commercial_id') if m else row[2]) if len(row) >= 3 else None
+                if rh_id is not None:
+                    rh = db.execute(text("SELECT prenom, nom FROM administration_RH WHERE id = :id"), {"id": rh_id}).fetchone()
+                    if rh:
+                        mm = rh._mapping if hasattr(rh, '_mapping') else None
+                        header_responsable = f"{(mm.get('prenom') if mm else rh[0]) or ''} {(mm.get('nom') if mm else rh[1]) or ''}".strip()
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         "dashboard_documents.html",
         {
@@ -12219,6 +12510,8 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
             "documents": documents,
             "obs_by_niveau": obs_by_niveau,
             "obs_by_risque": obs_by_risque,
+            "header_client": header_client,
+            "header_responsable": header_responsable,
         }
     )
 # List allocation dates for a given name (distinct)
