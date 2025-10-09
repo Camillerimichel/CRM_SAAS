@@ -1712,6 +1712,20 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
             </div>
             <div class="risk-block">
               <h5>Vigilance</h5>
+              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:8px;">
+                <div class="field">
+                  <label>Montant total à investir</label>
+                  <div class="value-display">{% set _inv = lcbft_invest_total if lcbft_invest_total is not none else 0 %}{{ '{:,.0f}'.format(_inv|float).replace(',', ' ') }} €</div>
+                </div>
+                <div class="field">
+                  <label>Patrimoine net</label>
+                  <div class="value-display">{% if lcbft_patrimoine_net is not none %}{{ '{:,.0f}'.format(lcbft_patrimoine_net|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
+                </div>
+                <div class="field">
+                  <label>Part du patrimoine à investir</label>
+                  <div class="value-display">{% if lcbft_part_pct is not none %}{{ '%.2f'|format(lcbft_part_pct|float) }} %{% else %}—{% endif %}</div>
+                </div>
+              </div>
               <div class="btn-multi-group" data-name="vigilance_ids">
                 {% for v in lcbft_vigilance_options %}
                   <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>

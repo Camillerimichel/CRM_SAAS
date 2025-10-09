@@ -10146,6 +10146,38 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     ann_perf_client = [ yearly[y]['perf'] for y in years_client ]
     ann_vol_client = [ yearly[y]['vol'] for y in years_client ]
 
+    # ---- TRACFIN/FATCA: indicateurs financiers synthétiques ----
+    lcbft_invest_total = 0.0
+    lcbft_patrimoine_net = None
+    lcbft_part_pct = None
+    try:
+        try:
+            inv = db.execute(text("SELECT COALESCE(SUM(montant),0) FROM KYC_Client_Objectifs WHERE client_id = :cid"), {"cid": client_id}).scalar()
+            lcbft_invest_total = float(inv or 0.0)
+        except Exception:
+            lcbft_invest_total = 0.0
+        try:
+            ta = db.execute(text("SELECT COALESCE(SUM(valeur),0) FROM KYC_Client_Actif WHERE client_id = :cid"), {"cid": client_id}).scalar()
+        except Exception:
+            ta = 0.0
+        try:
+            tp = db.execute(text("SELECT COALESCE(SUM(montant_rest_du),0) FROM KYC_Client_Passif WHERE client_id = :cid"), {"cid": client_id}).scalar()
+        except Exception:
+            tp = 0.0
+        try:
+            lcbft_patrimoine_net = float(ta or 0.0) - float(tp or 0.0)
+        except Exception:
+            lcbft_patrimoine_net = None
+        if lcbft_patrimoine_net and lcbft_patrimoine_net != 0:
+            try:
+                lcbft_part_pct = float(lcbft_invest_total) / float(lcbft_patrimoine_net) * 100.0
+            except Exception:
+                lcbft_part_pct = None
+    except Exception:
+        lcbft_invest_total = 0.0
+        lcbft_patrimoine_net = None
+        lcbft_part_pct = None
+
     # Reportings pluriannuels: agrégats annuels + cumul des perfs
     # Regrouper l'historique par année
     yearly_rows: dict[int, list] = {}
@@ -11409,6 +11441,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "fatca_client_country": fatca_client_country,
             "fatca_client_nif": fatca_client_nif,
             "fatca_today": fatca_today,
+            # TRACFIN indicateurs
+            "lcbft_invest_total": locals().get('lcbft_invest_total', 0.0),
+            "lcbft_patrimoine_net": locals().get('lcbft_patrimoine_net', None),
+            "lcbft_part_pct": locals().get('lcbft_part_pct', None),
             "lm_today": _date.today().strftime('%d/%m/%Y'),
             # DER context for modal rendering
             "DER_courtier": DER_courtier,
