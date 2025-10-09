@@ -2734,14 +2734,6 @@ function updatePriorityOptions(preserveValue = true){
     if (oldValue !== null && oldValue === i){ o.selected = true; }
     frag.appendChild(o);
   }
-  // Consultation: si une valeur existante ne figure pas dans 1..N, l'afficher quand même
-  if (oldValue !== null && (oldValue < 1 || oldValue > n)){
-    const extra = document.createElement('option');
-    extra.value = String(oldValue);
-    extra.textContent = String(oldValue);
-    extra.selected = true;
-    frag.appendChild(extra);
-  }
   objectifFormNiveau.innerHTML = '';
   objectifFormNiveau.appendChild(frag);
 }
@@ -2801,9 +2793,7 @@ function setHorizonOptions(allowed, preserveValue=true){
   objectifFormHorizon.innerHTML = '';
   objectifFormHorizon.appendChild(frag);
   // si l'ancienne valeur reste valide, la restaurer
-  if (allowed && allowed.length === 1){
-    objectifFormHorizon.value = allowed[0];
-  } else if (oldVal && allowed && allowed.indexOf(oldVal) >= 0){
+  if (oldVal && allowed && allowed.indexOf(oldVal) >= 0){
     objectifFormHorizon.value = oldVal;
   } else {
     objectifFormHorizon.value = '';
@@ -2904,7 +2894,6 @@ function hydrateInitialObjectifs(){
   }
 
   objectifsSelected = Array.from(merged.values());
-  updateObjectifsTotal();
 }
 
 function getAvailableObjectifs(){
@@ -2931,7 +2920,6 @@ function updateHiddenInput(){
     .filter(function(val){ return val !== null; });
   objectifsInput.value = JSON.stringify(ids);
 }
-
 
 function highlightObjectiveButtons(){
   if (!objectifsSelectedContainer) return;
@@ -3010,20 +2998,7 @@ function populateDetailForm(obj){
   if (objectifFormHorizon){
     setHorizonOptions(allowed, false);
     const desired = obj.horizon || '';
-    if (desired && allowed.indexOf(desired) >= 0){
-      objectifFormHorizon.value = desired;
-    } else if (desired) {
-      // Consultation: conserver une valeur enregistrée même si non proposée dans les règles actuelles
-      const o = document.createElement('option');
-      o.value = desired; o.textContent = desired;
-      objectifFormHorizon.appendChild(o);
-      objectifFormHorizon.value = desired;
-    } else if (allowed.length === 1){
-      // Auto-sélection si un seul choix possible (saisie guidée)
-      objectifFormHorizon.value = allowed[0];
-    } else {
-      objectifFormHorizon.value = '';
-    }
+    objectifFormHorizon.value = (desired && allowed.indexOf(desired) >= 0) ? desired : '';
   }
   if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
@@ -3092,12 +3067,6 @@ function updateObjectifsUI(){
   refreshAddObjectiveBtnState();
   updatePriorityOptions(true);
   highlightObjectiveButtons();
-  // Fallback: si rien n'est sélectionné, sélectionner le premier et peupler le formulaire
-  if (!getCurrentObjective() && objectifsSelected.length){
-    currentObjectiveId = toNumber(objectifsSelected[0].id);
-    populateDetailForm(objectifsSelected[0]);
-    highlightObjectiveButtons();
-  }
 }
 
 function selectObjective(id){
@@ -3258,7 +3227,6 @@ if (objectifDetailForm){
 [objectifFormHorizon, objectifFormCommentaire, objectifFormDateExpiration].forEach(function(field){
   if (!field) return;
   field.addEventListener('input', syncCurrentObjectiveFromForm);
-  field.addEventListener('change', syncCurrentObjectiveFromForm);
 });
 if (objectifFormNiveau){
   objectifFormNiveau.addEventListener('change', syncCurrentObjectiveFromForm);
