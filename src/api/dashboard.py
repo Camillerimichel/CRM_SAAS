@@ -4907,6 +4907,8 @@ async def dashboard_client_kyc(
 
         elif action == "objectifs_save":
             active_section = "objectifs"
+            ui_focus_section = "objectifs"
+            ui_focus_panel = "objectifsPanel"
             objectif_id_raw = form.get("objectif_id")
             link_id_raw = form.get("link_id")
             horizon = (form.get("horizon_investissement") or "").strip() or None
@@ -5019,6 +5021,8 @@ async def dashboard_client_kyc(
 
         elif action == "objectifs_delete":
             active_section = "objectifs"
+            ui_focus_section = "objectifs"
+            ui_focus_panel = "objectifsPanel"
             link_id_raw = form.get("link_id")
             objectif_id_raw = form.get("objectif_id")
             if objectif_id_raw:
@@ -5047,6 +5051,8 @@ async def dashboard_client_kyc(
             # Sauvegarde du questionnaire ESG
             from sqlalchemy import text as _text
             active_section = "esg"
+            ui_focus_section = "esg"
+            ui_focus_panel = "esgPanel"
             allowed = {"oui", "non", "indifférent"}
 
             def _pick(name: str):
@@ -5162,6 +5168,8 @@ async def dashboard_client_kyc(
             # Sauvegarde du questionnaire Connaissance financière
             from sqlalchemy import text as _text
             active_section = "knowledge"
+            ui_focus_section = "knowledge"
+            ui_focus_panel = "knowledgePanel"
             try:
                 # Charger les référentiels nécessaires localement (pour éviter toute dépendance d'ordre)
                 risque_opts_local = {}
@@ -5713,6 +5721,8 @@ async def dashboard_client_kyc(
         elif action == "lcbft_save":
             from sqlalchemy import text as _text
             active_section = "lcbft"
+            ui_focus_section = "lcbft"
+            ui_focus_panel = "lcbftPanel"
             lcbft_success = None
             lcbft_error = None
             try:
