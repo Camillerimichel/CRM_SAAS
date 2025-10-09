@@ -1645,41 +1645,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
                 <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
               </div>
             </div>
-            <div class="risk-block">
-              <h5>Synthèse financière</h5>
-              {% set _prof = (lcbft_current.prof_profession if lcbft_current else '') %}
-              {% set _revenus = (synthese_latest.total_revenus if synthese_latest else None) %}
-              {% set _charges = (synthese_latest.total_charges if synthese_latest else None) %}
-              {% set _patrimoine = (patrimoine_net_value if patrimoine_net_value is not none else None) %}
-              {% set _montant = (lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else None) %}
-              {% set _pct = ( (_montant|float * 100.0 / (_patrimoine if _patrimoine else 0.0)) if (_montant is not none and _patrimoine and _patrimoine != 0) else None ) %}
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div class="field">
-                  <label>Profession</label>
-                  <div class="value-display">{{ _prof or '—' }}</div>
-                </div>
-                <div class="field">
-                  <label>Patrimoine net</label>
-                  <div class="value-display">{% if _patrimoine is not none %}{{ '{:,.0f}'.format(_patrimoine|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
-                </div>
-                <div class="field">
-                  <label>Revenus annuels</label>
-                  <div class="value-display">{% if _revenus is not none %}{{ '{:,.0f}'.format(_revenus|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
-                </div>
-                <div class="field">
-                  <label>Charges annuelles</label>
-                  <div class="value-display">{% if _charges is not none %}{{ '{:,.0f}'.format(_charges|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
-                </div>
-                <div class="field">
-                  <label>Montant de l'opération</label>
-                  <div class="value-display">{% if _montant is not none %}{{ '{:,.0f}'.format(_montant|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
-                </div>
-                <div class="field">
-                  <label>% du patrimoine</label>
-                  <div class="value-display">{% if _pct is not none %}{{ '%.2f'|format(_pct|float) }} %{% else %}—{% endif %}</div>
-                </div>
-              </div>
-            </div>
+            {# Bloc Synthèse financière retiré (revenu/charges/patrimoine/montant) — rebasculé à l'état antérieur #}
             <div class="risk-block">
               <h5>PPE</h5>
               <div class="muted-small" style="margin-bottom:6px;">Reportez-vous aux fonctions PPE (chef d’État, parlement, haute juridiction, ambassadeur, etc.).</div>
