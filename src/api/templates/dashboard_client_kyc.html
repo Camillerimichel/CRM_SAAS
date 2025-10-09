@@ -2001,6 +2001,10 @@
       <div class="accordion-panel" id="objectifsPanel">
         <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
           <div class="objectives-list">
+            <div class="objectifs-total-row" style="margin:4px 0 8px 0; display:flex; gap:8px; align-items:center;">
+              <label for="objectifsTotalInput" class="muted" style="min-width:120px;">Montant total</label>
+              <input type="text" id="objectifsTotalInput" placeholder="" style="width:180px; height:32px;" readonly />
+            </div>
             <h4>Objectifs principaux</h4>
             <div id="objectifsSelected" class="objectives-grid">
               {% if preselected_objectifs %}
@@ -2711,6 +2715,7 @@ const objectifDeleteBtn = document.getElementById('objectifDeleteBtn');
 const objectifDeleteForm = document.getElementById('objectifDeleteForm');
 const objectifDeleteIdInput = document.getElementById('objectifDeleteId');
 const objectifDeleteObjectifIdInput = document.getElementById('objectifDeleteObjectifId');
+const objectifsTotalInput = document.getElementById('objectifsTotalInput');
 
 let objectifsRef = [];
 let objectifsSelected = [];
@@ -2965,6 +2970,27 @@ function updateObjectiveMeta(obj){
   objectifDetailMeta.style.display = parts.length ? '' : 'none';
 }
 
+// ----- Helpers pour montants (parse/format) + total -----
+function parseAmountLocal(v){
+  if (v == null) return 0;
+  return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+}
+function formatThousandsLocal(n){
+  const i = Math.round(Number(n) || 0);
+  const d = String(Math.abs(i));
+  const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return (i < 0 ? '-' : '') + g;
+}
+function updateObjectifsTotalComputed(){
+  if (!objectifsTotalInput) return;
+  let sum = 0;
+  (objectifsSelected || []).forEach(function(item){
+    const v = (item && item.montant != null) ? Number(item.montant) : 0;
+    if (Number.isFinite(v)) sum += v;
+  });
+  objectifsTotalInput.value = sum ? formatThousandsLocal(sum) : '';
+}
+
 function setDetailFormEnabled(enabled){
   const fields = [objectifFormHorizon, objectifFormNiveau, objectifFormCommentaire, objectifFormDateExpiration];
   fields.forEach(function(field){
@@ -2985,6 +3011,7 @@ function populateDetailForm(obj){
     if (objectifFormLinkId) objectifFormLinkId.value = '';
     if (objectifFormObjectifId) objectifFormObjectifId.value = '';
     if (objectifFormHorizon){ setHorizonOptions(HORIZON_ALL, false); objectifFormHorizon.value = ''; }
+    const mEl2 = document.getElementById('objectifFormMontant'); if (mEl2) mEl2.value = '';
     const montantEl = document.getElementById('objectifFormMontant'); if (montantEl) montantEl.value = '';
     if (objectifFormNiveau) objectifFormNiveau.value = '';
     if (objectifFormCommentaire) objectifFormCommentaire.value = '';
@@ -3009,6 +3036,7 @@ function populateDetailForm(obj){
   const montantEl = document.getElementById('objectifFormMontant');
   if (montantEl) montantEl.value = (obj.montant !== undefined && obj.montant !== null) ? String(obj.montant) : '';
   if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
+  (function(){ const mEl = document.getElementById('objectifFormMontant'); if (mEl) mEl.value = (obj.montant !== undefined && obj.montant !== null) ? formatThousandsLocal(obj.montant) : ''; })();
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
   if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';
   if (objectifFormDateSaisie){
@@ -3075,6 +3103,7 @@ function updateObjectifsUI(){
   refreshAddObjectiveBtnState();
   updatePriorityOptions(true);
   highlightObjectiveButtons();
+  updateObjectifsTotalComputed();
 }
 
 function selectObjective(id){
@@ -3229,6 +3258,18 @@ if (objectifDetailForm){
     if (!getCurrentObjective()){
       ev.preventDefault();
     }
+    // Normaliser le montant (espaces → rien, virgule → point) pour l'enregistrement backend
+    try {
+      const mEl = document.getElementById('objectifFormMontant');
+      if (mEl && typeof mEl.value === 'string'){
+        const raw = mEl.value.replace(/\s+/g,'').replace(',', '.');
+        // si vide, laisser vide; sinon forcer nombre acceptable par l'API
+        if (raw !== ''){
+          const n = Number(raw);
+          if (!isNaN(n)) mEl.value = String(n);
+        }
+      }
+    } catch(e){}
   });
 }
 
@@ -3239,6 +3280,50 @@ if (objectifDetailForm){
 if (objectifFormNiveau){
   objectifFormNiveau.addEventListener('change', syncCurrentObjectiveFromForm);
 }
+
+// Mise en forme Montant (séparateur d'espace) sans perturber l'enregistrement
+(function(){
+  const mEl = document.getElementById('objectifFormMontant');
+  if (!mEl) return;
+  function parseAmountLocal(v){
+    if (v == null) return 0;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+  }
+  function formatThousandsLocal(n){
+    const i = Math.round(n);
+    const d = String(Math.abs(i));
+    const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return (i < 0 ? '-' : '') + g;
+  }
+  function pretty(){
+    const n = parseAmountLocal(mEl.value);
+    mEl.value = mEl.value.trim() === '' ? '' : formatThousandsLocal(n);
+  }
+  mEl.addEventListener('blur', pretty);
+  mEl.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); pretty(); }});
+})();
+
+// Formater aussi le "Montant total" (visuel seulement)
+(function(){
+  const tEl = document.getElementById('objectifsTotalInput');
+  if (!tEl) return;
+  function parseAmountLocal(v){
+    if (v == null) return 0;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+  }
+  function formatThousandsLocal(n){
+    const i = Math.round(n);
+    const d = String(Math.abs(i));
+    const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return (i < 0 ? '-' : '') + g;
+  }
+  function pretty(){
+    const n = parseAmountLocal(tEl.value);
+    tEl.value = tEl.value.trim() === '' ? '' : formatThousandsLocal(n);
+  }
+  tEl.addEventListener('blur', pretty);
+  tEl.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); pretty(); }});
+})();
 
       const synthDataEl = document.getElementById('synthData');
       let synthChartsRendered = false;
