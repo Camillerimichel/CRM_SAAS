@@ -7547,7 +7547,7 @@ async def dashboard_client_kyc(
             "kyc_charges_total": charges_total_str,
             "kyc_adresses": adresses,
             "kyc_situations_matrimoniales": situations_matrimoniales,
-            "kyc_situations_professionnelles": situations_professionnelles,
+            "kyc_situations_professionnelles": locals().get("situations_professionnelles", []),
             "kyc_etat_civil": etat_civil_row,
             "etat_success": etat_success,
             "etat_error": etat_error,
