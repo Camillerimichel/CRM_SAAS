@@ -4911,6 +4911,7 @@ async def dashboard_client_kyc(
             link_id_raw = form.get("link_id")
             horizon = (form.get("horizon_investissement") or "").strip() or None
             niveau_id_raw = form.get("niveau_id")
+            montant_raw = (form.get("montant") or "").strip()
             commentaire = (form.get("commentaire") or "").strip() or None
             date_expiration = (form.get("date_expiration") or "").strip() or None
 
@@ -4935,11 +4936,17 @@ async def dashboard_client_kyc(
                         objectifs_error = "Niveau de priorité invalide."
 
             if not objectifs_error and objectif_id is not None and niveau_id is not None:
+                # Parse montant (accept comma as decimal separator)
+                try:
+                    montant_val = float(montant_raw.replace(',', '.')) if montant_raw != '' else 0.0
+                except Exception:
+                    montant_val = 0.0
                 params = {
                     "cid": client_id,
                     "objectif_id": objectif_id,
                     "horizon": horizon,
                     "niveau_id": niveau_id,
+                    "montant": montant_val,
                     "commentaire": commentaire,
                     "date_expiration": date_expiration or None,
                 }
@@ -4959,6 +4966,7 @@ async def dashboard_client_kyc(
                                 UPDATE KYC_Client_Objectifs
                                 SET horizon_investissement = :horizon,
                                     niveau_id = :niveau_id,
+                                    montant = :montant,
                                     commentaire = :commentaire,
                                     date_expiration = :date_expiration
                                 WHERE id = :id AND client_id = :cid
@@ -4986,6 +4994,7 @@ async def dashboard_client_kyc(
                                         objectif_id,
                                         horizon_investissement,
                                         niveau_id,
+                                        montant,
                                         commentaire,
                                         date_expiration
                                     ) VALUES (
@@ -4993,6 +5002,7 @@ async def dashboard_client_kyc(
                                         :objectif_id,
                                         :horizon,
                                         :niveau_id,
+                                        :montant,
                                         :commentaire,
                                         :date_expiration
                                     )
@@ -6795,6 +6805,7 @@ async def dashboard_client_kyc(
                        o.objectif_id,
                        o.horizon_investissement,
                        o.niveau_id,
+                       o.montant,
                        o.commentaire,
                        o.date_saisie,
                        o.date_expiration,
@@ -6826,6 +6837,7 @@ async def dashboard_client_kyc(
                     "link_id": data.get("link_id"),
                     "horizon_investissement": _safe_text(data.get("horizon_investissement")),
                     "niveau_id": niveau_value,
+                    "montant": float(data.get("montant") or 0.0),
                     "niveau_libelle": _safe_text(data.get("niveau_libelle")),
                     "commentaire": _safe_text(data.get("commentaire")),
                     "date_saisie": _fmt_date(data.get("date_saisie")),

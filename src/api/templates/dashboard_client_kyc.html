@@ -1913,7 +1913,7 @@
           <div class="risk-grid">
             <div class="risk-block">
               <h5>Profession et exposition personnelle</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr auto; gap:12px; align-items:end;">
                 <div class="field" style="min-width:0;">
                   <label>Activité</label>
                   <select name="prof_statut_professionnel_id" style="width:100%; height:36px; min-height:36px;"><option value=""></option>{% for r in ref_statut_professionnel %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_statut_professionnel_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select>
@@ -2026,16 +2026,20 @@
               <input type="hidden" name="form_action" value="objectifs_save" />
               <input type="hidden" name="link_id" id="objectifFormLinkId" />
               <input type="hidden" name="objectif_id" id="objectifFormObjectifId" />
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
+              <div class="row three-cols" style="display:grid; grid-template-columns: 250px 100px 150px; gap:12px; align-items:end;">
+                <div class="field">
+                  <label for="objectifFormMontant">Montant</label>
+                  <input type="text" id="objectifFormMontant" name="montant" placeholder="Montant (€)" style="width:250px; height:36px; min-height:36px;" />
+                </div>
+                <div class="field">
                   <label for="objectifFormNiveau">Niveau de priorité</label>
-                  <select id="objectifFormNiveau" name="niveau_id" required style="width:100%; height:36px; min-height:36px;">
+                  <select id="objectifFormNiveau" name="niveau_id" required style="width:100px; height:36px; min-height:36px;">
                     <option value="">-- Choisir (1..N) --</option>
                   </select>
                 </div>
-                <div class="field" style="min-width:0;">
+                <div class="field">
                   <label for="objectifFormHorizon">Horizon d'investissement</label>
-                  <select id="objectifFormHorizon" name="horizon_investissement" style="width:100%; height:36px; min-height:36px;">
+                  <select id="objectifFormHorizon" name="horizon_investissement" style="width:150px; height:36px; min-height:36px;">
                     <option value="">-- Choisir --</option>
                     <option value="1 à 3 ans">1 à 3 ans</option>
                     <option value="3 à 5 ans">3 à 5 ans</option>
@@ -2838,6 +2842,7 @@ serverSelectedList.forEach(function(item){
     id: objectifId,
     label: item.libelle || item.label || ('Objectif ' + objectifId),
     linkId: item.link_id ? Number(item.link_id) : null,
+    montant: (item.montant !== undefined && item.montant !== null) ? String(item.montant) : '',
     horizon: item.horizon_investissement || '',
     niveauId: item.niveau_id !== undefined && item.niveau_id !== null ? Number(item.niveau_id) : null,
     commentaire: item.commentaire || '',
@@ -2980,6 +2985,7 @@ function populateDetailForm(obj){
     if (objectifFormLinkId) objectifFormLinkId.value = '';
     if (objectifFormObjectifId) objectifFormObjectifId.value = '';
     if (objectifFormHorizon){ setHorizonOptions(HORIZON_ALL, false); objectifFormHorizon.value = ''; }
+    const montantEl = document.getElementById('objectifFormMontant'); if (montantEl) montantEl.value = '';
     if (objectifFormNiveau) objectifFormNiveau.value = '';
     if (objectifFormCommentaire) objectifFormCommentaire.value = '';
     if (objectifFormDateExpiration) objectifFormDateExpiration.value = '';
@@ -3000,6 +3006,8 @@ function populateDetailForm(obj){
     const desired = obj.horizon || '';
     objectifFormHorizon.value = (desired && allowed.indexOf(desired) >= 0) ? desired : '';
   }
+  const montantEl = document.getElementById('objectifFormMontant');
+  if (montantEl) montantEl.value = (obj.montant !== undefined && obj.montant !== null) ? String(obj.montant) : '';
   if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
   if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';
