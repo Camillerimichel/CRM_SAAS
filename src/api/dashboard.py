@@ -11439,7 +11439,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # KYC Actifs
             "kyc_actifs": kyc_actifs,
             "kyc_types_actifs": rows_types_actifs,
-            "kyc_situations_professionnelles": situations_professionnelles,
+            "kyc_situations_professionnelles": locals().get("situations_professionnelles", []),
             # Conformité (LCBFT / FATCA) context for detail page modal
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
