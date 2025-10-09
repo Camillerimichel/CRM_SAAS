@@ -10150,6 +10150,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     lcbft_invest_total = 0.0
     lcbft_patrimoine_net = None
     lcbft_part_pct = None
+    lcbft_ppe_options: list[dict] = []
     try:
         try:
             inv = db.execute(text("SELECT COALESCE(SUM(montant),0) FROM KYC_Client_Objectifs WHERE client_id = :cid"), {"cid": client_id}).scalar()
@@ -10173,10 +10174,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 lcbft_part_pct = float(lcbft_invest_total) / float(lcbft_patrimoine_net) * 100.0
             except Exception:
                 lcbft_part_pct = None
+        try:
+            rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib"), {}).fetchall()
+            lcbft_ppe_options = [dict(r._mapping) for r in rows]
+        except Exception:
+            lcbft_ppe_options = []
     except Exception:
         lcbft_invest_total = 0.0
         lcbft_patrimoine_net = None
         lcbft_part_pct = None
+        lcbft_ppe_options = []
 
     # Reportings pluriannuels: agrégats annuels + cumul des perfs
     # Regrouper l'historique par année
@@ -11445,6 +11452,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "lcbft_invest_total": locals().get('lcbft_invest_total', 0.0),
             "lcbft_patrimoine_net": locals().get('lcbft_patrimoine_net', None),
             "lcbft_part_pct": locals().get('lcbft_part_pct', None),
+            "lcbft_ppe_options": locals().get('lcbft_ppe_options', []),
             "lm_today": _date.today().strftime('%d/%m/%Y'),
             # DER context for modal rendering
             "DER_courtier": DER_courtier,
