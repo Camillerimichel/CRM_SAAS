@@ -27,8 +27,17 @@
               <option value="">-- aucun --</option>
               {% for rh in rh_list %}
                 {% set rid = rh.id if rh.id is not none else rh[0] %}
-                {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-                <option value="{{ rid }}" {% if rh_selected and (rid|int) == (rh_selected|int) %}selected{% endif %}>{{ rnom.strip() }}</option>
+                {% set rprenom = rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '') %}
+                {% set rnom = rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '') %}
+                {% set label = (rprenom ~ ' ' ~ rnom).strip() %}
+                {% if not label %}
+                  {% if rh.mail is defined and rh.mail %}
+                    {% set label = rh.mail %}
+                  {% else %}
+                    {% set label = 'RH #' ~ rid %}
+                  {% endif %}
+                {% endif %}
+                <option value="{{ rid }}" {% if rh_selected is not none and (rid|int) == (rh_selected|int) %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
             <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />

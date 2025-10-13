@@ -28,8 +28,10 @@
             <option value="">-- aucun --</option>
             {% for rh in rh_list %}
               {% set rid = rh.id if rh.id is not none else rh[0] %}
-              {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-              <option value="{{ rid }}">{{ rnom.strip() }}</option>
+              {% set rprenom = rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '') %}
+              {% set rnom = rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '') %}
+              {% set label = (rprenom ~ ' ' ~ rnom).strip() %}
+              <option value="{{ rid }}">{{ label if label else rid }}</option>
             {% endfor %}
           </select>
         </div>
@@ -255,10 +257,8 @@
             <th>
               <select id="tasks_rh_filter" style="width:100%">
                 <option value="">Tous</option>
-                {% for rh in rh_list %}
-                  {% set rid = rh.id if rh.id is not none else rh[0] %}
-                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-                  <option value="{{ rnom.strip() }}">{{ rnom.strip() }}</option>
+                {% for rh in rh_options %}
+                  <option value="{{ rh.label }}">{{ rh.label }}</option>
                 {% endfor %}
               </select>
             </th>
@@ -286,7 +286,7 @@
                   <a href="/dashboard/affaires/{{ r.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ r.affaire_id }}</a>
                 {% else %}-{% endif %}
               </td>
-              <td style="min-width:240px;">{{ r.rh_nom or '-' }}</td>
+              <td style="min-width:200px;">{{ r.rh_label if r.rh_label else '-' }}</td>
               <td>
                 {% set statut_label = (r.statut or 'à faire')|lower %}
                 {% set btn_class = 'btn-choice' %}
@@ -341,7 +341,6 @@
                   }},
               ]
             });
-            // Build Type options using DataTables API (ignore pagination)
             function buildTypeOptions(useApplied){
               try {
                 var sel = document.getElementById('tasks_type_filter');
@@ -353,30 +352,25 @@
                   if (txt) seen.add(txt);
                 }
                 var opts = Array.from(seen).sort(function(a,b){ return a.localeCompare(b, 'fr', {sensitivity:'base'}); });
-                // Preserve current selection if still available
                 var current = sel.value || '';
-                sel.length = 1; // keep "Tous"
+                sel.length = 1;
                 opts.forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
                 if (current && opts.indexOf(current) >= 0) sel.value = current; else sel.value = '';
               } catch(e) {}
             }
-            // Initial build from full dataset
             buildTypeOptions(false);
-            // Rebuild on table redraw to reflect filters (applied)
             $('#tasksTable').on('draw.dt', function(){ buildTypeOptions(true); });
-            // Filtre RH (col 4)
-            $('#tasks_rh_filter').on('change', function(){
-              var v = this.value || '';
-              if (!v) { window.tasksDT.column(4).search('').draw(); return; }
-              var esc = $.fn.dataTable.util.escapeRegex(v);
-              window.tasksDT.column(4).search('^'+esc+'$', true, false).draw();
-            });
-            // Filtre Type (col 1)
             $('#tasks_type_filter').on('change', function(){
               var v = this.value || '';
               if (!v) { window.tasksDT.column(1).search('').draw(); return; }
               var esc = $.fn.dataTable.util.escapeRegex(v);
               window.tasksDT.column(1).search('^'+esc+'$', true, false).draw();
+            });
+            $('#tasks_rh_filter').on('change', function(){
+              var v = this.value || '';
+              if (!v) { window.tasksDT.column(4).search('').draw(); return; }
+              var esc = $.fn.dataTable.util.escapeRegex(v);
+              window.tasksDT.column(4).search('^'+esc+'$', true, false).draw();
             });
           } catch(e) {}
         });

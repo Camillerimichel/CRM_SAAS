@@ -116,9 +116,14 @@
 <div class="main-container">
     <!-- Bandeau total retiré -->
 
-    {% if risk_label %}
+    {% if risk_label or group_filter_label %}
     <div class="badge-row">
+      {% if risk_label %}
       <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/affaires" title="Effacer le filtre">✕</a></span>
+      {% endif %}
+      {% if group_filter_label %}
+      <span class="badge-filter">Groupe: {{ group_filter_label }} <a class="x" href="#" data-clear-group="1" title="Effacer le filtre">✕</a></span>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -148,10 +153,23 @@
     
     <div class="table-container">
         <div class="toolbar">
-          <div class="muted" id="aff_info" style="font-size:.9rem;"></div>
           <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+            <select id="aff_group_filter" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
+              <option value="">Tous les groupes</option>
+              {% for g in affaire_groups %}
+                <option value="{{ g.id }}" {% if group_filter_id is not none and g.id == group_filter_id %}selected{% endif %}>
+                  {{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+            <div class="muted" id="aff_info" style="font-size:.9rem;"></div>
             <select id="aff_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
               <option value="">Choisir un groupe (Affaires)</option>
+              {% for g in affaire_groups %}
+                <option value="{{ g.id }}">{{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}</option>
+              {% endfor %}
             </select>
             <button class="btn" id="aff_add_to_group_btn" title="Ajouter toutes les affaires filtrées au groupe sélectionné">Ajouter au groupe</button>
           </div>
@@ -430,21 +448,6 @@ $(document).ready(function () {
     $('#montant-filter, #perf-filter, #volat-filter').on('keyup change', applyAdvancedFilters);
 
     // -------- Ajout en masse au groupe (Affaires) --------
-    async function loadAffGroupsForBulk(){
-      try {
-        const sel = document.getElementById('aff_group_select');
-        if (!sel) return;
-        const r = await fetch('/api/groupes/details?type=affaire&actifs_only=true');
-        const arr = r.ok ? await r.json() : [];
-        (arr||[]).forEach(function(g){
-          const opt = document.createElement('option');
-          opt.value = g.id; opt.textContent = g.nom + ((String(g.actif)==='0')?' (inactif)':'');
-          sel.appendChild(opt);
-        });
-      } catch(e){ console.warn('load aff groups failed', e); }
-    }
-    loadAffGroupsForBulk();
-
     function visibleAffaireIds(){
       var out = [];
       table.rows({ filter: 'applied' }).nodes().to$().each(function(){
@@ -476,6 +479,27 @@ $(document).ready(function () {
     }
     var bulkBtn = document.getElementById('aff_add_to_group_btn');
     if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleAffToGroup); }
+
+    var groupFilterSel = document.getElementById('aff_group_filter');
+    if (groupFilterSel){
+      groupFilterSel.addEventListener('change', function(){
+        var params = new URLSearchParams(window.location.search || '');
+        var val = this.value || '';
+        if (val){ params.set('group', val); }
+        else { params.delete('group'); }
+        var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
+        window.location.assign(newUrl);
+      });
+    }
+    document.querySelectorAll('[data-clear-group]').forEach(function(anchor){
+      anchor.addEventListener('click', function(e){
+        e.preventDefault();
+        var params = new URLSearchParams(window.location.search || '');
+        params.delete('group');
+        var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
+        window.location.assign(newUrl);
+      });
+    });
 });
 </script>
 

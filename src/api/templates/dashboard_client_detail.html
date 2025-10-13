@@ -45,6 +45,7 @@
   .srri-blue { background:#3b82f6; }
   /* Bouton Voir compact */
   .btn-view { display:inline-block; padding: 2px 6px; font-size: 0.65rem; border-radius: 4px; background: var(--primary); color: #fff; text-decoration: none; }
+  .btn-view.disabled { opacity: 0.5; pointer-events: none; }
   /* Réduire la marge haute du bloc contrats */
   #invSection { padding-top: 8px; }
   #invSection h3 { margin: 4px 0 8px; }
@@ -129,16 +130,28 @@
       <div class="kpi-small"><strong>Contrats ouverts:</strong> {{ nb_contrats_ouverts }}</div>
       <div class="kpi-small"><strong>Contrats fermés:</strong> {{ nb_contrats_fermes }}</div>
       <div class="kpi-small"><strong>Durée historique:</strong> {{ duree_historique_str }}</div>
+      {% set selected_rh_id = client.commercial_id if client and client.commercial_id is not none else None %}
       <div class="kpi-mini kpi-line">
         <span>Responsable</span>
         <span class="kv">
           <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
-            <select name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
-              <option value="">— Aucun —</option>
-              {% for rh in rh_list %}
-                <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
-              {% endfor %}
-            </select>
+            <span style="display:inline-flex; align-items:center; gap:8px;">
+              <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
+                <option value="">— Aucun —</option>
+                {% for rh in rh_list %}
+                  <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
+                {% endfor %}
+              </select>
+              <a id="commercialLink"
+                 class="btn-view{% if not selected_rh_id %} disabled{% endif %}"
+                 data-base="/dashboard/parametres/administration/rh/"
+                 href="{% if selected_rh_id %}/dashboard/parametres/administration/rh/{{ selected_rh_id }}?open=administration_rh{% else %}{% endif %}"
+                 target="_blank"
+                 rel="noopener"
+                 {% if not selected_rh_id %}aria-disabled="true"{% endif %}>
+                Voir
+              </a>
+            </span>
           </form>
         </span>
       </div>
@@ -152,10 +165,12 @@
     </div>
     <div class="card">
       <div class="muted">Indicateurs</div>
+      <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
       <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
       <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
       <div class="kpi-mini kpi-line"><span>SRRI client / actuel</span><span class="kv">{{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}</span></div>
-  <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
+      <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
     </div>
   </div>
 
@@ -202,15 +217,24 @@
     </div>
   </div>
   <script>
-    const CLIENT_ID = {{ client.id if client else 'null' }};
-    let clientGroupDetails = [];
-    let clientGroupLinks = [];
-    function openClientAdminGroups(){
-      const el = document.getElementById('clientAdminGroupsModal');
-      el.style.display = 'flex';
-      console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
-      loadClientGroups();
-    }
+const CLIENT_ID = {{ client.id if client else 'null' }};
+let clientGroupDetails = [];
+let clientGroupLinks = [];
+function openClientAdminGroups(){
+  const el = document.getElementById('clientAdminGroupsModal');
+  el.style.display = 'flex';
+  console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
+  loadClientGroups();
+}
+
+function generateClientSynthese(){
+  if (!CLIENT_ID){
+    alert('Client introuvable.');
+    return;
+  }
+  const url = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
+  window.open(url, '_blank', 'noopener');
+}
     async function loadClientGroups(){
       const notice = document.getElementById('clientGroupsNotice');
       if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
@@ -320,6 +344,11 @@
           .lm ul { margin: 6px 0 6px 18px; }
           .lm hr { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
           .lm .muted { color: var(--muted); }
+          .lm-objectifs-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+          .lm-objectifs-table th, .lm-objectifs-table td { border: 1px solid var(--border); padding: 6px 8px; font-size: 0.9rem; }
+          .lm-objectifs-table th { background: var(--primary); color: #fff; text-align: left; }
+          .lm-objectifs-table td.number { text-align: right; white-space: nowrap; }
+          .lm-objectifs-table td.comment { max-width: 280px; }
         </style>
         <div class="lm">
           <h2><strong>LETTRE DE MISSION ÉLECTRONIQUE – COURTAGE EN ASSURANCE-VIE</strong></h2>
@@ -332,10 +361,36 @@
 
           <hr />
           <h3><strong>A. Objectifs de la mission</strong></h3>
-          <p>Lors de notre entretien du <strong>{{ dateEntretien }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
-          <p>Vous avez manifesté le souhait d’investir <strong>{{ montantInvesti }}</strong> euros, avec pour objectif(s) : <strong>{{ objectifsMission }}</strong>.</p>
-          <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.<br/>
-          Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations.</p>
+          <p>« Lors de notre entretien du <strong>{{ lm_entretien_date or 'À préciser' }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
+          <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.</p>
+          <p>Vous avez manifesté le souhait d’investir <strong>{{ lm_total_invest_str }}</strong> euros, avec pour objectif(s) :</p>
+          {% if lm_objectifs %}
+          <table class="lm-objectifs-table">
+            <thead>
+              <tr>
+                <th>Objectif</th>
+                <th>Montant</th>
+                <th>Horizon</th>
+                <th>Niveau de risque</th>
+                <th>Commentaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for obj in lm_objectifs %}
+              <tr>
+                <td>{{ obj.libelle or '—' }}</td>
+                <td class="number">{{ obj.montant_str }} €</td>
+                <td>{{ obj.horizon or '—' }}</td>
+                <td>{{ obj.niveau or '—' }}</td>
+                <td class="comment">{{ obj.commentaire or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p><em>Aucun objectif déclaré à ce jour.</em></p>
+          {% endif %}
+          <p>Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations. »</p>
 
           <hr />
           <h3><strong>B. Missions confiées</strong></h3>
@@ -494,19 +549,19 @@
   <!-- Modale Conformité: 3 boutons pilule -->
   <div class="modal-overlay" id="confMainModal" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal-card" style="width:720px; max-width:95vw;">
-      <div class="modal-header"><h3>Conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
+    <div class="modal-header"><h3>Relation client et conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
       <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>DER</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfAdequationDetail()"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
+        <button type="button" class="kyc-main-btn" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf"></i>Edition de synthèse</button>
       </div>
     </div>
   </div>
   <!-- Accordéon Conformité (détail client) -->
   <div id="confToggleDetail" class="card accordion-toggle" onclick="openConfMain()" style="margin-top:10px;">
-      <h3 style="margin:0;">Conformité</h3>
+    <h3 style="margin:0;">Relation client et conformité</h3>
       <span class="chevron">▸</span>
     </div>
   
@@ -1567,330 +1622,6 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       </div>
     </div>
   </div>
-  <div class="modal-overlay" id="confTacfinDetailModal" onclick="if(event.target===this) closeConfTacfinDetail()">
-    <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
-      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3><button class="modal-close" onclick="closeConfTacfinDetail()">✕</button></div>
-      <div class="modal-body" style="flex:1 1 auto; overflow:auto;">
-        <div id="lcbftDetailToast" class="badge success" style="display:none; margin-bottom:8px;">Questionnaire LCB-FT enregistré.</div>
-        <style>
-          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
-          .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
-          .risk-block h5 { background:#1d4ed8; color:#fff; padding:6px 10px; border-radius:6px; margin:-10px -10px 10px -10px; font-size:1rem; }
-          .risk-block .field > label,
-          .risk-block label { color:#1d4ed8 !important; font-weight:600; }
-          .lcbft-prof-table { width:100%; border-collapse:collapse; margin-top:8px; }
-          .lcbft-prof-table th, .lcbft-prof-table td { border:1px solid var(--border); padding:6px 8px; font-size:0.9rem; }
-          .lcbft-prof-table th { background:#eef2ff; color:#1d4ed8; font-weight:600; }
-          .btn-group .btn-choice { margin-right:6px; }
-          .btn-choice-active { background: var(--primary); color:#fff; }
-          .step-hidden { display:none; }
-        </style>
-        <form method="post" action="/dashboard/clients/kyc/{{ client.id }}" id="lcbftFormDetail" style="display:flex; flex-direction:column; gap:12px;">
-          <input type="hidden" name="form_action" value="lcbft_save" />
-          <div class="risk-grid">
-            <div class="risk-block">
-              <h5>FATCA</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Nom du produit</label>
-                  <select name="fatca_contrat_id" id="fatcaContractSelectDetail" style="width:100%; height:36px; min-height:36px;">
-                    <option value="">Sélectionner…</option>
-                    {% for c in fatca_contracts %}
-                      <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Compagnie d’assurance</label>
-                  <input type="text" id="fatcaSocieteDetail" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" />
-                </div>
-              </div>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Date de l’opération</label>
-                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Pays de résidence fiscale</label>
-                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>NIF</label>
-                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
-                </div>
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>Cartographie client</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Depuis quand connaissez-vous le client</label>
-                  <input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/>
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Entrée en relation</label>
-                  <textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?" style="width:100%;">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea>
-                </div>
-              </div>
-              {% if kyc_situations_professionnelles %}
-              <div class="field" style="margin-top:8px;">
-                <label style="display:block; margin-bottom:4px;">Situation professionnelle (référence KYC)</label>
-                <table class="lcbft-prof-table">
-                  <thead>
-                    <tr>
-                      <th>Profession</th>
-                      <th>Secteur</th>
-                      <th>Statut</th>
-                      <th>Employeur</th>
-                      <th>Ancienneté (ans)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for prof in kyc_situations_professionnelles %}
-                    <tr>
-                      <td>{{ prof.profession or '—' }}</td>
-                      <td>{{ prof.secteur_libelle or '—' }}</td>
-                      <td>{{ prof.statut_libelle or '—' }}</td>
-                      <td>{{ prof.employeur or '—' }}</td>
-                      <td class="center">{{ prof.anciennete_annees if prof.anciennete_annees is not none else '—' }}</td>
-                    </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-              {% endif %}
-              <div class="field"><label>Contrats similaires déjà souscrits ?</label>
-                <div class="btn-group" data-name="has_existing_contracts">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="has_existing_contracts" value="{{ lcbft_current.has_existing_contracts if lcbft_current and lcbft_current.has_existing_contracts is not none else '0' }}" />
-              </div>
-              <div id="lcbftExistingBlockDetail" class="step-hidden">
-                <div class="field"><label>Auprès de notre société d'assurance ?</label>
-                  <div class="btn-group" data-name="existing_with_our_insurer">
-                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                  </div>
-                  <input type="hidden" name="existing_with_our_insurer" value="{{ lcbft_current.existing_with_our_insurer if lcbft_current and lcbft_current.existing_with_our_insurer is not none else '0' }}" />
-                </div>
-                <div class="field"><label>Référence du contrat</label><input type="text" name="existing_contract_ref" placeholder="REF-..." value="{{ lcbft_current.existing_contract_ref if lcbft_current else '' }}"/></div>
-                <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
-              </div>
-              <!-- Rappels de vigilance (1.a à 3.a) déplacés ici -->
-              <div class="field"><label>1.a – Comportement suspect du client (réticence à fournir des pièces, incohérences)</label>
-                <div class="btn-group" data-name="flag_1a">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_1a" value="{{ lcbft_current.flag_1a if lcbft_current and lcbft_current.flag_1a is not none else '0' }}" />
-              </div>
-              <div class="field"><label>1.b – Profil professionnel (dirigeant, artisan, prof. réglementée, non‑résident, etc.)</label>
-                <div class="btn-group" data-name="flag_1b">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_1b" value="{{ lcbft_current.flag_1b if lcbft_current and lcbft_current.flag_1b is not none else '0' }}" />
-              </div>
-              <div class="field"><label>1.c – Représentation par un tiers / résident hors France / EEE</label>
-                <div class="btn-group" data-name="flag_1c">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_1c" value="{{ lcbft_current.flag_1c if lcbft_current and lcbft_current.flag_1c is not none else '0' }}" />
-              </div>
-              <div class="field"><label>1.d – Refus d’indiquer l’origine des fonds / PPE / pays sous sanctions</label>
-                <div class="btn-group" data-name="flag_1d">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_1d" value="{{ lcbft_current.flag_1d if lcbft_current and lcbft_current.flag_1d is not none else '0' }}" />
-              </div>
-              <div class="field"><label>2.a – Versement trop important / complexe / non justifié (ex. &gt; 100 000 €)</label>
-                <div class="btn-group" data-name="flag_2a">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_2a" value="{{ lcbft_current.flag_2a if lcbft_current and lcbft_current.flag_2a is not none else '0' }}" />
-              </div>
-              <div class="field"><label>2.b – Opération favorisant l’anonymat / optimisation fiscale / fiducie</label>
-                <div class="btn-group" data-name="flag_2b">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_2b" value="{{ lcbft_current.flag_2b if lcbft_current and lcbft_current.flag_2b is not none else '0' }}" />
-              </div>
-              <div class="field"><label>3.a – Modalités de paiement présentant des anomalies manifestes</label>
-                <div class="btn-group" data-name="flag_3a">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="flag_3a" value="{{ lcbft_current.flag_3a if lcbft_current and lcbft_current.flag_3a is not none else '0' }}" />
-              </div>
-            </div>
-            {# Bloc Synthèse financière retiré (revenu/charges/patrimoine/montant) — rebasculé à l'état antérieur #}
-            <div class="risk-block">
-              <h5>PPE</h5>
-              <div class="muted-small" style="margin-bottom:6px;">Reportez-vous aux fonctions PPE (chef d’État, parlement, haute juridiction, ambassadeur, etc.).</div>
-              <div class="field"><label>Client PPE ?</label>
-                <div class="btn-group" data-name="ppe_self">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
-              </div>
-              <div id="ppeSelfBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction exercée</label>
-                  {% set _cur_self_fn_raw = (lcbft_current.ppe_self_fonction if lcbft_current else none) %}
-                  {% set _cur_self_fn_l = (_cur_self_fn_raw if _cur_self_fn_raw is not none else '') | string | trim %}
-                  {% set _libs = lcbft_ppe_options | map(attribute='lib') | list %}
-                  {% set _illegal = ['non','oui','0','1','false','true','—','-','none'] %}
-                  <select name="ppe_self_fonction">
-                    <option value="">—</option>
-                    {% if (_cur_self_fn_raw is not none) and _cur_self_fn_l and (_cur_self_fn_l|lower not in _illegal) and (_cur_self_fn_l not in _libs) %}
-                      <option value="{{ _cur_self_fn_l }}" selected>{{ _cur_self_fn_l }}</option>
-                    {% endif %}
-                    {% for opt in lcbft_ppe_options %}
-                      <option value="{{ opt.lib }}" {% if _cur_self_fn_l and (_cur_self_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
-              </div>
-              <div class="field"><label>Membre de la famille PPE ?</label>
-                <div class="btn-group" data-name="ppe_family">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
-              </div>
-              <div id="ppeFamilyBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction du membre</label>
-                  {% set _cur_fam_fn_raw = (lcbft_current.ppe_family_fonction if lcbft_current else none) %}
-                  {% set _cur_fam_fn_l = (_cur_fam_fn_raw if _cur_fam_fn_raw is not none else '') | string | trim %}
-                  {% set _libs2 = lcbft_ppe_options | map(attribute='lib') | list %}
-                  {% set _illegal2 = ['non','oui','0','1','false','true','—','-','none'] %}
-                  <select name="ppe_family_fonction">
-                    <option value="">—</option>
-                    {% if (_cur_fam_fn_raw is not none) and _cur_fam_fn_l and (_cur_fam_fn_l|lower not in _illegal2) and (_cur_fam_fn_l not in _libs2) %}
-                      <option value="{{ _cur_fam_fn_l }}" selected>{{ _cur_fam_fn_l }}</option>
-                    {% endif %}
-                    {% for opt in lcbft_ppe_options %}
-                      <option value="{{ opt.lib }}" {% if _cur_fam_fn_l and (_cur_fam_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_family_pays" value="{{ lcbft_current.ppe_family_pays if lcbft_current else '' }}"/></div>
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>US Person</h5>
-              <div class="field"><label>US Person ?</label>
-                <div class="btn-group" data-name="us_person">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="us_person" value="{{ lcbft_current.us_person if lcbft_current and lcbft_current.us_person is not none else '0' }}" />
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>Vigilance</h5>
-              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:8px;">
-                <div class="field">
-                  <label>Montant total à investir</label>
-                  <div class="value-display">{% set _inv = lcbft_invest_total if lcbft_invest_total is not none else 0 %}{{ '{:,.0f}'.format(_inv|float).replace(',', ' ') }} €</div>
-                </div>
-                <div class="field">
-                  <label>Patrimoine net</label>
-                  <div class="value-display">{% if lcbft_patrimoine_net is not none %}{{ '{:,.0f}'.format(lcbft_patrimoine_net|float).replace(',', ' ') }} €{% else %}—{% endif %}</div>
-                </div>
-                <div class="field">
-                  <label>Part du patrimoine à investir</label>
-                  <div class="value-display">{% if lcbft_part_pct is not none %}{{ '%.2f'|format(lcbft_part_pct|float) }} %{% else %}—{% endif %}</div>
-                </div>
-              </div>
-              <div class="btn-multi-group" data-name="vigilance_ids">
-                {% for v in lcbft_vigilance_options %}
-                  <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>
-                {% endfor %}
-              </div>
-              <div class="multi-hidden" data-name="vigilance_ids"></div>
-            </div>
-            <div class="risk-block">
-              <h5>Justificatifs</h5>
-              <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
-            </div>
-          </div>
-          <div class="card" style="display:flex; justify-content:flex-end; border:none;">
-            <button type="submit" class="btn-primary">Enregistrer</button>
-          </div>
-        </form>
-        <script>
-          (function(){
-            const sel = document.getElementById('fatcaContractSelectDetail');
-            const soc = document.getElementById('fatcaSocieteDetail');
-            if (sel && soc){
-              function updateSoc(){ const opt = sel.options[sel.selectedIndex]; soc.value = opt ? (opt.getAttribute('data-societe') || '') : ''; }
-              sel.addEventListener('change', updateSoc); updateSoc();
-            }
-            const form = document.getElementById('lcbftFormDetail');
-            if (!form) return;
-            function updatePPERequired(){
-              try {
-                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
-                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
-                const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
-                const famSel = form.querySelector('select[name="ppe_family_fonction"]');
-                if (selfSel) selfSel.required = (selfVal === '1');
-                if (famSel) famSel.required = (famVal === '1');
-              } catch(e) {}
-            }
-            function initSingle(group){
-              const name = group.getAttribute('data-name'); const input = form.querySelector('input[name="'+name+'"]'); const current = input? String(input.value||'') : '';
-              group.querySelectorAll('button[data-value]').forEach(function(btn){ const v=String(btn.getAttribute('data-value')||''); if(current===v&&v!==''){ btn.classList.add('btn-choice-active'); }
-                btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(input){ input.value=v; } group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active')); btn.classList.add('btn-choice-active');
-                  if (name==='has_existing_contracts'){ const blk=document.getElementById('lcbftExistingBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  if (name==='ppe_self'){ const blk=document.getElementById('ppeSelfBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  if (name==='ppe_family'){ const blk=document.getElementById('ppeFamilyBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  updatePPERequired();
-                });
-              });
-            }
-            function ensureHiddenContainer(name){ let c=form.querySelector('.multi-hidden[data-name="'+name+'"]'); if(!c){ c=document.createElement('div'); c.className='multi-hidden'; c.setAttribute('data-name', name); form.appendChild(c);} return c; }
-            function initMulti(group){ const name=group.getAttribute('data-name'); const container=ensureHiddenContainer(name); const selected=new Set(); group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ const id=btn.getAttribute('data-id'); if(btn.getAttribute('data-active')==='1'){ btn.classList.add('btn-choice-active'); selected.add(id);} btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id);} else { btn.classList.add('btn-choice-active'); selected.add(id);} container.innerHTML=''; Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); }); }); }); }
-            Array.from(form.querySelectorAll('.btn-group')).forEach(function(g){ if(g.querySelector('[data-value]')) initSingle(g); });
-            Array.from(form.querySelectorAll('.btn-multi-group')).forEach(function(g){ initMulti(g); });
-            // initial visibility
-            (function(){
-              function val(n){ const i=form.querySelector('[name="'+n+'"]'); return i? i.value:''; }
-              document.getElementById('lcbftExistingBlockDetail')?.classList.toggle('step-hidden', val('has_existing_contracts')!=='1');
-              document.getElementById('ppeSelfBlockDetail')?.classList.toggle('step-hidden', val('ppe_self')!=='1');
-              document.getElementById('ppeFamilyBlockDetail')?.classList.toggle('step-hidden', val('ppe_family')!=='1');
-              updatePPERequired();
-            })();
-            // Simple client-side validation: if PPE=Oui, fonction must be selected
-            form.addEventListener('submit', function(e){
-              try {
-                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
-                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
-                if (selfVal === '1'){
-                  const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
-                  if (selfSel && !selfSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le client.'); selfSel.focus(); return false; }
-                }
-                if (famVal === '1'){
-                  const famSel = form.querySelector('select[name="ppe_family_fonction"]');
-                  if (famSel && !famSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le membre de la famille.'); famSel.focus(); return false; }
-                }
-              } catch(err) {}
-            });
-          })();
-        </script>
-      </div>
-    </div>
-  </div>
   <div class="modal-overlay" id="confEerDetailModal" onclick="if(event.target===this) this.style.display='none'">
   <div class="modal-card" style="width:760px; max-width:96vw;">
     <div class="modal-header"><h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3><button class="modal-close" onclick="document.getElementById('confEerDetailModal').style.display='none'">✕</button></div>
@@ -2220,7 +1951,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
               min-height:96px;
             }
             .la-card .label { color:#6b7280; font-size:.9rem; line-height:1.2; margin:0; }
-            .la-card .value { color:#1d4ed8; font-weight:700; font-size:1.05rem; line-height:1.2; margin:4px 0 0 0; }
+            .la-card .value { color:#2456a6; font-weight:700; font-size:1.05rem; line-height:1.2; margin:4px 0 0 0; }
             /* indicateurs cohérence objectifs vs durée KYC */
             .dot { display:inline-block; width:1em; height:1em; border-radius:50%; vertical-align:middle; }
             .dot-ok { background:#16a34a; }
@@ -2348,22 +2079,18 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 <script>
   // Toggle Conformité panel
     // Ouvrir/fermer la modale Conformité
-    function openConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='flex'; }
+    function openConfMain(){
+      var m = document.getElementById('confMainModal');
+      if (m) {
+        m.style.display = 'flex';
+      }
+    }
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
     function openConfConnaissanceDetail(){ __showOverlay('confConnaissanceDetailModal'); }
     function closeConfConnaissanceDetail(){
       var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
-      var la = document.getElementById('confAdequationDetailModal');
-      if (la && la.style.display === 'flex'){
-        var btn = document.getElementById('laRefreshBtn');
-        if (btn){ btn.click(); }
-      }
-    }
-    function openConfTacfinDetail(){ __showOverlay('confTacfinDetailModal'); }
-    function closeConfTacfinDetail(){
-      var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='none';
       var la = document.getElementById('confAdequationDetailModal');
       if (la && la.style.display === 'flex'){
         var btn = document.getElementById('laRefreshBtn');
@@ -2392,7 +2119,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   (function(){
     // Interception de l'envoi LCBFT pour rester dans la modale
     try{
-      var lcbftForm = document.getElementById('lcbftFormDetail');
+      var lcbftForm = document.getElementById('lcbftForm');
       if (lcbftForm){
         lcbftForm.addEventListener('submit', function(ev){
           try{ ev.preventDefault(); }catch(e){}
@@ -2504,6 +2231,27 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         renderOptions(this.value);
       });
     } catch (e) { /* ignore */ }
+  })();
+
+  (function(){
+    const select = document.getElementById('commercialSelect');
+    const link = document.getElementById('commercialLink');
+    if (!select || !link) return;
+    const base = link.getAttribute('data-base') || '';
+    function sync(){
+      const val = select.value;
+      if (val){
+        link.setAttribute('href', base + encodeURIComponent(val) + '?open=administration_rh');
+        link.classList.remove('disabled');
+        link.removeAttribute('aria-disabled');
+      } else {
+        link.removeAttribute('href');
+        link.classList.add('disabled');
+        link.setAttribute('aria-disabled', 'true');
+      }
+    }
+    sync();
+    select.addEventListener('change', sync);
   })();
 
   // Ajout document-client via API

@@ -16,24 +16,24 @@
   .doc-filter-link:hover { text-decoration: underline; }
   /* Chevrons accordéon: rotation sur fermeture */
   #risksToggle .chevron, #analysisToggle .chevron, #esgToggle .chevron, #tasksToggle .chevron, #remToggle .chevron, #groupsToggle .chevron,
-  #srriToggle .chevron, #clienteleToggle .chevron, #financeToggle .chevron {
+  #srriToggle .chevron, #clienteleToggle .chevron {
     transition: transform .2s ease; color: var(--primary);
   }
   #risksToggle.collapsed .chevron, #analysisToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #tasksToggle.collapsed .chevron,
   #remToggle.collapsed .chevron, #groupsToggle.collapsed .chevron,
-  #srriToggle.collapsed .chevron, #clienteleToggle.collapsed .chevron, #financeToggle.collapsed .chevron {
+  #srriToggle.collapsed .chevron, #clienteleToggle.collapsed .chevron {
     transform: rotate(-90deg);
   }
   /* Style bleu pour sous-accordéons de l'analyse */
-  #clienteleToggle, #srriToggle, #financeToggle,
+  #clienteleToggle, #srriToggle,
   #remFraisToggle, #remRetroToggle {
     background: var(--primary);
     color: #fff;
     border: 1px solid var(--primary);
   }
-  #clienteleToggle h3, #srriToggle h3, #financeToggle h3,
+  #clienteleToggle h3, #srriToggle h3,
   #remFraisToggle h3, #remRetroToggle h3 { color:#fff; }
-  #clienteleToggle .chevron, #srriToggle .chevron, #financeToggle .chevron,
+  #clienteleToggle .chevron, #srriToggle .chevron,
   #remFraisToggle .chevron, #remRetroToggle .chevron { color:#fff; }
   /* Risk dots */
   .dot { display:inline-block; width: 0.9em; height: 0.9em; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
@@ -135,7 +135,8 @@
     <h3 style="margin:0; font-size:1.05rem;">Risques</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="risksSection" class="kpis" style="display:none;">
+  <div id="risksSection" style="display:none;">
+  <div class="kpis">
   <div class="kpi-card" style="text-align:left;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
       <h3 style="margin:0; font-size:1.05rem;">Documents</h3>
@@ -220,14 +221,8 @@
   </div>
   </div>
 
-<!-- Accordéon Analyse portefeuille -->
-<div id="analysisToggle" class="card" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-  <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
-  <span class="chevron">▾</span>
- </div>
-<div id="analysisSection" style="display:none;">
   <!-- Sous-accordéon: Répartition par clientèle -->
-  <div id="clienteleToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="clienteleToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
     <span class="chevron">▾</span>
   </div>
@@ -239,7 +234,7 @@
   </div>
 
   <!-- Sous-accordéon: Répartitions SRRI -->
-  <div id="srriToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="srriToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Répartitions SRRI</h3>
     <span class="chevron">▾</span>
   </div>
@@ -266,15 +261,73 @@
     </div>
   </div>
 
-  <!-- Sous-accordéon: Analyse financière -->
-  <div id="financeToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Analyse financière</h3>
-    <span class="chevron">▾</span>
   </div>
-  <div id="financeSection" style="display:none;">
-    <div class="card" style="max-width:1100px; margin: 0 auto 1rem auto;">
-      <div class="muted">À venir</div>
+
+<!-- Accordéon Analyse portefeuille -->
+<div id="analysisToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
+  <span class="chevron">▾</span>
+ </div>
+<div id="analysisSection" style="display:none;">
+  <div class="card" style="max-width:1100px; margin: 0 auto 1rem auto; text-align:left;">
+    <h3 style="margin-top:0;">Analyse financière — Répartition des supports</h3>
+    <form method="get" action="/dashboard#analysisToggle" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
+        <input type="date" name="finance_date" value="{{ finance_date_input }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
+      </div>
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Responsable commercial</label><br>
+        <select name="finance_rh" style="min-width:220px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;">
+          <option value="">Tous</option>
+          {% for rh in finance_rh_options %}
+            <option value="{{ rh.id }}" {% if finance_rh_selected is not none and rh.id == finance_rh_selected %}selected{% endif %}>{{ rh.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Valorisation</label><br>
+        <input type="text" name="finance_valo" value="{{ finance_valo_input or '' }}" placeholder=">100k, 100k-500k" style="min-width:200px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
+      </div>
+      <div>
+        <button type="submit" class="btn-primary" style="height:36px;">Filtrer</button>
+      </div>
+      <div>
+        <button type="button" class="btn" id="finance_export_btn" style="height:36px;">Exporter CSV</button>
+      </div>
+    </form>
+    <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue : {{ finance_effective_date_display }}</div>
+    <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
+    {% if finance_supports %}
+    <div style="margin-top:12px; overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+        <thead>
+          <tr style="background:#f1f5f9; text-align:left;">
+            <th style="padding:6px 10px;">Code ISIN</th>
+            <th style="padding:6px 10px;">Support</th>
+            <th style="padding:6px 10px;">Catégorie principale</th>
+            <th style="padding:6px 10px;">Catégorie géo</th>
+            <th style="padding:6px 10px;">SRRI</th>
+            <th style="padding:6px 10px; text-align:right;">Valorisation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sup in finance_supports %}
+          <tr{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
+            <td style="padding:6px 10px;">{{ sup.code_isin or '—' }}</td>
+            <td style="padding:6px 10px;">{{ sup.nom or '—' }}</td>
+            <td style="padding:6px 10px;">{{ sup.cat_principale or '—' }}</td>
+            <td style="padding:6px 10px;">{{ sup.cat_geo or '—' }}</td>
+            <td style="padding:6px 10px;">{{ sup.srri if sup.srri is not none else '—' }}</td>
+            <td style="padding:6px 10px; text-align:right;">{{ sup.total_valo_str }} €</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+    {% else %}
+    <div class="muted" style="margin-top:12px;">Aucune donnée pour les critères sélectionnés.</div>
+    {% endif %}
   </div>
 </div>
 
@@ -756,6 +809,13 @@
     let saved = '';
     try { saved = localStorage.getItem('dashboard_open') || ''; } catch(e) {}
     if (saved) setOpen(saved);
+    else {
+      const defaultGroup = groups.find(g => {
+        const t = $(g.toggle);
+        return t && t.dataset.open === '1';
+      });
+      if (defaultGroup) setOpen(defaultGroup.key);
+    }
     // Wire clicks
     groups.forEach(g => {
       const t = $(g.toggle), s = $(g.section);
@@ -773,26 +833,57 @@
     });
   })();
 
-  // Sous-accordéons de l'analyse portefeuille (exclusifs, tous fermés par défaut)
+  (function(){
+    var exportBtn = document.getElementById('finance_export_btn');
+    if (!exportBtn) return;
+    exportBtn.addEventListener('click', function(){
+      var params = new URLSearchParams();
+      var dateInput = document.querySelector('input[name="finance_date"]');
+      if (dateInput && dateInput.value) params.set('finance_date', dateInput.value);
+      var rhSelect = document.querySelector('select[name="finance_rh"]');
+      if (rhSelect && rhSelect.value) params.set('finance_rh', rhSelect.value);
+      var valoInput = document.querySelector('input[name="finance_valo"]');
+      if (valoInput && valoInput.value) params.set('finance_valo', valoInput.value);
+      var url = '/dashboard/finance/export';
+      var qs = params.toString();
+      if (qs) url += '?' + qs;
+      window.location.href = url;
+    });
+  })();
+
+  // Sous-accordéons Risques / Analyse portefeuille (indépendants, ouverts via data-open)
   (function(){
     const pairs = [
       ['clienteleToggle','clienteleSection'],
       ['srriToggle','srriSection'],
-      ['financeToggle','financeSection'],
     ];
-    const nodes = pairs.map(([tid,sid]) => ({
-      t: document.getElementById(tid),
-      s: document.getElementById(sid)
-    })).filter(o => o.t && o.s);
-    function closeAll(){ nodes.forEach(o => { o.s.style.display='none'; o.t.classList.add('collapsed'); }); }
+    const nodes = pairs.map(([tid,sid]) => {
+      const t = document.getElementById(tid);
+      const s = document.getElementById(sid);
+      return t && s ? { t, s } : null;
+    }).filter(Boolean);
     nodes.forEach(o => {
+      function open(){
+        o.s.style.display = '';
+        o.t.classList.remove('collapsed');
+      }
+      function close(){
+        o.s.style.display = 'none';
+        o.t.classList.add('collapsed');
+      }
+      if (o.t.dataset.open === '1') {
+        open();
+      } else {
+        close();
+      }
       o.t.addEventListener('click', function(){
         const isOpen = o.s.style.display !== 'none';
-        if (isOpen){ closeAll(); }
-        else { closeAll(); o.s.style.display=''; o.t.classList.remove('collapsed'); try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){} }
+        if (isOpen){
+          close();
+        } else {
+          open();
+        }
       });
-      o.t.classList.add('collapsed');
-      o.s.style.display = 'none';
     });
   })();
 
