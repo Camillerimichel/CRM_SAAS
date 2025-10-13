@@ -1,13 +1,15 @@
 import logging
 
-from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, Depends, Query, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
+import csv
+import io
 from urllib.parse import urlencode
 
 
@@ -24,7 +26,6 @@ from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
 from starlette.responses import RedirectResponse
-from starlette.responses import StreamingResponse
 
 # ---------------- Imports Models ----------------
 from src.models.client import Client
@@ -46,6 +47,17 @@ logger = logging.getLogger("uvicorn.error")
 
 def rows_to_dicts(rows):
     return [dict(row._mapping) for row in rows]
+
+
+def fetch_rh_list(db: Session) -> list[dict]:
+    """Retrieve RH directory entries ordered by name."""
+    try:
+        rows = db.execute(
+            text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")
+        ).fetchall()
+        return rows_to_dicts(rows)
+    except Exception:
+        return []
 
 
 def _parse_date_safe(raw):
@@ -70,6 +82,673 @@ def _align_to_friday(value):
         return None
     offset = (4 - value.weekday()) % 7
     return value + timedelta(days=offset)
+
+
+def _normalize_valo_token(token: str | float | int) -> float | None:
+    if token is None:
+        return None
+    if isinstance(token, (int, float)):
+        try:
+            return float(token)
+        except Exception:
+            return None
+    try:
+        text_value = str(token).strip().lower()
+    except Exception:
+        return None
+    if not text_value:
+        return None
+    text_value = text_value.replace(" ", "")
+    multiplier = 1.0
+    if text_value.endswith("k"):
+        multiplier = 1_000.0
+        text_value = text_value[:-1]
+    elif text_value.endswith("m"):
+        multiplier = 1_000_000.0
+        text_value = text_value[:-1]
+    text_value = text_value.replace(",", ".")
+    try:
+        return float(text_value) * multiplier
+    except ValueError:
+        return None
+
+
+def _parse_valo_filter_expression(expr: str | None) -> dict:
+    """Parse valuation filter expression (>100k, 200k-1m, <=500k)."""
+    result = {
+        "raw": None,
+        "min": None,
+        "min_inclusive": True,
+        "max": None,
+        "max_inclusive": True,
+    }
+    if not expr:
+        return result
+    raw = str(expr).strip()
+    if not raw:
+        return result
+    result["raw"] = raw
+    import re
+
+    tokens = re.findall(r"(>=|<=|>|<|=)?\s*([-+]?[^\s<>=]+)", raw)
+    parsed_any = False
+    for op, value in tokens:
+        num = _normalize_valo_token(value)
+        if num is None:
+            continue
+        parsed_any = True
+        if op in (">", ">="):
+            result["min"] = num
+            result["min_inclusive"] = op == ">="
+        elif op in ("<", "<="):
+            result["max"] = num
+            result["max_inclusive"] = op == "<="
+        elif op == "=":
+            result["min"] = num
+            result["max"] = num
+            result["min_inclusive"] = True
+            result["max_inclusive"] = True
+    if not parsed_any and "-" in raw:
+        parts = raw.split("-")
+        if len(parts) == 2:
+            a = _normalize_valo_token(parts[0])
+            b = _normalize_valo_token(parts[1])
+            if a is not None and b is not None:
+                result["min"] = min(a, b)
+                result["max"] = max(a, b)
+                parsed_any = True
+    if not parsed_any:
+        num = _normalize_valo_token(raw)
+        if num is not None:
+            result["min"] = num
+            result["max"] = num
+    return result
+
+
+def _fmt_currency(value: float | int | None) -> str:
+    try:
+        return "{:,.0f}".format(float(value or 0)).replace(",", " ")
+    except Exception:
+        return "0"
+
+
+def _build_svg_line_chart(labels: list[str], values: list[float], title: str) -> str | None:
+    try:
+        vals = [float(v or 0) for v in values or []]
+        if not vals:
+            return None
+        labs = [str(l or "") for l in labels or []]
+        if len(vals) > 12:
+            vals = vals[-12:]
+            labs = labs[-12:]
+        W, H, P = 640, 260, 36
+        vmax = max(vals) or 1.0
+        vmin = min(vals) if vals else 0.0
+        if vmax == vmin:
+            vmax = vmin + 1
+        step = max(1, len(vals) - 1)
+        def X(i):
+            return P + i * (W - 2 * P) / step
+        def Y(v):
+            return H - P - ((v - vmin) * (H - 2 * P) / (vmax - vmin))
+        points = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, v in enumerate(vals))
+        parts = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">']
+        parts.append(f'<text x="{P}" y="{P-12}" fill="#111" font-size="14" font-weight="bold">{title}</text>')
+        for i in range(5):
+            y = P + i * (H - 2 * P) / 4
+            parts.append(f'<line x1="{P}" y1="{y:.1f}" x2="{W-P}" y2="{y:.1f}" stroke="#e2e8f0" stroke-width="1" />')
+        parts.append(f'<polyline fill="none" stroke="#2563eb" stroke-width="2" points="{points}" stroke-linejoin="round" stroke-linecap="round" />')
+        for i, label in enumerate(labs):
+            parts.append(f'<text x="{X(i):.1f}" y="{H-P+16}" text-anchor="middle" font-size="11" fill="#334155">{label}</text>')
+        parts.append('</svg>')
+        return ''.join(parts)
+    except Exception:
+        return None
+
+
+def _build_svg_bar_chart(labels: list[str], values: list[float], title: str) -> str | None:
+    try:
+        vals = [float(v or 0) for v in values or []]
+        labs = [str(l or "") for l in labels or []]
+        if not vals or not labs:
+            return None
+        if len(vals) > 6:
+            vals = vals[:6]
+            labs = labs[:6]
+        W, H, P = 520, 240, 36
+        vmax = max(vals) or 1.0
+        bw = (W - 2 * P) / max(1, len(vals)) * 0.6
+        parts = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">']
+        parts.append(f'<text x="{P}" y="{P-12}" fill="#111" font-size="14" font-weight="bold">{title}</text>')
+        for i in range(5):
+            y = P + i * (H - 2 * P) / 4
+            parts.append(f'<line x1="{P}" y1="{y:.1f}" x2="{W-P}" y2="{y:.1f}" stroke="#e2e8f0" stroke-width="1" />')
+        colors = ['#2563eb', '#16a34a', '#f97316', '#ef4444', '#8b5cf6', '#0ea5e9']
+        for i, v in enumerate(vals):
+            height = (H - 2 * P) * (v / vmax)
+            x = P + i * ((W - 2 * P) / max(1, len(vals))) + (((W - 2 * P) / max(1, len(vals))) - bw) / 2
+            y = H - P - height
+            parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{height:.1f}" fill="{colors[i % len(colors)]}" />')
+            parts.append(f'<text x="{x + bw/2:.1f}" y="{H-P+16}" text-anchor="middle" font-size="11" fill="#334155">{labs[i]}</text>')
+        parts.append('</svg>')
+        return ''.join(parts)
+    except Exception:
+        return None
+
+
+def _build_finance_analysis(
+    db: Session,
+    finance_rh_id: int | None,
+    finance_date_param: str | None,
+    finance_valo_param: str | None = None,
+) -> dict:
+    """Compute portfolio analysis figures (supports repartition) for dashboard views."""
+    base_finance_date = _parse_date_safe(finance_date_param)
+    if base_finance_date is None:
+        try:
+            sql_max = """
+                SELECT MAX(date(h.date)) AS max_date
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_affaires a ON a.id = h.id_source
+                LEFT JOIN mariadb_clients c ON c.id = a.id_personne
+            """
+            params_max: dict[str, int] = {}
+            if finance_rh_id is not None:
+                sql_max += " WHERE c.commercial_id = :rh_id"
+                params_max["rh_id"] = finance_rh_id
+            row_max = db.execute(text(sql_max), params_max).fetchone()
+            if row_max:
+                max_val = row_max[0] if not hasattr(row_max, "_mapping") else row_max._mapping.get("max_date")
+                base_finance_date = _parse_date_safe(max_val)
+        except Exception:
+            base_finance_date = None
+    if base_finance_date is None:
+        base_finance_date = _date.today()
+
+    finance_effective_date = _align_to_friday(base_finance_date) or base_finance_date
+    finance_effective_date_iso = finance_effective_date.isoformat()
+    finance_date_input = base_finance_date.isoformat()
+    finance_effective_date_display = finance_effective_date.strftime("%d/%m/%Y")
+
+    finance_supports: list[dict] = []
+    finance_total_valo = 0.0
+    finance_total_valo_str = "0"
+    valo_filter = _parse_valo_filter_expression(finance_valo_param)
+
+    try:
+        params = {"d": finance_effective_date_iso}
+        sql = """
+            SELECT
+                s.code_isin AS code_isin,
+                s.nom AS nom,
+                s.cat_principale AS cat_principale,
+                s.cat_geo AS cat_geo,
+                s.SRRI AS srri,
+                SUM(h.valo) AS total_valo
+            FROM mariadb_historique_support_w h
+            JOIN mariadb_support s ON s.id = h.id_support
+            JOIN mariadb_affaires a ON a.id = h.id_source
+            LEFT JOIN mariadb_clients c ON c.id = a.id_personne
+            WHERE DATE(h.date) = DATE(:d)
+        """
+        if finance_rh_id is not None:
+            sql += " AND c.commercial_id = :rh_id"
+            params["rh_id"] = finance_rh_id
+        sql += """
+            GROUP BY s.code_isin, s.nom, s.cat_principale, s.cat_geo, s.SRRI
+        """
+        having_clauses = []
+        if valo_filter.get("min") is not None:
+            if valo_filter.get("min_inclusive", True):
+                having_clauses.append("SUM(h.valo) >= :valo_min")
+            else:
+                having_clauses.append("SUM(h.valo) > :valo_min")
+            params["valo_min"] = valo_filter["min"]
+        if valo_filter.get("max") is not None:
+            if valo_filter.get("max_inclusive", True):
+                having_clauses.append("SUM(h.valo) <= :valo_max")
+            else:
+                having_clauses.append("SUM(h.valo) < :valo_max")
+            params["valo_max"] = valo_filter["max"]
+        if having_clauses:
+            sql += " HAVING " + " AND ".join(having_clauses)
+        sql += " ORDER BY total_valo DESC"
+        rows_supports = db.execute(text(sql), params).fetchall()
+        for row in rows_supports or []:
+            m = row._mapping if hasattr(row, "_mapping") else None
+            code_isin = m.get("code_isin") if m else row[0]
+            nom = m.get("nom") if m else row[1]
+            cat_principale = m.get("cat_principale") if m else row[2]
+            cat_geo = m.get("cat_geo") if m else row[3]
+            srri = m.get("srri") if m else row[4]
+            total_valo = float(m.get("total_valo") if m else row[5] or 0.0)
+            if total_valo > 0:
+                finance_total_valo += total_valo
+                finance_supports.append(
+                    {
+                        "code_isin": code_isin,
+                        "nom": nom,
+                        "cat_principale": cat_principale,
+                        "cat_geo": cat_geo,
+                        "srri": srri,
+                        "total_valo": total_valo,
+                        "total_valo_str": "{:,.0f}".format(total_valo).replace(",", " "),
+                    }
+                )
+        finance_total_valo_str = "{:,.0f}".format(finance_total_valo).replace(",", " ")
+    except Exception:
+        finance_supports = []
+        finance_total_valo = 0.0
+        finance_total_valo_str = "0"
+
+    return {
+        "finance_supports": finance_supports,
+        "finance_total_valo": finance_total_valo,
+        "finance_total_valo_str": finance_total_valo_str,
+        "finance_date_input": finance_date_input,
+        "finance_effective_date_display": finance_effective_date_display,
+        "finance_effective_date_iso": finance_effective_date_iso,
+        "finance_valo_input": valo_filter.get("raw"),
+    }
+
+
+def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
+    client = db.query(Client).filter(Client.id == client_id).first()
+    rh_list = fetch_rh_list(db)
+    rh_list = fetch_rh_list(db)
+    if not client:
+        return None
+
+    civilite = db.execute(
+        text(
+            """
+            SELECT civilite
+            FROM etat_civil_client
+            WHERE id_client = :cid
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": client_id},
+    ).scalar()
+
+    historique = (
+        db.query(
+            HistoriquePersonne.date,
+            HistoriquePersonne.valo,
+            HistoriquePersonne.mouvement,
+            HistoriquePersonne.sicav,
+            HistoriquePersonne.perf_sicav_52,
+            HistoriquePersonne.volat,
+            HistoriquePersonne.annee,
+        )
+        .filter(HistoriquePersonne.id == client_id)
+        .order_by(HistoriquePersonne.date)
+        .all()
+    )
+
+    history_labels: list[str] = []
+    history_values: list[float] = []
+    history_recent: list[dict] = []
+    cumul = 0.0
+    depots_total = 0.0
+    retraits_total = 0.0
+    last_valo = 0.0
+    for row in historique:
+        dt = None
+        if getattr(row, "date", None):
+            try:
+                dt = row.date.strftime("%Y-%m-%d")
+            except Exception:
+                dt = str(row.date)[:10]
+        else:
+            dt = "N/A"
+        history_labels.append(dt)
+        val = float(getattr(row, "valo", 0.0) or 0.0)
+        mov = float(getattr(row, "mouvement", 0.0) or 0.0)
+        history_values.append(val)
+        last_valo = val
+        if mov > 0:
+            depots_total += mov
+        elif mov < 0:
+            retraits_total += mov
+    for dt, val in list(zip(history_labels, history_values))[-12:]:
+        history_recent.append({"date": dt, "valo": _fmt_currency(val) + " €"})
+
+    solde_total = depots_total + retraits_total
+    depots_str = _fmt_currency(depots_total)
+    retraits_str = _fmt_currency(abs(retraits_total))
+    solde_str = _fmt_currency(solde_total)
+    last_valo_str = _fmt_currency(last_valo)
+
+    years_map: dict[int, dict] = {}
+    for row in historique:
+        year = getattr(row, "annee", None)
+        if year is None:
+            continue
+        try:
+            y = int(year)
+        except Exception:
+            continue
+        perf = getattr(row, "perf_sicav_52", None)
+        vol = getattr(row, "volat", None)
+        prev = years_map.get(y)
+        if not prev or (row.date and prev.get("date") and row.date > prev["date"]):
+            years_map[y] = {"date": getattr(row, "date", None), "perf": perf, "vol": vol}
+    years_sorted = sorted(years_map.keys())
+
+    def _to_pct(value):
+        if value is None:
+            return None
+        try:
+            n = float(value)
+        except Exception:
+            return None
+        if abs(n) <= 1:
+            n *= 100.0
+        return n
+
+    def _to_return_decimal(value):
+        if value is None:
+            return 0.0
+        try:
+            n = float(value)
+        except Exception:
+            return 0.0
+        if abs(n) <= 1:
+            return n
+        return n / 100.0
+
+    ann_perf = [_to_pct(years_map[y]["perf"]) for y in years_sorted]
+    ann_vol = [_to_pct(years_map[y]["vol"]) for y in years_sorted]
+
+    history_chart_svg = _build_svg_line_chart(history_labels, history_values, "Historique des valorisations")
+    perf_chart_svg = None
+    if ann_perf:
+        perf_labels = [str(y) for y in years_sorted]
+        perf_chart_svg = _build_svg_bar_chart(perf_labels[:6], ann_perf[:6], "Performance annuelle (%)")
+
+    # Contrats (affaires)
+    subq_aff = (
+        db.query(
+            HistoriqueAffaire.id.label("affaire_id"),
+            func.max(HistoriqueAffaire.date).label("last_date")
+        )
+        .group_by(HistoriqueAffaire.id)
+        .subquery()
+    )
+    affaires_rows = (
+        db.query(
+            Affaire.id.label("id"),
+            Affaire.ref,
+            Affaire.SRRI,
+            HistoriqueAffaire.valo.label("last_valo"),
+            HistoriqueAffaire.perf_sicav_52.label("last_perf"),
+            HistoriqueAffaire.volat.label("last_volat"),
+        )
+        .join(subq_aff, subq_aff.c.affaire_id == Affaire.id)
+        .join(
+            HistoriqueAffaire,
+            (HistoriqueAffaire.id == subq_aff.c.affaire_id) &
+            (HistoriqueAffaire.date == subq_aff.c.last_date)
+        )
+        .filter(Affaire.id_personne == client_id)
+        .all()
+    )
+
+    def _to_pct(x):
+        if x is None:
+            return None
+        try:
+            v = float(x)
+        except Exception:
+            return None
+        if abs(v) <= 1:
+            v *= 100.0
+        return v
+
+    contracts = []
+    for row in affaires_rows:
+        contracts.append({
+            "ref": row.ref,
+            "srri": row.SRRI,
+            "valo": _fmt_currency(row.last_valo),
+            "perf": _to_pct(row.last_perf),
+            "vol": _to_pct(row.last_volat),
+        })
+
+    last_support_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w")).scalar()
+    supports_rows = []
+    if last_support_date:
+        supports_rows = db.execute(
+            text(
+                """
+                SELECT s.code_isin,
+                       s.nom,
+                       s.cat_principale,
+                       s.cat_geo,
+                       s.SRRI,
+                       SUM(h.valo) AS total_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_support s ON s.id = h.id_support
+                JOIN mariadb_affaires a ON a.id = h.id_source
+                WHERE a.id_personne = :cid
+                  AND DATE(h.date) = DATE(:last_date)
+                GROUP BY s.code_isin, s.nom, s.cat_principale, s.cat_geo, s.SRRI
+                HAVING SUM(h.valo) > 0
+                ORDER BY total_valo DESC
+                """
+            ),
+            {"cid": client_id, "last_date": last_support_date},
+        ).fetchall()
+
+    supports = []
+    for row in supports_rows:
+        m = getattr(row, "_mapping", row)
+        supports.append({
+            "code_isin": m.get("code_isin"),
+            "nom": m.get("nom"),
+            "cat": m.get("cat_principale") or m.get("cat_geo"),
+            "srri": m.get("SRRI"),
+            "valo": _fmt_currency(m.get("total_valo")),
+            "valo_raw": float(m.get("total_valo") or 0),
+        })
+
+    top_supports = supports[:5]
+    supports_chart_svg = None
+    if top_supports:
+        supports_chart_svg = _build_svg_bar_chart(
+            [s.get("code_isin") or "?" for s in top_supports],
+            [s.get("valo_raw") or 0 for s in top_supports],
+            "Top supports par valorisation",
+        )
+    for s in supports:
+        s.pop("valo_raw", None)
+
+    # Reporting pluriannuel (tableau solde / valorisation / perfs)
+    year_data: dict[int, dict] = {}
+    for row in historique:
+        date = getattr(row, "date", None)
+        year = getattr(row, "annee", None)
+        if year is None and date:
+            try:
+                year = date.year
+            except Exception:
+                year = None
+        if year is None:
+            continue
+        info = year_data.setdefault(year, {"mov": 0.0, "last": None, "vols": []})
+        try:
+            info["mov"] += float(getattr(row, "mouvement", 0.0) or 0.0)
+        except Exception:
+            pass
+        vol = getattr(row, "volat", None)
+        if vol is not None:
+            try:
+                info["vols"].append(float(vol))
+            except Exception:
+                pass
+        last = info.get("last")
+        if last is None:
+            info["last"] = row
+        else:
+            try:
+                cur_dt = getattr(row, "date", None)
+                last_dt = getattr(last, "date", None)
+                if cur_dt and last_dt:
+                    if cur_dt > last_dt:
+                        info["last"] = row
+                elif cur_dt and not last_dt:
+                    info["last"] = row
+            except Exception:
+                pass
+
+    reporting_years = []
+    cum_factor = 1.0
+    year_count = 0
+    for year in sorted(year_data.keys()):
+        info = year_data[year]
+        mov = info.get("mov", 0.0) or 0.0
+        last_row = info.get("last")
+        last_val = float(getattr(last_row, "valo", 0.0) or 0.0) if last_row else 0.0
+        perf_raw = getattr(last_row, "perf_sicav_52", None) if last_row else None
+        perf_pct = _to_pct(perf_raw)
+        ann_return = _to_return_decimal(perf_raw)
+        try:
+            cum_factor *= (1.0 + ann_return)
+        except Exception:
+            pass
+        year_count += 1
+        cum_perf_pct = (cum_factor - 1.0) * 100.0
+        try:
+            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0
+        except Exception:
+            ann_perf_pct = None
+        vols_pct = [_to_pct(v) for v in info.get("vols", []) if _to_pct(v) is not None]
+        avg_vol_pct = sum(vols_pct) / len(vols_pct) if vols_pct else None
+        reporting_years.append({
+            "year": year,
+            "solde_str": _fmt_currency(mov),
+            "last_valo_str": _fmt_currency(last_val),
+            "cum_perf_pct": cum_perf_pct,
+            "ann_perf_pct": ann_perf_pct,
+            "avg_vol_pct": avg_vol_pct,
+        })
+
+    report_date = datetime.utcnow()
+    return {
+        "client": client,
+        "civilite": civilite,
+        "report_date": report_date,
+        "report_date_str": report_date.strftime("%d/%m/%Y"),
+        "summary": {
+            "total_valo": last_valo_str,
+            "depots": depots_str,
+            "retraits": _fmt_currency(abs(retraits_total)),
+            "solde": solde_str,
+        },
+        "history_recent": history_recent,
+        "history_chart_svg": history_chart_svg,
+        "performance_chart_svg": perf_chart_svg,
+        "supports_chart_svg": supports_chart_svg,
+        "contracts": contracts,
+        "supports": supports,
+        "history_years": [str(y) for y in years_sorted],
+        "history_perf": ann_perf,
+        "history_vol": ann_vol,
+        "reporting_years": reporting_years,
+        "totals": {
+            "total_valo": last_valo_str,
+            "depots": depots_str,
+            "retraits": _fmt_currency(abs(retraits_total)),
+            "solde": solde_str,
+        },
+    }
+def _fetch_task_types(db: Session) -> dict[str, list[dict]]:
+    rows = db.execute(
+        text(
+            """
+            SELECT id, libelle, categorie
+            FROM mariadb_type_evenement
+            ORDER BY categorie, libelle
+            """
+        )
+    ).fetchall()
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        data = dict(getattr(row, "_mapping", row))
+        cat = (data.get("categorie") or "tache").strip().lower()
+        grouped.setdefault(cat, []).append(data)
+    return grouped
+
+
+@router.get("/finance/export")
+def dashboard_finance_export(request: Request, db: Session = Depends(get_db)) -> StreamingResponse:
+    finance_rh_param = request.query_params.get("finance_rh")
+    finance_rh_id: int | None = None
+    if finance_rh_param not in (None, ""):
+        try:
+            finance_rh_id = int(finance_rh_param)
+        except (TypeError, ValueError):
+            finance_rh_id = None
+
+    finance_ctx = _build_finance_analysis(
+        db=db,
+        finance_rh_id=finance_rh_id,
+        finance_date_param=request.query_params.get("finance_date"),
+        finance_valo_param=request.query_params.get("finance_valo"),
+    )
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["Code ISIN", "Support", "Catégorie principale", "Catégorie géo", "SRRI", "Valorisation (€)"])
+    for sup in finance_ctx["finance_supports"]:
+        writer.writerow([
+            sup.get("code_isin") or "",
+            sup.get("nom") or "",
+            sup.get("cat_principale") or "",
+            sup.get("cat_geo") or "",
+            sup.get("srri") if sup.get("srri") is not None else "",
+            "{:,.0f}".format(sup.get("total_valo") or 0).replace(",", " "),
+        ])
+    writer.writerow([])
+    writer.writerow(["", "", "", "", "Total", "{:,.0f}".format(finance_ctx["finance_total_valo"]).replace(",", " ")])
+    output.seek(0)
+    filename_date = finance_ctx["finance_date_input"]
+    rh_suffix = f"_rh_{finance_rh_id}" if finance_rh_id is not None else ""
+    filename = f"analyse_financiere_{filename_date}{rh_suffix}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/api/synthese")
+def dashboard_api_synthese(
+    request: Request,
+    id_client: int = Query(..., alias="id_client"),
+    db: Session = Depends(get_db),
+):
+    ctx = _build_client_synthese_context(db, id_client)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    ctx_render = dict(ctx)
+    ctx_render["request"] = request
+    ctx_render["title"] = f"Synthèse {ctx['client'].prenom or ''} {ctx['client'].nom or ''}".strip()
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("synthese_report.html").render(ctx_render)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    filename = f"synthese_{id_client}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------- KYC Report (HTML/PDF) ----------------
@@ -1230,9 +1909,34 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     # Courtier Détails: Assurances & garanties (normes)
     garanties_normes: list[dict] = []
     supports: list[dict] = []
+    # Administration (relations / RH)
+    admin_types: list[dict] = []
+    admin_intervenants: list[dict] = []
+    groupes_details: list[dict] = []
 
     # Chargement des données si les tables existent
     from sqlalchemy import text as _text
+
+    def _load_admin_types_list() -> list[dict]:
+        try:
+            rows = rows_to_dicts(
+                db.execute(
+                    _text(
+                        """
+                        SELECT id, nom, inverse_id
+                        FROM administration_type_relation
+                        ORDER BY nom
+                        """
+                    )
+                ).fetchall()
+            )
+        except Exception:
+            return []
+        inv = {item.get("id"): item.get("nom") for item in rows}
+        for item in rows:
+            inv_id = item.get("inverse_id")
+            item["inverse_nom"] = inv.get(inv_id)
+        return rows
     try:
         societes = rows_to_dicts(
             db.execute(
@@ -1302,6 +2006,74 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         )
     except Exception:
         supports = []
+
+    admin_rh: list[dict] = []
+    try:
+        admin_rh = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire
+                    FROM administration_RH
+                    ORDER BY nom, prenom
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        admin_rh = []
+
+    admin_types = _load_admin_types_list()
+
+    def _load_admin_intervenants_list() -> list[dict]:
+        try:
+            rows = rows_to_dicts(
+                db.execute(
+                    _text(
+                        """
+                        SELECT id, nom, type_niveau, type_personne, telephone, mail
+                        FROM administration_intervenant
+                        ORDER BY nom
+                        """
+                    )
+                ).fetchall()
+            )
+        except Exception:
+            return []
+        return rows
+
+    admin_intervenants = _load_admin_intervenants_list()
+
+    def _load_groupes_details() -> list[dict]:
+        try:
+            rows = db.execute(
+                _text(
+                    """
+                    SELECT d.rowid AS __rid,
+                           d.id,
+                           d.type_groupe,
+                           d.nom,
+                           d.date_creation,
+                           d.date_fin,
+                           d.responsable_id,
+                           d.motif,
+                           d.actif,
+                           COALESCE(m.nb_membres, 0) AS nb_membres
+                    FROM administration_groupe_detail d
+                    LEFT JOIN (
+                        SELECT groupe_id, COUNT(*) AS nb_membres
+                        FROM administration_groupe
+                        GROUP BY groupe_id
+                    ) m ON m.groupe_id = d.id
+                    ORDER BY d.nom
+                    """
+                )
+            ).fetchall()
+        except Exception:
+            return []
+        return rows_to_dicts(rows)
+
+    groupes_details = _load_groupes_details()
 
     try:
         # Carte des supports par contrat (avec enrichissements nécessaires au tableau/CSV)
@@ -1613,6 +2385,10 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "remun_items": remun_items,
             "remun_extra_cols": remun_extra_cols,
             "garanties_normes": garanties_normes,
+            "admin_types": admin_types,
+            "admin_intervenants": admin_intervenants,
+            "groupes_details": groupes_details,
+            "admin_rh": admin_rh,
         },
     )
 
@@ -2515,6 +3291,10 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
                 "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
+                "admin_types": _load_admin_types_list(),
+                "admin_intervenants": _load_admin_intervenants_list(),
+                "groupes_details": _load_groupes_details(),
+                "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 # Contexte courtier avec erreur
                 "courtier": None,
                 "form_courtier": params,
@@ -2588,6 +3368,10 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
                 "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
+                "admin_types": _load_admin_types_list(),
+                "admin_intervenants": _load_admin_intervenants_list(),
+                "groupes_details": _load_groupes_details(),
+                "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 "courtier": None,
                 "form_courtier": params,
                 "form_errors": errors,
@@ -3007,12 +3791,14 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         .group_by(HistoriquePersonne.id)
         .subquery()
     )
-    total_valo = (
-        db.query(func.coalesce(func.sum(HistoriquePersonne.valo), 0))
-        .join(sub_cli, sub_cli.c.client_id == HistoriquePersonne.id)
-        .filter(HistoriquePersonne.date == sub_cli.c.last_date)
-        .scalar()
-    ) or 0
+    finance_valo_param = request.query_params.get("finance_valo")
+    finance_global_ctx = _build_finance_analysis(
+        db=db,
+        finance_rh_id=None,
+        finance_date_param=None,
+        finance_valo_param=finance_valo_param,
+    )
+    total_valo = finance_global_ctx["finance_total_valo"]
 
     # Découpage du nombre de clients par intervalles de détention (basé sur la dernière valo par client)
     last_valos = (
@@ -3087,6 +3873,48 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     srri_affaires_amount = [
         {"srri": s, "total": float(v or 0)} for s, v in srri_affaires_amount
     ]
+
+    # Référentiel RH (pour filtres analyse financière)
+    rh_entries = fetch_rh_list(db)
+    finance_rh_options: list[dict[str, str | int]] = []
+    for rh in rh_entries or []:
+        try:
+            rid = int(rh.get("id"))
+        except Exception:
+            continue
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        mail = (rh.get("mail") or "").strip()
+        label_parts = [p for p in [prenom, nom] if p]
+        if label_parts:
+            label = " ".join(label_parts)
+        elif mail:
+            label = mail
+        else:
+            label = f"RH #{rid}"
+        finance_rh_options.append({"id": rid, "label": label})
+    finance_rh_options.sort(key=lambda x: str(x["label"] or "").lower())
+
+    finance_rh_param = request.query_params.get("finance_rh")
+    finance_rh_id: int | None = None
+    if finance_rh_param not in (None, ""):
+        try:
+            finance_rh_id = int(finance_rh_param)
+        except (TypeError, ValueError):
+            finance_rh_id = None
+
+    finance_ctx = _build_finance_analysis(
+        db=db,
+        finance_rh_id=finance_rh_id,
+        finance_date_param=request.query_params.get("finance_date"),
+        finance_valo_param=request.query_params.get("finance_valo"),
+    )
+    finance_supports = finance_ctx["finance_supports"]
+    finance_total_valo = finance_ctx["finance_total_valo"]
+    finance_total_valo_str = finance_ctx["finance_total_valo_str"]
+    finance_date_input = finance_ctx["finance_date_input"]
+    finance_effective_date_display = finance_ctx["finance_effective_date_display"]
+    finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
 
     # Informations Documents (comme sur la page Documents)
     try:
@@ -3328,6 +4156,31 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             """
         ), {"rng": range_days}).fetchall()
         tasks_close_dist = [ {"bucket": r[0], "nb": int(r[1] or 0)} for r in rows_dist ]
+        rows_type_rh = db.execute(_text(
+            """
+            SELECT
+                v.rh_id AS rh_id,
+                COALESCE(r.prenom || ' ' || r.nom, r.mail, 'Sans responsable') AS rh_nom,
+                v.type_evenement AS type,
+                COUNT(*) AS nb
+            FROM vue_suivi_evenement v
+            LEFT JOIN administration_RH r ON r.id = v.rh_id
+            GROUP BY v.rh_id, rh_nom, v.type_evenement
+            ORDER BY rh_nom, v.type_evenement
+            """
+        )).fetchall()
+        tasks_type_by_rh = rows_to_dicts(rows_type_rh)
+        rows_type_total = db.execute(_text(
+            """
+            SELECT
+                v.type_evenement AS type,
+                COUNT(*) AS nb
+            FROM vue_suivi_evenement v
+            GROUP BY v.type_evenement
+            ORDER BY v.type_evenement
+            """
+        )).fetchall()
+        tasks_type_total = rows_to_dicts(rows_type_total)
     except Exception:
         tasks_total = 0
         open_count = 0
@@ -3337,6 +4190,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         tasks_avg_by_statut = []
         tasks_avg_close_days = 0.0
         tasks_close_dist = []
+        tasks_type_by_rh = []
+        tasks_type_total = []
 
     rem_contracts = []
     rem_rows_full = []
@@ -3835,6 +4690,16 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "aff_risk_counts": compare_counts,
             # Infos clients vs risque
             "cli_risk_counts": cli_counts,
+            # Analyse financière (supports)
+            "finance_supports": finance_supports,
+            "finance_total_valo": finance_total_valo,
+            "finance_total_valo_str": finance_total_valo_str,
+            "finance_date_input": finance_date_input,
+            "finance_effective_date_display": finance_effective_date_display,
+            "finance_effective_date_iso": finance_effective_date_iso,
+            "finance_rh_options": finance_rh_options,
+            "finance_rh_selected": finance_rh_id,
+            "finance_valo_input": finance_ctx.get("finance_valo_input"),
             # Tâches / événements
             "tasks_total": tasks_total,
             "tasks_open": open_count,
@@ -3845,6 +4710,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "tasks_avg_close_days": tasks_avg_close_days,
             "tasks_close_dist": tasks_close_dist,
             "tasks_range": range_days,
+            "tasks_type_by_rh": tasks_type_by_rh,
+            "tasks_type_total": tasks_type_total,
             "rem_contracts": rem_contracts,
             "rem_selected_contract": rem_selected_contract,
             "rem_limit": rem_limit,
@@ -5019,6 +5886,96 @@ async def dashboard_client_kyc(
                     objectifs_error = "Impossible d'enregistrer l'objectif."
                     logger.debug("Dashboard KYC client: erreur objectif save: %s", exc, exc_info=True)
 
+        elif action == "objectifs_save_all":
+            active_section = "objectifs"
+            ui_focus_section = "objectifs"
+            ui_focus_panel = "objectifsPanel"
+            from sqlalchemy import text as _text
+            raw = form.get("objectifs_all")
+            saved = 0
+            skipped = 0
+            try:
+                import json as _json
+                items = _json.loads(raw or "[]")
+                if not isinstance(items, list):
+                    items = []
+            except Exception:
+                items = []
+            for it in items:
+                try:
+                    objectif_id = int(it.get("objectif_id")) if it.get("objectif_id") is not None else None
+                    if not objectif_id:
+                        skipped += 1
+                        continue
+                    niveau_id = it.get("niveau_id")
+                    try:
+                        niveau_id = int(niveau_id) if niveau_id is not None else None
+                    except Exception:
+                        niveau_id = None
+                    horizon = (it.get("horizon_investissement") or None)
+                    commentaire = (it.get("commentaire") or None)
+                    date_expiration = (it.get("date_expiration") or None)
+                    montant = it.get("montant")
+                    try:
+                        montant = float(montant) if montant is not None else 0.0
+                    except Exception:
+                        montant = 0.0
+                    if niveau_id is None:
+                        skipped += 1
+                        continue
+                    # insert/update unique by (client_id, objectif_id)
+                    row = db.execute(
+                        _text("SELECT id FROM KYC_Client_Objectifs WHERE client_id = :cid AND objectif_id = :oid"),
+                        {"cid": client_id, "oid": objectif_id},
+                    ).fetchone()
+                    params = {
+                        "cid": client_id,
+                        "objectif_id": objectif_id,
+                        "horizon": horizon,
+                        "niveau_id": niveau_id,
+                        "montant": montant,
+                        "commentaire": commentaire,
+                        "date_expiration": date_expiration,
+                    }
+                    if row:
+                        db.execute(
+                            _text(
+                                """
+                                UPDATE KYC_Client_Objectifs
+                                SET horizon_investissement = :horizon,
+                                    niveau_id = :niveau_id,
+                                    montant = :montant,
+                                    commentaire = :commentaire,
+                                    date_expiration = :date_expiration
+                                WHERE id = :id AND client_id = :cid
+                                """
+                            ),
+                            params | {"id": int(row[0])},
+                        )
+                    else:
+                        db.execute(
+                            _text(
+                                """
+                                INSERT INTO KYC_Client_Objectifs (
+                                    client_id, objectif_id, horizon_investissement, niveau_id, montant, commentaire, date_expiration
+                                ) VALUES (
+                                    :cid, :objectif_id, :horizon, :niveau_id, :montant, :commentaire, :date_expiration
+                                )
+                                """
+                            ),
+                            params,
+                        )
+                    saved += 1
+                except Exception:
+                    skipped += 1
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            objectifs_success = f"{saved} objectif(s) enregistré(s)." if saved else None
+            if skipped and not objectifs_error:
+                objectifs_error = f"{skipped} objectif(s) ignoré(s) (incomplets)."
+
         elif action == "objectifs_delete":
             active_section = "objectifs"
             ui_focus_section = "objectifs"
@@ -5071,15 +6028,55 @@ async def dashboard_client_kyc(
             gov_transparence = _pick("gov_transparence")
             gov_controle_ethique = _pick("gov_controle_ethique")
 
-            excl_ids = []
-            ind_ids = []
-            try:
+            def _extract_multi_ids(field: str) -> list[int]:
+                """Extract repeated form values regardless of the backend form type."""
+                raw_values: list[str] = []
                 if hasattr(form, "getlist"):
-                    excl_ids = [int(x) for x in form.getlist("exclusions") if str(x).isdigit()]
-                    ind_ids = [int(x) for x in form.getlist("indicators") if str(x).isdigit()]
-            except Exception:
-                excl_ids = []
-                ind_ids = []
+                    try:
+                        raw_values.extend(form.getlist(field))
+                    except Exception:
+                        pass
+                if not raw_values and hasattr(form, "multi_items"):
+                    try:
+                        for key, value in form.multi_items():
+                            if key == field:
+                                raw_values.append(value)
+                    except Exception:
+                        pass
+                if not raw_values and hasattr(form, "lists"):
+                    try:
+                        values_map = form.lists()
+                        if field in values_map:
+                            raw_values.extend(values_map[field])
+                    except Exception:
+                        pass
+                # fallback: scan plain items in case framework flattens duplicates
+                if not raw_values and hasattr(form, "items"):
+                    try:
+                        raw_values.extend(value for key, value in form.items() if key == field)
+                    except Exception:
+                        pass
+                cleaned: list[int] = []
+                for value in raw_values:
+                    try:
+                        value_str = str(value).strip()
+                        if not value_str:
+                            continue
+                        cleaned.append(int(value_str))
+                    except Exception:
+                        continue
+                # de-duplicate while preserving order
+                seen: set[int] = set()
+                unique: list[int] = []
+                for vid in cleaned:
+                    if vid in seen:
+                        continue
+                    seen.add(vid)
+                    unique.append(vid)
+                return unique
+
+            excl_ids = _extract_multi_ids("exclusions")
+            ind_ids = _extract_multi_ids("indicators")
 
             if not all([env_importance, env_ges_reduc, soc_droits_humains, soc_parite, gov_transparence, gov_controle_ethique]):
                 esg_error = "Veuillez renseigner toutes les réponses ESG."
@@ -5727,14 +6724,21 @@ async def dashboard_client_kyc(
             lcbft_error = None
             try:
                 form = await request.form()
-                def _i(name):
+                def _i(name, default: int | None = 0):
                     v = form.get(name)
-                    if v is None or v == "":
-                        return None
+                    if v is None:
+                        return default
+                    s = str(v).strip().lower()
+                    if s == "":
+                        return default
+                    if s in {"1", "true", "on", "oui", "yes"}:
+                        return 1
+                    if s in {"0", "false", "off", "non", "no"}:
+                        return 0
                     try:
-                        return int(v)
+                        return int(float(s))
                     except Exception:
-                        return None
+                        return default
                 now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 from datetime import timedelta as _td
                 obso = (datetime.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
@@ -5799,47 +6803,119 @@ async def dashboard_client_kyc(
                     params["client_id"] = int(client_id)
                 except Exception:
                     params["client_id"] = None
-                db.execute(
+                existing_q = db.execute(
                     _text(
                         """
-                        INSERT INTO LCBFT_questionnaire (
-                          client_ref, client_id, created_at, updated_at,
-                          relation_mode, relation_since,
-                          has_existing_contracts, existing_with_our_insurer,
-                          existing_contract_ref, reason_new_contract,
-                          ppe_self, ppe_self_fonction, ppe_self_pays,
-                          ppe_family, ppe_family_fonction, ppe_family_pays,
-                          flag_1a, flag_1b, flag_1c, flag_1d,
-                          flag_2a, flag_2b, flag_3a,
-                          computed_risk_level,
-                          prof_profession, prof_statut_professionnel_id, prof_secteur_id,
-                          prof_self_ppe, prof_self_ppe_fonction, prof_self_ppe_pays,
-                          prof_family_ppe, prof_family_ppe_fonction, prof_family_ppe_pays,
-                          operation_objet, montant, patrimoine_pct,
-                          just_fonds, just_destination, just_finalite, just_produits
-                        ) VALUES (
-                          :client_ref, :client_id, :created_at, :updated_at,
-                          :relation_mode, :relation_since,
-                          :has_existing_contracts, :existing_with_our_insurer,
-                          :existing_contract_ref, :reason_new_contract,
-                          :ppe_self, :ppe_self_fonction, :ppe_self_pays,
-                          :ppe_family, :ppe_family_fonction, :ppe_family_pays,
-                          :flag_1a, :flag_1b, :flag_1c, :flag_1d,
-                          :flag_2a, :flag_2b, :flag_3a,
-                          :computed_risk_level,
-                          :prof_profession, :prof_statut_professionnel_id, :prof_secteur_id,
-                          :prof_self_ppe, :prof_self_ppe_fonction, :prof_self_ppe_pays,
-                          :prof_family_ppe, :prof_family_ppe_fonction, :prof_family_ppe_pays,
-                          :operation_objet, :montant, :patrimoine_pct,
-                          :just_fonds, :just_destination, :just_finalite, :just_produits
-                        )
+                        SELECT id, created_at
+                        FROM LCBFT_questionnaire
+                        WHERE client_ref = :cr
+                        ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+                        LIMIT 1
                         """
                     ),
-                    params,
-                )
+                    {"cr": str(client_id)},
+                ).fetchone()
+                if existing_q:
+                    qid = existing_q[0]
+                    update_params = params.copy()
+                    update_params["__id"] = qid
+                    update_params["updated_at"] = obso
+                    set_clause = ", ".join(
+                        [
+                            "client_ref = :client_ref",
+                            "client_id = :client_id",
+                            "updated_at = :updated_at",
+                            "relation_mode = :relation_mode",
+                            "relation_since = :relation_since",
+                            "has_existing_contracts = :has_existing_contracts",
+                            "existing_with_our_insurer = :existing_with_our_insurer",
+                            "existing_contract_ref = :existing_contract_ref",
+                            "reason_new_contract = :reason_new_contract",
+                            "ppe_self = :ppe_self",
+                            "ppe_self_fonction = :ppe_self_fonction",
+                            "ppe_self_pays = :ppe_self_pays",
+                            "ppe_family = :ppe_family",
+                            "ppe_family_fonction = :ppe_family_fonction",
+                            "ppe_family_pays = :ppe_family_pays",
+                            "flag_1a = :flag_1a",
+                            "flag_1b = :flag_1b",
+                            "flag_1c = :flag_1c",
+                            "flag_1d = :flag_1d",
+                            "flag_2a = :flag_2a",
+                            "flag_2b = :flag_2b",
+                            "flag_3a = :flag_3a",
+                            "computed_risk_level = :computed_risk_level",
+                            "prof_profession = :prof_profession",
+                            "prof_statut_professionnel_id = :prof_statut_professionnel_id",
+                            "prof_secteur_id = :prof_secteur_id",
+                            "prof_self_ppe = :prof_self_ppe",
+                            "prof_self_ppe_fonction = :prof_self_ppe_fonction",
+                            "prof_self_ppe_pays = :prof_self_ppe_pays",
+                            "prof_family_ppe = :prof_family_ppe",
+                            "prof_family_ppe_fonction = :prof_family_ppe_fonction",
+                            "prof_family_ppe_pays = :prof_family_ppe_pays",
+                            "operation_objet = :operation_objet",
+                            "montant = :montant",
+                            "patrimoine_pct = :patrimoine_pct",
+                            "just_fonds = :just_fonds",
+                            "just_destination = :just_destination",
+                            "just_finalite = :just_finalite",
+                            "just_produits = :just_produits",
+                        ]
+                    )
+                    db.execute(
+                        _text(f"UPDATE LCBFT_questionnaire SET {set_clause} WHERE id = :__id"),
+                        update_params,
+                    )
+                else:
+                    db.execute(
+                        _text(
+                            """
+                            INSERT INTO LCBFT_questionnaire (
+                              client_ref, client_id, created_at, updated_at,
+                              relation_mode, relation_since,
+                              has_existing_contracts, existing_with_our_insurer,
+                              existing_contract_ref, reason_new_contract,
+                              ppe_self, ppe_self_fonction, ppe_self_pays,
+                              ppe_family, ppe_family_fonction, ppe_family_pays,
+                              flag_1a, flag_1b, flag_1c, flag_1d,
+                              flag_2a, flag_2b, flag_3a,
+                              computed_risk_level,
+                              prof_profession, prof_statut_professionnel_id, prof_secteur_id,
+                              prof_self_ppe, prof_self_ppe_fonction, prof_self_ppe_pays,
+                              prof_family_ppe, prof_family_ppe_fonction, prof_family_ppe_pays,
+                              operation_objet, montant, patrimoine_pct,
+                              just_fonds, just_destination, just_finalite, just_produits
+                            ) VALUES (
+                              :client_ref, :client_id, :created_at, :updated_at,
+                              :relation_mode, :relation_since,
+                              :has_existing_contracts, :existing_with_our_insurer,
+                              :existing_contract_ref, :reason_new_contract,
+                              :ppe_self, :ppe_self_fonction, :ppe_self_pays,
+                              :ppe_family, :ppe_family_fonction, :ppe_family_pays,
+                              :flag_1a, :flag_1b, :flag_1c, :flag_1d,
+                              :flag_2a, :flag_2b, :flag_3a,
+                              :computed_risk_level,
+                              :prof_profession, :prof_statut_professionnel_id, :prof_secteur_id,
+                              :prof_self_ppe, :prof_self_ppe_fonction, :prof_self_ppe_pays,
+                              :prof_family_ppe, :prof_family_ppe_fonction, :prof_family_ppe_pays,
+                              :operation_objet, :montant, :patrimoine_pct,
+                              :just_fonds, :just_destination, :just_finalite, :just_produits
+                            )
+                            """
+                        ),
+                        params,
+                    )
+                    qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
                 # Vigilance options
                 try:
-                    qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                    if not existing_q:
+                        qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                except Exception:
+                    pass
+                try:
+                    if existing_q:
+                        qid = existing_q[0]
                     # Persist FATCA fields linked to this questionnaire
                     try:
                         # Read form values
@@ -5969,6 +7045,11 @@ async def dashboard_client_kyc(
                         logger.debug("LCBFT_fatca persist error: %s", _exc_f, exc_info=True)
                     if hasattr(form, 'getlist'):
                         vids = [int(x) for x in form.getlist('vigilance_ids') if str(x).isdigit()]
+                        if qid:
+                            db.execute(
+                                _text("DELETE FROM LCBFT_questionnaire_vigilance WHERE questionnaire_id = :q"),
+                                {"q": qid},
+                            )
                         for oid in vids:
                             db.execute(
                                 _text("INSERT OR IGNORE INTO LCBFT_questionnaire_vigilance (questionnaire_id, option_id) VALUES (:q,:o)"),
@@ -5977,6 +7058,20 @@ async def dashboard_client_kyc(
                 except Exception:
                     pass
                 db.commit()
+                try:
+                    row = db.execute(
+                        _text("SELECT * FROM LCBFT_questionnaire WHERE id = :id"),
+                        {"id": qid},
+                    ).fetchone()
+                    if row:
+                        lcbft_current = dict(row._mapping)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(form, 'getlist'):
+                        lcbft_raison_selected_ids = [int(x) for x in form.getlist('vigilance_ids') if str(x).isdigit()]
+                except Exception:
+                    pass
                 lcbft_success = "Questionnaire LCB-FT enregistré."
             except Exception as exc:
                 db.rollback()
@@ -6920,11 +8015,29 @@ async def dashboard_client_kyc(
     lcbft_current: dict | None = None
     lcbft_vigilance_ids: list[int] = []
     lcbft_vigilance_options: list[dict] = []
+    lcbft_ppe_options: list[dict] = []
+    lcbft_operation_types: list[dict] = []
+    lcbft_operation_selected_ids: list[int] = []
+    lcbft_revenue_total: float | None = None
+    lcbft_revenue_tranches: list[dict] = []
+    lcbft_revenue_tranche_id: int | None = None
+    lcbft_patrimoine_total: float | None = None
+    lcbft_patrimoine_tranches: list[dict] = []
+    lcbft_patrimoine_tranche_id: int | None = None
+    lcbft_raison_options: list[dict] = []
+    lcbft_raison_selected_ids: list[int] = []
+    lcbft_raison_forced_ids: set[int] = set()
+    lcbft_raison_disabled_ids: set[int] = set()
     try:
         rows = db.execute(text("SELECT id, code, label FROM LCBFT_vigilance_option ORDER BY label")).fetchall()
         lcbft_vigilance_options = [dict(r._mapping) for r in rows]
     except Exception:
         lcbft_vigilance_options = []
+    try:
+        rows = db.execute(text("SELECT id, code, lib FROM LCBFT_ref_operation_type ORDER BY lib")).fetchall()
+        lcbft_operation_types = [dict(r._mapping) for r in rows]
+    except Exception:
+        lcbft_operation_types = []
     try:
         row = db.execute(
             text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
@@ -6939,8 +8052,145 @@ async def dashboard_client_kyc(
                 lcbft_vigilance_ids = [int(x[0]) for x in ids]
             except Exception:
                 lcbft_vigilance_ids = []
+            if qid is not None:
+                try:
+                    rows = db.execute(
+                        text("SELECT operation_type_id FROM LCBFT_questionnaire_operation_type WHERE questionnaire_id = :q"),
+                        {"q": qid},
+                    ).fetchall()
+                    lcbft_operation_selected_ids = [int(r[0]) for r in rows if r and r[0] is not None]
+                except Exception:
+                    lcbft_operation_selected_ids = []
+        if lcbft_current and not lcbft_operation_selected_ids:
+            raw_ops = None
+            for key in ("operation_type_ids", "operation_types", "operation_type_codes"):
+                val = lcbft_current.get(key)
+                if val not in (None, "", []):
+                    raw_ops = val
+                    break
+            if raw_ops is not None:
+                if isinstance(raw_ops, (list, tuple, set)):
+                    candidates = raw_ops
+                else:
+                    candidates = str(raw_ops).replace(";", ",").split(",")
+                for item in candidates:
+                    try:
+                        lcbft_operation_selected_ids.append(int(str(item).strip()))
+                    except (TypeError, ValueError):
+                        continue
     except Exception:
         lcbft_current = None
+    try:
+        total_row = db.execute(
+            text("SELECT SUM(montant_annuel) FROM KYC_Client_Revenus WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        if total_row not in (None, ''):
+            lcbft_revenue_total = float(total_row)
+    except Exception:
+        lcbft_revenue_total = None
+    try:
+        tranche_rows = db.execute(
+            text("SELECT id, lib, min_eur, max_eur FROM LCBFT_ref_tranche_revenu ORDER BY COALESCE(min_eur, 0) ASC")
+        ).fetchall()
+        converted_tranches: list[dict] = []
+        for row in tranche_rows:
+            data = dict(row._mapping)
+            raw_min = data.get("min_eur")
+            raw_max = data.get("max_eur")
+            min_eff = float(raw_min) if raw_min is not None else None
+            max_eff = float(raw_max) if raw_max is not None else None
+            data["min_effective"] = min_eff
+            data["max_effective"] = max_eff
+            converted_tranches.append(data)
+        lcbft_revenue_tranches = converted_tranches
+        if lcbft_revenue_total is not None:
+            total_val = lcbft_revenue_total
+            for tr in lcbft_revenue_tranches:
+                min_eff = tr.get("min_effective")
+                max_eff = tr.get("max_effective")
+                meets_min = (min_eff is None) or (total_val >= min_eff)
+                meets_max = (max_eff is None) or (total_val <= max_eff)
+                if meets_min and meets_max:
+                    lcbft_revenue_tranche_id = tr.get("id")
+                    break
+    except Exception:
+        lcbft_revenue_tranches = []
+    try:
+        patrimoine_row = db.execute(
+            text("SELECT SUM(valeur) FROM KYC_Client_Actif WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        if patrimoine_row not in (None, ''):
+            lcbft_patrimoine_total = float(patrimoine_row)
+    except Exception:
+        lcbft_patrimoine_total = None
+    try:
+        patrimoine_tr_rows = db.execute(
+            text("SELECT id, lib, min_eur, max_eur FROM LCBFT_ref_tranche_patrimoine ORDER BY COALESCE(min_eur, 0) ASC")
+        ).fetchall()
+        converted_patr_tranches: list[dict] = []
+        for row in patrimoine_tr_rows:
+            data = dict(row._mapping)
+            raw_min = data.get("min_eur")
+            raw_max = data.get("max_eur")
+            min_eff = float(raw_min) if raw_min is not None else None
+            max_eff = float(raw_max) if raw_max is not None else None
+            data["min_effective"] = min_eff
+            data["max_effective"] = max_eff
+            converted_patr_tranches.append(data)
+        lcbft_patrimoine_tranches = converted_patr_tranches
+        if lcbft_patrimoine_total is not None:
+            total_val = lcbft_patrimoine_total
+            for tr in lcbft_patrimoine_tranches:
+                min_eff = tr.get("min_effective")
+                max_eff = tr.get("max_effective")
+                meets_min = (min_eff is None) or (total_val >= min_eff)
+                meets_max = (max_eff is None) or (total_val <= max_eff)
+                if meets_min and meets_max:
+                    lcbft_patrimoine_tranche_id = tr.get("id")
+                    break
+    except Exception:
+        lcbft_patrimoine_tranches = []
+    try:
+        raison_rows = db.execute(
+            text("SELECT id, lib FROM LCBFT_ref_raison_vigilance ORDER BY lib"),
+        ).fetchall()
+        lcbft_raison_options = [dict(r._mapping) for r in raison_rows]
+        if qid is not None:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT rv.raison_id
+                    FROM LCBFT_operation op
+                    JOIN LCBFT_operation_raison_vigilance rv ON rv.operation_id = op.id
+                    WHERE op.questionnaire_id = :qid
+                    """
+                ),
+                {"qid": qid},
+            ).fetchall()
+            lcbft_raison_selected_ids = [int(r[0]) for r in rows if r and r[0] is not None]
+    except Exception:
+        lcbft_raison_options = []
+    try:
+        invest_total = float(lcbft_invest_total) if lcbft_invest_total not in (None, "") else None
+    except Exception:
+        invest_total = None
+    patrimoine_total = lcbft_patrimoine_total if isinstance(lcbft_patrimoine_total, (int, float)) else None
+    # Montant > 100k (raison id 1) => toujours inclus, lecture seule
+    if invest_total is not None and invest_total > 100000:
+        lcbft_raison_forced_ids.add(1)
+    if invest_total is not None and patrimoine_total not in (None, 0) and invest_total > float(patrimoine_total):
+        lcbft_raison_forced_ids.add(2)
+    for rid in lcbft_raison_forced_ids:
+        if rid not in lcbft_raison_selected_ids:
+            lcbft_raison_selected_ids.append(rid)
+    # PPE options (fonctions) for selects
+    try:
+        rows = db.execute(text("SELECT id, lib FROM LCBFT_ref_ppe_fonction ORDER BY lib"), {}).fetchall()
+        lcbft_ppe_options = [dict(r._mapping) for r in rows]
+    except Exception:
+        lcbft_ppe_options = []
 
     # FATCA: contrats disponibles et infos client (pays fiscal, NIF)
     fatca_contracts: list[dict] = []
@@ -7514,6 +8764,63 @@ async def dashboard_client_kyc(
     except Exception:
         pass
 
+    # LCBFT – montant total objectifs et détail (pour KYC)
+    try:
+        inv = db.execute(text("SELECT COALESCE(SUM(montant),0) FROM KYC_Client_Objectifs WHERE client_id = :cid"), {"cid": client_id}).scalar()
+        lcbft_invest_total = float(inv or 0.0)
+    except Exception:
+        lcbft_invest_total = 0.0
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT id, objectif_id, horizon_investissement, niveau_id, commentaire,
+                       date_saisie, date_expiration, montant
+                FROM KYC_Client_Objectifs
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC NULLS LAST, id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        lcbft_objectifs = [dict(r._mapping) for r in rows]
+    except Exception:
+        lcbft_objectifs = []
+
+    nb_contrats_actifs = 0
+    nb_supports_references = 0
+    try:
+        nb_contrats_actifs = (
+            db.query(func.count(Affaire.id))
+            .filter(Affaire.id_personne == client_id)
+            .filter(Affaire.date_cle.is_(None))
+            .scalar()
+        ) or 0
+        affaire_ids = [
+            rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()
+        ]
+        if affaire_ids:
+            nb_supports_references = (
+                db.query(func.count(func.distinct(HistoriqueSupport.id_support)))
+                .filter(HistoriqueSupport.id_source.in_(affaire_ids))
+                .filter(
+                    or_(
+                        HistoriqueSupport.valo > 0,
+                        HistoriqueSupport.nbuc > 0,
+                    )
+                )
+                .scalar()
+            ) or 0
+            if not nb_supports_references:
+                nb_supports_references = (
+                    db.query(func.count(func.distinct(HistoriqueSupport.id_support)))
+                    .filter(HistoriqueSupport.id_source.in_(affaire_ids))
+                    .scalar()
+                ) or 0
+    except Exception:
+        nb_contrats_actifs = 0
+        nb_supports_references = 0
+
     return templates.TemplateResponse(
         "dashboard_client_kyc.html",
         {
@@ -7586,6 +8893,19 @@ async def dashboard_client_kyc(
             "lcbft_current": lcbft_current,
             "lcbft_vigilance_options": lcbft_vigilance_options,
             "lcbft_vigilance_ids": lcbft_vigilance_ids,
+            "lcbft_ppe_options": lcbft_ppe_options,
+            "lcbft_operation_types": lcbft_operation_types,
+            "lcbft_operation_selected_ids": lcbft_operation_selected_ids,
+            "lcbft_revenue_total": lcbft_revenue_total,
+            "lcbft_revenue_tranches": lcbft_revenue_tranches,
+            "lcbft_revenue_tranche_id": lcbft_revenue_tranche_id,
+            "lcbft_patrimoine_total": lcbft_patrimoine_total,
+            "lcbft_patrimoine_tranches": lcbft_patrimoine_tranches,
+            "lcbft_patrimoine_tranche_id": lcbft_patrimoine_tranche_id,
+            "lcbft_raison_options": lcbft_raison_options,
+            "lcbft_raison_selected_ids": lcbft_raison_selected_ids,
+            "lcbft_raison_forced_ids": list(lcbft_raison_forced_ids),
+            "lcbft_raison_disabled_ids": list(lcbft_raison_disabled_ids),
             # RISK (connaissance financière)
             "risque_opts": risque_opts,
             "risque_current": risque_current,
@@ -7615,6 +8935,9 @@ async def dashboard_client_kyc(
             "fatca_client_country": fatca_client_country or "",
             "fatca_client_nif": fatca_client_nif or "",
             "fatca_today": fatca_today,
+            # LCBFT objectifs (KYC)
+            "lcbft_invest_total": locals().get('lcbft_invest_total', 0.0),
+            "lcbft_objectifs": locals().get('lcbft_objectifs', []),
             "summary_data": {
                 "actifs": synth_actifs,
                 "passifs": synth_passifs,
@@ -7625,6 +8948,8 @@ async def dashboard_client_kyc(
             "budget_net_str": budget_net_str,
             "patrimoine_net_value": float(patrimoine_net) if patrimoine_net is not None else 0.0,
             "budget_net_value": float(budget_net) if budget_net is not None else 0.0,
+            "nb_contrats_actifs": nb_contrats_actifs,
+            "nb_supports_references": nb_supports_references,
         },
     )
 
@@ -7633,6 +8958,87 @@ async def dashboard_client_kyc(
 @router.get("/clients", response_class=HTMLResponse)
 def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     total_clients = db.query(func.count(Client.id)).scalar() or 0
+
+    group_filter_raw = request.query_params.get("group")
+    group_filter_id: int | None = None
+    if group_filter_raw not in (None, ""):
+        try:
+            group_filter_id = int(group_filter_raw)
+        except (TypeError, ValueError):
+            group_filter_id = None
+
+    # Groupes (personnes) pour filtres et ajouts
+    try:
+        group_rows = db.execute(
+            text(
+                """
+                SELECT d.id,
+                       d.nom,
+                       d.type_groupe,
+                       COALESCE(m.nb_membres, 0) AS nb_membres
+                FROM administration_groupe_detail d
+                LEFT JOIN (
+                    SELECT groupe_id, COUNT(*) AS nb_membres
+                    FROM administration_groupe
+                    WHERE client_id IS NOT NULL
+                    GROUP BY groupe_id
+                ) m ON m.groupe_id = d.id
+                WHERE LOWER(COALESCE(d.type_groupe, '')) IN ('client','clients','personne','personnes')
+                ORDER BY d.nom
+                """
+            )
+        ).fetchall()
+    except Exception:
+        group_rows = []
+
+    client_groups = []
+    group_filter_label: str | None = None
+    normalized_filter_id = str(group_filter_id) if group_filter_id is not None else None
+    for gr in group_rows or []:
+        gm = gr._mapping if hasattr(gr, "_mapping") else None
+        gid = gm.get("id") if gm else (gr[0] if len(gr) > 0 else None)
+        nom = gm.get("nom") if gm else (gr[1] if len(gr) > 1 else None)
+        nb = gm.get("nb_membres") if gm else (gr[3] if len(gr) > 3 else 0)
+        client_groups.append(
+            {
+                "id": gid,
+                "nom": nom,
+                "nb_membres": nb,
+            }
+        )
+        if normalized_filter_id is not None and gid is not None and str(gid) == normalized_filter_id:
+            group_filter_label = nom
+
+    filter_client_ids: set[int] | None = None
+    if group_filter_id is not None:
+        try:
+            membership_rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT client_id
+                    FROM administration_groupe
+                    WHERE groupe_id = :gid
+                      AND client_id IS NOT NULL
+                      AND COALESCE(actif, 1) != 0
+                      AND (date_retrait IS NULL OR date_retrait = '')
+                    """
+                ),
+                {"gid": group_filter_id},
+            ).fetchall()
+        except Exception:
+            membership_rows = []
+        ids = set()
+        for row in membership_rows or []:
+            if hasattr(row, "_mapping"):
+                cid = row._mapping.get("client_id")
+            else:
+                cid = row[0] if row and len(row) > 0 else None
+            if cid is not None:
+                try:
+                    ids.add(int(cid))
+                except (TypeError, ValueError):
+                    continue
+        filter_client_ids = ids
 
     # Données SRRI pour le graphique
     srri_data = (
@@ -7644,6 +9050,32 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
     rows = get_clients(db)
+    if filter_client_ids is not None:
+        rows = [r for r in rows if getattr(r, "id", None) in filter_client_ids]
+
+    # Référentiel RH pour associer le commercial (responsable)
+    rh_entries = fetch_rh_list(db)
+    rh_label_map: dict[int, str] = {}
+    rh_options: list[dict[str, str | int]] = []
+    for rh in rh_entries or []:
+        try:
+            rid_raw = rh.get("id")
+            rid = int(rid_raw)
+        except Exception:
+            continue
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        mail = (rh.get("mail") or "").strip()
+        parts = [p for p in [prenom, nom] if p]
+        if parts:
+            label = " ".join(parts)
+        elif mail:
+            label = mail
+        else:
+            label = f"RH #{rid}"
+        rh_label_map[rid] = label
+        rh_options.append({"id": rid, "label": label})
+    rh_options.sort(key=lambda x: str(x["label"] or "").lower())
 
     def icon_for_compare(client_srri, hist_srri):
         if client_srri is None or hist_srri is None:
@@ -7662,6 +9094,13 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     clients = []
     for r in rows:
+        comm_id = getattr(r, "commercial_id", None)
+        responsable_label = None
+        if comm_id is not None:
+            try:
+                responsable_label = rh_label_map.get(int(comm_id))
+            except Exception:
+                responsable_label = None
         clients.append({
             "id": getattr(r, "id", None),
             "nom": getattr(r, "nom", None),
@@ -7672,7 +9111,32 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_valo": getattr(r, "total_valo", None),
             "perf_52_sem": getattr(r, "perf_52_sem", None),
             "volatilite": getattr(r, "volatilite", None),
+            "commercial_id": comm_id,
+            "responsable": responsable_label,
         })
+
+    # ---------------- Analyse financière (supports) ----------------
+    finance_rh_param = request.query_params.get("finance_rh")
+    finance_rh_id: int | None = None
+    if finance_rh_param not in (None, ""):
+        try:
+            finance_rh_id = int(finance_rh_param)
+        except (TypeError, ValueError):
+            finance_rh_id = None
+
+    finance_date_param = request.query_params.get("finance_date")
+    finance_ctx = _build_finance_analysis(
+        db,
+        finance_rh_id,
+        finance_date_param,
+        request.query_params.get("finance_valo"),
+    )
+    finance_supports = finance_ctx["finance_supports"]
+    finance_total_valo = finance_ctx["finance_total_valo"]
+    finance_total_valo_str = finance_ctx["finance_total_valo_str"]
+    finance_effective_date_display = finance_ctx["finance_effective_date_display"]
+    finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
+    finance_date_input = finance_ctx["finance_date_input"]
 
     # (Graphiques SRRI supprimés sur la page Clients — calcul montants par SRRI non nécessaire ici)
 
@@ -7684,6 +9148,19 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_clients": total_clients,
             "srri_chart": srri_chart,
             "clients": clients,
+            "client_groups": client_groups,
+            "group_filter_id": group_filter_id,
+            "group_filter_label": group_filter_label,
+            # Analyse financière
+            "finance_supports": finance_supports,
+            "finance_total_valo": finance_total_valo,
+            "finance_total_valo_str": finance_total_valo_str,
+            "finance_date_input": finance_date_input,
+            "finance_effective_date_display": finance_effective_date_display,
+            "finance_rh_options": rh_options,
+            "finance_rh_selected": finance_rh_id,
+            "finance_effective_date_iso": finance_effective_date_iso,
+            "finance_valo_input": finance_ctx.get("finance_valo_input"),
         }
     )
 
@@ -7692,6 +9169,89 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 @router.get("/affaires", response_class=HTMLResponse)
 def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
+
+    group_filter_raw = request.query_params.get("group")
+    group_filter_id: int | None = None
+    if group_filter_raw not in (None, ""):
+        try:
+            group_filter_id = int(group_filter_raw)
+        except (TypeError, ValueError):
+            group_filter_id = None
+
+    try:
+        group_rows = db.execute(
+            text(
+                """
+                SELECT d.id,
+                       d.nom,
+                       d.type_groupe,
+                       COALESCE(m.nb_membres, 0) AS nb_membres
+                FROM administration_groupe_detail d
+                LEFT JOIN (
+                    SELECT groupe_id, COUNT(*) AS nb_membres
+                    FROM administration_groupe
+                    WHERE affaire_id IS NOT NULL
+                    GROUP BY groupe_id
+                ) m ON m.groupe_id = d.id
+                WHERE LOWER(COALESCE(d.type_groupe, '')) IN ('affaire','affaires','contrat','contrats')
+                ORDER BY d.nom
+                """
+            )
+        ).fetchall()
+    except Exception:
+        group_rows = []
+
+    affaire_groups: list[dict] = []
+    group_filter_label: str | None = None
+    normalized_gid = str(group_filter_id) if group_filter_id is not None else None
+    for gr in group_rows or []:
+        gm = gr._mapping if hasattr(gr, "_mapping") else None
+        gid = gm.get("id") if gm else (gr[0] if len(gr) > 0 else None)
+        nom = gm.get("nom") if gm else (gr[1] if len(gr) > 1 else None)
+        nb = gm.get("nb_membres") if gm else (gr[3] if len(gr) > 3 else 0)
+        affaire_groups.append(
+            {
+                "id": gid,
+                "nom": nom,
+                "nb_membres": nb,
+            }
+        )
+        if normalized_gid is not None and gid is not None and str(gid) == normalized_gid:
+            group_filter_label = nom
+
+    filter_affaire_ids: set[int] | None = None
+    if group_filter_id is not None:
+        try:
+            membership_rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT affaire_id
+                    FROM administration_groupe
+                    WHERE groupe_id = :gid
+                      AND affaire_id IS NOT NULL
+                      AND COALESCE(actif, 1) != 0
+                      AND (date_retrait IS NULL OR date_retrait = '')
+                    """
+                ),
+                {"gid": group_filter_id},
+            ).fetchall()
+        except Exception:
+            membership_rows = []
+        ids: set[int] = set()
+        for row in membership_rows or []:
+            if hasattr(row, "_mapping"):
+                aid = row._mapping.get("affaire_id")
+            else:
+                aid = row[0] if row and len(row) > 0 else None
+            if aid is not None:
+                try:
+                    ids.add(int(aid))
+                except (TypeError, ValueError):
+                    continue
+        filter_affaire_ids = ids if ids else set()
+        if not filter_affaire_ids:
+            filter_affaire_ids = set()
+
     srri_data = (
         db.query(Affaire.SRRI, func.count(Affaire.id).label("nb"))
         .group_by(Affaire.SRRI)
@@ -7731,6 +9291,10 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .outerjoin(Client, Client.id == Affaire.id_personne)
         .all()
     )
+    if filter_affaire_ids is not None:
+        affaires_rows = [
+            r for r in affaires_rows if getattr(r, "id", None) in filter_affaire_ids
+        ]
 
     # SRRI calculé selon bandes standard à partir de la volat (valeurs <=1 interprétées comme fraction → %)
     def srri_from_vol(v: float | None) -> int | None:
@@ -7809,6 +9373,9 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
+            "affaire_groups": affaire_groups,
+            "group_filter_id": group_filter_id,
+            "group_filter_label": group_filter_label,
         }
     )
 
@@ -9337,17 +10904,19 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
     # Récupérer les supports avec leur valo à cette date
     results = db.execute(
         text("""
-            SELECT s.code_isin,
-                   s.nom,
-                   s.cat_gene AS categorie,
-                   s.cat_geo AS zone_geo,
-                   s.SRRI,
-       CAST(SUM(h.valo) AS INTEGER) AS total_valo,
-                   h.date
+            SELECT
+                s.code_isin,
+                s.nom,
+                s.cat_gene AS categorie,
+                s.cat_geo AS zone_geo,
+                s.SRRI,
+                SUM(h.valo) AS total_valo,
+                h.date
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
             WHERE h.date = :last_date
             GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, h.date
+            HAVING SUM(h.valo) > 0
             ORDER BY total_valo DESC
         """),
         {"last_date": last_date}
@@ -9360,6 +10929,332 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
             "supports": results,
             "last_date": last_date_str,
             "total_supports": len(results),
+        }
+    )
+
+
+@router.get("/supports/details")
+def dashboard_support_details(
+    code_isin: str = Query(..., description="Code ISIN du support"),
+    format: str = Query("json", description="Format de réponse: json ou csv"),
+    db: Session = Depends(get_db),
+):
+    support_rows = db.execute(
+        text(
+            """
+            SELECT id,
+                   code_isin,
+                   nom,
+                   cat_gene,
+                   cat_principale,
+                   cat_det,
+                   cat_geo,
+                   promoteur,
+                   SRRI
+            FROM mariadb_support
+            WHERE code_isin = :code
+            """
+        ),
+        {"code": code_isin},
+    ).mappings().all()
+    if not support_rows:
+        raise HTTPException(status_code=404, detail="Support introuvable.")
+    support = support_rows[0]
+    support_ids = [row["id"] for row in support_rows]
+
+    last_date = db.execute(
+        text("SELECT MAX(date) FROM mariadb_historique_support_w")
+    ).scalar()
+    last_date_iso = None
+    last_date_display = None
+    if isinstance(last_date, datetime):
+        last_date_iso = last_date.date().isoformat()
+        last_date_display = last_date.strftime("%d/%m/%Y")
+    elif isinstance(last_date, _date):
+        last_date_iso = last_date.isoformat()
+        last_date_display = last_date.strftime("%d/%m/%Y")
+    elif isinstance(last_date, str):
+        last_date_iso = last_date[:10]
+        last_date_display = last_date_iso
+
+    clients_rows = []
+    total_valo_clients = 0.0
+    support_total_valo = 0.0
+    if last_date_iso:
+        support_total_valo = db.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(h.valo), 0) AS total_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_support s ON s.id = h.id_support
+                WHERE s.code_isin = :code
+                  AND DATE(h.date) = DATE(:last_date)
+                """
+            ),
+            {"code": code_isin, "last_date": last_date_iso},
+        ).scalar() or 0.0
+
+        clients_rows = db.execute(
+            text(
+                """
+                SELECT
+                    c.id AS client_id,
+                    c.nom AS client_nom,
+                    c.prenom AS client_prenom,
+                    c.commercial_id AS commercial_id,
+                    SUM(h.valo) AS total_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_affaires a ON a.id = h.id_source
+                JOIN mariadb_clients c ON c.id = a.id_personne
+                JOIN mariadb_support s ON s.id = h.id_support
+                WHERE s.code_isin = :code
+                  AND DATE(h.date) = DATE(:last_date)
+                GROUP BY c.id, c.nom, c.prenom, c.commercial_id
+                ORDER BY total_valo DESC
+                """
+            ),
+            {"code": code_isin, "last_date": last_date_iso},
+        ).fetchall()
+        total_valo_clients = sum(float(row.total_valo or 0) for row in clients_rows)
+
+    rh_lookup = {}
+    for rh in fetch_rh_list(db):
+        rid = rh.get("id")
+        try:
+            rid_int = int(rid) if rid is not None else None
+        except Exception:
+            rid_int = None
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        mail = (rh.get("mail") or "").strip()
+        parts = [p for p in [prenom, nom] if p]
+        if rid_int is not None:
+            if parts:
+                rh_lookup[rid_int] = " ".join(parts)
+            elif mail:
+                rh_lookup[rid_int] = mail
+            else:
+                rh_lookup[rid_int] = f"RH #{rid_int}"
+
+    clients_payload = []
+    for row in clients_rows:
+        mapping = getattr(row, "_mapping", row)
+        rid = mapping.get("commercial_id")
+        clients_payload.append(
+            {
+                "client_id": mapping.get("client_id"),
+                "nom": mapping.get("client_nom"),
+                "prenom": mapping.get("client_prenom"),
+                "responsable": rh_lookup.get(rid),
+                "total_valo": float(mapping.get("total_valo") or 0),
+                "total_valo_str": "{:,.0f}".format(float(mapping.get("total_valo") or 0)).replace(",", " "),
+            }
+        )
+
+    if format.lower() == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow(["Code ISIN", support["code_isin"]])
+        writer.writerow(["Nom", support["nom"]])
+        writer.writerow(["Catégorie principale", support["cat_principale"] or ""])
+        writer.writerow(["Catégorie détaillée", support["cat_det"] or ""])
+        writer.writerow(["Catégorie générique", support["cat_gene"] or ""])
+        writer.writerow(["Zone géographique", support["cat_geo"] or ""])
+        writer.writerow(["Promoteur", support["promoteur"] or ""])
+        writer.writerow(["SRRI", support["SRRI"] if support["SRRI"] is not None else ""])
+        writer.writerow(["Date", last_date_display or ""])
+        writer.writerow([])
+        writer.writerow(["Clients"])
+        writer.writerow(["ID Client", "Nom", "Prénom", "Responsable", "Valorisation (€)"])
+        for client in clients_payload:
+            writer.writerow(
+                [
+                    client["client_id"],
+                    client["nom"],
+                    client["prenom"],
+                    client["responsable"] or "",
+                    "{:,.0f}".format(client["total_valo"]).replace(",", " "),
+                ]
+            )
+        writer.writerow([])
+        writer.writerow(["Total support", "", "", "", "{:,.0f}".format(support_total_valo).replace(",", " ")])
+        if total_valo_clients:
+            writer.writerow(["Total clients", "", "", "", "{:,.0f}".format(total_valo_clients).replace(",", " ")])
+        output.seek(0)
+        filename = f"support_{support['code_isin']}_{last_date_iso or 'latest'}.csv"
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    task_types_map = _fetch_task_types(db)
+    def _format_cat(cat: str) -> str:
+        if not cat:
+            return "Autre"
+        cat = cat.replace('_', ' ').strip()
+        return cat[:1].upper() + cat[1:]
+    task_types_payload = [
+        {
+            "categorie": cat,
+            "label": _format_cat(cat),
+            "types": [
+                {
+                    "id": entry.get("id"),
+                    "libelle": entry.get("libelle")
+                }
+                for entry in entries
+            ]
+        }
+        for cat, entries in task_types_map.items()
+        if entries
+    ]
+    default_type_id = None
+    for group in task_types_payload:
+        for entry in group["types"]:
+            if entry.get("id") is not None:
+                default_type_id = entry["id"]
+                break
+        if default_type_id is not None:
+            break
+
+    return JSONResponse(
+        {
+            "support": {
+                "code_isin": support["code_isin"],
+                "nom": support["nom"],
+                "cat_gene": support["cat_gene"],
+                "cat_principale": support["cat_principale"],
+                "cat_det": support["cat_det"],
+                "cat_geo": support["cat_geo"],
+                "promoteur": support["promoteur"],
+                "SRRI": support["SRRI"],
+            },
+            "last_date": last_date_display,
+            "clients": clients_payload,
+            "total_valo": support_total_valo,
+            "total_valo_str": "{:,.0f}".format(support_total_valo).replace(",", " "),
+            "clients_total_valo": total_valo_clients,
+            "clients_total_valo_str": "{:,.0f}".format(total_valo_clients).replace(",", " "),
+            "support_ids": support_ids,
+            "task_types": task_types_payload,
+            "default_type_id": default_type_id,
+            "csv_url": f"/dashboard/supports/details?code_isin={code_isin}&format=csv",
+        }
+    )
+
+
+@router.post("/supports/tasks")
+async def dashboard_supports_create_tasks(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    code_isin = str(data.get("code_isin") or "").strip()
+    client_ids_raw = data.get("client_ids") or []
+    type_id_raw = data.get("type_id")
+    commentaire = (data.get("commentaire") or "").strip()
+
+    if not code_isin:
+        raise HTTPException(status_code=400, detail="Code ISIN manquant.")
+    if not isinstance(client_ids_raw, list) or not client_ids_raw:
+        raise HTTPException(status_code=400, detail="Aucun client sélectionné.")
+    try:
+        type_id = int(type_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Type de tâche invalide.")
+
+    type_row = db.execute(
+        text(
+            """
+            SELECT id, libelle, categorie
+            FROM mariadb_type_evenement
+            WHERE id = :id
+            LIMIT 1
+            """
+        ),
+        {"id": type_id},
+    ).mappings().first()
+    if not type_row:
+        raise HTTPException(status_code=404, detail="Type de tâche introuvable.")
+
+    support_row = db.execute(
+        text(
+            """
+            SELECT id
+            FROM mariadb_support
+            WHERE code_isin = :code
+            ORDER BY id ASC
+            LIMIT 1
+            """
+        ),
+        {"code": code_isin},
+    ).fetchone()
+    support_id = support_row[0] if support_row else None
+
+    try:
+        client_ids = [int(cid) for cid in client_ids_raw]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Liste de clients invalide.")
+    if not client_ids:
+        raise HTTPException(status_code=400, detail="Liste de clients vide.")
+
+    clients = db.query(Client.id, Client.commercial_id, Client.nom, Client.prenom).filter(Client.id.in_(client_ids)).all()
+    if not clients:
+        raise HTTPException(status_code=404, detail="Clients introuvables.")
+    clients_map = {c.id: c for c in clients}
+
+    rh_lookup = {}
+    for rh in fetch_rh_list(db):
+        rid = rh.get("id")
+        if rid is None:
+            continue
+        try:
+            rid_int = int(rid)
+        except (TypeError, ValueError):
+            continue
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        mail = (rh.get("mail") or "").strip()
+        label_parts = [p for p in [prenom, nom] if p]
+        label = " ".join(label_parts).strip()
+        if not label:
+            label = mail or f"RH #{rid_int}"
+        rh_lookup[rid_int] = label
+
+    created = []
+    skipped = []
+    for cid in client_ids:
+        client = clients_map.get(cid)
+        if not client:
+            skipped.append({"client_id": cid, "reason": "inconnu"})
+            continue
+        rh_id = None
+        try:
+            rh_id = int(client.commercial_id) if client.commercial_id is not None else None
+        except Exception:
+            rh_id = None
+        responsable_label = rh_lookup.get(rh_id) if rh_id is not None else None
+        if commentaire:
+            comment = commentaire if code_isin.upper() in commentaire.upper() else f"{commentaire} (Support {code_isin})"
+        else:
+            comment = f"Suivi automatique pour le support {code_isin}"
+        payload = TacheCreateSchema(
+            type_libelle=type_row.get("libelle") or "tâche",
+            categorie=(type_row.get("categorie") or "tache"),
+            client_id=client.id,
+            support_id=support_id,
+            statut="à faire",
+            commentaire=comment,
+            utilisateur_responsable=responsable_label,
+            rh_id=rh_id,
+        )
+        ev = create_tache(db, payload)
+        created.append(ev.id)
+
+    return JSONResponse(
+        {
+            "created": len(created),
+            "created_ids": created,
+            "skipped": skipped,
+            "message": f"{len(created)} tâche(s) créée(s) pour le support {code_isin}."
         }
     )
 
@@ -9418,33 +11313,81 @@ def dashboard_taches(
     sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
     items = db.execute(text(sql), params).fetchall()
 
-    # Enrichir avec noms client et référence affaire pour l'affichage
-    try:
-        client_ids = {getattr(r, 'client_id', None) for r in items if getattr(r, 'client_id', None) is not None}
-        affaire_ids = {getattr(r, 'affaire_id', None) for r in items if getattr(r, 'affaire_id', None) is not None}
-        clients_map_full = {}
-        affaires_map_ref = {}
-        if client_ids:
-            rows_cli = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
-            for cid, nom, prenom in rows_cli:
-                full = f"{nom or ''} {prenom or ''}".strip()
-                clients_map_full[cid] = full or (nom or prenom) or str(cid)
-        if affaire_ids:
-            rows_aff = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
-            for aid, ref in rows_aff:
-                affaires_map_ref[aid] = ref or str(aid)
-        # Convertir en dicts avec champs dérivés
-        items = [
-            {
-                **dict(getattr(r, '_mapping', r)),
-                'nom_client': clients_map_full.get(getattr(r, 'client_id', None)),
-                'affaire_ref': affaires_map_ref.get(getattr(r, 'affaire_id', None)),
-            }
-            for r in items
-        ]
-    except Exception:
-        # En cas d'échec, garder items bruts
-        items = items
+    # Enrichir avec noms client, affaire et RH pour l'affichage
+    rh_list = fetch_rh_list(db)
+    rh_options: list[dict] = []
+    rh_lookup: dict[int, str] = {}
+    for rh in rh_list:
+        rid = rh.get("id")
+        try:
+            rid_int = int(rid) if rid is not None else None
+        except Exception:
+            rid_int = None
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        parts = [p for p in [prenom, nom] if p]
+        label = " ".join(parts) if parts else (rh.get("mail") or "").strip()
+        if not label and rid_int is not None:
+            label = f"RH #{rid_int}"
+        if rid_int is not None:
+            rh_lookup[rid_int] = label
+        rh_options.append({"id": rid, "label": label or (f"RH #{rid}" if rid is not None else "RH")})
+    rh_options.sort(key=lambda x: (x["label"] or "").lower())
+    rh_lookup: dict[int, str] = {}
+    for rh in rh_list:
+        rid = rh.get("id")
+        try:
+            rid_int = int(rid) if rid is not None else None
+        except Exception:
+            rid_int = None
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        parts = [p for p in [prenom, nom] if p]
+        label = " ".join(parts) if parts else (rh.get("mail") or "").strip()
+        if not label and rid_int is not None:
+            label = f"RH #{rid_int}"
+        if rid_int is not None:
+            rh_lookup[rid_int] = label
+    client_ids = {getattr(r, 'client_id', None) for r in items if getattr(r, 'client_id', None) is not None}
+    affaire_ids = {getattr(r, 'affaire_id', None) for r in items if getattr(r, 'affaire_id', None) is not None}
+    clients_map_full = {}
+    affaires_map_ref = {}
+    if client_ids:
+        rows_cli = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
+        for cid, nom, prenom in rows_cli:
+            full = f"{nom or ''} {prenom or ''}".strip()
+            clients_map_full[cid] = full or (nom or prenom) or str(cid)
+    if affaire_ids:
+        rows_aff = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
+        for aid, ref in rows_aff:
+            affaires_map_ref[aid] = ref or str(aid)
+    converted_items = []
+    possible_rh_keys = ('rh_id', 'rhId', 'responsable_id', 'responsableId', 'responsable_rh_id', 'responsableRhId')
+    for r in items:
+        base = dict(getattr(r, '_mapping', r))
+        base['nom_client'] = clients_map_full.get(base.get('client_id'))
+        base['affaire_ref'] = affaires_map_ref.get(base.get('affaire_id'))
+        rh_id_val = None
+        for key in possible_rh_keys:
+            raw_rh = base.get(key)
+            if raw_rh in (None, ''):
+                continue
+            try:
+                rh_id_val = int(raw_rh)
+                break
+            except Exception:
+                try:
+                    rh_id_val = int(float(raw_rh))
+                    break
+                except Exception:
+                    rh_id_val = None
+        base['rh_id'] = rh_id_val
+        if rh_id_val is not None:
+            base['rh_label'] = rh_lookup.get(rh_id_val) or f"RH #{rh_id_val}"
+        else:
+            base['rh_label'] = ''
+        converted_items.append(base)
+    items = converted_items
 
     # Options types & catégories pour filtres/creation
     types = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
@@ -9580,6 +11523,8 @@ def dashboard_taches(
                 "late": int(late or 0),
                 "exclude_statut": exclude_statut or "",
             },
+            "rh_list": rh_list,
+            "rh_options": rh_options,
         },
     )
 
@@ -9706,6 +11651,7 @@ def dashboard_tache_edit(
             Evenement.commentaire,
             Evenement.client_id,
             Evenement.affaire_id,
+            Evenement.rh_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
         )
@@ -9769,6 +11715,9 @@ def dashboard_tache_edit(
     except Exception:
         comment_entries = []
 
+    rh_list = fetch_rh_list(db)
+    rh_selected = getattr(ev, "rh_id", None)
+
     return templates.TemplateResponse(
         "dashboard_tache_edit.html",
         {
@@ -9780,6 +11729,8 @@ def dashboard_tache_edit(
             "status_ui": status_ui,
             "en_cours_id": en_cours_id,
             "comment_entries": comment_entries,
+             "rh_list": rh_list,
+             "rh_selected": rh_selected,
         },
     )
 
@@ -9797,6 +11748,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
     clients_l = form.getlist("client_fullname")
     affaires_l = form.getlist("affaire_ref")
     responsables_l = form.getlist("utilisateur_responsable")
+    rh_ids_l = form.getlist("rh_id")
     commentaires_l = form.getlist("commentaire")
 
     def resolve_client(fullname: str):
@@ -9833,8 +11785,8 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
         return q.first()
 
     # Crée chaque ligne non vide
-    for type_lbl, cat, cli_full, aff_ref, resp, comm in zip_longest(
-        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, fillvalue=""
+    for type_lbl, cat, cli_full, aff_ref, resp, comm, rh_raw in zip_longest(
+        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, rh_ids_l, fillvalue=""
     ):
         has_content = (type_lbl or comm or cli_full or aff_ref)
         if not has_content:
@@ -9850,6 +11802,10 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
                     type_lbl = row[0]
             except Exception:
                 pass
+        try:
+            rh_id = int(rh_raw) if str(rh_raw).strip() else None
+        except Exception:
+            rh_id = None
         payload = TacheCreateSchema(
             type_libelle=(type_lbl or "tâche").strip(),
             categorie=(cat or "tache").strip() or "tache",
@@ -9857,6 +11813,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             affaire_id=getattr(aff, "id", None),
             commentaire=comm or None,
             utilisateur_responsable=(resp or None),
+            rh_id=rh_id,
         )
         ev = create_tache(db, payload)
 
@@ -9886,24 +11843,46 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
     commentaire = form.get("commentaire")
     user = form.get("utilisateur_responsable")
     redirect_to = form.get("redirect") or "/dashboard/taches"
+    rh_id_raw = form.get("rh_id")
+    rh_id_val: int | None = None
+    if rh_id_raw is not None:
+        try:
+            rh_id_val = int(rh_id_raw) if str(rh_id_raw).strip() else None
+        except Exception:
+            rh_id_val = None
+    ev_model = None
+    if commentaire or rh_id_raw is not None:
+        try:
+            from src.models.evenement import Evenement as _Ev
+            ev_model = db.query(_Ev).filter(_Ev.id == evenement_id).first()
+        except Exception:
+            ev_model = None
     # Mise à jour du commentaire de la tâche: préfixer avec date-heure
     if commentaire and commentaire.strip():
         try:
-            from src.models.evenement import Evenement as _Ev
-            ev = db.query(_Ev).filter(_Ev.id == evenement_id).first()
-            if ev:
+            if ev_model:
                 from datetime import datetime as _dt
                 ts = _dt.utcnow().strftime("%Y-%m-%d %H:%M")
                 # Date-heure sur une ligne, texte sur la ligne suivante
                 new_line = f"[{ts}]\n{commentaire.strip()}"
-                if getattr(ev, "commentaire", None):
-                    ev.commentaire = f"{ev.commentaire}\n{new_line}"
+                if getattr(ev_model, "commentaire", None):
+                    ev_model.commentaire = f"{ev_model.commentaire}\n{new_line}"
                 else:
-                    ev.commentaire = new_line
-                db.add(ev)
-                db.commit()
+                    ev_model.commentaire = new_line
         except Exception:
             pass
+    if ev_model is not None and rh_id_raw is not None:
+        try:
+            ev_model.rh_id = rh_id_val
+        except Exception:
+            pass
+    if ev_model is not None:
+        try:
+            db.add(ev_model)
+            db.commit()
+        except Exception:
+            db.rollback()
+
     try:
         sid = int(statut_id) if statut_id else None
     except Exception:
@@ -9950,6 +11929,12 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
     cli = resolve_client(form.get("client_fullname") or "")
     aff = resolve_affaire(form.get("affaire_ref") or "", getattr(cli, "id", None))
 
+    rh_id_raw = form.get("rh_id")
+    try:
+        rh_id_val = int(rh_id_raw) if rh_id_raw not in (None, "") else None
+    except Exception:
+        rh_id_val = None
+
     payload = TacheCreateSchema(
         type_libelle=(form.get("type_libelle") or "").strip(),
         categorie=(form.get("categorie") or "tache").strip() or "tache",
@@ -9957,6 +11942,7 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
         affaire_id=getattr(aff, "id", None),
         commentaire=form.get("commentaire") or None,
         utilisateur_responsable=form.get("utilisateur_responsable") or None,
+        rh_id=rh_id_val,
     )
     # Sélection automatique du type si vide et catégorie fournie
     if (not payload.type_libelle) and payload.categorie:
@@ -10028,6 +12014,12 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
     cli = resolve_client(form.get("client_fullname") or "")
     aff = resolve_affaire(form.get("affaire_ref") or "", getattr(cli, "id", None))
 
+    rh_id_raw = form.get("rh_id")
+    try:
+        rh_id_val = int(rh_id_raw) if rh_id_raw not in (None, "") else None
+    except Exception:
+        rh_id_val = None
+
     payload = TacheCreateSchema(
         type_libelle=(form.get("type_libelle") or "").strip(),
         categorie=(form.get("categorie") or "tache").strip() or "tache",
@@ -10035,6 +12027,7 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
         affaire_id=getattr(aff, "id", None),
         commentaire=form.get("commentaire") or None,
         utilisateur_responsable=form.get("utilisateur_responsable") or None,
+        rh_id=rh_id_val,
     )
     # Sélection automatique du type si vide et catégorie fournie
     if (not payload.type_libelle) and payload.categorie:
@@ -10148,6 +12141,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     # ---- TRACFIN/FATCA: indicateurs financiers synthétiques ----
     lcbft_invest_total = 0.0
+    lcbft_objectifs: list[dict] = []
     lcbft_patrimoine_net = None
     lcbft_part_pct = None
     lcbft_ppe_options: list[dict] = []
@@ -10157,6 +12151,23 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             lcbft_invest_total = float(inv or 0.0)
         except Exception:
             lcbft_invest_total = 0.0
+        # Charger le détail des objectifs (pour affichage/debug)
+        try:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT id, objectif_id, horizon_investissement, niveau_id, commentaire,
+                           date_saisie, date_expiration, montant
+                    FROM KYC_Client_Objectifs
+                    WHERE client_id = :cid
+                    ORDER BY date_saisie DESC NULLS LAST, id DESC
+                    """
+                ),
+                {"cid": client_id},
+            ).fetchall()
+            lcbft_objectifs = [dict(r._mapping) for r in rows]
+        except Exception:
+            lcbft_objectifs = []
         try:
             ta = db.execute(text("SELECT COALESCE(SUM(valeur),0) FROM KYC_Client_Actif WHERE client_id = :cid"), {"cid": client_id}).scalar()
         except Exception:
@@ -10184,6 +12195,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         lcbft_patrimoine_net = None
         lcbft_part_pct = None
         lcbft_ppe_options = []
+        lcbft_objectifs = []
 
     # Reportings pluriannuels: agrégats annuels + cumul des perfs
     # Regrouper l'historique par année
@@ -10578,6 +12590,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             return str(v)
 
     client_supports_map: dict[str, dict] = {}
+    nb_supports_actifs = 0
     try:
         # Liste des contrats (affaires) de ce client
         affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
@@ -10674,8 +12687,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             })
         # Trier par valorisation décroissante
         client_supports.sort(key=lambda x: x.get("valo", 0.0), reverse=True)
+        nb_supports_actifs = sum(
+            1
+            for it in client_supports
+            if (it.get("valo") or 0) > 0 or (it.get("nbuc") or 0) > 0
+        )
+        if not nb_supports_actifs:
+            nb_supports_actifs = len(client_supports)
     except Exception:
         client_supports = []
+        nb_supports_actifs = 0
 
     # Documents liés au client, avec nom du document de base
     rows = (
@@ -10768,6 +12789,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     _clients_map = {c.id: f"{getattr(c,'nom','') or ''} {getattr(c,'prenom','') or ''}".strip() for c in clients_suggest}
     affaires_suggest = [{"id": a.id, "ref": getattr(a,'ref',''), "client": _clients_map.get(getattr(a,'id_personne',None), '')} for a in aff_rows]
     client_fullname_default = (f"{getattr(client,'nom','') or ''} {getattr(client,'prenom','') or ''}".strip()) if client else None
+    rh_list = fetch_rh_list(db)
 
     # -------- Messages (tâches) par client: comptages + liste ouverte (pour pop-up) --------
     from src.models.evenement import Evenement
@@ -11095,6 +13117,110 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         centre_mediation_lib = None
 
+    # Lettre de mission : objectifs client (KYC_Client_Objectifs)
+    lm_objectifs: list[dict] = []
+    lm_total_invest: float = 0.0
+    lm_total_invest_str: str = "0"
+    lm_entretien_date: str | None = None
+    _lm_latest_date: _date | None = None
+    try:
+        # Libellés des objectifs
+        objectif_labels: dict[int, str] = {}
+        try:
+            rows_labels = db.execute(text("SELECT id, libelle FROM ref_objectif")).fetchall()
+            objectif_labels = {int(r.id): str(r.libelle) for r in rows_labels}
+        except Exception:
+            objectif_labels = {}
+        if not objectif_labels:
+            try:
+                rows_labels = db.execute(text("SELECT id, label FROM risque_objectif_option")).fetchall()
+                objectif_labels = {int(r.id): str(r.label) for r in rows_labels}
+            except Exception:
+                objectif_labels = {}
+        # Libellés des niveaux de risque
+        niveau_labels: dict[int, str] = {}
+        try:
+            rows_niveau = db.execute(text("SELECT id, libelle FROM ref_niveau_risque")).fetchall()
+            niveau_labels = {int(r.id): str(r.libelle) for r in rows_niveau}
+        except Exception:
+            niveau_labels = {}
+        rows = db.execute(
+            text(
+                """
+                SELECT id,
+                       objectif_id,
+                       horizon_investissement,
+                       niveau_id,
+                       commentaire,
+                       date_saisie,
+                       date_expiration,
+                       montant
+                FROM KYC_Client_Objectifs
+                WHERE client_id = :cid
+                ORDER BY COALESCE(date_saisie, '0000-00-00') DESC, id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows:
+            m = row._mapping
+            montant_val = float(m.get("montant") or 0.0)
+            lm_total_invest += montant_val
+            objectif_id = m.get("objectif_id")
+            libelle = None
+            if objectif_id is not None:
+                try:
+                    libelle = objectif_labels.get(int(objectif_id))
+                except Exception:
+                    libelle = None
+            niveau_libelle = None
+            niveau_id = m.get("niveau_id")
+            if niveau_id is not None:
+                try:
+                    niveau_libelle = niveau_labels.get(int(niveau_id))
+                except Exception:
+                    niveau_libelle = None
+            date_saisie_raw = m.get("date_saisie")
+            date_expiration_raw = m.get("date_expiration")
+            parsed_date = _parse_date_safe(date_saisie_raw)
+            if parsed_date is None and isinstance(date_saisie_raw, datetime):
+                parsed_date = date_saisie_raw.date()
+            if parsed_date:
+                if _lm_latest_date is None or parsed_date > _lm_latest_date:
+                    _lm_latest_date = parsed_date
+            lm_objectifs.append(
+                {
+                    "id": m.get("id"),
+                    "libelle": libelle or (f"Objectif {objectif_id}" if objectif_id is not None else "Objectif"),
+                    "montant": montant_val,
+                    "montant_str": "{:,.0f}".format(montant_val).replace(",", " "),
+                    "horizon": m.get("horizon_investissement") or "",
+                    "niveau": niveau_libelle,
+                    "commentaire": m.get("commentaire") or "",
+                    "date_saisie": parsed_date.strftime("%d/%m/%Y") if parsed_date else (str(date_saisie_raw) if date_saisie_raw else ""),
+                    "date_expiration": (
+                        _parse_date_safe(date_expiration_raw).strftime("%d/%m/%Y")
+                        if _parse_date_safe(date_expiration_raw)
+                        else (str(date_expiration_raw) if date_expiration_raw else "")
+                    ),
+                }
+            )
+        if lm_objectifs:
+            lm_total_invest_str = "{:,.0f}".format(lm_total_invest).replace(",", " ")
+        else:
+            lm_total_invest = 0.0
+            lm_total_invest_str = "0"
+        if _lm_latest_date:
+            lm_entretien_date = _lm_latest_date.strftime("%d/%m/%Y")
+    except Exception:
+        lm_objectifs = []
+        lm_total_invest = 0.0
+        lm_total_invest_str = "0"
+        lm_entretien_date = None
+    lm_objectifs_summary = ", ".join(
+        [obj["libelle"] for obj in lm_objectifs if obj.get("libelle")]
+    ) if lm_objectifs else ""
+
     # DER — Activités et domaines d'exercice pour le courtier courant
     DER_activites: list[dict] = []
     try:
@@ -11386,6 +13512,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "valo_gt_solde": valo_gt_solde,
             # Supports consolidés client
             "client_supports": client_supports,
+            "nb_supports_actifs": nb_supports_actifs,
             # (comparatif SICAV retiré)
             # Séries annuelles pour graphiques
             "years_client": years_client,
@@ -11436,6 +13563,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "msgs_reg_count": msgs_reg_count,
             "msgs_nonreg_count": msgs_nonreg_count,
             "client_events_open": client_events_open,
+            "rh_list": rh_list,
             # KYC Actifs
             "kyc_actifs": kyc_actifs,
             "kyc_types_actifs": rows_types_actifs,
@@ -11454,6 +13582,19 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "lcbft_patrimoine_net": locals().get('lcbft_patrimoine_net', None),
             "lcbft_part_pct": locals().get('lcbft_part_pct', None),
             "lcbft_ppe_options": locals().get('lcbft_ppe_options', []),
+            "lcbft_objectifs": locals().get('lcbft_objectifs', []),
+            "lcbft_operation_types": locals().get('lcbft_operation_types', []),
+            "lcbft_operation_selected_ids": locals().get('lcbft_operation_selected_ids', []),
+            "lcbft_revenue_total": locals().get('lcbft_revenue_total', None),
+            "lcbft_revenue_tranches": locals().get('lcbft_revenue_tranches', []),
+            "lcbft_revenue_tranche_id": locals().get('lcbft_revenue_tranche_id', None),
+            "lcbft_patrimoine_total": locals().get('lcbft_patrimoine_total', None),
+            "lcbft_patrimoine_tranches": locals().get('lcbft_patrimoine_tranches', []),
+            "lcbft_patrimoine_tranche_id": locals().get('lcbft_patrimoine_tranche_id', None),
+            "lcbft_raison_options": locals().get('lcbft_raison_options', []),
+            "lcbft_raison_selected_ids": locals().get('lcbft_raison_selected_ids', []),
+            "lcbft_raison_forced_ids": locals().get('lcbft_raison_forced_ids', []),
+            "lcbft_raison_disabled_ids": locals().get('lcbft_raison_disabled_ids', []),
             "lm_today": _date.today().strftime('%d/%m/%Y'),
             # DER context for modal rendering
             "DER_courtier": DER_courtier,
@@ -11463,6 +13604,15 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "centre_mediation_lib": centre_mediation_lib,
             "DER_activites": DER_activites,
             # points 2 et 8 retirés temporairement
+            # Lettre de mission : objectifs & montants
+            "lm_objectifs": lm_objectifs,
+            "lm_total_invest": lm_total_invest,
+            "lm_total_invest_str": lm_total_invest_str,
+            "lm_entretien_date": lm_entretien_date,
+            # Compatibilité avec anciens placeholders du template
+            "montantInvesti": lm_total_invest_str,
+            "dateEntretien": lm_entretien_date,
+            "objectifsMission": lm_objectifs_summary or "—",
         }
     )
 
@@ -11689,3 +13839,17 @@ def list_allocation_dates(name: str | None = None, isin: str | None = None, db: 
         return {"name": name, "isin": isin, "dates": [x for x in out if x]}
     except Exception as e:
         return {"name": name, "isin": isin, "dates": [], "error": str(e)}
+    try:
+        admin_intervenants = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT id, nom, type_niveau, type_personne, telephone, mail
+                    FROM administration_intervenant
+                    ORDER BY nom
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        admin_intervenants = []

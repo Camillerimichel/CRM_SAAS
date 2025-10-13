@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Rapport de synthèse</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color:#1f2937; font-size:11pt; line-height:1.45; }
+    h1, h2, h3, h4 { color:#0f172a; }
+    .title-page { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; text-align:center; }
+    .title { font-size:2.2rem; margin-bottom:8px; }
+    .subtitle { font-size:1.1rem; color:#475569; }
+    .muted { color:#64748b; }
+    .muted-small { color:#94a3b8; font-size:0.85rem; }
+    .page-break { page-break-before: always; }
+    .toc { margin-top:1rem; }
+    .toc ol { padding-left:1rem; }
+    .section-title { font-size:1.3rem; margin:1rem 0 0.4rem 0; color:#1d4ed8; }
+    .card { border:1px solid #cbd5f5; border-radius:10px; padding:12px 14px; margin:0.4rem 0; background:#fff; }
+    table { width:100%; border-collapse:collapse; font-size:0.95rem; }
+    th, td { padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left; }
+    .table-synthese { font-size:0.85rem; }
+    .table-synthese th, .table-synthese td { font-size:0.85rem; }
+    th:last-child, td:last-child { text-align:right; }
+    .grid-2 { display:grid; grid-template-columns:repeat(2, minmax(220px,1fr)); gap:12px; }
+    .grid-3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:12px; }
+    .chart { margin-top:0.6rem; border:1px solid #e2e8f0; border-radius:10px; padding:8px; background:#fafbff; }
+    .italic-footer { font-style:italic; color:#64748b; margin-top:1.2rem; text-align:right; }
+  </style>
+</head>
+<body>
+  <div class="title-page">
+    <div>
+      <h1 class="title">Rapport de synthèse de {{ civilite or 'Client' }} {{ client.prenom or '' }} {{ client.nom or '' }}</h1>
+      <div class="subtitle">Édition du {{ report_date_str }}</div>
+      <div class="muted-small" style="margin-top:24px;">Document confidentiel produit automatiquement par la plateforme.</div>
+      <div class="muted-small">Il consolide vos investissements, leur évolution et les analyses associées.</div>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+  <div style="display:flex; flex-direction:column; justify-content:center; min-height:90vh;">
+    <h2 class="section-title" style="text-align:center;">Sommaire</h2>
+    <div class="toc" style="margin-top:1.5rem; margin-bottom:auto;">
+      <ol>
+        <li>Éléments de synthèse</li>
+        <li>Valorisation des contrats et historique complet des placements</li>
+        <li>Valorisation des actifs détenus au sein de vos contrats</li>
+        <li>Évolution économique des placements – performance et risque annuels</li>
+        <li>Évolution comparée à l’offre financière choisie</li>
+        <li>Notations ESG des contrats et notation ESG globale</li>
+        <li>Répartition géographique et sectorielle des placements</li>
+      </ol>
+    </div>
+    <div class="italic-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
+  </div>
+
+  <div class="page-break"></div>
+  <h2 class="section-title">1. Éléments de synthèse</h2>
+  <div class="grid-3">
+    <div class="card">
+      <h3>Valorisation</h3>
+      <table class="table">
+        <tbody>
+          <tr><th>Valorisation totale</th><td>{{ totals.total_valo }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Versements</th><td>{{ totals.depots }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Retraits</th><td>{{ totals.retraits }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Solde</th><td>{{ totals.solde }} €</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Indicateurs</h3>
+      <table class="table">
+        <tbody>
+          <tr><th>Performance annuelle (dernier)</th><td>{% if history_perf and history_perf|length > 0 and history_perf[-1] is not none %}{{ '%.2f'|format(history_perf[-1]) }} %{% else %}—{% endif %}</td></tr>
+          <tr><th>Volatilité annuelle (dernière)</th><td>{% if history_vol and history_vol|length > 0 and history_vol[-1] is not none %}{{ '%.2f'|format(history_vol[-1]) }} %{% else %}—{% endif %}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="page-break"></div>
+  <h2 class="section-title">2. Valorisations des contrats</h2>
+  <p class="muted">Tableau des contrats souscrits et de leur valorisation actuelle.</p>
+  {% if contracts %}
+  <table class="table table-synthese">
+    <thead><tr><th>Contrat</th><th style="text-align:center;">SRRI</th><th style="text-align:right;">Valorisation</th><th style="text-align:right;">Perf 52 sem.</th><th style="text-align:right;">Volatilité</th></tr></thead>
+    <tbody>
+      {% for c in contracts %}
+        <tr>
+          <td>{{ c.ref or 'N/A' }}</td>
+          <td style="text-align:center;">{{ c.srri or '—' }}</td>
+          <td style="text-align:right;">{{ c.valo }} €</td>
+          <td style="text-align:right;">{{ c.perf is not none and ('%.2f'|format(c.perf)) ~ ' %' or '—' }}</td>
+          <td style="text-align:right;">{{ c.vol is not none and ('%.2f'|format(c.vol)) ~ ' %' or '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="muted">Aucun contrat répertorié.</div>
+  {% endif %}
+
+  <h2 class="section-title">3. Valorisation des actifs détenus au sein des contrats</h2>
+  {% if supports %}
+  <table class="table table-synthese">
+    <thead><tr><th>Code ISIN</th><th>Support</th><th>Catégorie</th><th>SRRI</th><th>Valorisation</th></tr></thead>
+    <tbody>
+      {% for s in supports %}
+        <tr>
+          <td>{{ s.code_isin }}</td>
+          <td>{{ s.nom }}</td>
+          <td>{{ s.cat or '—' }}</td>
+          <td style="text-align:center;">{{ s.srri or '—' }}</td>
+          <td>{{ s.valo }} €</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="muted">Pas de support valorisé sur la période.</div>
+  {% endif %}
+
+  <h2 class="section-title">4. Évolution économique des placements – performances et risques</h2>
+  {% if reporting_years %}
+  <table class="table">
+    <thead><tr><th>Année</th><th>Solde E/S (€)</th><th>Valo fin d'année (€)</th><th>Perf. fin d'année (%)</th><th>Perf. annualisée (%)</th><th>Vol. moyenne (%)</th></tr></thead>
+    <tbody>
+      {% for row in reporting_years %}
+        <tr>
+          <td>{{ row.year }}</td>
+          <td>{{ row.solde_str }} €</td>
+          <td>{{ row.last_valo_str }} €</td>
+          <td>{{ row.cum_perf_pct is not none and ('%.2f'|format(row.cum_perf_pct)) or '—' }}</td>
+          <td>{{ row.ann_perf_pct is not none and ('%.2f'|format(row.ann_perf_pct)) or '—' }}</td>
+          <td>{{ row.avg_vol_pct is not none and ('%.2f'|format(row.avg_vol_pct)) or '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="muted">Historique insuffisant pour présenter l'évolution annuelle.</div>
+  {% endif %}
+
+  <div class="page-break"></div>
+  <h2 class="section-title">5. Évolution comparée à l’offre financière choisie</h2>
+  <p class="muted">Cette section sera enrichie avec la comparaison automatique à l’allocation de référence. Les données actuelles indiquent une valorisation totale de {{ summary.total_valo }} € à la date du {{ report_date_str }}, soit un solde net de {{ summary.solde }} € après flux.</p>
+
+  <div class="page-break"></div>
+  <h2 class="section-title">6. Notations ESG des contrats et notation ESG globale</h2>
+  <p class="muted">Les notations ESG détaillées seront intégrées dès que les données fournisseurs seront disponibles pour chaque support. À ce jour, la collecte automatique est en cours de déploiement.</p>
+
+  <div class="page-break"></div>
+  <h2 class="section-title">7. Répartition géographique et sectorielle des placements</h2>
+  <p class="muted">La cartographie des expositions géographiques et sectorielles est en cours de consolidation. Cette rubrique présentera prochainement les répartitions issues de la base de données ESG.</p>
+
+  <div class="italic-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
+</body>
+</html>

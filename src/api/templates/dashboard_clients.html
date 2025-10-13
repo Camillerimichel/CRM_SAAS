@@ -35,17 +35,35 @@
 
 <div class="main-container">
   <h2>Liste des clients</h2>
-  {% if risk_label %}
+  {% if risk_label or group_filter_label %}
   <div class="badge-row">
+    {% if risk_label %}
     <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/clients" title="Effacer le filtre">✕</a></span>
+    {% endif %}
+    {% if group_filter_label %}
+    <span class="badge-filter">Groupe: {{ group_filter_label }} <a class="x" href="#" data-clear-group="1" title="Effacer le filtre">✕</a></span>
+    {% endif %}
   </div>
   {% endif %}
   <div id="cf_active_badges" class="badge-row"></div>
   <div style="display:flex; gap:.5rem; justify-content:space-between; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;">
-    <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
+    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+      <select id="cf_group_filter" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
+        <option value="">Tous les groupes</option>
+        {% for g in client_groups %}
+          <option value="{{ g.id }}" {% if group_filter_id is not none and g.id == group_filter_id %}selected{% endif %}>
+            {{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
     <div style="display:flex; gap:.5rem; align-items:center;">
+      <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
       <select id="cf_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
         <option value="">Choisir un groupe (Personnes)</option>
+        {% for g in client_groups %}
+          <option value="{{ g.id }}">{{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}</option>
+        {% endfor %}
       </select>
       <button class="btn" id="cf_add_to_group_btn" title="Ajouter tous les clients filtrés au groupe sélectionné">Ajouter au groupe</button>
       <button class="btn" id="cf_reset_btn">Réinitialiser les filtres</button>
@@ -253,6 +271,13 @@
   var fPerf = document.getElementById('cf_perf');
   var fVol = document.getElementById('cf_vol');
 
+  // Paramètre URL: risk=above|equal|below (filtre côté front)
+  var urlParams = new URLSearchParams(window.location.search || '');
+  var riskParam = String(urlParams.get('risk') || '').toLowerCase();
+  if (["above","equal","below"].indexOf(riskParam) === -1) {
+    riskParam = '';
+  }
+
   // Pastille de comparaison (SRRI calculé vs SRRI du client)
   rows.forEach(function(tr){
     var tds = tr.querySelectorAll('td');
@@ -284,6 +309,8 @@
       var prenom = text(tds[1]).toLowerCase();
       var resp = text(tds[2]).toLowerCase();
       var srriCalc = text(tds[3]);
+      var srriCalcNum = Number(srriCalc);
+      var srriBaseNum = Number(tr.getAttribute('data-srri'));
       var valoTxt = text(tds[4]);
       var valoNum = _numFromCell(valoTxt);
       var perfTxt = text(tds[5]);
@@ -295,6 +322,18 @@
       if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
       if (ok && qResp && resp !== qResp) ok = false;
       if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
+      // Filtre RISK (URL) basé sur comparaison SRRI calculé vs SRRI contrat (data-srri)
+      if (ok && riskParam) {
+        if (!isFinite(srriBaseNum) || !isFinite(srriCalcNum)) {
+          ok = false; // si valeurs manquantes, exclure de la vue filtrée
+        } else if (riskParam === 'above' && !(srriCalcNum > srriBaseNum)) {
+          ok = false;
+        } else if (riskParam === 'equal' && !(srriCalcNum === srriBaseNum)) {
+          ok = false;
+        } else if (riskParam === 'below' && !(srriCalcNum < srriBaseNum)) {
+          ok = false;
+        }
+      }
       if (ok && qValo && !predValo(valoNum)) ok = false;
       if (ok && qPerf && !predPerf(perfNum)) ok = false;
       if (ok && qVol && !predVol(volNum)) ok = false;
@@ -311,25 +350,18 @@
   if (resetBtn){
     resetBtn.addEventListener('click', function(){
       [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
+      // Réinitialise aussi le filtre RISK et nettoie l'URL
+      if (riskParam) {
+        riskParam = '';
+        var p = new URLSearchParams(window.location.search || '');
+        p.delete('risk');
+        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
+        try { history.replaceState(null, '', newUrl); } catch(e) {}
+      }
       applyFilters();
+      renderBadges();
     });
   }
-
-  // Charger la liste des groupes (Personnes)
-  async function loadClientGroupsForBulk(){
-    try {
-      const sel = document.getElementById('cf_group_select');
-      if (!sel) return;
-      const r = await fetch('/api/groupes/details?type=client&actifs_only=true');
-      const arr = r.ok ? await r.json() : [];
-      (arr||[]).forEach(function(g){
-        const opt = document.createElement('option');
-        opt.value = g.id; opt.textContent = g.nom + ((String(g.actif)==='0')?' (inactif)':'');
-        sel.appendChild(opt);
-      });
-    } catch(e){ console.warn('load groups failed', e); }
-  }
-  loadClientGroupsForBulk();
 
   function visibleClientIds(){
     var out = [];
@@ -361,14 +393,56 @@
     if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
     alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
   }
-  var bulkBtn = document.getElementById('cf_add_to_group_btn');
-  if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
+var bulkBtn = document.getElementById('cf_add_to_group_btn');
+if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
+
+  // Filtre serveur par groupe
+  var groupFilterSel = document.getElementById('cf_group_filter');
+  if (groupFilterSel){
+    groupFilterSel.addEventListener('change', function(){
+      var params = new URLSearchParams(window.location.search || '');
+      var val = this.value || '';
+      if (val){ params.set('group', val); }
+      else { params.delete('group'); }
+      var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
+      window.location.assign(newUrl);
+    });
+  }
+  document.querySelectorAll('[data-clear-group]').forEach(function(anchor){
+    anchor.addEventListener('click', function(e){
+      e.preventDefault();
+      var params = new URLSearchParams(window.location.search || '');
+      params.delete('group');
+      var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
+      window.location.assign(newUrl);
+    });
+  });
 
   // Initial state
   function renderBadges(){
     var host = document.getElementById('cf_active_badges');
     if (!host) return;
     host.innerHTML = '';
+    // Badge RISK (depuis URL)
+    if (riskParam) {
+      var riskMap = { above: 'Au‑dessus du risque', equal: 'Dans le risque', below: 'Sous le risque' };
+      var spanR = document.createElement('span');
+      spanR.className = 'badge-filter';
+      spanR.appendChild(document.createTextNode('Filtre: ' + (riskMap[riskParam] || riskParam) + ' '));
+      var aR = document.createElement('a'); aR.href = '#'; aR.className = 'x'; aR.title = 'Effacer le filtre'; aR.textContent = '✕';
+      aR.addEventListener('click', function(e){
+        e.preventDefault();
+        riskParam = '';
+        var p = new URLSearchParams(window.location.search || '');
+        p.delete('risk');
+        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
+        try { history.replaceState(null, '', newUrl); } catch(err) {}
+        applyFilters();
+        renderBadges();
+      });
+      spanR.appendChild(aR);
+      host.appendChild(spanR);
+    }
     // Responsable badge
     var respSel = document.getElementById('cf_resp');
     if (respSel && respSel.value){

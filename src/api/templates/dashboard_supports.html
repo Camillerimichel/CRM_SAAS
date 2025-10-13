@@ -100,6 +100,49 @@
     .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.85; }
     .badge-filter .x:hover { opacity:1; }
     .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+    .support-modal { position:fixed; inset:0; display:none; align-items:flex-start; justify-content:center; background:rgba(15,23,42,0.55); z-index:1000; padding:4rem 1rem 2rem; overflow-y:auto; }
+    .support-modal.open { display:flex; }
+    .support-modal__panel { background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(15,23,42,0.25); max-width:720px; width:100%; padding:1.5rem; position:relative; }
+    .support-modal__close { position:absolute; top:12px; right:12px; border:none; background:transparent; font-size:1.5rem; cursor:pointer; color:#334155; }
+    .support-modal__title { margin-top:0; margin-bottom:0.5rem; }
+    .support-modal__meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.5rem 1rem; font-size:0.9rem; margin-bottom:1rem; }
+    .support-modal__meta div { background:#f8fafc; border-radius:8px; padding:0.6rem 0.75rem; }
+    .support-modal__meta span { display:block; }
+    .support-modal__meta .label { color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; }
+    .support-modal__meta .value { font-weight:600; color:#1f2937; }
+    .support-modal__clients { margin-top:1rem; }
+    .support-modal__clients table { width:100%; border-collapse:collapse; }
+    .support-modal__clients th, .support-modal__clients td { padding:0.5rem 0.6rem; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.9rem; }
+    .support-modal__clients td:last-child, .support-modal__clients th:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+    .support-modal__empty { margin-top:1rem; color:#64748b; font-style:italic; }
+    .support-modal__actions { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:0.5rem; }
+    .support-modal__actions button { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:0.45rem 0.9rem; cursor:pointer; font-weight:600; transition:filter .2s ease; }
+    .support-modal__actions button:hover { filter:brightness(0.9); }
+    .support-modal__filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem; margin-top:1.2rem; align-items:flex-end; }
+    .support-modal__filters label { display:block; font-size:0.75rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.25rem; }
+    .support-modal__filters input { width:100%; border:1px solid #cbd5f5; border-radius:6px; padding:0.45rem 0.5rem; font-size:0.88rem; }
+    .support-modal__filters button { margin-top:1.65rem; background:#e2e8f0; border:none; border-radius:6px; padding:0.45rem 0.75rem; font-weight:600; color:#334155; cursor:pointer; transition:background .2s ease; }
+    .support-modal__filters button:hover { background:#cbd5f5; }
+    .support-modal__actions-group { display:flex; gap:0.5rem; align-items:center; }
+    .support-modal__actions-group button:nth-child(2) { background:#6366f1; }
+    .support-modal__actions-group button:nth-child(2):hover { filter:brightness(0.9); }
+    .support-modal__actions-group button:disabled { opacity:0.45; cursor:not-allowed; filter:none; }
+    .support-task-modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(15,23,42,0.55); z-index:1200; padding:2rem 1rem; }
+    .support-task-modal.open { display:flex; }
+    .support-task-modal__panel { background:#fff; border-radius:12px; box-shadow:0 24px 48px rgba(15,23,42,0.35); max-width:460px; width:100%; padding:1.5rem; position:relative; }
+    .support-task-modal__close { position:absolute; top:12px; right:12px; border:none; background:transparent; font-size:1.4rem; cursor:pointer; color:#475569; }
+    .support-task-modal__title { margin-top:0; margin-bottom:0.75rem; }
+    .support-task-modal__form label { display:block; font-size:0.8rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.3rem; }
+    .support-task-modal__form select,
+    .support-task-modal__form textarea { width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.55rem 0.6rem; font-size:0.95rem; }
+    .support-task-modal__form textarea { resize:vertical; min-height:96px; }
+    .support-task-modal__footer { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:1.2rem; }
+    .support-task-modal__footer button { border:none; border-radius:8px; padding:0.55rem 1rem; font-weight:600; cursor:pointer; transition:filter .2s ease; }
+    #supportTaskSubmit { background:#16a34a; color:#fff; }
+    #supportTaskSubmit:hover { filter:brightness(0.9); }
+    #supportTaskCancel { background:#e2e8f0; color:#334155; }
+    #supportTaskCancel:hover { filter:brightness(0.9); }
+    #supportTaskStatus { font-size:0.85rem; color:#475569; margin-top:0.75rem; min-height:1.2rem; }
 </style>
 
 <div class="main-container">
@@ -152,7 +195,7 @@
             <tbody>
                 {% for s in supports %}
                 <tr>
-                    <td>{{ s.code_isin }}</td>
+                    <td><a href="#" class="support-link" data-isin="{{ s.code_isin }}">{{ s.code_isin }}</a></td>
                     <td>{{ s.nom }}</td>
                     <td>{{ s.categorie }}</td>
                     <td>{{ s.zone_geo }}</td>
@@ -168,6 +211,62 @@
         <div id="results-info">Astuce: maintenez Ctrl/Cmd pour une sélection multiple dans les listes.</div>
         <button class="clear-btn" onclick="clearFilters()">🗑️ Effacer</button>
     </div>
+</div>
+
+<div id="supportModal" class="support-modal" aria-hidden="true">
+  <div class="support-modal__panel" role="dialog" aria-modal="true" aria-labelledby="supportModalTitle">
+    <button type="button" class="support-modal__close" id="supportModalClose" aria-label="Fermer">×</button>
+    <h2 class="support-modal__title" id="supportModalTitle">Support</h2>
+    <div class="support-modal__meta" id="supportModalMeta"></div>
+    <div class="support-modal__actions">
+      <div>
+        <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
+        <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
+      </div>
+      <div class="support-modal__actions-group">
+        <button type="button" id="supportModalCreateTasks">Créer des tâches</button>
+        <button type="button" id="supportModalExport">Exporter CSV</button>
+      </div>
+    </div>
+    <div class="support-modal__filters">
+      <div>
+        <label for="supportModalClientFilter">Client</label>
+        <input type="text" id="supportModalClientFilter" placeholder="Rechercher client" />
+      </div>
+      <div>
+        <label for="supportModalResponsableFilter">Responsable</label>
+        <input type="text" id="supportModalResponsableFilter" placeholder="Rechercher responsable" />
+      </div>
+      <div>
+        <label for="supportModalAmountFilter">Valorisation</label>
+        <input type="text" id="supportModalAmountFilter" placeholder=">100k, 100k-500k" />
+      </div>
+      <button type="button" id="supportModalFiltersReset">Réinitialiser</button>
+    </div>
+    <div class="support-modal__clients" id="supportModalClients"></div>
+  </div>
+</div>
+
+<div id="supportTaskModal" class="support-task-modal" aria-hidden="true">
+  <div class="support-task-modal__panel" role="dialog" aria-modal="true" aria-labelledby="supportTaskModalTitle">
+    <button type="button" class="support-task-modal__close" id="supportTaskModalClose" aria-label="Fermer">×</button>
+    <h3 class="support-task-modal__title" id="supportTaskModalTitle">Créer des tâches</h3>
+    <div class="support-task-modal__form">
+      <div style="margin-bottom:0.9rem;">
+        <label for="supportTaskTypeSelect">Type de tâche</label>
+        <select id="supportTaskTypeSelect"></select>
+      </div>
+      <div>
+        <label for="supportTaskComment">Commentaire</label>
+        <textarea id="supportTaskComment" placeholder="Commentaire (optionnel)"></textarea>
+      </div>
+    </div>
+    <div id="supportTaskStatus"></div>
+    <div class="support-task-modal__footer">
+      <button type="button" id="supportTaskCancel">Annuler</button>
+      <button type="button" id="supportTaskSubmit">Créer les tâches</button>
+    </div>
+  </div>
 </div>
 
 <!-- jQuery + DataTables -->
@@ -368,6 +467,369 @@ $(document).ready(function () {
     };
     // Premier rendu badges au chargement
     try { renderBadges(); } catch(e) {}
+
+    var $supportModal = $('#supportModal');
+    var $supportModalMeta = $('#supportModalMeta');
+    var $supportModalClients = $('#supportModalClients');
+    var $supportModalDate = $('#supportModalDate');
+    var $supportModalTotal = $('#supportModalTotal');
+    var $supportModalExport = $('#supportModalExport');
+    var $supportModalClientFilter = $('#supportModalClientFilter');
+    var $supportModalResponsableFilter = $('#supportModalResponsableFilter');
+    var $supportModalAmountFilter = $('#supportModalAmountFilter');
+    var $supportModalFiltersReset = $('#supportModalFiltersReset');
+    var $supportModalCreateTasks = $('#supportModalCreateTasks');
+    var supportModalClientsData = [];
+    var supportModalFilteredData = [];
+    var supportModalTaskTypes = [];
+    var supportModalCodeIsin = '';
+    var $supportTaskModal = $('#supportTaskModal');
+    var $supportTaskModalClose = $('#supportTaskModalClose');
+    var $supportTaskTypeSelect = $('#supportTaskTypeSelect');
+    var $supportTaskComment = $('#supportTaskComment');
+    var $supportTaskSubmit = $('#supportTaskSubmit');
+    var $supportTaskCancel = $('#supportTaskCancel');
+    var $supportTaskStatus = $('#supportTaskStatus');
+
+    function escHtml(str){
+        if (str === null || str === undefined) return '';
+        return String(str).replace(/[&<>"']/g, function(ch){
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[ch]);
+        });
+    }
+
+    function openSupportModal(){
+        $supportModal.addClass('open').attr('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeSupportModal(){
+        closeSupportTaskModal();
+        $supportModal.removeClass('open').attr('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+
+    function renderSupportModalLoading(code){
+        $('#supportModalTitle').text('Support ' + (code || ''));
+        supportModalCodeIsin = code || '';
+        $supportModalMeta.html('<div><span class="label">Chargement…</span><span class="value">Patientez</span></div>');
+        $supportModalClients.empty();
+        $supportModalDate.text('');
+        $supportModalTotal.text('');
+        $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
+    }
+
+    function renderSupportModal(data){
+        if (!data || !data.support){
+            $supportModalMeta.html('<div><span class="label">Erreur</span><span class="value">Données introuvables</span></div>');
+            $supportModalClients.empty();
+            $supportModalDate.text('');
+            $supportModalTotal.text('');
+            $supportModalExport.prop('disabled', true);
+            return;
+        }
+        var s = data.support;
+        var metaHtml = '';
+        var fields = [
+            {label: 'Code ISIN', value: s.code_isin},
+            {label: 'Nom', value: s.nom},
+            {label: 'Catégorie principale', value: s.cat_principale || '—'},
+            {label: 'Catégorie détaillée', value: s.cat_det || '—'},
+            {label: 'Catégorie générique', value: s.cat_gene || '—'},
+            {label: 'Zone géo', value: s.cat_geo || '—'},
+            {label: 'Promoteur', value: s.promoteur || '—'},
+            {label: 'SRRI', value: (s.SRRI !== null && s.SRRI !== undefined) ? s.SRRI : '—'}
+        ];
+        fields.forEach(function(item){
+            metaHtml += '<div><span class="label">' + item.label + '</span><span class="value">' + item.value + '</span></div>';
+        });
+        $supportModalMeta.html(metaHtml);
+        $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
+        $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
+        var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
+        $supportModalTotal.text('Total valorisation : ' + totalText);
+        $supportModalExport.data('export', data.csv_url || '').prop('disabled', !data.csv_url);
+        supportModalTaskTypes = Array.isArray(data.task_types) ? data.task_types : [];
+        supportModalCodeIsin = s.code_isin || '';
+        populateSupportTaskTypeSelect(data.default_type_id);
+        supportModalClientsData = Array.isArray(data.clients) ? data.clients.slice() : [];
+        supportModalFilteredData = supportModalClientsData.slice();
+        var hasTaskTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
+        $supportModalCreateTasks.prop('disabled', !hasTaskTypes);
+        $supportModalClientFilter.val('');
+        $supportModalResponsableFilter.val('');
+        $supportModalAmountFilter.val('');
+        renderSupportModalTable();
+    }
+
+    function renderSupportModalTable(){
+        if (!supportModalClientsData.length){
+            supportModalFilteredData = [];
+            $supportModalClients.html('<div class="support-modal__empty">Aucun client ne détient ce support à la date sélectionnée.</div>');
+            var hasTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
+            $supportModalCreateTasks.prop('disabled', !hasTypes);
+            return;
+        }
+        var filters = getSupportModalFilters();
+        var filtered = supportModalClientsData.filter(function(row){
+            return matchesClientFilters(row, filters);
+        });
+        supportModalFilteredData = filtered;
+        var hasEligible = filtered.some(function(client){ return client && client.client_id; });
+        var hasTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
+        $supportModalCreateTasks.prop('disabled', !(hasEligible && hasTypes));
+        var rowsHtml = filtered.map(function(client){
+            var label = ((client.nom || '') + ' ' + (client.prenom || '')).trim();
+            if (!label) label = client.nom || client.prenom || 'Client';
+            var href = client.client_id ? ('/dashboard/clients/' + client.client_id) : '#';
+            var cell = client.client_id ? '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>' : label;
+            return '<tr>' +
+                '<td>' + cell + '</td>' +
+                '<td>' + (client.responsable || '—') + '</td>' +
+                '<td>' + (client.total_valo_str || '0') + ' €</td>' +
+            '</tr>';
+        }).join('');
+        if (!rowsHtml){
+            supportModalFilteredData = filtered;
+            $supportModalClients.html('<div class="support-modal__empty">Aucun résultat ne correspond aux filtres.</div>');
+            return;
+        }
+        var tableHtml = '<table>' +
+            '<thead><tr><th>Client</th><th>Responsable</th><th>Valorisation</th></tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody></table>';
+        $supportModalClients.html(tableHtml);
+    }
+
+    function getSupportModalFilters(){
+        return {
+            client: ($supportModalClientFilter.val() || '').trim().toLowerCase(),
+            responsable: ($supportModalResponsableFilter.val() || '').trim().toLowerCase(),
+            amount: ($supportModalAmountFilter.val() || '').trim().toLowerCase()
+        };
+    }
+
+    function parseAmount(value){
+        if (value == null) return NaN;
+        var str = String(value).trim().toLowerCase();
+        if (!str) return NaN;
+        str = str.replace(/\s+/g, '').replace(',', '.');
+        var multiplier = 1;
+        if (str.endsWith('k')) { multiplier = 1e3; str = str.slice(0,-1); }
+        if (str.endsWith('m')) { multiplier = 1e6; str = str.slice(0,-1); }
+        var num = parseFloat(str);
+        if (!isFinite(num)) return NaN;
+        return num * multiplier;
+    }
+
+    function matchesAmount(amount, filter){
+        if (!filter) return true;
+        var val = parseAmount(amount);
+        if (!isFinite(val)) return false;
+        var expressions = filter.split(/[,;]+/).map(function(exp){ return exp.trim(); }).filter(Boolean);
+        if (!expressions.length) expressions = [filter];
+        return expressions.every(function(expr){
+            if (!expr) return true;
+            var range = expr.match(/^([<>]=?|=)?\s*([^<>=]+)$/);
+            var between = expr.match(/^([^\-]+)\s*-\s*([^\-]+)$/);
+            if (between){
+                var a = parseAmount(between[1]);
+                var b = parseAmount(between[2]);
+                if (!isFinite(a) || !isFinite(b)) return true;
+                var min = Math.min(a,b), max = Math.max(a,b);
+                return val >= min && val <= max;
+            }
+            if (range){
+                var op = range[1] || '=';
+                var num = parseAmount(range[2]);
+                if (!isFinite(num)) return true;
+                switch(op){
+                    case '>': return val > num;
+                    case '>=': return val >= num;
+                    case '<': return val < num;
+                    case '<=': return val <= num;
+                    case '=': default: return val === num;
+                }
+            }
+            var num = parseAmount(expr);
+            if (isFinite(num)) return val === num;
+            return true;
+        });
+    }
+
+    function matchesClientFilters(client, filters){
+        if (filters.client){
+            var label = ((client.nom || '') + ' ' + (client.prenom || '')).trim().toLowerCase();
+            if (label.indexOf(filters.client) === -1) return false;
+        }
+        if (filters.responsable){
+            var resp = (client.responsable || '').toLowerCase();
+            if (resp.indexOf(filters.responsable) === -1) return false;
+        }
+        if (filters.amount){
+            if (!matchesAmount(client.total_valo, filters.amount)) return false;
+        }
+        return true;
+    }
+
+    function populateSupportTaskTypeSelect(defaultId){
+        var groups = Array.isArray(supportModalTaskTypes) ? supportModalTaskTypes : [];
+        var html = '';
+        if (!groups.length){
+            html = '<option value="">-- Aucun type disponible --</option>';
+        } else {
+            var multipleGroups = groups.length > 1;
+            groups.forEach(function(group){
+                var types = Array.isArray(group.types) ? group.types : [];
+                if (!types.length) return;
+                if (multipleGroups){
+                    html += '<optgroup label="' + escHtml(group.label || group.categorie || 'Tâche') + '">';
+                }
+                types.forEach(function(entry){
+                    if (entry.id == null) return;
+                    html += '<option value="' + escHtml(entry.id) + '">' + escHtml(entry.libelle || ('Type #' + entry.id)) + '</option>';
+                });
+                if (multipleGroups){
+                    html += '</optgroup>';
+                }
+            });
+            if (!html){
+                html = '<option value="">-- Aucun type disponible --</option>';
+            }
+        }
+        $supportTaskTypeSelect.html(html);
+        if (defaultId != null && $supportTaskTypeSelect.find('option[value="' + defaultId + '"]').length){
+            $supportTaskTypeSelect.val(String(defaultId));
+        }
+        if (!$supportTaskTypeSelect.val()){
+            var first = $supportTaskTypeSelect.find('option[value!=""]').first();
+            if (first.length){
+                $supportTaskTypeSelect.val(first.val());
+            }
+        }
+        var hasTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
+        var hasEligible = (supportModalFilteredData || []).some(function(client){ return client && client.client_id; });
+        $supportModalCreateTasks.prop('disabled', !(hasTypes && hasEligible));
+    }
+
+    function openSupportTaskModal(){
+        var eligible = (supportModalFilteredData || []).filter(function(client){ return client && client.client_id; });
+        if (!eligible.length){
+            alert('Aucun client sélectionné pour créer des tâches.');
+            return;
+        }
+        populateSupportTaskTypeSelect($supportTaskTypeSelect.val());
+        $supportTaskComment.val('');
+        $supportTaskStatus.text(eligible.length + ' client(s) sélectionné(s).');
+        $supportTaskSubmit.prop('disabled', false).text('Créer les tâches');
+        $supportTaskModal.addClass('open').attr('aria-hidden', 'false');
+    }
+
+    function closeSupportTaskModal(){
+        $supportTaskModal.removeClass('open').attr('aria-hidden', 'true');
+        $supportTaskStatus.text('');
+    }
+
+    function submitSupportTasks(){
+        var eligible = (supportModalFilteredData || []).filter(function(client){ return client && client.client_id; });
+        if (!eligible.length){
+            $supportTaskStatus.text('Aucun client sélectionné.');
+            return;
+        }
+        var typeId = $supportTaskTypeSelect.val();
+        if (!typeId){
+            $supportTaskStatus.text('Sélectionnez un type de tâche.');
+            return;
+        }
+        var uniqueIds = [];
+        eligible.forEach(function(client){
+            if (uniqueIds.indexOf(client.client_id) === -1){
+                uniqueIds.push(client.client_id);
+            }
+        });
+        var payload = {
+            code_isin: supportModalCodeIsin,
+            client_ids: uniqueIds,
+            type_id: typeId,
+            commentaire: $supportTaskComment.val() || ''
+        };
+        $supportTaskSubmit.prop('disabled', true).text('Création...');
+        $supportTaskStatus.text('Création des tâches en cours...');
+        fetch('/dashboard/supports/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function(resp){
+            if (!resp.ok){
+                return resp.json().catch(function(){ return {detail: 'Erreur ' + resp.status}; }).then(function(err){ throw err; });
+            }
+            return resp.json();
+        }).then(function(result){
+            $supportTaskStatus.text(result.message || 'Tâches créées.');
+            setTimeout(function(){
+                closeSupportTaskModal();
+            }, 1200);
+        }).catch(function(err){
+            var msg = err && (err.detail || err.message) ? (err.detail || err.message) : 'Erreur lors de la création.';
+            $supportTaskStatus.text(msg);
+        }).finally(function(){
+            $supportTaskSubmit.prop('disabled', false).text('Créer les tâches');
+        });
+    }
+
+    $('#supportsTable tbody').on('click', 'a.support-link', function(e){
+        e.preventDefault();
+        var code = $(this).data('isin');
+        if (!code) return;
+        openSupportModal();
+        renderSupportModalLoading(code);
+        fetch('/dashboard/supports/details?code_isin=' + encodeURIComponent(code))
+            .then(function(resp){
+                if (!resp.ok) throw new Error('Erreur ' + resp.status);
+                return resp.json();
+            })
+            .then(function(data){
+                console.debug('Support details total_valo:', data?.total_valo, 'clients_total_valo:', data?.clients_total_valo);
+                renderSupportModal(data);
+            })
+            .catch(function(err){
+                $supportModalMeta.html('<div><span class="label">Erreur</span><span class="value">' + (err.message || 'Impossible de récupérer les données') + '</span></div>');
+                $supportModalClients.empty();
+                $supportModalExport.prop('disabled', true);
+            });
+    });
+
+    $('#supportModalClose').on('click', function(){ closeSupportModal(); });
+    $supportModal.on('click', function(e){ if (e.target === this) { closeSupportModal(); } });
+    $(document).on('keyup', function(e){
+        if (e.key === 'Escape'){
+            if ($supportTaskModal.hasClass('open')) { closeSupportTaskModal(); return; }
+            closeSupportModal();
+        }
+    });
+    $supportModalExport.on('click', function(){
+        var url = $(this).data('export');
+        if (!url) return;
+        window.location.href = url;
+    });
+
+    function scheduleModalReRender(){
+        clearTimeout(scheduleModalReRender._id);
+        scheduleModalReRender._id = setTimeout(renderSupportModalTable, 120);
+    }
+    $supportModalClientFilter.on('input', scheduleModalReRender);
+    $supportModalResponsableFilter.on('input', scheduleModalReRender);
+    $supportModalAmountFilter.on('input', scheduleModalReRender);
+    $supportModalFiltersReset.on('click', function(){
+        $supportModalClientFilter.val('');
+        $supportModalResponsableFilter.val('');
+        $supportModalAmountFilter.val('');
+        renderSupportModalTable();
+    });
+    $supportModalCreateTasks.on('click', function(){ if ($(this).prop('disabled')) return; openSupportTaskModal(); });
+    $supportTaskCancel.on('click', function(){ closeSupportTaskModal(); });
+    $supportTaskModalClose.on('click', function(){ closeSupportTaskModal(); });
+    $supportTaskModal.on('click', function(e){ if (e.target === this) { closeSupportTaskModal(); } });
+    $supportTaskSubmit.on('click', function(){ submitSupportTasks(); });
 });
 </script>
 
