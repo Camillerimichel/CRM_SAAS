@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Lettre d’adéquation</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm;
+      @bottom-center {
+        content: "Lettre d’adéquation – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}";
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        font-size:10pt;
+        font-style:italic;
+        color:#64748b;
+      }
+    }
+    body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size:11pt; color:#1f2937; line-height:1.5; }
+    h1, h2, h3, h4 { color:#0f172a; margin:0 0 10px; }
+    h1 { font-size:1.55rem; text-align:center; text-transform:uppercase; margin-bottom:16px; }
+    h2 { font-size:1.18rem; margin-top:18px; }
+    h3 { font-size:1.05rem; margin-top:14px; }
+    p { margin:6px 0; text-align:justify; }
+    ul { margin:6px 0 6px 18px; padding:0; }
+    li { margin:4px 0; }
+    table { width:100%; border-collapse:collapse; margin:10px 0; }
+    th, td { border:1px solid #d1d5db; padding:6px 8px; text-align:left; font-size:0.95rem; }
+    th { background:#1d4ed8; color:#fff; }
+    td.number { text-align:right; white-space:nowrap; }
+    hr { border:0; border-top:1px solid #cbd5f5; margin:12px 0; }
+    .muted { color:#64748b; }
+    .screen-footer { position:fixed; left:18mm; right:18mm; bottom:10mm; text-align:center; font-size:10pt; font-style:italic; color:#64748b; }
+    @media print { .screen-footer { display:none; } }
+    @media screen { .screen-footer { display:block; } }
+    .title-page { min-height:60vh; display:flex; flex-direction:column; justify-content:flex-start; align-items:center; text-align:center; padding-top:12em; }
+    .title-subtext { margin-top:2rem; display:flex; flex-direction:column; gap:0.6rem; color:#475569; align-items:center; }
+    .meta-box { display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; border:1px solid #d1d5db; border-radius:12px; background:#f8fafc; margin:12px 0; }
+    .meta-box > div { min-width:220px; }
+    .section-card { border:1px solid #d1d5db; border-radius:12px; padding:12px 14px; margin:10px 0; background:#fff; }
+    .sig-box { display:grid; grid-template-columns: 1fr 1fr; gap:18px; margin-top:14px; }
+    .sig-cell { border:1px dashed #cbd5f5; border-radius:10px; padding:12px; min-height:110px; }
+    .dot { display:inline-block; width:12px; height:12px; border-radius:50%; }
+    .dot-ok { background:#16a34a; }
+    .dot-ko { background:#dc2626; }
+  </style>
+</head>
+<body>
+  <div class="screen-footer">Lettre d’adéquation – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
+  <div class="title-page">
+    {% if report_logo_png %}
+      <img src="data:image/png;base64,{{ report_logo_png | safe }}" alt="Logo" style="max-width:220px; margin-bottom:60px;" />
+    {% else %}
+      <div style="height:70px;"></div>
+    {% endif %}
+    <h1>Lettre d’adéquation – Conseil en assurance vie</h1>
+    <div style="font-weight:700; font-style:italic; font-size:12pt;">{{ report_date_str }}</div>
+    <div class="title-subtext">
+      <div>{{ civilite or '' }} {{ client.prenom or '' }} {{ client.nom or '' }}</div>
+      <div class="muted">Document confidentiel produit automatiquement par la plateforme.</div>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+  <h2>Références réglementaires</h2>
+  <ul>
+    <li><strong>Code des assurances</strong> : article L. 522-5</li>
+    <li><strong>Code monétaire et financier</strong> : article L. 519-6</li>
+    <li><strong>Directive (UE) 2016/97 (IDD)</strong> relative à la distribution d’assurances</li>
+    <li><strong>Règlement délégué (UE) 2017/2359</strong> du 21 septembre 2017</li>
+    <li><strong>Articles R. 521-1 à R. 521-14</strong> du Code des assurances</li>
+  </ul>
+
+  <h2>1. Objet de la lettre</h2>
+  <p>Cette lettre formalise le <strong>conseil personnalisé</strong> délivré par le cabinet dans le cadre de vos opérations d’assurance vie. Elle atteste que la solution proposée est <strong>adaptée à votre situation, à vos objectifs et à votre profil d’investisseur</strong>.</p>
+
+  <h2>2. Analyse de votre situation</h2>
+  <div class="meta-box">
+    <div><strong>Situation familiale</strong><br/>{{ situation_familiale or '—' }}</div>
+    <div><strong>Enfants à charge</strong><br/>{{ nb_enfants or 0 }}</div>
+    <div><strong>Niveau de revenu annuel</strong><br/>{{ revenus_total_str }} €</div>
+    <div><strong>Niveau de charges annuelles</strong><br/>{{ charges_total_str }} €</div>
+    <div><strong>Budget disponible</strong><br/>{{ budget_disponible_str }} €</div>
+    <div><strong>Patrimoine total</strong><br/>{{ actif_total_str }} €</div>
+    <div><strong>Endettement total</strong><br/>{{ passif_total_str }} €</div>
+    <div><strong>Patrimoine net</strong><br/>{{ patrimoine_net_str }} €</div>
+  </div>
+  <p>
+    Ces éléments patrimoniaux et familiaux ont été pris en compte pour définir une allocation cohérente avec vos besoins. 
+    {% if synthese_latest and synthese_latest.commentaire %}
+      <span class="muted">{{ synthese_latest.commentaire }}</span>
+    {% endif %}
+  </p>
+
+  <h2>3. Profil d’investissement</h2>
+  <div class="meta-box">
+    <div><strong>Horizon de placement</strong><br/>{{ horizon_placement or '—' }}</div>
+    <div><strong>Niveau de risque accepté</strong><br/>{{ niveau_risque or '—' }}</div>
+    <div><strong>Expérience des produits financiers</strong><br/>{{ experience or '—' }}</div>
+    <div><strong>Connaissance des marchés</strong><br/>{{ connaissance or '—' }}</div>
+  </div>
+  {% if risque_latest and risque_latest.commentaire %}
+    <p class="muted">{{ risque_latest.commentaire }}</p>
+  {% endif %}
+  <p>Le profil retenu reflète la tolérance au risque que vous avez exprimée, ainsi que vos capacités financières à absorber les fluctuations inhérentes aux marchés.</p>
+
+  <h2>4. Synthèse des objectifs</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:2.2rem; text-align:center;">&nbsp;</th>
+        <th>Objectif</th>
+        <th>Horizon</th>
+        <th>Commentaire</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if adequation_objectifs and adequation_objectifs|length > 0 %}
+        {% set ref_horizon = horizon_placement or '' %}
+        {% set ref_idx = 4 if '8' in ref_horizon else (3 if '5' in ref_horizon else (2 if '3' in ref_horizon else (1 if '1' in ref_horizon else 0))) %}
+        {% for obj in adequation_objectifs %}
+          {% set obj_h = (obj.horizon_investissement or '') %}
+          {% set obj_idx = 4 if '8' in obj_h else (3 if '5' in obj_h else (2 if '3' in obj_h else (1 if '1' in obj_h else 0))) %}
+          {% set ok = (obj_idx >= ref_idx) and (ref_idx > 0) and (obj_idx > 0) %}
+          <tr>
+            <td style="text-align:center;"><span class="dot {{ 'dot-ok' if ok else 'dot-ko' }}" title="{{ 'Cohérent' if ok else 'À surveiller' }}"></span></td>
+            <td>{{ obj.objectif_libelle or '—' }}</td>
+            <td>{{ obj.horizon_investissement or '—' }}</td>
+            <td>{{ obj.commentaire or '—' }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="4" class="muted">Aucun objectif patrimonial enregistré.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+  <p class="muted">Les objectifs en cohérence avec votre horizon d’investissement sont indiqués en vert.</p>
+
+  <h2>5. Recommandation du cabinet</h2>
+  <p>Le contrat recommandé est <strong>{{ contrat_choisi_nom or '—' }}</strong>, proposé par <strong>{{ contrat_choisi_societe or '—' }}</strong>. Cette solution répond à vos objectifs financiers et à votre profil d’investisseur.</p>
+  <ul>
+    <li><strong>Supports proposés :</strong> fonds en euros et unités de compte, sélectionnés selon votre profil de risque.</li>
+    <li><strong>Allocation retenue :</strong> {{ allocation_reference_name or '—' }}.</li>
+    {% if risque_latest and risque_latest.confirmation_client is not none %}
+      {% if (risque_latest.confirmation_client|string).lower() == 'oui' %}
+        <li>Vous avez confirmé l’adéquation du profil de risque déterminé par le questionnaire réglementaire.</li>
+      {% else %}
+        <li class="muted">Vous avez souhaité retenir un niveau de risque différent du profil déterminé ; cette décision a été documentée.</li>
+      {% endif %}
+    {% endif %}
+  </ul>
+
+  <h2>6. Comparatif des offres disponibles</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Contrat</th>
+        <th>Compagnie</th>
+        <th>Frais annuels estimés</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if adequation_contracts and adequation_contracts|length > 0 %}
+        {% for contrat in adequation_contracts %}
+          <tr>
+            <td>{{ contrat.nom_contrat }}</td>
+            <td>{{ contrat.societe_nom }}</td>
+            <td class="number">{{ '%.2f'|format((contrat.total_frais or 0)|float) }} %</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="3" class="muted">Aucune offre concurrente disponible.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h2>7. Détail de l’allocation retenue</h2>
+  {% if adequation_allocation_html %}
+    <div class="section-card">{{ adequation_allocation_html | safe }}</div>
+  {% else %}
+    <p class="muted">Les informations détaillées sur l’allocation ne sont pas disponibles.</p>
+  {% endif %}
+
+  <h2>8. Mises en garde</h2>
+  <ul>
+    <li>Vous reconnaissez avoir reçu une information <strong>claire, honnête et non trompeuse</strong> sur les caractéristiques, coûts et risques des contrats présentés.</li>
+    <li>La <strong>valeur des supports financiers</strong> peut fluctuer à la hausse comme à la baisse ; les performances passées ne préjugent pas des performances futures.</li>
+    <li>Le conseil repose sur les informations communiquées ; toute omission ou inexactitude peut en affecter la pertinence.</li>
+  </ul>
+
+  <h2>9. Accord du client</h2>
+  <p>Je soussigné(e) <strong>{{ client.prenom or '' }} {{ client.nom or '' }}</strong>, déclare avoir reçu et pris connaissance de la présente lettre d’adéquation. Je confirme que les recommandations formulées correspondent à mes attentes et à mes objectifs patrimoniaux.</p>
+  <div class="sig-box">
+    <div class="sig-cell">
+      <strong>Signature du client</strong><br/>
+      <span class="muted">Date et lieu :</span>
+    </div>
+    <div class="sig-cell">
+      <strong>Signature du courtier</strong><br/>
+      <span class="muted">Date et lieu :</span>
+    </div>
+  </div>
+</body>
+</html>

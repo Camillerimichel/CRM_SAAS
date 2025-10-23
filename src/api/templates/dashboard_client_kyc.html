@@ -70,9 +70,13 @@
     .kyc-container { display:none; gap:12px; flex-direction:column; }
     .kyc-container.open { display:flex; }
     .accordion { border-radius:10px; overflow:hidden; }
-    .accordion-toggle { display:flex; justify-content:space-between; align-items:center; width:100%; border:none; background:#f5f7ff; color:#1f2b6c; font-weight:600; padding:10px 14px; cursor:pointer; font-size:0.95rem; }
-    .accordion-toggle .chevron { transition:transform .2s ease; }
+    .accordion-toggle { display:flex; justify-content:space-between; align-items:center; width:100%; border:1px solid rgba(36,86,166,0.15); border-radius:10px; background:#f5f7ff; color:#1f2b6c; font-weight:600; padding:10px 14px; cursor:pointer; font-size:0.95rem; transition:background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+    .accordion-toggle .chevron { transition:transform .2s ease, color .2s ease; }
     .accordion-toggle.collapsed .chevron { transform:rotate(-90deg); }
+    .accordion-toggle:not(.collapsed) { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 10px 22px rgba(36,86,166,0.28); }
+    .accordion-toggle:not(.collapsed) .chevron,
+    .accordion-toggle:not(.collapsed) i,
+    .accordion-toggle:not(.collapsed) span { color:#fff; }
     .accordion-panel { display:none; padding:12px 14px; background:#fff; border:1px solid #eef1ff; border-top:none; }
     .accordion-panel.active { display:block; }
     .toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap; }

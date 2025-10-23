@@ -98,7 +98,7 @@
           <th><input type="text" id="doc-filter" placeholder="Filtrer..."></th>
           <th><select id="niveau-filter"><option value="">Tous</option></select></th>
           <th><select id="risque-filter"><option value="">Tous</option></select></th>
-          <th><select id="obs-filter"><option value="">Tous</option></select></th>
+          <th><input type="text" id="obs-filter" placeholder="Oui / Non"></th>
         </tr>
       </thead>
       <tbody>
@@ -110,10 +110,11 @@
           <td>{{ d.niveau }}</td>
           <td>{{ d.risque }}</td>
           <td>
-            {% if d.obsolescence %}
-              <span class="badge badge-obsolete">{{ d.obsolescence }}</span>
+            {% set _is_obsolete = d.obsolescence and d.obsolescence|string|lower == 'oui' %}
+            {% if _is_obsolete %}
+              <span class="badge badge-ok">Oui</span>
             {% else %}
-              <span class="badge badge-ok">À jour</span>
+              <span class="badge badge-obsolete">Non</span>
             {% endif %}
           </td>
         </tr>
@@ -139,9 +140,13 @@ $(document).ready(function () {
       {
         targets: 5, // Obsolescence
         render: function(data, type, row){
+          var text = $('<div>').html(data).text().trim();
+          var lower = text.toLowerCase();
           if (type === 'sort' || type === 'type'){
-            var text = $('<div>').html(data).text().trim();
-            return (text && text.toLowerCase() !== 'à jour') ? 1 : 0;
+            return lower === 'oui' ? 1 : 0;
+          }
+          if (type === 'filter'){
+            return lower === 'oui' ? 'Oui' : 'Non';
           }
           return data;
         }
@@ -149,11 +154,16 @@ $(document).ready(function () {
     ],
     initComplete: function () {
       var api = this.api();
-      // Remplir selects à partir des colonnes Niveau (3), Risque (4), Obsolescence (5)
-      [3,4,5].forEach(function(idx){
+      // Remplir selects à partir des colonnes Niveau (3), Risque (4)
+      [3,4].forEach(function(idx){
         var select = $('#docsTable thead tr:eq(1) th').eq(idx).find('select');
         api.column(idx).data().unique().sort().each(function (d) {
-          if (d) select.append('<option value="'+d+'">'+d+'</option>');
+          if (!d) return;
+          var exists = false;
+          select.find('option').each(function(){
+            if ($(this).text() === d) { exists = true; return false; }
+          });
+          if (!exists) select.append('<option value="'+d+'">'+d+'</option>');
         });
         select.on('change', function(){
           var val = $(this).val();
@@ -169,6 +179,29 @@ $(document).ready(function () {
         });
       });
     }
+  });
+
+  $('#obs-filter').on('keyup change', function(){
+    var val = $(this).val();
+    var val = (this.value || '').toString().trim();
+    if (!val){
+      table.column(5).search('', true, false).draw();
+    } else {
+      var lower = val.toLowerCase();
+      if (lower === 'oui' || lower === 'o' || lower === '1'){
+        table.column(5).search('^\\s*Oui\\s*$', true, false).draw();
+      } else if (lower === 'non' || lower === 'n' || lower === '0'){
+        table.column(5).search('^\\s*Non\\s*$', true, false).draw();
+      } else {
+        table.column(5).search($.fn.dataTable.util.escapeRegex(val), true, false).draw();
+      }
+    }
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (val) params.set('obsolescence', val.toLowerCase()); else params.delete('obsolescence');
+      var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
+      window.history.replaceState({}, '', newUrl);
+    } catch(e) {}
   });
 
   // Filtres texte
@@ -249,21 +282,19 @@ $(document).ready(function () {
   window.quickFilterObso = function(isObsolete){
     try {
       if (isObsolete === 'all'){
-        table.column(5).search('', true, false).draw();
-        $('#obs-filter').val('');
+        $('#obs-filter').val('').trigger('change');
         var params0 = new URLSearchParams(window.location.search);
         params0.delete('obsolescence');
         var newUrl0 = window.location.pathname + (params0.toString()?('?'+params0.toString()):'');
         window.history.replaceState({}, '', newUrl0);
       } else if (isObsolete){
-        table.column(5).search('^(?!\\s*À jour\\s*$).+', true, false).draw();
+        $('#obs-filter').val('Oui').trigger('change');
         var params = new URLSearchParams(window.location.search);
         params.set('obsolescence', 'oui');
         var newUrl = window.location.pathname + '?' + params.toString();
         window.history.replaceState({}, '', newUrl);
       } else {
-        table.column(5).search('^\\s*À jour\\s*$', true, false).draw();
-        $('#obs-filter').val('À jour');
+        $('#obs-filter').val('Non').trigger('change');
         var params2 = new URLSearchParams(window.location.search);
         params2.set('obsolescence', 'non');
         var newUrl2 = window.location.pathname + '?' + params2.toString();
@@ -309,10 +340,9 @@ $(document).ready(function () {
     if (obs) {
       var low = obs.toString().toLowerCase();
       if (low === 'oui' || low === 'true' || low === '1'){
-        table.column(5).search('^(?!\\s*À jour\\s*$).+', true, false).draw();
+        $('#obs-filter').val('Oui').trigger('change');
       } else if (low === 'non' || low === 'false' || low === '0'){
-        table.column(5).search('^\\s*À jour\\s*$', true, false).draw();
-        $('#obs-filter').val('À jour');
+        $('#obs-filter').val('Non').trigger('change');
       } else {
         var match = null;
         $('#obs-filter option').each(function(){

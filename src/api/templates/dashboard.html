@@ -9,37 +9,57 @@
   .home-sub { text-align: center; margin: 0 0 2rem 0; color: #666; }
   .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; max-width: 1100px; margin: 0 auto 2rem auto; }
   .kpi-card { background:#fff; border-radius:12px; padding:18px; text-align:center; box-shadow: 0 6px 18px rgba(0,0,0,0.08); }
+  .kpi-card--primary {
+    background: var(--primary);
+    color: #fff;
+  }
+  .kpi-card--primary .kpi-value {
+    color: #fff;
+  }
   .kpi-value { font-size:1.6rem; font-weight:700; margin-top:6px; }
   .charts { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; max-width: 1200px; margin: 0 auto; }
   /* Liens discrets dans la carte Documents */
   .doc-filter-link { text-decoration:none; color:inherit; }
   .doc-filter-link:hover { text-decoration: underline; }
   /* Chevrons accordéon: rotation sur fermeture */
-  #risksToggle .chevron, #analysisToggle .chevron, #esgToggle .chevron, #tasksToggle .chevron, #remToggle .chevron, #groupsToggle .chevron,
-  #srriToggle .chevron, #clienteleToggle .chevron {
-    transition: transform .2s ease; color: var(--primary);
+  div[id$='Toggle'] {
+    transition: background .2s ease, color .2s ease, border .2s ease;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: inherit;
   }
-  #risksToggle.collapsed .chevron, #analysisToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #tasksToggle.collapsed .chevron,
-  #remToggle.collapsed .chevron, #groupsToggle.collapsed .chevron,
-  #srriToggle.collapsed .chevron, #clienteleToggle.collapsed .chevron {
-    transform: rotate(-90deg);
-  }
-  /* Style bleu pour sous-accordéons de l'analyse */
-  #clienteleToggle, #srriToggle,
-  #remFraisToggle, #remRetroToggle {
+  div[id$='Toggle']:not(.collapsed) {
     background: var(--primary);
     color: #fff;
-    border: 1px solid var(--primary);
+    border-color: var(--primary);
   }
-  #clienteleToggle h3, #srriToggle h3,
-  #remFraisToggle h3, #remRetroToggle h3 { color:#fff; }
-  #clienteleToggle .chevron, #srriToggle .chevron,
-  #remFraisToggle .chevron, #remRetroToggle .chevron { color:#fff; }
+  div[id$='Toggle']:not(.collapsed) h3,
+  div[id$='Toggle']:not(.collapsed) .chevron {
+    color: #fff;
+  }
+  div[id$='Toggle'] .chevron {
+    transition: transform .2s ease;
+    color: var(--primary);
+  }
+  div[id$='Toggle'].collapsed .chevron {
+    transform: rotate(-90deg);
+  }
   /* Risk dots */
   .dot { display:inline-block; width: 0.9em; height: 0.9em; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
   .dot-red { background:#ef4444; }
   .dot-green { background:#16a34a; }
   .dot-blue { background:#3b82f6; }
+  .risk-card-title {
+    margin:0;
+    font-size:1.05rem;
+    background:var(--primary);
+    color:#fff;
+    padding:6px 12px;
+    border-radius:8px;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+  }
   /* ESG global: boutons compacts */
   #esgSection .esg-field-global {
     font-size: 10px;
@@ -52,63 +72,102 @@
   /* Dropdown RH width control */
   #tasksRhSelect { width: 160px; max-width: 160px; }
   @media (max-width: 480px) { #tasksRhSelect { width: 140px; max-width: 140px; } }
+  .finance-support-link { color:#111827; text-decoration:underline; }
+  .finance-support-link:hover { text-decoration:none; }
+  #financeSupportModal { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:10000; }
+  #financeSupportModal .modal-card { background:#fff; border-radius:12px; width:900px; max-width:95vw; max-height:90vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+  #financeSupportModal .modal-header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); }
+  #financeSupportModal .modal-header h3 { margin:0; font-size:1.05rem; }
+  #financeSupportModal .modal-close { border:none; background:transparent; cursor:pointer; font-size:18px; }
+  #financeSupportModal .modal-body { padding:12px 14px; }
+  #financeSupportModalTable { width:100%; border-collapse:collapse; font-size:0.9rem; }
+  #financeSupportModalTable th, #financeSupportModalTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+  #financeSupportModalTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; text-align:left; }
+  #financeSupportModalTable td.numeric { text-align:right; }
+  .compliance-progress { margin-top:8px; width:100%; height:1em; display:flex; border-radius:6px; overflow:hidden; background:#e2e8f0; }
+  .compliance-progress div { height:100%; }
+  .compliance-progress-valid { background:#16a34a; }
+  .compliance-progress-obsolete { background:#ef4444; }
+  .tb-markers-enabled [data-tb-marker] {
+    position: relative;
+    outline: 2px dashed rgba(37,99,235,0.35);
+  }
+  .tb-markers-enabled [data-tb-marker]::before {
+    content: attr(data-tb-marker);
+    position: absolute;
+    top: -12px;
+    left: 0;
+    background: rgba(37,99,235,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 20;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+  }
 </style>
 
-<h2 class="home-title">Tableau de bord</h2>
-<p class="home-sub">Accès rapide et indicateurs clés</p>
+{% set tb_markers_param = tb_markers_param or '' %}
+{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_01">
+  <div data-tb-marker="TB_02" style="text-align:center;">
+    <h2 class="home-title" data-tb-marker="TB_03">Tableau de bord</h2>
+    <p class="home-sub" data-tb-marker="TB_04">Accès rapide et indicateurs clés</p>
+  </div>
 
 <!-- KPIs -->
-<div class="kpis">
-  <div class="kpi-card">
-    <div>Nombre d'affaires</div>
+<div class="kpis" data-tb-marker="TB_05">
+  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_06">
+    <div>Nombre de placements financiers</div>
     <div class="kpi-value">{{ total_affaires }}</div>
   </div>
-  <div class="kpi-card">
+  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_07">
     <div>Valorisation totale</div>
     <div class="kpi-value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</div>
   </div>
-  <div class="kpi-card">
+  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_08">
     <div>Nombre de clients</div>
     <div class="kpi-value">{{ total_clients }}</div>
   </div>
-  </div>
+</div>
 
   <!-- Accordéon Tâches en cours (remonté avant Risques) -->
-  </div>
-  <div id="tasksToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="tasksToggle" class="card collapsed" data-tb-marker="TB_09" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="tasksSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+  <div id="tasksSection" data-tb-marker="TB_10" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div data-tb-marker="TB_11" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
     <div class="muted">Période:</div>
     {% set r = tasks_range or 14 %}
     {% for n in [7,14,30] %}
       {% if n == r %}
-        <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
+        <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} j</a>
       {% else %}
-        <a class="btn btn-choice" href="?tasks_range={{ n }}#tasksToggle">{{ n }} j</a>
+        <a class="btn btn-choice" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} j</a>
       {% endif %}
     {% endfor %}
   </div>
-  <div class="kpis" style="grid-template-columns: repeat(4, 1fr);">
-    <div class="kpi-card">
+  <div class="kpis" data-tb-marker="TB_12" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="kpi-card" data-tb-marker="TB_13">
       <div>Tâches totales</div>
       <div class="kpi-value">{{ tasks_total }}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" data-tb-marker="TB_14">
       <div>Ouvertes</div>
       <div class="kpi-value">{{ tasks_open }}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" data-tb-marker="TB_15">
       <div>Clôturées</div>
       <div class="kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" data-tb-marker="TB_16">
       <div>Aujourd'hui</div>
       <div class="kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
     </div>
-    <div class="kpi-card" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
+    <div class="kpi-card" data-tb-marker="TB_17" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
       {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
       {% if total_tasks_days and total_tasks_days > 0 %}
         <canvas id="chartTasksDays" height="120"></canvas>
@@ -117,144 +176,183 @@
       {% endif %}
     </div>
   </div>
-  <div class="card" style="margin-top:8px;">
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+  <div class="card" data-tb-marker="TB_18" style="margin-top:8px;">
+    <div data-tb-marker="TB_19" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
       <div class="muted">Filtre par responsable commercial:</div>
       <select id="tasksRhSelect" style="width:160px;">
         <option value="">Tous</option>
       </select>
     </div>
-    <div style="min-height:180px; display:flex; align-items:center; justify-content:center;">
+    <div data-tb-marker="TB_20" style="min-height:180px; display:flex; align-items:center; justify-content:center;">
       <canvas id="chartTasksType" height="120"></canvas>
     </div>
   </div>
   </div>
 
   <!-- Accordéon Risques -->
-  <div id="risksToggle" class="card" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.05rem;">Risques</h3>
+  <div id="risksToggle" class="card collapsed" data-tb-marker="TB_21" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.05rem;">Conformité et suivi du risque</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="risksSection" style="display:none;">
-  <div class="kpis">
-  <div class="kpi-card" style="text-align:left;">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-      <h3 style="margin:0; font-size:1.05rem;">Documents</h3>
-    </div>
-    <div style="margin-top:8px; font-size:0.9rem;">
-      <div><strong>Total documents:</strong> <a class="doc-filter-link" href="/dashboard/documents" target="_blank" rel="noopener noreferrer">{{ docs_total }}</a></div>
-      <div style="margin-top:6px;">
-        <div style="color:#666; font-size:0.85rem;">Obsolescences par niveau</div>
-        <div>
-          {% for x in docs_obs_by_niveau %}
-            <span>
-              <strong>
-                <a href="/dashboard/documents?niveau={{ x.niveau }}" class="doc-filter-link" target="_blank" rel="noopener noreferrer">
-                  {{ x.niveau or 'N/A' }}
-                </a>
-              </strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
-            </span>
-          {% endfor %}
-          {% if not docs_obs_by_niveau %}<span class="muted">Aucune donnée</span>{% endif %}
+  <div id="risksSection" data-tb-marker="TB_22" style="display:none;">
+  <!-- Sous-accordéon: Conformité réglementaire -->
+  <div id="complianceToggle" class="card collapsed" data-tb-marker="TB_23" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Conformité réglementaire</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="complianceSection" data-tb-marker="TB_24" style="display:none;">
+    <div class="card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+      <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
+        {% set der_obsolete_pct = (docs_der_obsolete_pct or 0)|float %}
+        {% if der_obsolete_pct < 0 %}{% set der_obsolete_pct = 0.0 %}{% elif der_obsolete_pct > 100 %}{% set der_obsolete_pct = 100.0 %}{% endif %}
+        {% set der_valid_pct = 100.0 - der_obsolete_pct %}
+        <div data-tb-marker="TB_27" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">DER</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_der_total or 0 }} / {{ '%.1f'|format(docs_der_total_pct or 0) }} %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_der_obsolete or 0 }} / {{ '%.1f'|format(docs_der_obsolete_pct or 0) }} %</div>
+          <div class="compliance-progress" role="img" aria-label="DER : {{ der_valid_pct|round(1) }} % valides, {{ der_obsolete_pct|round(1) }} % obsolètes">
+            <div class="compliance-progress-valid" style="width: {{ der_valid_pct }}%;"></div>
+            <div class="compliance-progress-obsolete" style="width: {{ der_obsolete_pct }}%;"></div>
+          </div>
+        </div>
+        {% set cc_obsolete_pct = (docs_cc_obsolete_pct or 0)|float %}
+        {% if cc_obsolete_pct < 0 %}{% set cc_obsolete_pct = 0.0 %}{% elif cc_obsolete_pct > 100 %}{% set cc_obsolete_pct = 100.0 %}{% endif %}
+        {% set cc_valid_pct = 100.0 - cc_obsolete_pct %}
+        <div data-tb-marker="TB_28" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Connaissance client</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_cc_total or 0 }} / {{ '%.1f'|format(docs_cc_total_pct or 0) }} %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_cc_obsolete or 0 }} / {{ '%.1f'|format(docs_cc_obsolete_pct or 0) }} %</div>
+          <div class="compliance-progress" role="img" aria-label="Connaissance client : {{ cc_valid_pct|round(1) }} % valides, {{ cc_obsolete_pct|round(1) }} % obsolètes">
+            <div class="compliance-progress-valid" style="width: {{ cc_valid_pct }}%;"></div>
+            <div class="compliance-progress-obsolete" style="width: {{ cc_obsolete_pct }}%;"></div>
+          </div>
+        </div>
+        {% set esg_obsolete_pct = (docs_esg_obsolete_pct or 0)|float %}
+        {% if esg_obsolete_pct < 0 %}{% set esg_obsolete_pct = 0.0 %}{% elif esg_obsolete_pct > 100 %}{% set esg_obsolete_pct = 100.0 %}{% endif %}
+        {% set esg_valid_pct = 100.0 - esg_obsolete_pct %}
+        <div data-tb-marker="TB_29" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">ESG</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_esg_total or 0 }} / {{ '%.1f'|format(docs_esg_total_pct or 0) }} %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_esg_obsolete or 0 }} / {{ '%.1f'|format(docs_esg_obsolete_pct or 0) }} %</div>
+          <div class="compliance-progress" role="img" aria-label="ESG : {{ esg_valid_pct|round(1) }} % valides, {{ esg_obsolete_pct|round(1) }} % obsolètes">
+            <div class="compliance-progress-valid" style="width: {{ esg_valid_pct }}%;"></div>
+            <div class="compliance-progress-obsolete" style="width: {{ esg_obsolete_pct }}%;"></div>
+          </div>
+        </div>
+        {% set lm_obsolete_pct = (docs_lm_obsolete_pct or 0)|float %}
+        {% if lm_obsolete_pct < 0 %}{% set lm_obsolete_pct = 0.0 %}{% elif lm_obsolete_pct > 100 %}{% set lm_obsolete_pct = 100.0 %}{% endif %}
+        {% set lm_valid_pct = 100.0 - lm_obsolete_pct %}
+        <div data-tb-marker="TB_30" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres de mission</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_lm_total or 0 }} / {{ '%.1f'|format(docs_lm_total_pct or 0) }} %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_lm_obsolete or 0 }} / {{ '%.1f'|format(docs_lm_obsolete_pct or 0) }} %</div>
+          <div class="compliance-progress" role="img" aria-label="Lettres de mission : {{ lm_valid_pct|round(1) }} % valides, {{ lm_obsolete_pct|round(1) }} % obsolètes">
+            <div class="compliance-progress-valid" style="width: {{ lm_valid_pct }}%;"></div>
+            <div class="compliance-progress-obsolete" style="width: {{ lm_obsolete_pct }}%;"></div>
+          </div>
+        </div>
+        {% set la_obsolete_pct = (docs_la_obsolete_pct or 0)|float %}
+        {% if la_obsolete_pct < 0 %}{% set la_obsolete_pct = 0.0 %}{% elif la_obsolete_pct > 100 %}{% set la_obsolete_pct = 100.0 %}{% endif %}
+        {% set la_valid_pct = 100.0 - la_obsolete_pct %}
+        <div data-tb-marker="TB_31" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres d'adéquation</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_la_total or 0 }} / {{ '%.1f'|format(docs_la_total_pct or 0) }} %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_la_obsolete or 0 }} / {{ '%.1f'|format(docs_la_obsolete_pct or 0) }} %</div>
+          <div class="compliance-progress" role="img" aria-label="Lettres d'adéquation : {{ la_valid_pct|round(1) }} % valides, {{ la_obsolete_pct|round(1) }} % obsolètes">
+            <div class="compliance-progress-valid" style="width: {{ la_valid_pct }}%;"></div>
+            <div class="compliance-progress-obsolete" style="width: {{ la_obsolete_pct }}%;"></div>
+          </div>
+        </div>
+        <div data-tb-marker="TB_32" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Réclamations</div>
+          <div class="muted" style="font-size:0.85rem;">Total : {{ reclam_stats.total or 0 }}</div>
+          <div class="muted" style="font-size:0.85rem;">À faire : {{ reclam_stats.a_faire or 0 }}</div>
+          <div class="muted" style="font-size:0.85rem;">En cours : {{ reclam_stats.en_cours or 0 }}</div>
+          <div class="muted" style="font-size:0.85rem;">En attente : {{ reclam_stats.en_attente or 0 }}</div>
+          <div class="muted" style="font-size:0.85rem;">Terminées : {{ reclam_stats.terminees or 0 }}</div>
         </div>
       </div>
-      <div style="margin-top:6px;">
-        <div style="color:#666; font-size:0.85rem;">Obsolescences par risque</div>
-        <div>
-          {% for x in docs_obs_by_risque %}
-            <span>
-              <strong>
-                <a href="/dashboard/documents?risque={{ x.risque }}" class="doc-filter-link" target="_blank" rel="noopener noreferrer">
-                  {{ x.risque or 'N/A' }}
-                </a>
-              </strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
-            </span>
-          {% endfor %}
-          {% if not docs_obs_by_risque %}<span class="muted">Aucune donnée</span>{% endif %}
-        </div>
-      </div>
     </div>
-  </div>
-  <div class="kpi-card" style="text-align:left;">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-      <h3 style="margin:0; font-size:1.05rem;">Clients</h3>
-    </div>
-    <div style="margin-top:8px; font-size:0.95rem; line-height:1.6;">
-      <div>
-        <a href="/dashboard/clients?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-red"></span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
-        </a>
-      </div>
-      <div>
-        <a href="/dashboard/clients?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-green"></span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
-        </a>
-      </div>
-      <div>
-        <a href="/dashboard/clients?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-blue"></span><strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
-        </a>
-      </div>
-    </div>
-  </div>
-  <div class="kpi-card" style="text-align:left;">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-      <h3 style="margin:0; font-size:1.05rem;">Affaires</h3>
-    </div>
-    <div style="margin-top:8px; font-size:0.95rem; line-height:1.6;">
-      <div>
-        <a href="/dashboard/affaires?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-red"></span><strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
-        </a>
-      </div>
-      <div>
-        <a href="/dashboard/affaires?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-green"></span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
-        </a>
-      </div>
-      <div>
-        <a href="/dashboard/affaires?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-          <span class="dot dot-blue"></span><strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
-        </a>
-      </div>
-    </div>
-  </div>
   </div>
 
   <!-- Sous-accordéon: Répartition par clientèle -->
-  <div id="clienteleToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="clienteleToggle" class="card collapsed" data-tb-marker="TB_33" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="clienteleSection" style="display:none;">
-    <div class="card" style="max-width: 1100px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+  <div id="clienteleSection" data-tb-marker="TB_34" style="display:none;">
+    <div class="card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
       <h3>Découpage clients par détention</h3>
       <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
     </div>
   </div>
 
   <!-- Sous-accordéon: Répartitions SRRI -->
-  <div id="srriToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Répartitions SRRI</h3>
+  <div id="srriToggle" class="card collapsed" data-tb-marker="TB_36" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Suivi du risque</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="srriSection" style="display:none;">
-    <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-      <div class="card">
+  <div id="srriSection" data-tb-marker="TB_37" style="display:none;">
+    <div class="card" data-tb-marker="TB_38" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
+      <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:center; gap:8px;">
+        <h3 class="risk-card-title">Clients</h3>
+      </div>
+      <div data-tb-marker="TB_40" style="margin-top:8px; font-size:0.9rem; line-height:1.6; text-align:center;">
+        <div data-tb-marker="TB_41">
+          <a href="/dashboard/clients?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-red"></span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
+          </a>
+        </div>
+        <div data-tb-marker="TB_42">
+          <a href="/dashboard/clients?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-green"></span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
+          </a>
+        </div>
+        <div data-tb-marker="TB_43">
+          <a href="/dashboard/clients?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-blue"></span><strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="charts" data-tb-marker="TB_44" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
+      <div class="card" data-tb-marker="TB_45">
         <h3>Clients par SRRI</h3>
         <canvas id="chartClientsCount"></canvas>
       </div>
-      <div class="card">
+      <div class="card" data-tb-marker="TB_46">
         <h3>Montant par SRRI (Clients)</h3>
         <canvas id="chartClientsAmount"></canvas>
       </div>
     </div>
-    <div class="charts" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-      <div class="card">
+    <div class="card" data-tb-marker="TB_47" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
+      <div data-tb-marker="TB_48" style="display:flex; align-items:center; justify-content:center; gap:8px;">
+        <h3 class="risk-card-title">Affaires</h3>
+      </div>
+      <div data-tb-marker="TB_49" style="margin-top:8px; font-size:0.9rem; line-height:1.6; text-align:center;">
+        <div data-tb-marker="TB_50">
+          <a href="/dashboard/affaires?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-red"></span><strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
+          </a>
+        </div>
+        <div data-tb-marker="TB_51">
+          <a href="/dashboard/affaires?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-green"></span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
+          </a>
+        </div>
+        <div data-tb-marker="TB_52">
+          <a href="/dashboard/affaires?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
+            <span class="dot dot-blue"></span><strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="charts" data-tb-marker="TB_53" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
+      <div class="card" data-tb-marker="TB_54">
         <h3>Affaires par SRRI</h3>
         <canvas id="chartAffairesCount"></canvas>
       </div>
-      <div class="card">
+      <div class="card" data-tb-marker="TB_55">
         <h3>Montant par SRRI (Affaires)</h3>
         <canvas id="chartAffairesAmount"></canvas>
       </div>
@@ -264,14 +362,17 @@
   </div>
 
 <!-- Accordéon Analyse portefeuille -->
-<div id="analysisToggle" class="card" data-open="1" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="analysisToggle" class="card collapsed" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
   <span class="chevron">▾</span>
  </div>
-<div id="analysisSection" style="display:none;">
-  <div class="card" style="max-width:1100px; margin: 0 auto 1rem auto; text-align:left;">
+<div id="analysisSection" data-tb-marker="TB_57" style="display:none;">
+  <div class="card" data-tb-marker="TB_58" style="max-width:1100px; margin: 0 auto 1rem auto; text-align:left;">
     <h3 style="margin-top:0;">Analyse financière — Répartition des supports</h3>
-    <form method="get" action="/dashboard#analysisToggle" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <form method="get" action="/dashboard#analysisToggle" data-tb-marker="TB_59" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      {% if tb_markers_param %}
+        <input type="hidden" name="markers" value="1" />
+      {% endif %}
       <div>
         <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
         <input type="date" name="finance_date" value="{{ finance_date_input }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
@@ -299,8 +400,8 @@
     <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue : {{ finance_effective_date_display }}</div>
     <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
     {% if finance_supports %}
-    <div style="margin-top:12px; overflow-x:auto;">
-      <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+    <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
+      <table data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
         <thead>
           <tr style="background:#f1f5f9; text-align:left;">
             <th style="padding:6px 10px;">Code ISIN</th>
@@ -314,7 +415,13 @@
         <tbody>
           {% for sup in finance_supports %}
           <tr{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
-            <td style="padding:6px 10px;">{{ sup.code_isin or '—' }}</td>
+            <td style="padding:6px 10px;">
+              {% if sup.code_isin %}
+                <a href="#" class="finance-support-link" data-support-code="{{ sup.code_isin }}" data-support-name="{{ sup.nom or '' }}" data-clients='{{ sup.clients | tojson | safe }}'>{{ sup.code_isin }}</a>
+              {% else %}
+                {{ sup.code_isin or '—' }}
+              {% endif %}
+            </td>
             <td style="padding:6px 10px;">{{ sup.nom or '—' }}</td>
             <td style="padding:6px 10px;">{{ sup.cat_principale or '—' }}</td>
             <td style="padding:6px 10px;">{{ sup.cat_geo or '—' }}</td>
@@ -325,6 +432,26 @@
         </tbody>
       </table>
     </div>
+    <div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3><i class="fa-solid fa-users-line" style="margin-right:8px;"></i><span id="financeSupportModalLabel">Clients par support</span></h3>
+          <button class="modal-close" onclick="closeFinanceSupportModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <table id="financeSupportModalTable">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Contrat</th>
+                <th style="text-align:right;">Valorisation</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
     {% else %}
     <div class="muted" style="margin-top:12px;">Aucune donnée pour les critères sélectionnés.</div>
     {% endif %}
@@ -332,28 +459,28 @@
 </div>
 
 <!-- Accordéon ESG (global) -->
-<div id="esgToggle" class="card" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="esgToggle" class="card collapsed" data-tb-marker="TB_62" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">ESG</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="esgSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div class="card" style="text-align:left;">
+<div id="esgSection" data-tb-marker="TB_63" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div class="card" data-tb-marker="TB_64" style="text-align:left;">
     <h3 style="margin-top:0;">Comparaison ESG Portefeuille vs Indice - global</h3>
-    <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
-      <div>
+    <div data-tb-marker="TB_65" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+      <div data-tb-marker="TB_66">
         <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
         <select id="esgAllocSelectGlobal" style="min-width:220px; max-width:280px; width:auto;">
           <option value="">— choisir —</option>
           {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
         </select>
       </div>
-      <div style="display:none;">
+      <div data-tb-marker="TB_67" style="display:none;">
         <label class="muted" style="font-size:0.85rem;">Date</label><br>
         <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;"></select>
       </div>
-      <div style="flex:1 1 auto; min-width:260px;">
+      <div data-tb-marker="TB_68" style="flex:1 1 auto; min-width:260px;">
         <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
-        <div id="esgFieldsGlobal" style="display:flex; gap:6px; flex-wrap:wrap;">
+        <div id="esgFieldsGlobal" data-tb-marker="TB_69" style="display:flex; gap:6px; flex-wrap:wrap;">
           {% for it in esg_fields %}
             {% set col = it.col if it is mapping else it %}
             {% set label = it.label if it is mapping else it %}
@@ -362,9 +489,9 @@
         </div>
       </div>
     </div>
-    <div id="esgChartGlobal" style="height:320px; width:100%;"></div>
+    <div id="esgChartGlobal" data-tb-marker="TB_70" style="height:320px; width:100%;"></div>
     <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Portefeuille = valeur relative (Portefeuille / Indice × 100).</div>
-    <details id="esgSqlGlobalDetails" style="margin-top:8px;">
+    <details id="esgSqlGlobalDetails" data-tb-marker="TB_71" style="margin-top:8px;">
       <summary class="muted" style="cursor:pointer;">Voir les données brutes</summary>
       <div id="esgDebugPanelGlobal" class="muted" style="font-size:12px; display:none;"></div>
     </details>
@@ -374,23 +501,26 @@
 <!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
-<div id="remToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="remToggle" class="card collapsed" data-tb-marker="TB_75" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Rémunérations</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="remSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+<div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
   <!-- Sous-accordéon: Frais de gestion -->
-  <div id="remFraisToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="remFraisToggle" class="card collapsed" data-tb-marker="TB_77" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Frais de gestion</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="remFraisSection" style="display:none;">
-    <div class="card" style="text-align:left;">
+  <div id="remFraisSection" data-tb-marker="TB_78" style="display:none;">
+    <div class="card" data-tb-marker="TB_79" style="text-align:left;">
       <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
       {% if not rem_contracts %}
         <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
       {% else %}
-        <form id="remForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+        <form id="remForm" method="get" data-tb-marker="TB_80" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+          {% if tb_markers_param %}
+            <input type="hidden" name="markers" value="1" />
+          {% endif %}
           <div style="display:flex; flex-direction:column;">
             <label for="rem_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
             <select id="rem_contract" name="rem_contract" style="min-width:220px; padding:8px 12px; height:38px;">
@@ -422,7 +552,7 @@
         {% if rem_error %}
           <div style="margin-top:12px; padding:10px 12px; background:#fdecea; color:#a94442; border-radius:6px;">{{ rem_error }}</div>
         {% else %}
-          <div style="margin-top:12px; font-size:0.9rem; color:#555;">
+          <div data-tb-marker="TB_81" style="margin-top:12px; font-size:0.9rem; color:#555;">
             <div>Période effective (vendredi) :
               {% if rem_start_effective and rem_end_effective %}
                 du {{ rem_start_effective.strftime('%d/%m/%Y') }} au {{ rem_end_effective.strftime('%d/%m/%Y') }}
@@ -433,8 +563,8 @@
             <div>Total commissions dues : <strong>{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</strong></div>
           </div>
 
-          <div style="overflow-x:auto; margin-top:12px;">
-            <table style="width:100%; border-collapse:collapse;">
+          <div data-tb-marker="TB_82" style="overflow-x:auto; margin-top:12px;">
+            <table data-tb-marker="TB_83" style="width:100%; border-collapse:collapse;">
               <thead>
                 <tr>
                   <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
@@ -468,172 +598,253 @@
             </tfoot>
           </table>
         </div>
-        <div style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:0.9rem; color:#555;">
+        <div data-tb-marker="TB_84" style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:0.9rem; color:#555;">
           {% if rem_has_prev %}
-            <a href="{{ rem_prev_url }}#remToggle" class="btn btn-choice" title="Page précédente"><i class="fa-solid fa-arrow-left"></i></a>
+            {% set rem_prev_link = rem_prev_url %}
+            {% if tb_markers_param %}
+              {% set rem_prev_link = rem_prev_url + ('&' if '?' in rem_prev_url else '?') + tb_markers_param %}
+            {% endif %}
+            <a href="{{ rem_prev_link }}#remToggle" class="btn btn-choice" title="Page précédente"><i class="fa-solid fa-arrow-left"></i></a>
           {% endif %}
           <span>Page {{ rem_page }} / {{ rem_total_pages }}</span>
           {% if rem_has_next %}
-            <a href="{{ rem_next_url }}#remToggle" class="btn btn-choice" title="Page suivante"><i class="fa-solid fa-arrow-right"></i></a>
+            {% set rem_next_link = rem_next_url %}
+            {% if tb_markers_param %}
+              {% set rem_next_link = rem_next_url + ('&' if '?' in rem_next_url else '?') + tb_markers_param %}
+            {% endif %}
+            <a href="{{ rem_next_link }}#remToggle" class="btn btn-choice" title="Page suivante"><i class="fa-solid fa-arrow-right"></i></a>
           {% endif %}
         </div>
-        <div style="margin-top:6px; font-size:0.85rem; color:#777;">
-          Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
+        <div data-tb-marker="TB_95" style="margin-top:6px; font-size:0.85rem; color:#777;">
+Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         </div>
       {% endif %}
     {% endif %}
-    <div class="card" style="text-align:left; margin-top:12px;">
-      <h3 style="margin-top:0;">Rétrocession des supports</h3>
-      {% if retro_error %}
-        <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
-      {% elif not retro_contracts %}
-        <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
-      {% else %}
-        <form id="retroForm" method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
-          <input id="retroHiddenRemContract" type="hidden" name="rem_contract" value="{{ rem_selected_contract }}" />
-          <input id="retroHiddenRemStart" type="hidden" name="rem_start" value="{{ rem_start_input }}" />
-          <input id="retroHiddenRemEnd" type="hidden" name="rem_end" value="{{ rem_end_input }}" />
-          <input type="hidden" name="rem_limit" value="{{ rem_limit }}" />
-          <input type="hidden" name="rem_page" value="{{ rem_page }}" />
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
-            <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
-              {% for contrat in retro_contracts %}
-                <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
-            <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
-            <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
-            <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
-              <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
-              <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
-              <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
-              <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
-            </select>
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
-            <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
-              {% for opt in retro_week_limit_options %}
-                <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
-            <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
-              {% for opt in retro_support_limit_options %}
-                <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
-            <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
-          </div>
-          <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
-        </form>
+  </div>
 
-        <div style="margin-top:12px; font-size:0.9rem; color:#555;">
-          <div>Période effective (vendredi) :
-            {% if retro_start_effective and retro_end_effective %}
-              du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
-            {% else %}
-              non définie
-            {% endif %}
-          </div>
-          <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
-        </div>
-
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
-          <div style="overflow-x:auto;">
-            <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
-            <table style="width:100%; border-collapse:collapse;">
-              <thead>
-                <tr>
-                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in retro_weeks %}
-                  <tr>
-                    <td style="padding:8px;">{{ row.date_str }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                  </tr>
-                {% endfor %}
-                {% if not retro_weeks %}
-                  <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
-          </div>
-          <div style="overflow-x:auto;">
-            <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
-            <table style="width:100%; border-collapse:collapse;">
-              <thead>
-                <tr>
-                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
-                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
-                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in retro_supports %}
-                  <tr>
-                    <td style="padding:8px;">{{ row.code_isin }}</td>
-                    <td style="padding:8px;">{{ row.support_nom }}</td>
-                    <td style="padding:8px;">{{ row.promoteur }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                  </tr>
-                {% endfor %}
-                {% if not retro_supports %}
-                  <tr><td colspan="4" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
-            <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
-          </div>
-        </div>
-      {% endif %}
-    </div>
-  </div>
-  <div id="remRetroToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer; background: var(--primary); color:#fff; border:1px solid var(--primary); display:none;">
-    <h3 style="margin:0; font-size:1.0rem; color:#fff;">Rétrocession support</h3>
-    <span class="chevron" style="color:#fff;">▾</span>
-  </div>
-  <div id="remRetroSection" style="display:none;">
-    <!-- Rétrocession déplacée dans le bloc Frais de gestion -->
-  </div>
 </div>
 
-<!-- Accordéon Gestion des groupes -->
-<div id="groupsToggle" class="card" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-  <h3 style="margin:0; font-size:1.05rem;">Gestion des groupes</h3>
+<!-- Accordéon Rétrocession des supports -->
+<div id="retroToggle" class="card collapsed" data-tb-marker="TB_85" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <h3 style="margin:0; font-size:1.05rem;">Rétrocession des supports</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="groupsSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div class="card" style="text-align:left;">
-    <p style="margin:0; color:#555;">En cours de développement.</p>
+<div id="retroSection" data-tb-marker="TB_86" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div class="card" data-tb-marker="TB_87" style="text-align:left;">
+    <h3 style="margin-top:0;">Rétrocession des supports</h3>
+    {% if retro_error %}
+      <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
+    {% elif not retro_contracts %}
+      <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
+    {% else %}
+      <form id="retroForm" method="get" data-tb-marker="TB_88" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+        {% if tb_markers_param %}
+          <input type="hidden" name="markers" value="1" />
+        {% endif %}
+        <input id="retroHiddenRemContract" type="hidden" name="rem_contract" value="{{ rem_selected_contract }}" />
+        <input id="retroHiddenRemStart" type="hidden" name="rem_start" value="{{ rem_start_input }}" />
+        <input id="retroHiddenRemEnd" type="hidden" name="rem_end" value="{{ rem_end_input }}" />
+        <input type="hidden" name="rem_limit" value="{{ rem_limit }}" />
+        <input type="hidden" name="rem_page" value="{{ rem_page }}" />
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
+          <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
+            {% for contrat in retro_contracts %}
+              <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
+          <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
+          <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
+          <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
+            <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
+            <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
+            <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
+            <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
+          <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
+            {% for opt in retro_week_limit_options %}
+              <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
+          <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
+            {% for opt in retro_support_limit_options %}
+              <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
+          <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
+        </div>
+        <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
+      </form>
+
+      <div data-tb-marker="TB_89" style="margin-top:12px; font-size:0.9rem; color:#555;">
+        <div>Période effective (vendredi) :
+          {% if retro_start_effective and retro_end_effective %}
+            du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
+          {% else %}
+            non définie
+          {% endif %}
+        </div>
+        <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
+      </div>
+
+      <div data-tb-marker="TB_90" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
+        <div data-tb-marker="TB_91" style="overflow-x:auto;">
+          <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
+          <table data-tb-marker="TB_92" style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
+                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
+                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
+                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in retro_weeks %}
+                <tr>
+                  <td style="padding:8px;">{{ row.date_str }}</td>
+                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
+                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
+                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                </tr>
+              {% endfor %}
+              {% if not retro_weeks %}
+                <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div data-tb-marker="TB_93" style="overflow-x:auto;">
+          <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
+          <table data-tb-marker="TB_94" style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
+                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
+                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
+                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in retro_supports %}
+                <tr>
+                  <td style="padding:8px;">{{ row.code_isin }}</td>
+                  <td style="padding:8px;">{{ row.support_nom }}</td>
+                  <td style="padding:8px;">{{ row.promoteur }}</td>
+                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                </tr>
+              {% endfor %}
+              {% if not retro_supports %}
+                <tr><td colspan="4" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+          <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
+        </div>
+      </div>
+    {% endif %}
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
+  function closeFinanceSupportModal(){
+    const modal = document.getElementById('financeSupportModal');
+    if (modal) modal.style.display = 'none';
+  }
+  function openFinanceSupportModal(code, name, clients){
+    const modal = document.getElementById('financeSupportModal');
+    if (!modal) return;
+    const tbody = modal.querySelector('#financeSupportModalTable tbody');
+    const labelEl = document.getElementById('financeSupportModalLabel');
+    if (labelEl){
+      const parts = ['Clients par support'];
+      const detail = [name, code].filter(Boolean).join(' • ');
+      if (detail) parts.push(detail);
+      labelEl.textContent = parts.join(' — ');
+    }
+    if (tbody){
+      tbody.innerHTML = '';
+      const rows = Array.isArray(clients) ? clients : [];
+      rows.forEach(function(item){
+        const tr = document.createElement('tr');
+        const clientTd = document.createElement('td');
+        const fullname = item.client_fullname || item.client_nom || 'Client';
+        if (item.client_id){
+          const link = document.createElement('a');
+          link.href = `/dashboard/clients/${encodeURIComponent(item.client_id)}`;
+          link.textContent = fullname;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          clientTd.appendChild(link);
+        } else {
+          clientTd.textContent = fullname;
+        }
+        tr.appendChild(clientTd);
+        const contratTd = document.createElement('td');
+        if (item.affaire_id){
+          const link = document.createElement('a');
+          link.href = `/dashboard/affaires/${encodeURIComponent(item.affaire_id)}`;
+          link.textContent = item.affaire_ref || `Affaire ${item.affaire_id}`;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          contratTd.appendChild(link);
+        } else {
+          contratTd.textContent = item.affaire_ref || '-';
+        }
+        tr.appendChild(contratTd);
+        const valoTd = document.createElement('td');
+        valoTd.className = 'numeric';
+        valoTd.textContent = item.valorisation_str ? item.valorisation_str + ' €' : '-';
+        tr.appendChild(valoTd);
+        tbody.appendChild(tr);
+      });
+      if (!rows.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.className = 'muted';
+        td.textContent = 'Aucun client trouvé pour ce support.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+    modal.style.display = 'flex';
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.finance-support-link').forEach(function(link){
+      link.addEventListener('click', function(ev){
+        ev.preventDefault();
+        let clients = [];
+        try{
+          clients = this.dataset.clients ? JSON.parse(this.dataset.clients) : [];
+        }catch(err){
+          console.warn('finance support clients parse error', err);
+        }
+        openFinanceSupportModal(this.dataset.supportCode || '', this.dataset.supportName || '', clients);
+      });
+    });
+  });
+
   // Chart.js texte/axes en bleu corporate
   try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
   function toChartData(items, labelKey, valueKey) {
@@ -787,13 +998,13 @@
 
   // Accordéons (un seul ouvert à la fois, possibilité de tout fermer)
   (function(){
+    const storageKey = 'dashboard_open_v2';
     const groups = [
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
       { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'rem', toggle:'remToggle', section:'remSection' },
-      { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
     ];
     const $ = (id)=> document.getElementById(id);
     function setOpen(key){
@@ -803,11 +1014,11 @@
         if (g.key === key){ s.style.display = ''; t.classList.remove('collapsed'); }
         else { s.style.display = 'none'; t.classList.add('collapsed'); }
       });
-      try { localStorage.setItem('dashboard_open', key || ''); } catch(e) {}
+      try { localStorage.setItem(storageKey, key || ''); } catch(e) {}
     }
     // Restore saved open section
     let saved = '';
-    try { saved = localStorage.getItem('dashboard_open') || ''; } catch(e) {}
+    try { saved = localStorage.getItem(storageKey) || ''; } catch(e) {}
     if (saved) setOpen(saved);
     else {
       const defaultGroup = groups.find(g => {
@@ -833,6 +1044,34 @@
     });
   })();
 
+  // Bloc Rétrocession (accordéon indépendant)
+  (function(){
+    const toggle = document.getElementById('retroToggle');
+    const section = document.getElementById('retroSection');
+    const remFraisToggle = document.getElementById('remFraisToggle');
+    const remFraisSection = document.getElementById('remFraisSection');
+    if (!toggle || !section) return;
+    function closeRemFrais(){
+      if (!remFraisToggle || !remFraisSection) return;
+      remFraisSection.style.display = 'none';
+      remFraisToggle.classList.add('collapsed');
+    }
+    function apply(isOpen){
+      section.style.display = isOpen ? '' : 'none';
+      toggle.classList.toggle('collapsed', !isOpen);
+      if (isOpen) closeRemFrais();
+    }
+    apply(false);
+    toggle.addEventListener('click', function(){
+      const isOpen = section.style.display !== 'none';
+      const next = !isOpen;
+      apply(next);
+      if (next){
+        try { toggle.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
+      }
+    });
+  })();
+
   (function(){
     var exportBtn = document.getElementById('finance_export_btn');
     if (!exportBtn) return;
@@ -854,6 +1093,7 @@
   // Sous-accordéons Risques / Analyse portefeuille (indépendants, ouverts via data-open)
   (function(){
     const pairs = [
+      ['complianceToggle','complianceSection'],
       ['clienteleToggle','clienteleSection'],
       ['srriToggle','srriSection'],
     ];
@@ -862,50 +1102,72 @@
       const s = document.getElementById(sid);
       return t && s ? { t, s } : null;
     }).filter(Boolean);
+
+    function closeNode(o){
+      o.s.style.display = 'none';
+      o.t.classList.add('collapsed');
+    }
+    function closeAll(){
+      nodes.forEach(closeNode);
+    }
+    function openNode(target){
+      closeAll();
+      target.s.style.display = '';
+      target.t.classList.remove('collapsed');
+    }
+
+    closeAll();
     nodes.forEach(o => {
-      function open(){
-        o.s.style.display = '';
-        o.t.classList.remove('collapsed');
-      }
-      function close(){
-        o.s.style.display = 'none';
-        o.t.classList.add('collapsed');
-      }
-      if (o.t.dataset.open === '1') {
-        open();
-      } else {
-        close();
-      }
-      o.t.addEventListener('click', function(){
+      o.t.addEventListener('click', function(ev){
+        ev.stopPropagation();
         const isOpen = o.s.style.display !== 'none';
         if (isOpen){
-          close();
+          closeNode(o);
         } else {
-          open();
+          openNode(o);
+          try { o.t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
         }
       });
     });
   })();
 
-  // Sous-accordéons Rémunérations (exclusifs, tous fermés par défaut)
+  // Sous-accordéons Rémunérations (indépendants)
   (function(){
     const pairs = [
       ['remFraisToggle','remFraisSection'],
-      ['remRetroToggle','remRetroSection'],
     ];
     const nodes = pairs.map(([tid,sid]) => ({
       t: document.getElementById(tid),
       s: document.getElementById(sid)
     })).filter(o => o.t && o.s);
-    function closeAll(){ nodes.forEach(o => { o.s.style.display='none'; o.t.classList.add('collapsed'); }); }
+    const retroToggle = document.getElementById('retroToggle');
+    const retroSection = document.getElementById('retroSection');
+    function closeRetro(){
+      if (!retroToggle || !retroSection) return;
+      retroSection.style.display = 'none';
+      retroToggle.classList.add('collapsed');
+    }
+
     nodes.forEach(o => {
-      o.t.addEventListener('click', function(){
+      function open(){
+        o.s.style.display = '';
+        o.t.classList.remove('collapsed');
+        closeRetro();
+      }
+      function close(){
+        o.s.style.display = 'none';
+        o.t.classList.add('collapsed');
+      }
+      close();
+      o.t.addEventListener('click', function(ev){
+        ev.stopPropagation();
         const isOpen = o.s.style.display !== 'none';
-        if (isOpen){ closeAll(); }
-        else { closeAll(); o.s.style.display=''; o.t.classList.remove('collapsed'); try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){} }
+        if (isOpen) { close(); }
+        else {
+          open();
+          try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){}
+        }
       });
-      o.t.classList.add('collapsed');
-      o.s.style.display = 'none';
     });
   })();
 
@@ -1043,4 +1305,5 @@
   })();
 </script>
 
+</div>
 {% endblock %}

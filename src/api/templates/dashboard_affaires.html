@@ -115,17 +115,7 @@
 
 <div class="main-container">
     <!-- Bandeau total retiré -->
-
-    {% if risk_label or group_filter_label %}
-    <div class="badge-row">
-      {% if risk_label %}
-      <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/affaires" title="Effacer le filtre">✕</a></span>
-      {% endif %}
-      {% if group_filter_label %}
-      <span class="badge-filter">Groupe: {{ group_filter_label }} <a class="x" href="#" data-clear-group="1" title="Effacer le filtre">✕</a></span>
-      {% endif %}
-    </div>
-    {% endif %}
+    <div class="badge-row"></div>
 
     <!-- Accordéon: Risque rapide -->
     <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
@@ -152,28 +142,6 @@
 
     
     <div class="table-container">
-        <div class="toolbar">
-          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-            <select id="aff_group_filter" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
-              <option value="">Tous les groupes</option>
-              {% for g in affaire_groups %}
-                <option value="{{ g.id }}" {% if group_filter_id is not none and g.id == group_filter_id %}selected{% endif %}>
-                  {{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}
-                </option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-            <div class="muted" id="aff_info" style="font-size:.9rem;"></div>
-            <select id="aff_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
-              <option value="">Choisir un groupe (Affaires)</option>
-              {% for g in affaire_groups %}
-                <option value="{{ g.id }}">{{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}</option>
-              {% endfor %}
-            </select>
-            <button class="btn" id="aff_add_to_group_btn" title="Ajouter toutes les affaires filtrées au groupe sélectionné">Ajouter au groupe</button>
-          </div>
-        </div>
         <table id="affairesTable" class="display nowrap" style="width:100%">
             <thead>
                 <tr>
@@ -447,59 +415,6 @@ $(document).ready(function () {
     }
     $('#montant-filter, #perf-filter, #volat-filter').on('keyup change', applyAdvancedFilters);
 
-    // -------- Ajout en masse au groupe (Affaires) --------
-    function visibleAffaireIds(){
-      var out = [];
-      table.rows({ filter: 'applied' }).nodes().to$().each(function(){
-        var id = $(this).attr('data-affaire-id');
-        if (id) out.push(parseInt(id,10));
-      });
-      return out;
-    }
-
-    async function addVisibleAffToGroup(){
-      const sel = document.getElementById('aff_group_select');
-      const info = document.getElementById('aff_info');
-      const gid = sel && sel.value ? parseInt(sel.value,10) : null;
-      if (!gid){ alert('Sélectionnez un groupe cible.'); return; }
-      const ids = visibleAffaireIds();
-      if (!ids.length){ alert('Aucune affaire filtrée à ajouter.'); return; }
-      const btn = document.getElementById('aff_add_to_group_btn');
-      if (btn){ btn.disabled = true; btn.textContent = 'Ajout…'; }
-      let ok = 0, ko = 0;
-      for (const aid of ids){
-        try {
-          const r = await fetch('/api/groupes/memberships', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupe_id: gid, affaire_id: aid }) });
-          if (r.ok) ok++; else ko++;
-        } catch(e){ ko++; }
-      }
-      if (btn){ btn.disabled = false; btn.textContent = 'Ajouter au groupe'; }
-      if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
-      alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
-    }
-    var bulkBtn = document.getElementById('aff_add_to_group_btn');
-    if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleAffToGroup); }
-
-    var groupFilterSel = document.getElementById('aff_group_filter');
-    if (groupFilterSel){
-      groupFilterSel.addEventListener('change', function(){
-        var params = new URLSearchParams(window.location.search || '');
-        var val = this.value || '';
-        if (val){ params.set('group', val); }
-        else { params.delete('group'); }
-        var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
-        window.location.assign(newUrl);
-      });
-    }
-    document.querySelectorAll('[data-clear-group]').forEach(function(anchor){
-      anchor.addEventListener('click', function(e){
-        e.preventDefault();
-        var params = new URLSearchParams(window.location.search || '');
-        params.delete('group');
-        var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
-        window.location.assign(newUrl);
-      });
-    });
 });
 </script>
 

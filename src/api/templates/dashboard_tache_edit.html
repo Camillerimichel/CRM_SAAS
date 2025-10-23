@@ -43,6 +43,21 @@
             <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
           </form>
         </div>
+        <div><strong>Statut réclamation:</strong>
+          {% if ev.type_categorie and ev.type_categorie|lower == 'reclamation' %}
+            <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
+              <select name="statut_reclamation_id" onchange="this.form.submit()">
+                <option value="">-- aucun --</option>
+                {% for st in reclam_statuses %}
+                  <option value="{{ st.id }}" {% if ev.statut_reclamation_id is not none and (st.id|int) == (ev.statut_reclamation_id|int) %}selected{% endif %}>{{ st.libelle }}</option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
+            </form>
+          {% else %}
+            <span class="muted">Non applicable</span>
+          {% endif %}
+        </div>
       </div>
       <div style="margin-top:8px;"><strong>Commentaires:</strong>
         {% if comment_entries and comment_entries|length > 0 %}
@@ -77,7 +92,7 @@
     <div class="card">
       <h3 style="margin:0 0 8px 0;">Ajouter un commentaire</h3>
       <form id="commentForm" method="post" action="/dashboard/taches/{{ evenement_id }}/statut">
-        <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;"></textarea>
+        <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;">{{ prefill_comment or '' }}</textarea>
         <div class="create-btn-container" style="margin-top:.6rem;">
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Mise à jour</button>
         </div>

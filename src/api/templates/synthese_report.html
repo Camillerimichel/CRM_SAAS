@@ -4,19 +4,47 @@
   <meta charset="utf-8" />
   <title>Rapport de synthèse</title>
   <style>
-    @page { size: A4; margin: 18mm; }
+    @page {
+      size: A4;
+      margin: 18mm;
+      @bottom-center {
+        content: "Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}";
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        font-size:10pt;
+        font-style:italic;
+        color:#64748b;
+      }
+    }
     body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color:#1f2937; font-size:11pt; line-height:1.45; }
     h1, h2, h3, h4 { color:#0f172a; }
-    .title-page { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; text-align:center; }
-    .title { font-size:2.2rem; margin-bottom:8px; }
-    .subtitle { font-size:1.1rem; color:#475569; }
+    .title-page { display:flex; flex-direction:column; align-items:center; justify-content:flex-start; min-height:70vh; text-align:center; padding-top:24px; }
+    .title-logo { max-height:80px; width:auto; margin-bottom:0; }
+    .title-content { margin-top:10rem; display:flex; flex-direction:column; align-items:center; }
+    .title { font-size:2.2rem; margin-bottom:0; }
+    .subtitle { font-size:1.1rem; color:#475569; margin-top:4rem; }
+    .title-subtext { margin-top:1.2rem; display:flex; flex-direction:column; gap:0.6rem; }
     .muted { color:#64748b; }
     .muted-small { color:#94a3b8; font-size:0.85rem; }
     .page-break { page-break-before: always; }
+    .page-sommaire { display:flex; flex-direction:column; min-height:90vh; justify-content:flex-start; padding-top:15em; }
+    .page-sommaire .toc { margin-left:10ch; }
+    .page-sommaire ol { padding-left:0; }
+    .page-sommaire a { color:#111; text-decoration:none; }
+    .page-sommaire a:hover { text-decoration:underline; }
     .toc { margin-top:1rem; }
     .toc ol { padding-left:1rem; }
     .section-title { font-size:1.3rem; margin:1rem 0 0.4rem 0; color:#1d4ed8; }
     .card { border:1px solid #cbd5f5; border-radius:10px; padding:12px 14px; margin:0.4rem 0; background:#fff; }
+    .section-synthese .card-title {
+      margin:-12px -14px 10px;
+      background:#1d4ed8;
+      color:#fff;
+      padding:8px 14px;
+      border-radius:8px 8px 0 0;
+      font-size:1.05rem;
+      font-weight:400;
+    }
+    .section-synthese table th { font-weight:400; }
     table { width:100%; border-collapse:collapse; font-size:0.95rem; }
     th, td { padding:6px 8px; border-bottom:1px solid #e2e8f0; text-align:left; }
     .table-synthese { font-size:0.85rem; }
@@ -25,62 +53,84 @@
     .grid-2 { display:grid; grid-template-columns:repeat(2, minmax(220px,1fr)); gap:12px; }
     .grid-3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:12px; }
     .chart { margin-top:0.6rem; border:1px solid #e2e8f0; border-radius:10px; padding:8px; background:#fafbff; }
-    .italic-footer { font-style:italic; color:#64748b; margin-top:1.2rem; text-align:right; }
+    .screen-footer { position:fixed; left:18mm; right:18mm; bottom:10mm; text-align:center; font-size:10pt; font-style:italic; color:#64748b; }
+    @media print { .screen-footer { display:none; } }
+    @media screen { .screen-footer { display:block; } }
   </style>
 </head>
 <body>
+  <div class="screen-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
   <div class="title-page">
-    <div>
+    {% if report_logo_png %}
+      <img src="data:image/png;base64,{{ report_logo_png }}" alt="Logo" class="title-logo" />
+    {% endif %}
+    <div class="title-content">
       <h1 class="title">Rapport de synthèse de {{ civilite or 'Client' }} {{ client.prenom or '' }} {{ client.nom or '' }}</h1>
       <div class="subtitle">Édition du {{ report_date_str }}</div>
-      <div class="muted-small" style="margin-top:24px;">Document confidentiel produit automatiquement par la plateforme.</div>
-      <div class="muted-small">Il consolide vos investissements, leur évolution et les analyses associées.</div>
+      <div class="title-subtext">
+        <div class="muted-small">Document confidentiel produit automatiquement par la plateforme.</div>
+        <div class="muted-small">Il consolide vos investissements, leur évolution et les analyses associées.</div>
+      </div>
     </div>
   </div>
 
   <div class="page-break"></div>
-  <div style="display:flex; flex-direction:column; justify-content:center; min-height:90vh;">
+  <div class="page-sommaire">
     <h2 class="section-title" style="text-align:center;">Sommaire</h2>
     <div class="toc" style="margin-top:1.5rem; margin-bottom:auto;">
       <ol>
-        <li>Éléments de synthèse</li>
-        <li>Valorisation des contrats et historique complet des placements</li>
-        <li>Valorisation des actifs détenus au sein de vos contrats</li>
-        <li>Évolution économique des placements – performance et risque annuels</li>
-        <li>Évolution comparée à l’offre financière choisie</li>
-        <li>Notations ESG des contrats et notation ESG globale</li>
-        <li>Répartition géographique et sectorielle des placements</li>
+        <li><a href="#section-synthese">Éléments de synthèse</a></li>
+        <li><a href="#section-valorisation-contrats">Valorisation des contrats et historique complet des placements</a></li>
+        <li><a href="#section-valorisation-actifs">Valorisation des actifs détenus au sein de vos contrats</a></li>
+        <li><a href="#section-historique">Historique des placements</a></li>
+        <li><a href="#section-analyses">Évolution comparée à l’offre financière choisie</a></li>
+        <li><a href="#section-esg">Notations ESG</a></li>
+        <li><a href="#section-repartition">Répartition géographique et sectorielle des placements</a></li>
       </ol>
     </div>
-    <div class="italic-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
   </div>
 
   <div class="page-break"></div>
-  <h2 class="section-title">1. Éléments de synthèse</h2>
-  <div class="grid-3">
+  <h2 id="section-synthese" class="section-title">1. Éléments de synthèse</h2>
+  <div class="grid-3 section-synthese">
     <div class="card">
-      <h3>Valorisation</h3>
+      <h3 class="card-title">Synthèse</h3>
       <table class="table">
         <tbody>
-          <tr><th>Valorisation totale</th><td>{{ totals.total_valo }} €</td></tr>
-          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Versements</th><td>{{ totals.depots }} €</td></tr>
-          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Retraits</th><td>{{ totals.retraits }} €</td></tr>
-          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Solde</th><td>{{ totals.solde }} €</td></tr>
+          <tr><th>Contrats ouverts</th><td>{{ synthese_card.nb_contrats_ouverts }}</td></tr>
+          <tr><th>Contrats fermés</th><td>{{ synthese_card.nb_contrats_fermes }}</td></tr>
+          <tr><th>Durée historique</th><td>{{ synthese_card.duree_historique }}</td></tr>
+          <tr><th>Responsable</th><td>{{ synthese_card.responsable }}</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card">
-      <h3>Indicateurs</h3>
+      <h3 class="card-title">Valorisation</h3>
       <table class="table">
         <tbody>
-          <tr><th>Performance annuelle (dernier)</th><td>{% if history_perf and history_perf|length > 0 and history_perf[-1] is not none %}{{ '%.2f'|format(history_perf[-1]) }} %{% else %}—{% endif %}</td></tr>
-          <tr><th>Volatilité annuelle (dernière)</th><td>{% if history_vol and history_vol|length > 0 and history_vol[-1] is not none %}{{ '%.2f'|format(history_vol[-1]) }} %{% else %}—{% endif %}</td></tr>
+          <tr><th>Valorisation totale</th><td>{{ valorisation_card.last_valo }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Versements</th><td>{{ valorisation_card.depots }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Retraits</th><td>{{ valorisation_card.retraits }} €</td></tr>
+          <tr><th style="font-weight:400; font-style:italic; padding-left:1.5em;">Solde</th><td>{{ valorisation_card.solde }} €</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3 class="card-title">Indicateurs</h3>
+      <table class="table">
+        <tbody>
+          <tr><th>Contrats actifs</th><td>{{ indicateurs_card.nb_contrats_ouverts }}</td></tr>
+          <tr><th>Supports référencés</th><td>{{ indicateurs_card.nb_supports_actifs }}</td></tr>
+          <tr><th>Perf 52 semaines</th><td>{% if indicateurs_card.last_perf_pct is not none %}{{ '%.2f'|format(indicateurs_card.last_perf_pct) }} %{% else %}—{% endif %}</td></tr>
+          <tr><th>Volatilité</th><td>{% if indicateurs_card.last_vol_pct is not none %}{{ '%.2f'|format(indicateurs_card.last_vol_pct) }} %{% else %}—{% endif %}</td></tr>
+          <tr><th>SRRI client / actuel</th><td>{{ indicateurs_card.client_srri if indicateurs_card.client_srri is not none else '—' }} / {{ indicateurs_card.current_srri if indicateurs_card.current_srri is not none else '—' }}</td></tr>
+          <tr><th>Perf annualisée (depuis début)</th><td>{% if indicateurs_card.overall_ann_perf_pct is not none %}{{ '%.2f'|format(indicateurs_card.overall_ann_perf_pct) }} %{% else %}—{% endif %}</td></tr>
         </tbody>
       </table>
     </div>
   </div>
   <div class="page-break"></div>
-  <h2 class="section-title">2. Valorisations des contrats</h2>
+  <h2 id="section-valorisation-contrats" class="section-title">2. Valorisations des contrats</h2>
   <p class="muted">Tableau des contrats souscrits et de leur valorisation actuelle.</p>
   {% if contracts %}
   <table class="table table-synthese">
@@ -96,12 +146,20 @@
         </tr>
       {% endfor %}
     </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="2">Total valorisation</th>
+        <th style="text-align:right;">{{ contracts_total_valo }} €</th>
+        <th></th>
+        <th></th>
+      </tr>
+    </tfoot>
   </table>
   {% else %}
     <div class="muted">Aucun contrat répertorié.</div>
   {% endif %}
 
-  <h2 class="section-title">3. Valorisation des actifs détenus au sein des contrats</h2>
+  <h2 id="section-valorisation-actifs" class="section-title">3. Valorisation des actifs détenus au sein des contrats</h2>
   {% if supports %}
   <table class="table table-synthese">
     <thead><tr><th>Code ISIN</th><th>Support</th><th>Catégorie</th><th>SRRI</th><th>Valorisation</th></tr></thead>
@@ -116,24 +174,40 @@
         </tr>
       {% endfor %}
     </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="4">Total valorisation</th>
+        <th>{{ supports_total_valo }} €</th>
+      </tr>
+    </tfoot>
   </table>
   {% else %}
     <div class="muted">Pas de support valorisé sur la période.</div>
   {% endif %}
 
-  <h2 class="section-title">4. Évolution économique des placements – performances et risques</h2>
+  <div class="page-break"></div>
+  <h2 id="section-historique" class="section-title">4. Historique des placements</h2>
   {% if reporting_years %}
-  <table class="table">
-    <thead><tr><th>Année</th><th>Solde E/S (€)</th><th>Valo fin d'année (€)</th><th>Perf. fin d'année (%)</th><th>Perf. annualisée (%)</th><th>Vol. moyenne (%)</th></tr></thead>
+  <table class="table" style="font-size:0.85rem;">
+    <thead>
+      <tr>
+        <th style="text-align:left;">Année</th>
+        <th style="text-align:right;">Solde E/S (€)</th>
+        <th style="text-align:right;">Valo fin d'année (€)</th>
+        <th style="text-align:right;">Perf. (%)</th>
+        <th style="text-align:right;">Perf. an (%)*</th>
+        <th style="text-align:right;">Volat. (%)</th>
+      </tr>
+    </thead>
     <tbody>
       {% for row in reporting_years %}
         <tr>
           <td>{{ row.year }}</td>
-          <td>{{ row.solde_str }} €</td>
-          <td>{{ row.last_valo_str }} €</td>
-          <td>{{ row.cum_perf_pct is not none and ('%.2f'|format(row.cum_perf_pct)) or '—' }}</td>
-          <td>{{ row.ann_perf_pct is not none and ('%.2f'|format(row.ann_perf_pct)) or '—' }}</td>
-          <td>{{ row.avg_vol_pct is not none and ('%.2f'|format(row.avg_vol_pct)) or '—' }}</td>
+          <td style="text-align:right;">{{ row.solde_str }} €</td>
+          <td style="text-align:right;">{{ row.last_valo_str }} €</td>
+          <td style="text-align:right;">{{ row.cum_perf_pct is not none and ('%.2f'|format(row.cum_perf_pct)) or '—' }}</td>
+          <td style="text-align:right;">{{ row.ann_perf_pct is not none and ('%.2f'|format(row.ann_perf_pct)) or '—' }}</td>
+          <td style="text-align:right;">{{ row.avg_vol_pct is not none and ('%.2f'|format(row.avg_vol_pct)) or '—' }}</td>
         </tr>
       {% endfor %}
     </tbody>
@@ -143,17 +217,145 @@
   {% endif %}
 
   <div class="page-break"></div>
-  <h2 class="section-title">5. Évolution comparée à l’offre financière choisie</h2>
-  <p class="muted">Cette section sera enrichie avec la comparaison automatique à l’allocation de référence. Les données actuelles indiquent une valorisation totale de {{ summary.total_valo }} € à la date du {{ report_date_str }}, soit un solde net de {{ summary.solde }} € après flux.</p>
+  <h2 id="section-analyses" class="section-title">5. Analyses graphiques</h2>
+  <div>
+    <h3 style="margin-top:0;">Historique de valorisation et cumul des mouvements</h3>
+    {% if curves_chart_png %}
+      <div style="width:100%; text-align:center;">
+        <img src="data:image/png;base64,{{ curves_chart_png }}" alt="Valorisation et mouvements" style="max-width:100%; height:auto;" />
+      </div>
+    {% elif curves_chart_svg %}
+      <div style="width:100%; overflow:hidden;">{{ curves_chart_svg|safe }}</div>
+    {% else %}
+      <div class="muted">Aucune donnée suffisante pour restituer les courbes.</div>
+    {% endif %}
+  </div>
+  <div style="margin-top:12px;">
+    <h3 style="margin-top:0;">Performances et volatilité annuelles</h3>
+    {% if perf_vol_chart_png %}
+      <div style="width:100%; text-align:center;">
+        <img src="data:image/png;base64,{{ perf_vol_chart_png }}" alt="Performances et volatilité annuelles" style="max-width:100%; height:auto;" />
+      </div>
+    {% else %}
+      <div class="muted">Données insuffisantes pour tracer la performance et la volatilité.</div>
+    {% endif %}
+  </div>
+  <div style="margin-top:12px;">
+    <h3 style="margin-top:0;">Évolution des allocations (SICAV)</h3>
+    {% if alloc_compare_chart_png %}
+      <div style="width:100%; text-align:center;">
+        <img src="data:image/png;base64,{{ alloc_compare_chart_png }}" alt="Évolution des allocations" style="max-width:100%; height:auto;" />
+      </div>
+      {% if allocation_reference_name %}
+        <p class="muted" style="font-size:0.75rem; margin-top:4px;">Allocation de référence&nbsp;: {{ allocation_reference_name }}</p>
+      {% endif %}
+    {% else %}
+      <div class="muted">Allocation de référence introuvable ou sans historique disponible.</div>
+    {% endif %}
+  </div>
 
   <div class="page-break"></div>
-  <h2 class="section-title">6. Notations ESG des contrats et notation ESG globale</h2>
-  <p class="muted">Les notations ESG détaillées seront intégrées dès que les données fournisseurs seront disponibles pour chaque support. À ce jour, la collecte automatique est en cours de déploiement.</p>
+  <h2 id="section-esg" class="section-title">6. Notations ESG</h2>
+  {% if esg_comparison_rows %}
+    {% if esg_comparison_alloc %}
+      <p style="margin:0 0 8px;">Comparaison réalisée par rapport à l'allocation de référence <strong>{{ esg_comparison_alloc }}</strong> (indice = 100).</p>
+    {% endif %}
+    {% if esg_unmatched_fields %}
+      <p class="muted" style="font-size:0.75rem;">Indicateurs introuvables : {{ esg_unmatched_fields|join(', ') }}.</p>
+    {% endif %}
+    <table class="table" style="font-size:0.85rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Indicateur ESG</th>
+          <th style="text-align:right;">Indice (100)</th>
+          <th style="text-align:right;">Client (base 100)</th>
+          <th style="text-align:right;">Couverture (client / indice)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in esg_comparison_rows %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td style="text-align:right;">{{ row.index is not none and ('%.1f'|format(row.index)) or '—' }}</td>
+            <td style="text-align:right;">{{ row.client is not none and ('%.1f'|format(row.client)) or '—' }}</td>
+            <td style="text-align:right;">{{ row.cli_present or 0 }} / {{ row.idx_present or 0 }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="font-size:0.75rem;">Lecture : une valeur client supérieure à 100 signifie une performance ESG relative supérieure à l'indice de référence sélectionné.</p>
+    {% if esg_comparison_chart_png %}
+      <div style="width:100%; text-align:center; margin-bottom:12px;">
+        <img src="data:image/png;base64,{{ esg_comparison_chart_png }}" alt="Comparatif ESG" style="max-width:100%; height:auto;" />
+      </div>
+    {% endif %}
+  {% else %}
+    {% if esg_unmatched_fields %}
+      <div class="muted">Indicateurs introuvables : {{ esg_unmatched_fields|join(', ') }}.</div>
+    {% else %}
+      <div class="muted">Données ESG comparatives indisponibles pour le client et l'allocation de référence.</div>
+    {% endif %}
+  {% endif %}
 
   <div class="page-break"></div>
-  <h2 class="section-title">7. Répartition géographique et sectorielle des placements</h2>
-  <p class="muted">La cartographie des expositions géographiques et sectorielles est en cours de consolidation. Cette rubrique présentera prochainement les répartitions issues de la base de données ESG.</p>
+  <h2 id="section-repartition" class="section-title">7. Répartition géographique et sectorielle des placements</h2>
+  {% if supports_category_breakdown %}
+    <h3 style="margin-top:0;">Répartition par catégorie principale</h3>
+    <table class="table" style="font-size:0.85rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Catégorie</th>
+          <th style="text-align:right;">Valorisation (€)</th>
+          <th style="text-align:right;">Part (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in supports_category_breakdown %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td style="text-align:right;">{{ row.valo }} €</td>
+            <td style="text-align:right;">{{ row.percent is not none and ('%.1f'|format(row.percent)) or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if supports_category_chart_png %}
+      <div style="width:100%; text-align:center; margin:12px 0;">
+        <img src="data:image/png;base64,{{ supports_category_chart_png }}" alt="Répartition par catégorie principale" style="max-width:100%; height:auto;" />
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="muted">Aucune répartition par catégorie principale n'est disponible pour ce client.</div>
+  {% endif %}
 
-  <div class="italic-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ report_date_str }}</div>
+  {% if supports_geo_breakdown %}
+    <div class="page-break"></div>
+    <h3 style="margin-top:18px;">Répartition géographique</h3>
+    <table class="table" style="font-size:0.85rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Zone géographique</th>
+          <th style="text-align:right;">Valorisation (€)</th>
+          <th style="text-align:right;">Part (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in supports_geo_breakdown %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td style="text-align:right;">{{ row.valo }} €</td>
+            <td style="text-align:right;">{{ row.percent is not none and ('%.1f'|format(row.percent)) or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+    {% if supports_geo_chart_png %}
+      <div style="width:100%; text-align:center; margin:12px 0;">
+        <img src="data:image/png;base64,{{ supports_geo_chart_png }}" alt="Répartition géographique" style="max-width:100%; height:auto;" />
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="muted">Aucune répartition géographique n'est disponible pour ce client.</div>
+  {% endif %}
 </body>
 </html>
