@@ -17,20 +17,43 @@
     margin: 0 1.25rem 0.75rem;
     padding: 0.75rem 1rem 0.75rem 2.5rem;
     border-radius: 10px;
+  }
+  #paramContainer .accordion-toggle,
+  #paramContainer .accordion-subtoggle {
+    background: #fff;
+    color: var(--primary-800, #1f2b6c);
     border: 1px solid var(--border);
-    background: var(--primary-100);
     box-shadow: none;
+    transition: background .2s ease, color .2s ease, border .2s ease;
   }
+  #paramContainer .accordion-toggle.collapsed,
+  #paramContainer .accordion-subtoggle.collapsed {
+    background: #fff;
+    color: var(--primary-800, #1f2b6c);
+    border-color: var(--border);
+  }
+  #paramContainer .accordion-toggle:not(.collapsed),
+  #paramContainer .accordion-subtoggle:not(.collapsed) {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  #paramContainer .accordion-toggle:hover,
   #paramContainer .accordion-subtoggle:hover {
-    background: #dbe6fb;
+    background: #f5f8ff;
   }
-  #paramContainer .accordion-subtoggle span {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+  #paramContainer .accordion-toggle.collapsed:hover,
+  #paramContainer .accordion-subtoggle.collapsed:hover {
+    color: var(--primary-800, #1f2b6c);
   }
+  #paramContainer .accordion-toggle .chevron,
   #paramContainer .accordion-subtoggle .chevron {
     color: var(--primary-600);
+    transition: transform .2s ease, color .2s ease;
+  }
+  #paramContainer .accordion-toggle:not(.collapsed) .chevron,
+  #paramContainer .accordion-subtoggle:not(.collapsed) .chevron {
+    color: #fff;
   }
   #paramContainer .btn-list {
     display: inline-flex;
@@ -1981,6 +2004,7 @@ document.addEventListener('DOMContentLoaded', function(){
   const toggles = Array.from(document.querySelectorAll('.accordion-toggle[data-target]'));
 
   toggles.forEach(btn => {
+    btn.classList.add('collapsed');
     const panel = document.getElementById(btn.dataset.target);
     if (!panel){
       return;

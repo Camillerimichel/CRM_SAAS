@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Lettre de mission</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm;
+      @bottom-center {
+        content: "Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ lm_today }}";
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        font-size:10pt;
+        font-style:italic;
+        color:#64748b;
+      }
+    }
+    body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size:11pt; color:#1f2937; line-height:1.5; }
+    h1, h2, h3, h4 { color:#0f172a; margin:0 0 8px; }
+    h1 { font-size:1.6rem; text-transform:uppercase; text-align:center; margin-bottom:14px; }
+    h2 { font-size:1.2rem; margin-top:18px; }
+    h3 { font-size:1.05rem; margin-top:14px; }
+    h4 { font-size:1rem; margin-top:10px; }
+    p { margin:6px 0; text-align:justify; }
+    ul { margin:6px 0 6px 18px; padding:0; }
+    ol { margin:6px 0 6px 18px; padding:0; }
+    li { margin:4px 0; }
+    hr { border:0; border-top:1px solid #cbd5f5; margin:12px 0; }
+    table { width:100%; border-collapse:collapse; margin:10px 0; }
+    th, td { border:1px solid #d1d5db; padding:6px 8px; text-align:left; font-size:0.95rem; }
+    th { background:#1d4ed8; color:#fff; }
+    td.number { text-align:right; white-space:nowrap; }
+    td.comment { max-width:260px; }
+    .muted { color:#64748b; }
+    .title-block { text-align:center; margin-bottom:20px; }
+    .subtitle { font-size:0.95rem; color:#475569; }
+    .footer-note { margin-top:16px; font-size:0.85rem; color:#94a3b8; text-align:right; }
+    .page-break { page-break-before: always; }
+    .title-page { min-height:60vh; display:flex; flex-direction:column; justify-content:flex-start; align-items:center; text-align:center; padding-top:15em; }
+    .title-page img { display:block; margin-left:auto; margin-right:auto; max-width:240px; }
+    .title-subtext { margin-top:2rem; display:flex; flex-direction:column; gap:0.6rem; color:#475569; align-items:center; }
+    .section-header { font-weight:700; font-size:16pt; margin:10px 0 4px 0; }
+    .center { text-align:center; }
+    .info-line { font-size:1rem; }
+    .page-sommaire { min-height:90vh; display:flex; flex-direction:column; justify-content:flex-start; padding-top:12em; }
+    .page-sommaire .toc { margin-top:1.5rem; }
+    .page-sommaire .toc ol { margin:0; padding-left:15ch; }
+    .page-sommaire a { color:#111; text-decoration:none; }
+    .page-sommaire a:hover { text-decoration:underline; }
+    .screen-footer { position:fixed; left:18mm; right:18mm; bottom:10mm; text-align:center; font-size:10pt; font-style:italic; color:#64748b; }
+    @media print { .screen-footer { display:none; } }
+    @media screen { .screen-footer { display:block; } }
+  </style>
+</head>
+<body>
+  <div class="screen-footer">Synthèse de vos placements – {{ client.nom }} {{ client.prenom }} – {{ lm_today }}</div>
+  <div class="title-page">
+    {% if report_logo_png %}
+      <img src="data:image/png;base64,{{ report_logo_png | safe }}" alt="Logo" style="max-width:240px; margin-bottom:28mm;" />
+    {% else %}
+      <div style="height:90mm"></div>
+    {% endif %}
+    <div class="section-header center">Lettre de mission</div>
+    {% set t = (lm_today or '') %}
+    {% set d = t.split('-') if '-' in t else [] %}
+    <div class="center" style="font-weight:700; font-style:italic; font-size:12pt;">{% if d %}{{ d[2] }}/{{ d[1] }}/{{ d[0] }}{% else %}{{ lm_today or '' }}{% endif %}</div>
+    <div class="title-subtext">
+      {% set qualite = client.qualite if client and client.qualite is not none else (client.civilite if client and client.civilite is not none else '') %}
+      <div class="info-line center">{{ (((qualite ~ ' ') if qualite else '') ~ (client.prenom or '') ~ ' ' ~ (client.nom or '')) | trim }}</div>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+  <div class="page-sommaire">
+    <h2 class="subtitle" style="font-size:1.2rem; color:#0f172a; text-align:center; margin:0;">Sommaire</h2>
+    <div class="toc">
+      <ol>
+        <li><a href="#section-pre">Préambule</a></li>
+        <li><a href="#section-a">A. Objectifs de la mission</a></li>
+        <li><a href="#section-b">B. Missions confiées</a></li>
+        <li><a href="#section-c">C. Références légales</a></li>
+        <li><a href="#section-d">D. Déroulement de la mission</a></li>
+        <li><a href="#section-e">E. Suivi et révision</a></li>
+        <li><a href="#section-f">F. Durée et dénonciation</a></li>
+        <li><a href="#section-g">G. Communication et supports d’information</a></li>
+        <li><a href="#section-h">H. Coûts et rémunérations</a></li>
+        <li><a href="#section-i">I. Droits et obligations réciproques</a></li>
+        <li><a href="#section-j">J. Protection des données personnelles</a></li>
+        <li><a href="#section-k">K. Droit applicable et litiges</a></li>
+        <li><a href="#section-l">L. Réclamations et médiation</a></li>
+        <li><a href="#section-m">M. Délai de rétractation</a></li>
+        <li><a href="#section-signature">Validation et consentement électronique</a></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+  <h2 id="section-pre">Préambule</h2>
+  <p>Vous avez bien voulu nous consulter en qualité de <strong>courtier en assurance-vie</strong>, et nous vous remercions de votre confiance.</p>
+  <p>Lors d’un précédent entretien, nous vous avons remis le <strong>Document d’Entrée en Relation (DER)</strong> conformément à l’article <strong>L.521-2 du Code des assurances</strong>. La présente lettre de mission a pour objet de <strong>définir et de formaliser les conditions et modalités</strong> de notre intervention dans le cadre de votre accompagnement patrimonial.</p>
+
+  <h2 id="section-a">A. Objectifs de la mission</h2>
+  <p>Lors de notre entretien du <strong>{{ lm_entretien_date or 'À préciser' }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
+  <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.</p>
+  <p>Vous avez manifesté le souhait d’investir <strong>{{ lm_total_invest_str }}</strong> euros, avec pour objectif(s) :</p>
+  {% if lm_objectifs %}
+    <table>
+      <thead>
+        <tr>
+          <th>Objectif</th>
+          <th>Montant</th>
+          <th>Horizon</th>
+          <th>Commentaire</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obj in lm_objectifs %}
+        <tr>
+          <td>{{ obj.libelle or '—' }}</td>
+          <td class="number">{{ obj.montant_str }} €</td>
+          <td>{{ obj.horizon or '—' }}</td>
+          <td class="comment">{{ obj.commentaire or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p><em>Aucun objectif déclaré à ce jour.</em></p>
+  {% endif %}
+  <p>Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations.</p>
+
+  <h2 id="section-b">B. Missions confiées</h2>
+  <h3>1. Mise en relation avec les compagnies d’assurance</h3>
+  <p class="muted">Intermédiation au sens de l’article <strong>L.511-1 du Code des assurances</strong>.</p>
+  <h3>2. Présentation et explication des produits d’assurance-vie</h3>
+  <p class="muted">Informations claires et exactes sur les produits, avant toute recommandation personnalisée.</p>
+  <h3>3. Collecte d’informations</h3>
+  <p class="muted">Recueil des données nécessaires à l’analyse de votre situation conformément à la <strong>Directive DDA (UE) 2016/97</strong> et au <strong>devoir de connaissance du client</strong> (articles L.541-8-1 et suivants du Code monétaire et financier).</p>
+  <h3>4. Transmission de la documentation contractuelle</h3>
+  <p class="muted">Conditions générales, DIC (PRIIPs), fiches IPID et tout document précontractuel requis.</p>
+  <h3>5. Suivi administratif et contractuel</h3>
+  <p class="muted">Gestion des opérations de souscription, rachats, arbitrages, avenants et conservation des documents.</p>
+  <h3>6. Obligations de vigilance et conformité</h3>
+  <p class="muted">Application des dispositifs <strong>LCB-FT</strong>, <strong>RGPD</strong> et <strong>DDA</strong>, incluant la vérification d’identité et la collecte de justificatifs.</p>
+
+  <h2 id="section-c">C. Références légales</h2>
+  <ul>
+    <li><strong>Code des assurances</strong> : Articles <strong>L.511-1 à L.511-3</strong></li>
+    <li><strong>Code monétaire et financier</strong> : Article <strong>L.541-1</strong></li>
+    <li><strong>Directive (UE) 2016/97</strong> dite <strong>DDA</strong></li>
+    <li><strong>Directive (UE) 2014/65</strong> dite <strong>MIF 2</strong></li>
+  </ul>
+  <p>Un questionnaire de détermination du profil investisseur a été complété.</p>
+  {% if risque_latest and risque_latest.confirmation_client is not none %}
+    {% set _conf = (risque_latest.confirmation_client|string).lower() %}
+    {% if _conf == 'oui' %}
+      <p>Vous avez validé le profil de risque déterminé par le questionnaire.</p>
+    {% else %}
+      <p>Le risque choisi est différent de celui déterminé par le questionnaire, le client reconnaît avoir été informé de cet écart et assume pleinement la responsabilité de ce choix.</p>
+    {% endif %}
+  {% endif %}
+
+  <h2 id="section-d">D. Déroulement de la mission</h2>
+  <ol>
+    <li>Remise du <strong>Document d’Entrée en Relation</strong>, signé le {{ lm_today }}.</li>
+    <li>Signature du <strong>recueil d’informations patrimoniales</strong>, le {{ lm_today }}.</li>
+    <li>Signature électronique de la <strong>présente lettre de mission</strong>.</li>
+    <li>Élaboration et remise du <strong>rapport d’adéquation</strong> documentant la cohérence des solutions proposées avec vos objectifs.</li>
+  </ol>
+  <p>La mission débute dès réception des éléments nécessaires à l’analyse complète de votre situation.</p>
+
+  <h2 id="section-e">E. Suivi et révision</h2>
+  <p>Un suivi régulier est prévu, comprenant :</p>
+  <ul>
+    <li>Des <strong>rendez-vous périodiques</strong> selon vos besoins,</li>
+    <li>Un <strong>bilan patrimonial</strong> actualisé tous les deux ans,</li>
+    <li>Et, le cas échéant, un point intermédiaire sur demande.</li>
+  </ul>
+  <p>Toute évolution importante de votre situation (revenus, patrimoine, projets, profil de risque) doit être portée à notre connaissance pour mise à jour de votre dossier.</p>
+
+  <h2 id="section-f">F. Durée et dénonciation</h2>
+  <p>La mission est conclue pour une durée <strong>d’un an</strong>, renouvelable par tacite reconduction. Elle peut être résiliée à tout moment par simple notification écrite, sous réserve d’un <strong>préavis d’un mois</strong>.</p>
+
+  <h2 id="section-g">G. Communication et supports d’information</h2>
+  <p>Le Client accepte la communication d’informations sur <strong>support durable autre que le papier</strong>, via :</p>
+  <ul>
+    <li>Courriel sécurisé,</li>
+    <li>Espace client en ligne,</li>
+    <li>Ou courrier postal.</li>
+  </ul>
+  <p>Les documents resteront consultables et téléchargeables pendant la durée légale requise.</p>
+
+  <h2 id="section-h">H. Coûts et rémunérations</h2>
+  {% if lm_remunerations and (lm_remunerations|length > 0) %}
+    <ul>
+      {% for r in lm_remunerations %}
+        {% set mode_label = r.mode or r.type or 'Mode' %}
+        {% if mode_label == 'FRAIS_ENTREE' %}
+          {% set mode_label = "Frais d'entrée" %}
+        {% elif mode_label == 'FRAIS_GESTION' %}
+          {% set mode_label = "Frais de gestion" %}
+        {% endif %}
+        <li>
+          <strong>{{ mode_label }} :</strong>
+          {% set has_val = false %}
+          {% if r.montant is not none %}
+            {% set has_val = true %} {{ r.montant }} €
+          {% endif %}
+          {% if r.pourcentage is not none %}
+            {% if has_val %} — {% endif %}{{ r.pourcentage }} %
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Rémunérations : non renseigné pour ce courtier.</p>
+  {% endif %}
+  <p>Ces rémunérations couvrent les prestations de conseil, de suivi et d’intermédiation. Un détail complet peut être fourni sur simple demande.</p>
+
+  <h2 id="section-i">I. Droits et obligations réciproques</h2>
+  <p>Le Courtier est tenu à une <strong>obligation de moyens</strong> et non de résultat. Le Client s’engage à fournir des informations exactes et à informer le cabinet de toute modification significative de sa situation.</p>
+  <p>Le Client autorise le Courtier à obtenir auprès des compagnies d’assurance ou établissements financiers les données nécessaires au suivi de ses contrats. Le Courtier est tenu au <strong>secret professionnel</strong> (article L.519-6 du Code monétaire et financier).</p>
+
+  <h2 id="section-j">J. Protection des données personnelles (RGPD)</h2>
+  <p>Les données personnelles sont traitées conformément au <strong>Règlement (UE) 2016/679 (RGPD)</strong> et à la <strong>loi Informatique et Libertés</strong>. Elles sont utilisées pour l’analyse, la souscription et le suivi des contrats d’assurance-vie, et conservées pendant la durée de la relation contractuelle, puis <strong>5 ans</strong> après sa fin.</p>
+  <p>Vous disposez des droits d’accès, de rectification, d’effacement, de limitation, de portabilité et d’opposition. Pour les exercer : <strong>{{ DER_courtier.responsable_dpo if DER_courtier else '' }} – {{ DER_courtier.courriel if DER_courtier else '' }}</strong>. Vous pouvez également saisir la <strong>CNIL</strong> (www.cnil.fr).</p>
+
+  <h2 id="section-k">K. Droit applicable et litiges</h2>
+  <p>La présente lettre de mission est régie par le <strong>droit français</strong>. En cas de désaccord, les parties privilégieront une solution amiable avant toute procédure judiciaire. À défaut, compétence exclusive est donnée aux <strong>juridictions françaises</strong>.</p>
+
+  <h2 id="section-l">L. Réclamations et médiation</h2>
+  <p>Toute réclamation peut être adressée à :<br/>
+     <strong>Courtage du Centre – Service Réclamations</strong><br/>
+     23 rue du quai, 56150 Chatillon sur Saône<br/>
+     Email : jc@cc.fr
+  </p>
+  <p>En cas d’absence de solution amiable, le Client peut saisir :<br/>
+     <strong>{{ centre_mediation_lib or (DER_courtier.centre_mediation if DER_courtier else '') }}</strong><br/>
+     Contact : banqueroute@acpr.fr
+  </p>
+
+  <h2 id="section-m">M. Délai de rétractation (en cas de démarchage)</h2>
+  <p>Conformément à l’article <strong>L.341-16 du Code monétaire et financier</strong>, si cette mission résulte d’un <strong>acte de démarchage</strong>, vous disposez d’un <strong>délai de 14 jours calendaires révolus</strong> pour exercer votre droit de rétractation, sans avoir à justifier de motif ni supporter de pénalité. Le délai court à compter de la signature électronique de la présente lettre.</p>
+
+  <h2 id="section-signature">Validation et consentement électronique</h2>
+  <p>En validant électroniquement cette lettre de mission sur la plateforme sécurisée, <strong>{{ client.prenom or '' }} {{ client.nom or '' }}</strong> reconnaît avoir :</p>
+  <ul>
+    <li>pris connaissance de l’intégralité du document,</li>
+    <li>compris la portée des engagements réciproques,</li>
+    <li>accepté la mission dans les conditions exposées.</li>
+  </ul>
+  <p>La signature électronique apposée ci-dessous vaut <strong>consentement exprès</strong>, conformément à l’article <strong>1367 du Code civil</strong> et au <strong>Règlement eIDAS (UE) n°910/2014</strong> sur l’identification électronique et les services de confiance.</p>
+
+  <p><strong>Date de signature électronique :</strong> {{ date_signature or '—' }}<br/>
+     <strong>Identifiant de transaction :</strong> {{ signature_id or '—' }}</p>
+  <p><strong>Signature électronique du client :</strong> ________________________<br/>
+     <strong>Signature électronique du courtier :</strong> ________________________</p>
+
+  <div class="page-break"></div>
+  <div class="title-page" style="min-height:40vh; padding-top:8em;">
+    {% if report_logo_png %}
+      <img src="data:image/png;base64,{{ report_logo_png | safe }}" alt="Logo" style="max-width:200px; margin-bottom:12mm;" />
+    {% endif %}
+    <div class="center" style="font-size:11pt;">{{ footer_line1 or (DER_courtier.nom_cabinet if DER_courtier else 'Nom du cabinet') }}</div>
+    {% if footer_line2 %}
+      <div class="center" style="font-size:11pt;">{{ footer_line2 }}</div>
+    {% endif %}
+    {% if footer_line2b %}
+      <div class="center" style="font-size:11pt;">{{ footer_line2b }}</div>
+    {% endif %}
+    <div class="center" style="font-size:11pt;">{{ footer_line3 or 'Adresse – Code postal – Ville' }}</div>
+    {% if footer_line4 %}
+      <div class="center" style="font-size:11pt;">{{ footer_line4 }}</div>
+    {% endif %}
+    {% if footer_line5 %}
+      <div class="center" style="font-size:11pt;">{{ footer_line5 }}</div>
+    {% endif %}
+    {% if footer_line6 %}
+      <div class="center" style="font-size:11pt;">{{ footer_line6 }}</div>
+    {% endif %}
+  </div>
+
+</body>
+</html>

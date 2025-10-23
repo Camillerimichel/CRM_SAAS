@@ -1,16 +1,19 @@
 import logging
+import base64
+import re
+from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, bindparam
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 import csv
 import io
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 
 from src.database import get_db
@@ -37,6 +40,7 @@ from src.models.document_client import DocumentClient
 from src.models.historique_personne import HistoriquePersonne
 from src.models.historique_affaire import HistoriqueAffaire
 from src.models.historique_support import HistoriqueSupport
+from src.models.evenement_statut_reclamation import EvenementStatutReclamation
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -206,6 +210,751 @@ def _build_svg_line_chart(labels: list[str], values: list[float], title: str) ->
         return None
 
 
+def _build_matplotlib_two_line_chart(
+    labels: list[str],
+    serie_a: list[float],
+    serie_b: list[float],
+    label_a: str,
+    label_b: str,
+    title: str,
+) -> str | None:
+    try:
+        if not labels or not serie_a or not serie_b:
+            return None
+        if len(labels) != len(serie_a) or len(labels) != len(serie_b):
+            return None
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import FuncFormatter
+    except Exception:
+        return None
+    try:
+        x = list(range(len(labels)))
+        vals_a = [float(v or 0) for v in serie_a]
+        vals_b = [float(v or 0) for v in serie_b]
+        fig, ax = plt.subplots(figsize=(9, 4.2))
+        ax.plot(x, vals_a, label=label_a, color="#2563eb", linewidth=2.2)
+        ax.plot(x, vals_b, label=label_b, color="#f97316", linewidth=2.2)
+        ax.fill_between(x, vals_b, color="#f973161A")
+        ax.grid(True, axis="y", linestyle="--", alpha=0.35)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=35, ha="right")
+        ax.set_title(title, fontsize=14, fontweight="bold", color="#0f172a")
+        ax.set_ylabel("Montant (k€)", fontsize=11)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y/1000:.1f}k"))
+        ax.legend(loc="upper left", frameon=True)
+        ax.set_facecolor("white")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+
+
+def _build_svg_two_line_chart(
+    labels: list[str],
+    serie_a: list[float],
+    serie_b: list[float],
+    label_a: str,
+    label_b: str,
+    title: str,
+) -> str | None:
+    try:
+        if not labels or not serie_a or not serie_b:
+            return None
+        vals_a = [float(v or 0) for v in serie_a]
+        vals_b = [float(v or 0) for v in serie_b]
+        if len(labels) != len(vals_a) or len(labels) != len(vals_b):
+            return None
+        combined = vals_a + vals_b
+        if not combined:
+            return None
+        labs = [str(l or "") for l in labels]
+        W, H, P = 720, 300, 42
+        vmax = max(combined)
+        vmin = min(combined)
+        if vmax == vmin:
+            vmax = vmin + 1.0
+        step = max(1, len(labs) - 1)
+
+        def _x(i: int) -> float:
+            return P + i * (W - 2 * P) / step
+
+        def _y(v: float) -> float:
+            return H - P - ((v - vmin) * (H - 2 * P) / (vmax - vmin))
+
+        def _poly(vals: list[float]) -> str:
+            return " ".join(f"{_x(i):.2f},{_y(v):.2f}" for i, v in enumerate(vals))
+
+        parts = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">']
+        parts.append(f'<style>.grid{{stroke:#dce3f5;stroke-width:1}} .legend-box{{fill:rgba(248,250,252,0.9);stroke:#cbd5f5;stroke-width:1}}</style>')
+        parts.append(f'<text x="{P}" y="{P-14}" fill="#0f172a" font-size="15" font-weight="bold">{title}</text>')
+        for i in range(5):
+            y = P + i * (H - 2 * P) / 4
+            parts.append(f'<line class="grid" x1="{P}" y1="{y:.2f}" x2="{W-P}" y2="{y:.2f}" />')
+        parts.append(f'<polyline fill="none" stroke="#2563eb" stroke-width="2.6" points="{_poly(vals_a)}" stroke-linejoin="round" stroke-linecap="round" />')
+        parts.append(f'<polyline fill="none" stroke="#f97316" stroke-width="2.6" points="{_poly(vals_b)}" stroke-linejoin="round" stroke-linecap="round" />')
+        for i, lab in enumerate(labs):
+            parts.append(f'<text x="{_x(i):.2f}" y="{H-P+18}" font-size="11" text-anchor="middle" fill="#475569">{lab}</text>')
+        def _fmt_k(v: float) -> str:
+            return f"{(v/1000):,.1f}".replace(",", " ")
+        for i in range(5):
+            v = vmin + i * (vmax - vmin) / 4
+            y = _y(v)
+            parts.append(f'<rect x="{P-55}" y="{y-9:.2f}" width="48" height="16" fill="rgba(255,255,255,0.85)"/>')
+            parts.append(f'<text x="{P-12}" y="{y+4:.2f}" font-size="10" text-anchor="end" fill="#64748b">{_fmt_k(v)}</text>')
+        legend_x = W - P - 260
+        legend_y = P - 28
+        parts.append(f'<g transform="translate({legend_x},{legend_y})" class="legend-box">')
+        parts.append('<rect x="0" y="-16" width="250" height="28" rx="6" />')
+        parts.append(f'<g transform="translate(12,0)"><line x1="0" y1="0" x2="20" y2="0" stroke="#2563eb" stroke-width="2.6"/><text x="28" y="4" font-size="11" fill="#0f172a">{label_a}</text></g>')
+        parts.append(f'<g transform="translate(140,0)"><line x1="0" y1="0" x2="20" y2="0" stroke="#f97316" stroke-width="2.6"/><text x="28" y="4" font-size="11" fill="#0f172a">{label_b}</text></g>')
+        parts.append('</g>')
+        parts.append('</svg>')
+        return "".join(parts)
+    except Exception:
+        return None
+
+
+def _build_matplotlib_horizontal_bar_chart(labels: list[str], values: list[float], title: str, unit: str | None = None) -> str | None:
+    try:
+        data = [float(v or 0.0) for v in values or []]
+        cats = [str(l or "") for l in labels or []]
+        if not data or not cats:
+            return None
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    try:
+        positions = list(range(len(cats)))
+        height = 0.45
+        fig, ax = plt.subplots(figsize=(7.2, max(2.4, 0.6 * len(cats) + 1.2)))
+        bars = ax.barh([p for p in positions], data, height=height, color="#2563eb", alpha=0.85)
+        ax.set_yticks(positions)
+        ax.set_yticklabels(cats)
+        ax.invert_yaxis()
+        ax.set_title(title, fontsize=14, fontweight="bold", color="#0f172a")
+        if unit:
+            ax.set_xlabel(unit, fontsize=11)
+        ax.grid(True, axis="x", linestyle="--", alpha=0.3)
+        max_val = max(data) if data else 0.0
+        for bar, value in zip(bars, data):
+            xpos = bar.get_width() + (0.01 * max_val if max_val else 0.1)
+            if unit and unit.startswith('Valorisation'):
+                label = f"{value:,.0f}".replace(',', ' ')
+            else:
+                label = f"{value:.1f}"
+            ax.text(xpos, bar.get_y() + bar.get_height() / 2, label, va='center', fontsize=9, color='#334155')
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+
+def _build_matplotlib_perf_vol_chart(
+    years: list[int],
+    perf_series: list[float],
+    vol_series: list[float],
+) -> str | None:
+    if not years or not perf_series or not vol_series:
+        return None
+    if not (len(years) == len(perf_series) == len(vol_series)):
+        return None
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+
+    try:
+        def _fmt_pct(value):
+            try:
+                v = float(value)
+                if abs(v) <= 1:
+                    v *= 100.0
+                return v
+            except Exception:
+                return 0.0
+
+        perf_pct = [_fmt_pct(v) for v in perf_series]
+        vol_pct = [_fmt_pct(v) for v in vol_series]
+        years_labels = [str(y) for y in years]
+        x = list(range(len(years_labels)))
+        width = 0.6
+        fig, ax1 = plt.subplots(figsize=(9, 4))
+        bars = ax1.bar(x, perf_pct, width=width, color="#2563eb", alpha=0.82, label="Performance 52s (%)")
+        ax1.set_ylabel("Performance (%)", color="#1d4ed8", fontsize=11)
+        ax1.tick_params(axis="y", labelcolor="#1d4ed8")
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(years_labels, rotation=35, ha="right")
+        ax1.set_title("Performances et volatilité annuelles", fontsize=14, fontweight="bold", color="#0f172a")
+        for bar in bars:
+            height = bar.get_height()
+            ax1.annotate(
+                f"{height:.1f}",
+                xy=(bar.get_x() + bar.get_width() / 2, height),
+                xytext=(0, 4),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#1f2937",
+            )
+        ax2 = ax1.twinx()
+        ax2.plot(x, vol_pct, color="#f97316", linewidth=2.4, marker="o", label="Volatilité (%)")
+        ax2.fill_between(x, vol_pct, color="#f973161A")
+        ax2.set_ylabel("Volatilité (%)", color="#f97316", fontsize=11)
+        ax2.tick_params(axis="y", labelcolor="#f97316")
+        ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
+        fig.tight_layout()
+        fig.patch.set_facecolor("white")
+        ax1.set_facecolor("white")
+        for spine in ax1.spines.values():
+            spine.set_visible(False)
+        for spine in ax2.spines.values():
+            spine.set_visible(False)
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(handles1 + handles2, labels1 + labels2, loc="upper left", frameon=True)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+
+
+def _build_matplotlib_alloc_compare_chart(
+    client_series: list[tuple[str | None, float]],
+    alloc_series: list[tuple[str | None, float]],
+    alloc_label: str,
+) -> str | None:
+    try:
+        if not client_series or not alloc_series:
+            return None
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from datetime import datetime
+    except Exception:
+        return None
+
+    try:
+        def _parse(series: list[tuple[str | None, float]]):
+            out_dates = []
+            out_vals = []
+            for d, v in series:
+                if not d:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(str(d))
+                except Exception:
+                    try:
+                        dt = datetime.strptime(str(d), "%Y-%m-%d")
+                    except Exception:
+                        continue
+                out_dates.append(dt)
+                try:
+                    out_vals.append(float(v or 0.0))
+                except Exception:
+                    out_vals.append(0.0)
+            return out_dates, out_vals
+
+        client_dates, client_vals = _parse(client_series)
+        alloc_dates, alloc_vals = _parse(alloc_series)
+        if not client_dates or not alloc_dates:
+            return None
+
+        fig, ax = plt.subplots(figsize=(9, 3.8))
+        ax.plot(client_dates, client_vals, color="#2563eb", linewidth=2.2, label="Client")
+        ax.plot(alloc_dates, alloc_vals, color="#10b981", linewidth=2.0, linestyle="--", label=alloc_label or "Allocation")
+        combined_vals = client_vals + alloc_vals
+        if not combined_vals:
+            return None
+        vmin = min(combined_vals)
+        vmax = max(combined_vals)
+        if vmax == vmin:
+            delta = abs(vmax) * 0.05 if vmax != 0 else 5.0
+            vmin -= delta
+            vmax += delta
+        padding = max(1.0, (vmax - vmin) * 0.05)
+        ymin = vmin - padding
+        ymax = vmax + padding
+        ax.set_ylim(ymin, ymax)
+        ax.fill_between(alloc_dates, alloc_vals, ymin, color="#10b9811A")
+        ax.set_title("Évolution SICAV – Client vs Allocation de référence", fontsize=14, fontweight="bold", color="#0f172a")
+        ax.set_ylabel("Indice (base 100)", fontsize=11)
+        ax.grid(True, axis="y", linestyle="--", alpha=0.3)
+        ax.set_facecolor("white")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.legend(loc="upper left", frameon=True)
+        locator = mdates.AutoDateLocator()
+        formatter = mdates.ConciseDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        fig.autofmt_xdate()
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+    try:
+        def _fmt_pct(value):
+            try:
+                v = float(value)
+                if abs(v) <= 1:
+                    v *= 100.0
+                return v
+            except Exception:
+                return 0.0
+        perf_pct = [_fmt_pct(v) for v in perf_series]
+        vol_pct = [_fmt_pct(v) for v in vol_series]
+        years_labels = [str(y) for y in years]
+        x = np.arange(len(years_labels))
+        width = 0.6
+        fig, ax1 = plt.subplots(figsize=(9, 4))
+        bars = ax1.bar(x, perf_pct, width=width, color="#2563eb", alpha=0.82, label="Performance 52s (%)")
+        ax1.set_ylabel("Performance (%)", color="#1d4ed8", fontsize=11)
+        ax1.tick_params(axis="y", labelcolor="#1d4ed8")
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(years_labels, rotation=35, ha="right")
+        ax1.set_title("Performances et volatilité annuelles", fontsize=14, fontweight="bold", color="#0f172a")
+        for bar in bars:
+            height = bar.get_height()
+            ax1.annotate(f"{height:.1f}",
+                         xy=(bar.get_x() + bar.get_width() / 2, height),
+                         xytext=(0, 4),
+                         textcoords="offset points",
+                         ha="center",
+                         va="bottom",
+                         fontsize=8,
+                         color="#1f2937")
+        ax2 = ax1.twinx()
+        ax2.plot(x, vol_pct, color="#f97316", linewidth=2.4, marker="o", label="Volatilité (%)")
+        ax2.fill_between(x, vol_pct, color="#f973161A")
+        ax2.set_ylabel("Volatilité (%)", color="#f97316", fontsize=11)
+        ax2.tick_params(axis="y", labelcolor="#f97316")
+        ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
+        fig.tight_layout()
+        fig.patch.set_facecolor("white")
+        ax1.set_facecolor("white")
+        for spine in ax1.spines.values():
+            spine.set_visible(False)
+        for spine in ax2.spines.values():
+            spine.set_visible(False)
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(handles1 + handles2, labels1 + labels2, loc="upper left", frameon=True)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+
+
+def _build_matplotlib_esg_bar_chart(
+    categories: list[str],
+    index_values: list[float],
+    client_values: list[float],
+) -> str | None:
+    if not categories:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+
+    try:
+        positions = list(range(len(categories)))
+        height = 0.35
+        fig, ax = plt.subplots(figsize=(7.5, max(2.5, 0.8 + 0.6 * len(categories))))
+        ax.barh([p + height / 2 for p in positions], index_values, height=height, color="#9ca3af", label="Indice (base 100)")
+        ax.barh([p - height / 2 for p in positions], client_values, height=height, color="#2563eb", label="Client (base 100)")
+        ax.set_yticks(positions)
+        ax.set_yticklabels(categories)
+        ax.invert_yaxis()
+        ax.set_xlabel("Base 100")
+        ax.set_xlim(left=0)
+        ax.grid(True, axis="x", linestyle="--", alpha=0.3)
+        ax.legend(loc="lower right")
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        try:
+            plt.close(fig)  # type: ignore[name-defined]
+        except Exception:
+            pass
+        return None
+
+
+def _normalize_identifier(value: str) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def _compute_client_esg_comparison(
+    db: Session,
+    client_id: int,
+    fields: list[str],
+    alloc: str | None = None,
+    alloc_isin: str | None = None,
+    as_of: str | None = None,
+    alloc_date: str | None = None,
+    debug: bool = False,
+) -> tuple[dict, dict | None]:
+    sel_fields = [f for f in (fields or []) if f]
+    payload = {
+        "fields": sel_fields,
+        "alloc": alloc,
+        "alloc_isin": alloc_isin,
+        "as_of": as_of,
+        "alloc_date": None,
+        "results": [],
+    }
+    debug_info: dict | None = {"client": None, "allocation": None, "esg": None} if debug else None
+    if not sel_fields:
+        return payload, debug_info
+
+    # Résolution des noms de colonnes (gestion des variantes orthographiques/accents)
+    try:
+        rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+        available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
+    except Exception:
+        available_cols = []
+    col_lookup: dict[str, str] = {}
+    for col in available_cols:
+        key = _normalize_identifier(col)
+        if key and key not in col_lookup:
+            col_lookup[key] = col
+    resolved_pairs: list[tuple[str, str | None]] = []
+    seen_cols = set()
+    for field_name in sel_fields:
+        col = col_lookup.get(_normalize_identifier(field_name))
+        if col in seen_cols:
+            # éviter les doublons si l'utilisateur fournit plusieurs variantes pour la même colonne
+            col = None
+        if col:
+            seen_cols.add(col)
+        resolved_pairs.append((field_name, col))
+    valid_pairs = [(orig, col) for orig, col in resolved_pairs if col]
+    payload["resolved_fields"] = [col for _, col in valid_pairs]
+    payload["resolved_pairs"] = [{"requested": orig, "resolved": col} for orig, col in resolved_pairs]
+    payload["unmatched_fields"] = [orig for orig, col in resolved_pairs if not col]
+    if not valid_pairs:
+        if debug_info is not None:
+            debug_info["client"] = {"weights_count": 0, "weights_sum": 0, "affaires": [], "query": None, "isins": []}
+            debug_info["allocation"] = {"weights_count": 0, "weights_sum": 0, "isins": [], "date": None, "query": None}
+            debug_info["esg"] = {"isin_count": 0, "query": None}
+        # Conserver une entrée résultat vide pour chaque champ demandé
+        payload["results"] = [
+            {
+                "field": orig,
+                "field_original": orig,
+                "resolved_field": None,
+                "index": None,
+                "client": None,
+                "cli_present": 0,
+                "idx_present": 0,
+            }
+            for orig in sel_fields
+        ]
+        return payload, debug_info
+
+    # Composition client
+    client_weights: dict[str, float] = {}
+    debug_client: dict | None = {"weights_count": 0, "weights_sum": 0, "affaires": [], "query": None, "isins": []} if debug else None
+    try:
+        affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
+        sums: dict[str, float] = {}
+        total_valo = 0.0
+        params_list = []
+        weight_sql = (
+            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
+            "FROM mariadb_historique_support_w h\n"
+            "JOIN mariadb_support s ON s.id = h.id_support\n"
+            "WHERE h.id_source = :aid AND h.date = :d\n"
+            "GROUP BY s.code_isin"
+        )
+        for aid in affaire_ids:
+            if as_of:
+                ref_date = as_of
+            else:
+                ref_date = db.execute(
+                    text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"),
+                    {"aid": aid},
+                ).scalar()
+                if not ref_date:
+                    continue
+            rows = db.execute(text(weight_sql), {"aid": aid, "d": ref_date}).fetchall()
+            params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
+            for r in rows or []:
+                isin = getattr(r, "isin", None)
+                v = float(getattr(r, "somme_valo", 0) or 0)
+                if isin:
+                    sums[isin] = sums.get(isin, 0.0) + v
+                    total_valo += v
+        if total_valo > 0:
+            for isin, v in sums.items():
+                if v is not None:
+                    client_weights[isin] = float(v) / float(total_valo)
+        if debug_client is not None:
+            debug_client.update({
+                "weights_count": len(client_weights),
+                "weights_sum": sum(client_weights.values()) if client_weights else 0,
+                "affaires": affaire_ids,
+                "params": params_list,
+                "query": weight_sql,
+                "as_of": as_of,
+                "isins": sorted(client_weights.keys()),
+            })
+    except Exception:
+        client_weights = {}
+    # Composition allocation
+    alloc_weights: dict[str, float] = {}
+    alloc_date_val = None
+    debug_alloc: dict | None = {"weights_count": 0, "weights_sum": 0, "query": None, "isins": [], "date": None} if debug else None
+    try:
+        import re as _re
+
+        isin_param = alloc_isin or (
+            alloc if alloc and _re.match(r"^[A-Z0-9]{9,12}$", str(alloc).strip()) else None
+        )
+        if isin_param:
+            if alloc_date:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"),
+                    {"i": isin_param, "d": alloc_date},
+                ).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(
+                        text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"),
+                        {"i": isin_param},
+                    ).scalar()
+            else:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"),
+                    {"i": isin_param},
+                ).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE ISIN = :i AND date = :d
+                """
+            )
+            params2 = {"i": isin_param, "d": alloc_date_val}
+            rows2 = db.execute(q2, params2).fetchall()
+            if debug_alloc is not None:
+                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
+        elif alloc:
+            if alloc_date:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"),
+                    {"n": alloc, "d": alloc_date},
+                ).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(
+                        text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"),
+                        {"n": alloc},
+                    ).scalar()
+            else:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"),
+                    {"n": alloc},
+                ).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
+                """
+            )
+            params2 = {"n": alloc, "d": alloc_date_val}
+            rows2 = db.execute(q2, params2).fetchall()
+            if debug_alloc is not None:
+                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
+        else:
+            rows2 = []
+        total2 = sum(float(getattr(r, "v", 0) or 0) for r in rows2) if rows2 else 0.0
+        if total2 and total2 > 0:
+            for r in rows2:
+                isin = getattr(r, "isin", None)
+                v = float(getattr(r, "v", 0) or 0)
+                if isin:
+                    alloc_weights[isin] = v / total2
+        if debug_alloc is not None:
+            debug_alloc.update({
+                "weights_count": len(alloc_weights),
+                "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                "isins": sorted(alloc_weights.keys()),
+                "date": str(alloc_date_val) if alloc_date_val is not None else None,
+            })
+    except Exception:
+        alloc_weights = {}
+    payload["alloc_date"] = str(alloc_date_val) if alloc_date_val is not None else None
+
+    # Rassembler les ISIN
+    all_isins = set(client_weights.keys()) | set(alloc_weights.keys())
+    if not all_isins:
+        if debug_info is not None:
+            debug_info["client"] = debug_client
+            debug_info["allocation"] = debug_alloc
+        return payload, debug_info
+
+    # Chargement des colonnes ESG
+    def _quote_col(c: str) -> str:
+        c = c.strip()
+        return f"`{c}`"
+
+    aliases = [(col, f"c{idx}") for idx, (orig, col) in enumerate(valid_pairs)]
+    col_expr = ", ".join(f"{_quote_col(col)} AS {alias}" for col, alias in aliases)
+    esg_map: dict[str, dict[str, float]] = {}
+    debug_esg: dict | None = {"isin_count": len(all_isins), "query": None} if debug else None
+    try:
+        isin_list = list(all_isins)
+        placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
+        params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
+        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for (col, alias) in aliases:
+                try:
+                    val = mm.get(alias)
+                except Exception:
+                    val = None
+                try:
+                    d[col] = float(val) if val is not None else None
+                except Exception:
+                    d[col] = None
+            esg_map[isin] = d
+        if debug_esg is not None:
+            debug_esg["query"] = {"sql": q_esg.text, "params": params}
+    except Exception:
+        esg_map = {}
+
+    results = []
+    for original_name, column_name in valid_pairs:
+        cli_val = 0.0
+        cli_wsum = 0.0
+        for isin, w in client_weights.items():
+            v = (esg_map.get(isin) or {}).get(column_name)
+            if v is None:
+                continue
+            cli_val += float(w) * float(v)
+            cli_wsum += float(w)
+        cli_val = (cli_val / cli_wsum) if cli_wsum > 0 else None
+
+        idx_val = 0.0
+        idx_wsum = 0.0
+        for isin, w in alloc_weights.items():
+            v = (esg_map.get(isin) or {}).get(column_name)
+            if v is None:
+                continue
+            idx_val += float(w) * float(v)
+            idx_wsum += float(w)
+        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
+
+        cli_present = sum(
+            1 for isin, _w in client_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None
+        )
+        idx_present = sum(
+            1 for isin, _w in alloc_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None
+        )
+
+        if cli_val is None or idx_val is None or idx_val == 0:
+            results.append({
+                "field": column_name,
+                "field_original": original_name,
+                "resolved_field": column_name,
+                "index": None,
+                "client": None,
+                "cli_present": cli_present,
+                "idx_present": idx_present,
+            })
+        else:
+            results.append({
+                "field": column_name,
+                "field_original": original_name,
+                "resolved_field": column_name,
+                "index": 100.0,
+                "client": (cli_val / idx_val) * 100.0,
+                "cli_present": cli_present,
+                "idx_present": idx_present,
+            })
+
+    # Ajouter les champs non résolus pour information
+    for original_name, column_name in resolved_pairs:
+        if column_name:
+            continue
+        results.append({
+            "field": original_name,
+            "field_original": original_name,
+            "resolved_field": None,
+            "index": None,
+            "client": None,
+            "cli_present": 0,
+            "idx_present": 0,
+        })
+
+    payload["results"] = results
+    if debug_info is not None:
+        debug_info["client"] = debug_client
+        debug_info["allocation"] = debug_alloc
+        if debug_esg is not None:
+            debug_esg["resolved_pairs"] = resolved_pairs
+        debug_info["esg"] = debug_esg
+    return payload, debug_info
+
+
 def _build_svg_bar_chart(labels: list[str], values: list[float], title: str) -> str | None:
     try:
         vals = [float(v or 0) for v in values or []]
@@ -314,6 +1063,60 @@ def _build_finance_analysis(
             sql += " HAVING " + " AND ".join(having_clauses)
         sql += " ORDER BY total_valo DESC"
         rows_supports = db.execute(text(sql), params).fetchall()
+        clients_map: dict[str, list[dict]] = {}
+        try:
+            params_clients = {"d": finance_effective_date_iso}
+            sql_clients = """
+                SELECT
+                    s.code_isin AS code_isin,
+                    c.id AS client_id,
+                    c.nom AS client_nom,
+                    c.prenom AS client_prenom,
+                    a.id AS affaire_id,
+                    a.ref AS affaire_ref,
+                    SUM(h.valo) AS client_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_support s ON s.id = h.id_support
+                JOIN mariadb_affaires a ON a.id = h.id_source
+                LEFT JOIN mariadb_clients c ON c.id = a.id_personne
+                WHERE DATE(h.date) = DATE(:d)
+            """
+            if finance_rh_id is not None:
+                sql_clients += " AND c.commercial_id = :rh_id"
+                params_clients["rh_id"] = finance_rh_id
+            sql_clients += """
+                GROUP BY s.code_isin, c.id, c.nom, c.prenom, a.id, a.ref
+                HAVING SUM(h.valo) > 0
+            """
+            rows_clients = db.execute(text(sql_clients), params_clients).fetchall()
+            for r in rows_clients or []:
+                m = r._mapping if hasattr(r, "_mapping") else None
+                code_isin_client = (m.get("code_isin") if m else r[0]) or None
+                if not code_isin_client:
+                    continue
+                client_valo_raw = float(m.get("client_valo") if m else r[6] or 0.0)
+                client_id = m.get("client_id") if m else r[1]
+                client_nom = m.get("client_nom") if m else r[2]
+                client_prenom = m.get("client_prenom") if m else r[3]
+                affaire_id = m.get("affaire_id") if m else r[4]
+                affaire_ref = m.get("affaire_ref") if m else r[5]
+                fullname_parts = [client_prenom or "", client_nom or ""]
+                fullname = " ".join(p.strip() for p in fullname_parts if p and p.strip())
+                client_entry = {
+                    "client_id": client_id,
+                    "client_nom": client_nom,
+                    "client_prenom": client_prenom,
+                    "client_fullname": fullname or (client_nom or "Client"),
+                    "affaire_id": affaire_id,
+                    "affaire_ref": affaire_ref,
+                    "valorisation": client_valo_raw,
+                    "valorisation_str": _fmt_currency(client_valo_raw),
+                }
+                clients_map.setdefault(code_isin_client, []).append(client_entry)
+            for code, items in clients_map.items():
+                items.sort(key=lambda it: it.get("valorisation", 0.0), reverse=True)
+        except Exception:
+            clients_map = {}
         for row in rows_supports or []:
             m = row._mapping if hasattr(row, "_mapping") else None
             code_isin = m.get("code_isin") if m else row[0]
@@ -333,6 +1136,7 @@ def _build_finance_analysis(
                         "srri": srri,
                         "total_valo": total_valo,
                         "total_valo_str": "{:,.0f}".format(total_valo).replace(",", " "),
+                        "clients": clients_map.get(code_isin, []),
                     }
                 )
         finance_total_valo_str = "{:,.0f}".format(finance_total_valo).replace(",", " ")
@@ -354,7 +1158,7 @@ def _build_finance_analysis(
 
 def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
-    rh_list = fetch_rh_list(db)
+
     rh_list = fetch_rh_list(db)
     if not client:
         return None
@@ -387,6 +1191,8 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         .all()
     )
 
+    selected_dt = None
+
     history_labels: list[str] = []
     history_values: list[float] = []
     history_recent: list[dict] = []
@@ -394,6 +1200,13 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     depots_total = 0.0
     retraits_total = 0.0
     last_valo = 0.0
+    first_history_date = None
+    last_history_date = None
+    duree_historique_str = "-"
+    overall_ann_perf_pct = None
+    history_mov_raw: list[float] = []
+    history_mov_cum: list[float] = []
+    client_sicav_series: list[tuple[str | None, float]] = []
     for row in historique:
         dt = None
         if getattr(row, "date", None):
@@ -401,6 +1214,9 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
                 dt = row.date.strftime("%Y-%m-%d")
             except Exception:
                 dt = str(row.date)[:10]
+            if first_history_date is None:
+                first_history_date = row.date
+            last_history_date = row.date
         else:
             dt = "N/A"
         history_labels.append(dt)
@@ -408,6 +1224,14 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         mov = float(getattr(row, "mouvement", 0.0) or 0.0)
         history_values.append(val)
         last_valo = val
+        history_mov_raw.append(mov)
+        cumul += mov
+        history_mov_cum.append(cumul)
+        try:
+            sc = float(getattr(row, "sicav", 0.0) or 0.0)
+        except Exception:
+            sc = 0.0
+        client_sicav_series.append((dt, sc))
         if mov > 0:
             depots_total += mov
         elif mov < 0:
@@ -418,6 +1242,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     solde_total = depots_total + retraits_total
     depots_str = _fmt_currency(depots_total)
     retraits_str = _fmt_currency(abs(retraits_total))
+    retraits_str_signed = _fmt_currency(retraits_total)
     solde_str = _fmt_currency(solde_total)
     last_valo_str = _fmt_currency(last_valo)
 
@@ -436,6 +1261,8 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         if not prev or (row.date and prev.get("date") and row.date > prev["date"]):
             years_map[y] = {"date": getattr(row, "date", None), "perf": perf, "vol": vol}
     years_sorted = sorted(years_map.keys())
+    perf_vol_years = [int(y) for y in years_sorted]
+    perf_vol_years = [int(y) for y in years_sorted]
 
     def _to_pct(value):
         if value is None:
@@ -461,6 +1288,12 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
 
     ann_perf = [_to_pct(years_map[y]["perf"]) for y in years_sorted]
     ann_vol = [_to_pct(years_map[y]["vol"]) for y in years_sorted]
+    perf_vol_years = [int(y) for y in years_sorted]
+    last_row_hist = historique[-1] if historique else None
+    last_perf_pct = _to_pct(getattr(last_row_hist, "perf_sicav_52", None) if last_row_hist else None)
+    last_vol_pct = _to_pct(getattr(last_row_hist, "volat", None) if last_row_hist else None)
+    current_srri = int(getattr(last_row_hist, "SRRI", None)) if (last_row_hist and getattr(last_row_hist, "SRRI", None) is not None) else None
+    client_srri = int(getattr(client, "SRRI", None)) if getattr(client, "SRRI", None) is not None else None
 
     history_chart_svg = _build_svg_line_chart(history_labels, history_values, "Historique des valorisations")
     perf_chart_svg = None
@@ -482,6 +1315,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             Affaire.id.label("id"),
             Affaire.ref,
             Affaire.SRRI,
+            Affaire.date_cle,
             HistoriqueAffaire.valo.label("last_valo"),
             HistoriqueAffaire.perf_sicav_52.label("last_perf"),
             HistoriqueAffaire.volat.label("last_volat"),
@@ -496,6 +1330,47 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         .all()
     )
 
+    if selected_dt:
+        mouvements_rows = db.execute(
+            text(
+                """
+                SELECT h.id AS id_affaire,
+                       SUM(COALESCE(h.mouvement, 0)) AS total_mvt
+                FROM mariadb_historique_affaire_w h
+                WHERE h.date <= :sel
+                GROUP BY h.id
+                """
+            ),
+            {"sel": selected_dt},
+        ).fetchall()
+    else:
+        mouvements_rows = db.execute(
+            text(
+                """
+                SELECT h.id AS id_affaire,
+                       SUM(COALESCE(h.mouvement, 0)) AS total_mvt
+                FROM mariadb_historique_affaire_w h
+                GROUP BY h.id
+                """
+            )
+        ).fetchall()
+
+    mouvements_map: dict[int, float] = {}
+    for row in mouvements_rows:
+        mapping = row._mapping if hasattr(row, "_mapping") else None
+        rid_raw = mapping.get("id_affaire") if mapping else (row[0] if len(row) > 0 else None)
+        total_raw = mapping.get("total_mvt") if mapping else (row[1] if len(row) > 1 else None)
+        try:
+            rid = int(rid_raw) if rid_raw is not None else None
+        except Exception:
+            rid = None
+        if rid is None:
+            continue
+        try:
+            mouvements_map[rid] = float(total_raw or 0.0)
+        except Exception:
+            mouvements_map[rid] = 0.0
+
     def _to_pct(x):
         if x is None:
             return None
@@ -508,14 +1383,21 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         return v
 
     contracts = []
+    contracts_total_valo = 0.0
     for row in affaires_rows:
+        valo_raw = float(row.last_valo or 0.0)
+        contracts_total_valo += valo_raw
         contracts.append({
             "ref": row.ref,
             "srri": row.SRRI,
-            "valo": _fmt_currency(row.last_valo),
+            "valo": _fmt_currency(valo_raw),
             "perf": _to_pct(row.last_perf),
             "vol": _to_pct(row.last_volat),
         })
+    contracts_total_valo_str = _fmt_currency(contracts_total_valo)
+    nb_contrats_total = len(affaires_rows)
+    nb_contrats_fermes = sum(1 for r in affaires_rows if getattr(r, "date_cle", None))
+    nb_contrats_ouverts = max(0, nb_contrats_total - nb_contrats_fermes)
 
     last_support_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w")).scalar()
     supports_rows = []
@@ -543,16 +1425,238 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         ).fetchall()
 
     supports = []
+    supports_total_valo = 0.0
     for row in supports_rows:
         m = getattr(row, "_mapping", row)
+        valo_raw = float(m.get("total_valo") or 0)
+        supports_total_valo += valo_raw
         supports.append({
             "code_isin": m.get("code_isin"),
             "nom": m.get("nom"),
             "cat": m.get("cat_principale") or m.get("cat_geo"),
+            "cat_principale": m.get("cat_principale"),
+            "cat_geo": m.get("cat_geo"),
             "srri": m.get("SRRI"),
-            "valo": _fmt_currency(m.get("total_valo")),
-            "valo_raw": float(m.get("total_valo") or 0),
+            "valo": _fmt_currency(valo_raw),
+            "valo_raw": valo_raw,
         })
+
+    supports_total_valo_str = _fmt_currency(supports_total_valo)
+    nb_supports_actifs = sum(1 for s in supports if (s.get("valo_raw") or 0) > 0)
+    if nb_supports_actifs == 0:
+        nb_supports_actifs = len(supports)
+
+    def _compute_support_breakdown(items: list[dict], field_key: str) -> list[dict]:
+        total = sum(float(it.get("valo_raw") or 0.0) for it in items)
+        if total <= 0:
+            return []
+        agg: dict[str, float] = {}
+        for it in items:
+            try:
+                val = float(it.get("valo_raw") or 0.0)
+            except Exception:
+                val = 0.0
+            label = it.get(field_key)
+            if not label:
+                label = "Non renseigné"
+            agg[str(label)] = agg.get(str(label), 0.0) + val
+        breakdown = []
+        for label, val in sorted(agg.items(), key=lambda kv: kv[1], reverse=True):
+            pct = (val / total * 100.0) if total > 0 else None
+            breakdown.append({
+                "label": label,
+                "valo": _fmt_currency(val),
+                "valo_raw": val,
+                "percent": pct,
+            })
+        return breakdown
+
+    supports_category_breakdown = _compute_support_breakdown(supports, "cat_principale")
+    supports_geo_breakdown = _compute_support_breakdown(supports, "cat_geo")
+    supports_category_chart_png = None
+    if supports_category_breakdown:
+        cat_labels = [row.get('label') for row in supports_category_breakdown]
+        cat_values = [float(row.get('valo_raw') or 0.0) for row in supports_category_breakdown]
+        supports_category_chart_png = _build_matplotlib_horizontal_bar_chart(cat_labels, cat_values, "Répartition par catégorie principale", "Valorisation (€)")
+    supports_geo_chart_png = None
+    if supports_geo_breakdown:
+        geo_labels = [row.get('label') for row in supports_geo_breakdown]
+        geo_values = [float(row.get('valo_raw') or 0.0) for row in supports_geo_breakdown]
+        supports_geo_chart_png = _build_matplotlib_horizontal_bar_chart(geo_labels, geo_values, "Répartition géographique", "Valorisation (€)")
+
+    # Courbes valorisation & mouvements par année (pour restitution tabulaire)
+    curves_year_map: dict[int, dict] = {}
+    for idx, row in enumerate(historique):
+        dt = getattr(row, "date", None)
+        if dt is None:
+            continue
+        year = dt.year
+        mov_cum_val = history_mov_cum[idx] if idx < len(history_mov_cum) else 0.0
+        entry = curves_year_map.get(year)
+        if entry is None or (entry.get("date") and dt > entry["date"]):
+            curves_year_map[year] = {
+                "date": dt,
+                "valorisation": float(getattr(row, "valo", 0.0) or 0.0),
+                "mouvements": float(mov_cum_val or 0.0),
+            }
+    curves_year_data = []
+    curves_values_all: list[float] = []
+    curves_year_labels: list[str] = []
+    curves_valorisation_series: list[float] = []
+    curves_mouvements_series: list[float] = []
+    for year in sorted(curves_year_map.keys()):
+        entry = curves_year_map[year]
+        val_valo = entry.get("valorisation", 0.0) or 0.0
+        val_mov = entry.get("mouvements", 0.0) or 0.0
+        curves_values_all.extend([val_valo, val_mov])
+        curves_year_labels.append(str(year))
+        curves_valorisation_series.append(val_valo)
+        curves_mouvements_series.append(val_mov)
+        curves_year_data.append({
+            "year": year,
+            "valorisation": _fmt_currency(val_valo),
+            "valorisation_raw": val_valo,
+            "mouvements": _fmt_currency(val_mov),
+            "mouvements_raw": val_mov,
+        })
+    curves_value_min = min(curves_values_all) if curves_values_all else 0.0
+    curves_value_max = max(curves_values_all) if curves_values_all else 0.0
+    curves_value_min_str = _fmt_currency(curves_value_min)
+    curves_value_max_str = _fmt_currency(curves_value_max)
+    curves_chart_png = _build_matplotlib_two_line_chart(
+        curves_year_labels,
+        curves_valorisation_series,
+        curves_mouvements_series,
+        "Valorisation",
+        "Cumul mouvements",
+        "Valorisation & flux cumulés par année",
+    )
+    curves_chart_svg = None
+    if not curves_chart_png:
+        curves_chart_svg = _build_svg_two_line_chart(
+            curves_year_labels,
+            curves_valorisation_series,
+            curves_mouvements_series,
+            "Valorisation",
+            "Cumul mouvements",
+            "Valorisation & flux cumulés par année",
+        )
+    perf_vol_chart_png = _build_matplotlib_perf_vol_chart(perf_vol_years, ann_perf, ann_vol)
+
+    allocation_reference_name: str | None = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT k.niveau_id
+                FROM KYC_Client_Risque k
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        niveau_id = row[0] if row else None
+        if niveau_id is not None:
+            try:
+                niveau_id = int(niveau_id)
+            except Exception:
+                niveau_id = None
+        if niveau_id is not None:
+            row_alloc = db.execute(
+                text(
+                    """
+                    SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+                    FROM allocation_risque ar
+                    LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                    WHERE ar.risque_id = :rid
+                    ORDER BY ar.date_attribution DESC, ar.id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"rid": niveau_id},
+            ).fetchone()
+            if row_alloc:
+                allocation_reference_name = row_alloc[0]
+    except Exception:
+        allocation_reference_name = None
+
+    allocation_series_pairs: list[tuple[str, float]] = []
+    alloc_min_dt = None
+    alloc_max_dt = None
+    if allocation_reference_name:
+        try:
+            rows_alloc = (
+                db.query(Allocation.date, Allocation.sicav)
+                .filter(Allocation.nom == allocation_reference_name)
+                .order_by(Allocation.date.asc())
+                .all()
+            )
+            for d, val in rows_alloc:
+                try:
+                    dstr = d.strftime("%Y-%m-%d") if d else None
+                except Exception:
+                    dstr = str(d)[:10] if d else None
+                if not dstr:
+                    continue
+                try:
+                    sval = float(val or 0.0)
+                except Exception:
+                    sval = 0.0
+                allocation_series_pairs.append((dstr, sval))
+                try:
+                    d_dt = datetime.strptime(dstr, "%Y-%m-%d")
+                    if alloc_min_dt is None or d_dt < alloc_min_dt:
+                        alloc_min_dt = d_dt
+                    if alloc_max_dt is None or d_dt > alloc_max_dt:
+                        alloc_max_dt = d_dt
+                except Exception:
+                    continue
+        except Exception:
+            allocation_series_pairs = []
+
+    def _within_alloc_range(d: str) -> bool:
+        if not d:
+            return False
+        if alloc_min_dt is None or alloc_max_dt is None:
+            return True
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+        except Exception:
+            return False
+        return alloc_min_dt <= dt <= alloc_max_dt
+
+    client_series_pairs = [(d, v) for d, v in client_sicav_series if d and _within_alloc_range(d)]
+
+    def _to_base100(series: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        base = None
+        for _, val in series:
+            try:
+                fval = float(val)
+            except Exception:
+                continue
+            if fval != 0:
+                base = fval
+                break
+        if base is None or base == 0:
+            return series
+        normalized: list[tuple[str, float]] = []
+        for d, val in series:
+            try:
+                fval = float(val or 0.0)
+            except Exception:
+                fval = 0.0
+            normalized.append((d, (fval / base) * 100.0))
+        return normalized
+
+    allocation_series_pairs = _to_base100(allocation_series_pairs)
+    client_series_pairs = _to_base100(client_series_pairs)
+    alloc_compare_chart_png = _build_matplotlib_alloc_compare_chart(
+        client_series_pairs,
+        allocation_series_pairs,
+        allocation_reference_name or "Allocation",
+    )
 
     top_supports = supports[:5]
     supports_chart_svg = None
@@ -635,7 +1739,99 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             "avg_vol_pct": avg_vol_pct,
         })
 
+    if first_history_date and last_history_date:
+        total_months = (last_history_date.year - first_history_date.year) * 12 + (last_history_date.month - first_history_date.month)
+        if last_history_date.day < first_history_date.day:
+            total_months -= 1
+        years_span_int = total_months // 12
+        months_span = total_months % 12
+        if years_span_int <= 0 and months_span <= 0:
+            try:
+                days_span = max(0, (last_history_date - first_history_date).days)
+            except Exception:
+                days_span = 0
+            duree_historique_str = f"{days_span} jours"
+        else:
+            parts = []
+            if years_span_int > 0:
+                parts.append(f"{years_span_int} ans")
+            if months_span > 0:
+                parts.append(f"{months_span} mois")
+            duree_historique_str = ", ".join(parts) if parts else "-"
+        try:
+            span_years = max(1e-6, (last_history_date - first_history_date).days / 365.25)
+            overall_ann_perf_pct = ((float(cum_factor) ** (1.0 / span_years)) - 1.0) * 100.0
+        except Exception:
+            overall_ann_perf_pct = None
+    else:
+        duree_historique_str = "-"
+
+    responsable_label = "—"
+    if getattr(client, "commercial_id", None):
+        try:
+            target_id = int(client.commercial_id)
+        except Exception:
+            target_id = None
+        if target_id is not None:
+            for rh in rh_list:
+                try:
+                    if int(rh.get("id")) == target_id:
+                        prenom = rh.get("prenom") or ""
+                        nom = rh.get("nom") or ""
+                        label = f"{prenom} {nom}".strip()
+                        responsable_label = label if label else "—"
+                        break
+                except Exception:
+                    continue
+
+    synthese_card = {
+        "nb_contrats_ouverts": nb_contrats_ouverts,
+        "nb_contrats_fermes": nb_contrats_fermes,
+        "duree_historique": duree_historique_str,
+        "responsable": responsable_label,
+    }
+    valorisation_card = {
+        "last_valo": last_valo_str,
+        "depots": depots_str,
+        "retraits": retraits_str_signed,
+        "solde": solde_str,
+    }
+    indicateurs_card = {
+        "nb_contrats_ouverts": nb_contrats_ouverts,
+        "nb_supports_actifs": nb_supports_actifs,
+        "last_perf_pct": last_perf_pct,
+        "last_vol_pct": last_vol_pct,
+        "client_srri": client_srri,
+        "current_srri": current_srri,
+        "overall_ann_perf_pct": overall_ann_perf_pct,
+    }
+
     report_date = datetime.utcnow()
+    try:
+        esg_comparison_alloc_value = esg_comparison_alloc
+    except NameError:
+        esg_comparison_alloc_value = None
+    try:
+        esg_comparison_rows_value = esg_comparison_rows
+    except NameError:
+        esg_comparison_rows_value = None
+    try:
+        esg_comparison_chart_value = esg_comparison_chart_png
+    except NameError:
+        esg_comparison_chart_value = None
+    try:
+        esg_unmatched_fields_value = esg_unmatched_fields
+    except NameError:
+        esg_unmatched_fields_value = None
+    try:
+        esg_default_fields_value = esg_default_fields
+    except NameError:
+        esg_default_fields_value = None
+    try:
+        esg_field_labels_value = esg_field_labels_client
+    except NameError:
+        esg_field_labels_value = {}
+
     return {
         "client": client,
         "civilite": civilite,
@@ -647,12 +1843,34 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             "retraits": _fmt_currency(abs(retraits_total)),
             "solde": solde_str,
         },
+        "contracts_total_valo": contracts_total_valo_str,
+        "supports_total_valo": supports_total_valo_str,
         "history_recent": history_recent,
         "history_chart_svg": history_chart_svg,
         "performance_chart_svg": perf_chart_svg,
         "supports_chart_svg": supports_chart_svg,
+        "curves_year_data": curves_year_data,
+        "curves_value_min": curves_value_min,
+        "curves_value_max": curves_value_max,
+        "curves_value_min_str": curves_value_min_str,
+        "curves_value_max_str": curves_value_max_str,
+        "curves_chart_png": curves_chart_png,
+        "curves_chart_svg": curves_chart_svg,
+        "perf_vol_chart_png": perf_vol_chart_png,
+        "alloc_compare_chart_png": alloc_compare_chart_png,
+        "allocation_reference_name": allocation_reference_name,
+        "esg_comparison_alloc": esg_comparison_alloc_value,
+        "esg_comparison_rows": esg_comparison_rows_value,
+        "esg_comparison_chart_png": esg_comparison_chart_value,
+        "esg_unmatched_fields": esg_unmatched_fields_value,
+        "esg_default_fields": esg_default_fields_value,
+        "esg_field_labels": esg_field_labels_value,
         "contracts": contracts,
         "supports": supports,
+        "supports_category_breakdown": supports_category_breakdown,
+        "supports_geo_breakdown": supports_geo_breakdown,
+        "supports_category_chart_png": supports_category_chart_png,
+        "supports_geo_chart_png": supports_geo_chart_png,
         "history_years": [str(y) for y in years_sorted],
         "history_perf": ann_perf,
         "history_vol": ann_vol,
@@ -663,6 +1881,987 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             "retraits": _fmt_currency(abs(retraits_total)),
             "solde": solde_str,
         },
+        "synthese_card": synthese_card,
+        "valorisation_card": valorisation_card,
+        "indicateurs_card": indicateurs_card,
+    }
+def _build_client_adequation_context(db: Session, client_id: int) -> dict | None:
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        return None
+
+    report_date = datetime.utcnow()
+    report_logo_png = None
+    try:
+        logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+        if logo_path.exists():
+            report_logo_png = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    except Exception:
+        report_logo_png = None
+
+    etat_civil_row = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT civilite,
+                       situation_familiale,
+                       date_naissance,
+                       lieu_naissance,
+                       nationalite,
+                       profession,
+                       commentaire
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            data = row._mapping if hasattr(row, "_mapping") else {}
+            etat_civil_row = {
+                "civilite": data.get("civilite"),
+                "situation_familiale": data.get("situation_familiale"),
+                "date_naissance": data.get("date_naissance"),
+                "lieu_naissance": data.get("lieu_naissance"),
+                "nationalite": data.get("nationalite"),
+                "profession": data.get("profession"),
+                "commentaire": data.get("commentaire"),
+            }
+    except Exception:
+        etat_civil_row = None
+
+    situations_matrimoniales: list[dict] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT nb_enfants,
+                       situation_id,
+                       sm.libelle AS situation_libelle,
+                       date_saisie,
+                       date_expiration
+                FROM KYC_Client_Situation_Matrimoniale m
+                LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
+                WHERE m.client_id = :cid
+                ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows or []:
+            data = row._mapping if hasattr(row, "_mapping") else {}
+            situations_matrimoniales.append(
+                {
+                    "nb_enfants": data.get("nb_enfants") or 0,
+                    "situation_id": data.get("situation_id"),
+                    "situation_libelle": data.get("situation_libelle"),
+                    "date_saisie": data.get("date_saisie"),
+                    "date_expiration": data.get("date_expiration"),
+                }
+            )
+    except Exception:
+        situations_matrimoniales = []
+
+    nb_enfants_latest = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT nb_enfants
+                FROM KYC_Client_Situation_Matrimoniale
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC NULLS LAST, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row is not None:
+            nb_enfants_latest = row[0]
+    except Exception:
+        nb_enfants_latest = None
+
+    synthese_latest = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT total_revenus,
+                       total_charges,
+                       total_actif,
+                       total_passif,
+                       commentaire
+                FROM KYC_Client_Synthese
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            data = row._mapping if hasattr(row, "_mapping") else {}
+            synthese_latest = {
+                "total_revenus": data.get("total_revenus"),
+                "total_charges": data.get("total_charges"),
+                "total_actif": data.get("total_actif"),
+                "total_passif": data.get("total_passif"),
+                "commentaire": data.get("commentaire"),
+            }
+    except Exception:
+        synthese_latest = None
+
+    risque_latest = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT 
+                  r.libelle AS niveau_risque,
+                  k.niveau_id AS niveau_id,
+                  k.duree AS horizon_placement,
+                  k.experience,
+                  k.connaissance,
+                  k.commentaire,
+                  k.confirmation_client
+                FROM KYC_Client_Risque k
+                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            risque_latest = dict(row._mapping)
+    except Exception:
+        risque_latest = None
+
+    contrat_choisi_nom = None
+    contrat_choisi_societe = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT g.nom_contrat, COALESCE(s.nom,'') AS societe_nom
+                FROM KYC_contrat_choisi k
+                LEFT JOIN mariadb_affaires_generique g ON g.id = k.id_contrat
+                LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                WHERE k.id_client = :cid
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            data = row._mapping if hasattr(row, "_mapping") else {}
+            contrat_choisi_nom = data.get("nom_contrat") or row[0]
+            contrat_choisi_societe = data.get("societe_nom") if "societe_nom" in data else (row[1] if len(row) > 1 else None)
+    except Exception:
+        contrat_choisi_nom = None
+        contrat_choisi_societe = None
+
+    adequation_contracts: list[dict] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT g.id,
+                       g.nom_contrat,
+                       COALESCE(s.nom, '') AS societe_nom,
+                       COALESCE(g.frais_gestion_assureur,0) + COALESCE(g.frais_gestion_courtier,0) AS total_frais
+                FROM mariadb_affaires_generique g
+                LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                WHERE COALESCE(g.actif, 1) = 1
+                ORDER BY s.nom, g.nom_contrat
+                """
+            )
+        ).fetchall()
+        adequation_contracts = [dict(r._mapping) for r in rows]
+    except Exception:
+        adequation_contracts = []
+
+    adequation_objectifs: list[dict] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT o.objectif_id,
+                       ro.libelle AS objectif_libelle,
+                       o.horizon_investissement,
+                       o.commentaire,
+                       COALESCE(o.niveau_id, 9999) AS _niv
+                FROM KYC_Client_Objectifs o
+                LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+                WHERE o.client_id = :cid
+                ORDER BY _niv, ro.libelle, o.id
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        adequation_objectifs = [dict(r._mapping) for r in rows]
+    except Exception:
+        adequation_objectifs = []
+
+    allocation_reference_name = None
+    adequation_allocation_html = None
+    if risque_latest and risque_latest.get("niveau_id") is not None:
+        try:
+            row = db.execute(
+                text(
+                    """
+                    SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                           ar.texte
+                    FROM allocation_risque ar
+                    LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                    WHERE ar.risque_id = :rid
+                    ORDER BY ar.date_attribution DESC, ar.id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"rid": int(risque_latest.get("niveau_id"))},
+            ).fetchone()
+            if row:
+                allocation_reference_name = row[0]
+                texte = row[1]
+                if texte:
+                    try:
+                        import html as _html
+                        import re
+
+                        esc = _html.escape(str(texte))
+                        esc = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", esc, flags=re.M)
+                        esc = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", esc, flags=re.M)
+                        esc = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", esc, flags=re.M)
+                        esc = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", esc)
+                        esc = re.sub(r"\*(.+?)\*", r"<em>\1</em>", esc)
+                        lines = esc.split("\n")
+                        out: list[str] = []
+                        in_ul = False
+                        for line in lines:
+                            if re.match(r"^\s*-\s+", line):
+                                if not in_ul:
+                                    out.append("<ul>")
+                                    in_ul = True
+                                out.append("<li>" + re.sub(r"^\s*-\s+", "", line) + "</li>")
+                            else:
+                                if in_ul:
+                                    out.append("</ul>")
+                                    in_ul = False
+                                if line.strip():
+                                    out.append("<p>" + line + "</p>")
+                        if in_ul:
+                            out.append("</ul>")
+                        adequation_allocation_html = "\n".join(out)
+                    except Exception:
+                        adequation_allocation_html = str(texte).replace("\n", "<br/>")
+        except Exception:
+            adequation_allocation_html = None
+
+    revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
+    charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
+    actif = float(synthese_latest.get("total_actif") or 0.0) if synthese_latest else 0.0
+    passif = float(synthese_latest.get("total_passif") or 0.0) if synthese_latest else 0.0
+    budget = revenues - charges
+    patrimoine_net = actif - passif
+
+    civilite = None
+    situation_familiale = None
+    if etat_civil_row:
+        civilite = etat_civil_row.get("civilite")
+        situation_familiale = etat_civil_row.get("situation_familiale")
+    if not civilite:
+        civilite = getattr(client, "civilite", None)
+
+    nb_enfants = nb_enfants_latest
+    if nb_enfants is None and situations_matrimoniales:
+        nb_enfants = situations_matrimoniales[0].get("nb_enfants")
+    if nb_enfants is None:
+        nb_enfants = 0
+
+    contexte = {
+        "client": client,
+        "report_date": report_date,
+        "report_date_str": report_date.strftime("%d/%m/%Y"),
+        "report_logo_png": report_logo_png,
+        "civilite": civilite,
+        "situation_familiale": situation_familiale,
+        "nb_enfants": nb_enfants,
+        "revenus_total": revenues,
+        "charges_total": charges,
+        "actif_total": actif,
+        "passif_total": passif,
+        "budget_disponible": budget,
+        "patrimoine_net": patrimoine_net,
+        "revenus_total_str": _fmt_currency(revenues),
+        "charges_total_str": _fmt_currency(charges),
+        "actif_total_str": _fmt_currency(actif),
+        "passif_total_str": _fmt_currency(passif),
+        "budget_disponible_str": _fmt_currency(budget),
+        "patrimoine_net_str": _fmt_currency(patrimoine_net),
+        "risque_latest": risque_latest,
+        "horizon_placement": risque_latest.get("horizon_placement") if risque_latest else None,
+        "niveau_risque": risque_latest.get("niveau_risque") if risque_latest else None,
+        "experience": risque_latest.get("experience") if risque_latest else None,
+        "connaissance": risque_latest.get("connaissance") if risque_latest else None,
+        "allocation_reference_name": allocation_reference_name,
+        "contrat_choisi_nom": contrat_choisi_nom,
+        "contrat_choisi_societe": contrat_choisi_societe,
+        "adequation_contracts": adequation_contracts,
+        "adequation_objectifs": adequation_objectifs,
+        "adequation_allocation_html": adequation_allocation_html,
+        "synthese_latest": synthese_latest,
+        "etat_civil_latest": etat_civil_row,
+        "kyc_etat_civil": etat_civil_row,
+        "kyc_situations_matrimoniales": situations_matrimoniales,
+    }
+    return contexte
+def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
+    affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+    if not affaire:
+        return None
+
+    client = None
+    civilite = None
+    if getattr(affaire, "id_personne", None):
+        client = db.query(Client).filter(Client.id == affaire.id_personne).first()
+        try:
+            civilite = db.execute(
+                text(
+                    """
+                    SELECT civilite
+                    FROM etat_civil_client
+                    WHERE id_client = :cid
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": affaire.id_personne},
+            ).scalar()
+        except Exception:
+            civilite = None
+
+    client_id = getattr(client, "id", None) if client else getattr(affaire, "id_personne", None)
+    rh_list = fetch_rh_list(db)
+
+    historique = (
+        db.query(
+            HistoriqueAffaire.date,
+            HistoriqueAffaire.valo,
+            HistoriqueAffaire.mouvement,
+            HistoriqueAffaire.sicav,
+            HistoriqueAffaire.perf_sicav_52,
+            HistoriqueAffaire.volat,
+            HistoriqueAffaire.annee,
+        )
+        .filter(HistoriqueAffaire.id == affaire_id)
+        .order_by(HistoriqueAffaire.date.asc())
+        .all()
+    )
+
+    history_labels: list[str] = []
+    history_values: list[float] = []
+    history_recent: list[dict] = []
+    history_mov_cum: list[float] = []
+    client_sicav_series: list[tuple[str | None, float]] = []
+    depots_total = 0.0
+    retraits_total = 0.0
+    cumul = 0.0
+    last_valo = 0.0
+    first_history_date = None
+    last_history_date = None
+
+    for row in historique:
+        dt_str = None
+        if getattr(row, "date", None):
+            try:
+                dt_str = row.date.strftime("%Y-%m-%d")
+            except Exception:
+                dt_str = str(row.date)[:10]
+            if first_history_date is None:
+                first_history_date = row.date
+            last_history_date = row.date
+        else:
+            dt_str = "N/A"
+        history_labels.append(dt_str)
+        try:
+            val = float(getattr(row, "valo", 0.0) or 0.0)
+        except Exception:
+            val = 0.0
+        history_values.append(val)
+        last_valo = val
+        mouvement_raw = float(getattr(row, "mouvement", 0.0) or 0.0)
+        cumul += mouvement_raw
+        history_mov_cum.append(cumul)
+        if mouvement_raw > 0:
+            depots_total += mouvement_raw
+        elif mouvement_raw < 0:
+            retraits_total += mouvement_raw
+        try:
+            sicav_val = float(getattr(row, "sicav", 0.0) or 0.0)
+        except Exception:
+            sicav_val = 0.0
+        client_sicav_series.append((dt_str, sicav_val))
+
+    for dt, val in list(zip(history_labels, history_values))[-12:]:
+        history_recent.append({"date": dt, "valo": _fmt_currency(val) + " €"})
+
+    solde_total = depots_total + retraits_total
+    depots_str = _fmt_currency(depots_total)
+    retraits_str_signed = _fmt_currency(retraits_total)
+    solde_str = _fmt_currency(solde_total)
+    last_valo_str = _fmt_currency(last_valo)
+
+    years_map: dict[int, dict] = {}
+    for row in historique:
+        year = getattr(row, "annee", None)
+        if year is None:
+            continue
+        try:
+            y = int(year)
+        except Exception:
+            continue
+        perf = getattr(row, "perf_sicav_52", None)
+        vol = getattr(row, "volat", None)
+        prev = years_map.get(y)
+        if not prev or (row.date and prev.get("date") and row.date > prev["date"]):
+            years_map[y] = {"date": getattr(row, "date", None), "perf": perf, "vol": vol}
+
+    def _to_pct(value):
+        if value is None:
+            return None
+        try:
+            n = float(value)
+        except Exception:
+            return None
+        if abs(n) <= 1:
+            n *= 100.0
+        return n
+
+    def _to_return_decimal(value):
+        if value is None:
+            return 0.0
+        try:
+            n = float(value)
+        except Exception:
+            return 0.0
+        if abs(n) <= 1:
+            return n
+        return n / 100.0
+
+    years_sorted = sorted(years_map.keys())
+    perf_vol_years = [int(y) for y in years_sorted]
+    ann_perf = [_to_pct(years_map[y]["perf"]) for y in years_sorted]
+    ann_vol = [_to_pct(years_map[y]["vol"]) for y in years_sorted]
+    last_row_hist = historique[-1] if historique else None
+    last_perf_pct = _to_pct(getattr(last_row_hist, "perf_sicav_52", None) if last_row_hist else None)
+    last_vol_pct = _to_pct(getattr(last_row_hist, "volat", None) if last_row_hist else None)
+
+    def _srri_from_vol(vol_value):
+        if vol_value is None:
+            return None
+        try:
+            v = float(vol_value)
+        except Exception:
+            return None
+        if abs(v) <= 1:
+            v *= 100.0
+        if v <= 0.5:
+            return 1
+        if v <= 2:
+            return 2
+        if v <= 5:
+            return 3
+        if v <= 10:
+            return 4
+        if v <= 15:
+            return 5
+        if v <= 25:
+            return 6
+        return 7
+
+    current_srri = _srri_from_vol(getattr(last_row_hist, "volat", None) if last_row_hist else None)
+    client_srri = getattr(affaire, "SRRI", None)
+
+    history_chart_svg = _build_svg_line_chart(history_labels, history_values, "Historique des valorisations")
+    perf_chart_svg = None
+    if ann_perf:
+        perf_labels = [str(y) for y in years_sorted]
+        perf_chart_svg = _build_svg_bar_chart(perf_labels[:6], ann_perf[:6], "Performance annuelle (%)")
+
+    contracts = [{
+        "ref": getattr(affaire, "ref", None),
+        "srri": getattr(affaire, "SRRI", None),
+        "valo": _fmt_currency(last_valo),
+        "perf": last_perf_pct,
+        "vol": last_vol_pct,
+    }]
+    contracts_total_valo = last_valo
+    contracts_total_valo_str = _fmt_currency(contracts_total_valo)
+    nb_contrats_ouverts = 1 if getattr(affaire, "date_cle", None) in (None, "") else 0
+    nb_contrats_fermes = 1 - nb_contrats_ouverts
+
+    last_support_date = db.execute(
+        text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"),
+        {"aid": affaire_id},
+    ).scalar()
+
+    supports_rows = []
+    if last_support_date:
+        supports_rows = db.execute(
+            text(
+                """
+                SELECT s.code_isin,
+                       s.nom,
+                       s.cat_principale,
+                       s.cat_geo,
+                       s.SRRI,
+                       SUM(h.valo) AS total_valo
+                FROM mariadb_historique_support_w h
+                JOIN mariadb_support s ON s.id = h.id_support
+                WHERE h.id_source = :aid
+                  AND DATE(h.date) = DATE(:last_date)
+                GROUP BY s.code_isin, s.nom, s.cat_principale, s.cat_geo, s.SRRI
+                HAVING SUM(h.valo) > 0
+                ORDER BY total_valo DESC
+                """
+            ),
+            {"aid": affaire_id, "last_date": last_support_date},
+        ).fetchall()
+
+    supports = []
+    supports_total_valo = 0.0
+    for row in supports_rows or []:
+        m = getattr(row, "_mapping", row)
+        try:
+            valo_raw = float(m.get("total_valo") or 0.0)
+        except Exception:
+            valo_raw = 0.0
+        supports_total_valo += valo_raw
+        supports.append({
+            "code_isin": m.get("code_isin"),
+            "nom": m.get("nom"),
+            "cat": m.get("cat_principale") or m.get("cat_geo"),
+            "cat_principale": m.get("cat_principale"),
+            "cat_geo": m.get("cat_geo"),
+            "srri": m.get("SRRI"),
+            "valo": _fmt_currency(valo_raw),
+            "valo_raw": valo_raw,
+        })
+
+    supports_total_valo_str = _fmt_currency(supports_total_valo)
+    nb_supports_actifs = sum(1 for s in supports if (s.get("valo_raw") or 0) > 0)
+    if nb_supports_actifs == 0:
+        nb_supports_actifs = len(supports)
+
+    def _compute_support_breakdown(items: list[dict], field_key: str) -> list[dict]:
+        total = sum(float(it.get("valo_raw") or 0.0) for it in items)
+        if total <= 0:
+            return []
+        agg: dict[str, float] = {}
+        for it in items:
+            label = it.get(field_key) or "Non renseigné"
+            agg[str(label)] = agg.get(str(label), 0.0) + float(it.get("valo_raw") or 0.0)
+        breakdown = []
+        for label, val in sorted(agg.items(), key=lambda kv: kv[1], reverse=True):
+            pct = (val / total * 100.0) if total > 0 else None
+            breakdown.append({
+                "label": label,
+                "valo": _fmt_currency(val),
+                "valo_raw": val,
+                "percent": pct,
+            })
+        return breakdown
+
+    supports_category_breakdown = _compute_support_breakdown(supports, "cat_principale")
+    supports_geo_breakdown = _compute_support_breakdown(supports, "cat_geo")
+
+    supports_category_chart_png = None
+    if supports_category_breakdown:
+        cat_labels = [row.get("label") for row in supports_category_breakdown]
+        cat_values = [float(row.get("valo_raw") or 0.0) for row in supports_category_breakdown]
+        supports_category_chart_png = _build_matplotlib_horizontal_bar_chart(
+            cat_labels,
+            cat_values,
+            "Répartition par catégorie principale",
+            "Valorisation (€)",
+        )
+
+    supports_geo_chart_png = None
+    if supports_geo_breakdown:
+        geo_labels = [row.get("label") for row in supports_geo_breakdown]
+        geo_values = [float(row.get("valo_raw") or 0.0) for row in supports_geo_breakdown]
+        supports_geo_chart_png = _build_matplotlib_horizontal_bar_chart(
+            geo_labels,
+            geo_values,
+            "Répartition géographique",
+            "Valorisation (€)",
+        )
+
+    curves_year_map: dict[int, dict] = {}
+    for idx, row in enumerate(historique):
+        dt = getattr(row, "date", None)
+        if dt is None:
+            continue
+        year = dt.year
+        mov_cum_val = history_mov_cum[idx] if idx < len(history_mov_cum) else 0.0
+        entry = curves_year_map.get(year)
+        if entry is None or (entry.get("date") and dt > entry["date"]):
+            curves_year_map[year] = {
+                "date": dt,
+                "valorisation": float(getattr(row, "valo", 0.0) or 0.0),
+                "mouvements": float(mov_cum_val or 0.0),
+            }
+    curves_year_data: list[dict] = []
+    curves_values_all: list[float] = []
+    curves_year_labels: list[str] = []
+    curves_valorisation_series: list[float] = []
+    curves_mouvements_series: list[float] = []
+    for year in sorted(curves_year_map.keys()):
+        entry = curves_year_map[year]
+        val_valo = entry.get("valorisation", 0.0) or 0.0
+        val_mov = entry.get("mouvements", 0.0) or 0.0
+        curves_values_all.extend([val_valo, val_mov])
+        curves_year_labels.append(str(year))
+        curves_valorisation_series.append(val_valo)
+        curves_mouvements_series.append(val_mov)
+        curves_year_data.append({
+            "year": year,
+            "valorisation": _fmt_currency(val_valo),
+            "mouvements": _fmt_currency(val_mov),
+        })
+    curves_value_min = min(curves_values_all) if curves_values_all else None
+    curves_value_max = max(curves_values_all) if curves_values_all else None
+    curves_value_min_str = _fmt_currency(curves_value_min) if curves_value_min is not None else None
+    curves_value_max_str = _fmt_currency(curves_value_max) if curves_value_max is not None else None
+    curves_chart_png = None
+    curves_chart_svg = None
+    if curves_year_labels and curves_valorisation_series and curves_mouvements_series:
+        curves_chart_png = _build_matplotlib_two_line_chart(
+            curves_year_labels,
+            curves_valorisation_series,
+            curves_mouvements_series,
+            "Valorisation",
+            "Cumul mouvements",
+            "Valorisation & flux cumulés par année",
+        )
+        if not curves_chart_png:
+            curves_chart_svg = _build_svg_two_line_chart(
+                curves_year_labels,
+                curves_valorisation_series,
+                curves_mouvements_series,
+                "Valorisation",
+                "Cumul mouvements",
+                "Valorisation & flux cumulés par année",
+            )
+    else:
+        curves_value_min = curves_value_max = None
+        curves_value_min_str = curves_value_max_str = None
+
+    perf_vol_chart_png = _build_matplotlib_perf_vol_chart(perf_vol_years, ann_perf, ann_vol)
+
+    supports_chart_svg = None
+    top_supports = supports[:5]
+    if top_supports:
+        supports_chart_svg = _build_svg_bar_chart(
+            [s.get("code_isin") or "?" for s in top_supports],
+            [s.get("valo_raw") or 0 for s in top_supports],
+            "Top supports par valorisation",
+        )
+
+    for s in supports:
+        s.pop("valo_raw", None)
+
+    allocation_reference_name: str | None = None
+    alloc_compare_chart_png = None
+    if client_id is not None:
+        try:
+            row = db.execute(
+                text(
+                    """
+                    SELECT k.niveau_id
+                    FROM KYC_Client_Risque k
+                    WHERE k.client_id = :cid
+                    ORDER BY k.date_saisie DESC, k.id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id},
+            ).fetchone()
+            niveau_id = row[0] if row else None
+            if niveau_id is not None:
+                try:
+                    niveau_id = int(niveau_id)
+                except Exception:
+                    niveau_id = None
+            if niveau_id is not None:
+                row_alloc = db.execute(
+                    text(
+                        """
+                        SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+                        FROM allocation_risque ar
+                        LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                        WHERE ar.risque_id = :rid
+                        ORDER BY ar.date_attribution DESC, ar.id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"rid": niveau_id},
+                ).fetchone()
+                if row_alloc:
+                    allocation_reference_name = row_alloc[0]
+        except Exception:
+            allocation_reference_name = None
+
+        allocation_series_pairs: list[tuple[str, float]] = []
+        alloc_min_dt = None
+        alloc_max_dt = None
+        if allocation_reference_name:
+            try:
+                rows_alloc = (
+                    db.query(Allocation.date, Allocation.sicav)
+                    .filter(Allocation.nom == allocation_reference_name)
+                    .order_by(Allocation.date.asc())
+                    .all()
+                )
+                for d, val in rows_alloc:
+                    try:
+                        dstr = d.strftime("%Y-%m-%d") if d else None
+                    except Exception:
+                        dstr = str(d)[:10] if d else None
+                    if not dstr:
+                        continue
+                    try:
+                        sval = float(val or 0.0)
+                    except Exception:
+                        sval = 0.0
+                    allocation_series_pairs.append((dstr, sval))
+                    try:
+                        d_dt = datetime.strptime(dstr, "%Y-%m-%d")
+                        if alloc_min_dt is None or d_dt < alloc_min_dt:
+                            alloc_min_dt = d_dt
+                        if alloc_max_dt is None or d_dt > alloc_max_dt:
+                            alloc_max_dt = d_dt
+                    except Exception:
+                        continue
+            except Exception:
+                allocation_series_pairs = []
+
+        def _within_alloc_range(d: str) -> bool:
+            if not d:
+                return False
+            if alloc_min_dt is None or alloc_max_dt is None:
+                return True
+            try:
+                dt = datetime.strptime(d, "%Y-%m-%d")
+            except Exception:
+                return False
+            return alloc_min_dt <= dt <= alloc_max_dt
+
+        client_series_pairs = [(d, v) for d, v in client_sicav_series if d and _within_alloc_range(d)]
+
+        def _to_base100(series: list[tuple[str, float]]) -> list[tuple[str, float]]:
+            base = None
+            for _, val in series:
+                try:
+                    fval = float(val)
+                except Exception:
+                    continue
+                if fval != 0:
+                    base = fval
+                    break
+            if base is None or base == 0:
+                return series
+            normalized: list[tuple[str, float]] = []
+            for d, val in series:
+                try:
+                    fval = float(val or 0.0)
+                except Exception:
+                    fval = 0.0
+                normalized.append((d, (fval / base) * 100.0))
+            return normalized
+
+        allocation_series_pairs = _to_base100(allocation_series_pairs)
+        client_series_pairs = _to_base100(client_series_pairs)
+        alloc_compare_chart_png = _build_matplotlib_alloc_compare_chart(
+            client_series_pairs,
+            allocation_series_pairs,
+            allocation_reference_name or "Allocation",
+        )
+
+    year_data: dict[int, dict] = {}
+    for idx, row in enumerate(historique):
+        dt = getattr(row, "date", None)
+        if dt is None:
+            continue
+        year = dt.year
+        mov_cum_val = history_mov_cum[idx] if idx < len(history_mov_cum) else 0.0
+        entry = year_data.get(year)
+        if entry is None or (entry.get("date") and dt > entry["date"]):
+            year_data[year] = {
+                "date": dt,
+                "valorisation": float(getattr(row, "valo", 0.0) or 0.0),
+                "mouvements": float(mov_cum_val or 0.0),
+                "perf": getattr(row, "perf_sicav_52", None),
+                "vol": getattr(row, "volat", None),
+            }
+
+    reporting_years = []
+    cum_factor = 1.0
+    year_count = 0
+    for year in sorted(year_data.keys()):
+        info = year_data[year]
+        mov = info.get("mouvements", 0.0) or 0.0
+        last_val = info.get("valorisation", 0.0) or 0.0
+        perf_pct_val = _to_pct(info.get("perf"))
+        ann_return = _to_return_decimal(info.get("perf"))
+        try:
+            cum_factor *= (1.0 + ann_return)
+        except Exception:
+            pass
+        year_count += 1
+        cum_perf_pct = (cum_factor - 1.0) * 100.0
+        try:
+            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0
+        except Exception:
+            ann_perf_pct = None
+        vols_pct = [_to_pct(info.get("vol"))] if info.get("vol") is not None else []
+        avg_vol_pct = sum(v for v in vols_pct if v is not None) / len(vols_pct) if vols_pct else None
+        reporting_years.append({
+            "year": year,
+            "solde_str": _fmt_currency(mov),
+            "last_valo_str": _fmt_currency(last_val),
+            "cum_perf_pct": cum_perf_pct,
+            "ann_perf_pct": ann_perf_pct,
+            "avg_vol_pct": avg_vol_pct,
+        })
+
+    duree_historique_str = "-"
+    overall_ann_perf_pct = None
+    if first_history_date and last_history_date:
+        total_months = (last_history_date.year - first_history_date.year) * 12 + (last_history_date.month - first_history_date.month)
+        if last_history_date.day < first_history_date.day:
+            total_months -= 1
+        years_span_int = total_months // 12
+        months_span = total_months % 12
+        if years_span_int <= 0 and months_span <= 0:
+            try:
+                days_span = max(0, (last_history_date - first_history_date).days)
+            except Exception:
+                days_span = 0
+            duree_historique_str = f"{days_span} jours"
+        else:
+            parts = []
+            if years_span_int > 0:
+                parts.append(f"{years_span_int} ans")
+            if months_span > 0:
+                parts.append(f"{months_span} mois")
+            duree_historique_str = ", ".join(parts) if parts else "-"
+        try:
+            span_years = max(1e-6, (last_history_date - first_history_date).days / 365.25)
+            overall_ann_perf_pct = ((float(cum_factor) ** (1.0 / span_years)) - 1.0) * 100.0
+        except Exception:
+            overall_ann_perf_pct = None
+
+    responsable_label = "—"
+    if client and getattr(client, "commercial_id", None):
+        try:
+            target_id = int(client.commercial_id)
+        except Exception:
+            target_id = None
+        if target_id is not None:
+            for rh in rh_list or []:
+                try:
+                    if int(rh.get("id")) == target_id:
+                        prenom = (rh.get("prenom") or "").strip()
+                        nom = (rh.get("nom") or "").strip()
+                        label = f"{prenom} {nom}".strip()
+                        responsable_label = label if label else "—"
+                        break
+                except Exception:
+                    continue
+
+    synthese_card = {
+        "nb_contrats_ouverts": nb_contrats_ouverts,
+        "nb_contrats_fermes": nb_contrats_fermes,
+        "duree_historique": duree_historique_str,
+        "responsable": responsable_label,
+    }
+    valorisation_card = {
+        "last_valo": last_valo_str,
+        "depots": depots_str,
+        "retraits": retraits_str_signed,
+        "solde": solde_str,
+    }
+    indicateurs_card = {
+        "nb_contrats_ouverts": nb_contrats_ouverts,
+        "nb_supports_actifs": nb_supports_actifs,
+        "last_perf_pct": last_perf_pct,
+        "last_vol_pct": last_vol_pct,
+        "client_srri": client_srri,
+        "current_srri": current_srri,
+        "overall_ann_perf_pct": overall_ann_perf_pct,
+    }
+
+    report_date = datetime.utcnow()
+
+    return {
+        "client": client,
+        "civilite": civilite,
+        "report_date": report_date,
+        "report_date_str": report_date.strftime("%d/%m/%Y"),
+        "summary": {
+            "total_valo": last_valo_str,
+            "depots": depots_str,
+            "retraits": _fmt_currency(abs(retraits_total)),
+            "solde": solde_str,
+        },
+        "contracts_total_valo": contracts_total_valo_str,
+        "supports_total_valo": supports_total_valo_str,
+        "history_recent": history_recent,
+        "history_chart_svg": history_chart_svg,
+        "performance_chart_svg": perf_chart_svg,
+        "supports_chart_svg": supports_chart_svg,
+        "curves_year_data": curves_year_data,
+        "curves_value_min": curves_value_min,
+        "curves_value_max": curves_value_max,
+        "curves_value_min_str": curves_value_min_str,
+        "curves_value_max_str": curves_value_max_str,
+        "curves_chart_png": curves_chart_png,
+        "curves_chart_svg": curves_chart_svg,
+        "perf_vol_chart_png": perf_vol_chart_png,
+        "alloc_compare_chart_png": alloc_compare_chart_png,
+        "allocation_reference_name": allocation_reference_name,
+        "esg_comparison_alloc": None,
+        "esg_comparison_rows": None,
+        "esg_comparison_chart_png": None,
+        "esg_unmatched_fields": None,
+        "esg_default_fields": None,
+        "esg_field_labels": {},
+        "contracts": contracts,
+        "supports": supports,
+        "supports_category_breakdown": supports_category_breakdown,
+        "supports_geo_breakdown": supports_geo_breakdown,
+        "supports_category_chart_png": supports_category_chart_png,
+        "supports_geo_chart_png": supports_geo_chart_png,
+        "history_years": [str(y) for y in years_sorted],
+        "history_perf": ann_perf,
+        "history_vol": ann_vol,
+        "reporting_years": reporting_years,
+        "totals": {
+            "total_valo": last_valo_str,
+            "depots": depots_str,
+            "retraits": _fmt_currency(abs(retraits_total)),
+            "solde": solde_str,
+        },
+        "synthese_card": synthese_card,
+        "valorisation_card": valorisation_card,
+        "indicateurs_card": indicateurs_card,
+        "affaire": affaire,
     }
 def _fetch_task_types(db: Session) -> dict[str, list[dict]]:
     rows = db.execute(
@@ -733,6 +2932,80 @@ def dashboard_api_synthese(
     if ctx is None:
         raise HTTPException(status_code=404, detail="Client introuvable.")
 
+    if not ctx.get('esg_comparison_rows'):
+        try:
+            esg_alloc = ctx.get('allocation_reference_name') or None
+            esg_fields = ctx.get('esg_default_fields') or []
+            if esg_alloc and not esg_fields:
+                esg_fields = [
+                    col
+                    for col in (ctx.get('esg_field_labels') or {}).keys()
+                ][:4]
+            if esg_alloc and not esg_fields:
+                esg_fields = [
+                    'Avoiding water scarcity',
+                    'Board independence',
+                    'GHG intensity-Value',
+                    'Gender pay gap'
+                ]
+            if esg_fields:
+                ctx['esg_default_fields'] = esg_fields[:4]
+            if esg_alloc and esg_fields:
+                payload_tmp, _ = _compute_client_esg_comparison(
+                    db=db,
+                    client_id=id_client,
+                    fields=esg_fields,
+                    alloc=esg_alloc,
+                    alloc_isin=None,
+                    as_of=None,
+                    alloc_date=None,
+                    debug=False,
+                )
+                rows_payload = payload_tmp.get('results') or []
+                labels_map = ctx.get('esg_field_labels') or {}
+                resolved_pairs = payload_tmp.get('resolved_pairs') or []
+                if not labels_map and resolved_pairs:
+                    for pair in resolved_pairs:
+                        req = pair.get('requested')
+                        res = pair.get('resolved')
+                        if res and req:
+                            labels_map[res] = req
+                formatted_rows = []
+                for row in rows_payload:
+                    if not isinstance(row, dict):
+                        continue
+                    field = row.get('field')
+                    label = row.get('label') or labels_map.get(field) or row.get('field_original') or field
+                    row['label'] = label
+                    formatted_rows.append(row)
+                ctx['esg_comparison_rows'] = formatted_rows
+                ctx['esg_unmatched_fields'] = payload_tmp.get('unmatched_fields') or []
+                ctx['esg_default_fields'] = payload_tmp.get('resolved_fields') or esg_fields[:4]
+                ctx['esg_comparison_alloc'] = esg_alloc
+                ctx['esg_field_labels'] = labels_map
+                rows_chart = [
+                    r for r in formatted_rows
+                    if r and r.get('index') is not None and r.get('client') is not None
+                ]
+                if rows_chart:
+                    cats = [str(r.get('label') or r.get('field')) for r in rows_chart]
+                    idx_vals = [float(r.get('index') or 0.0) for r in rows_chart]
+                    cli_vals = [float(r.get('client') or 0.0) for r in rows_chart]
+                    try:
+                        ctx['esg_comparison_chart_png'] = _build_matplotlib_esg_bar_chart(cats, idx_vals, cli_vals)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not ctx.get("report_logo_png"):
+        try:
+            logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+            if logo_path.exists():
+                ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+
     ctx_render = dict(ctx)
     ctx_render["request"] = request
     ctx_render["title"] = f"Synthèse {ctx['client'].prenom or ''} {ctx['client'].nom or ''}".strip()
@@ -751,6 +3024,221 @@ def dashboard_api_synthese(
     )
 
 
+@router.get("/affaires/{affaire_id}/synthese/pdf")
+def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    ctx = _build_affaire_synthese_context(db, affaire_id)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Affaire introuvable.")
+
+    client_obj = ctx.get("client")
+    if not client_obj:
+        raise HTTPException(status_code=404, detail="Client associé introuvable pour ce contrat.")
+
+    client_id = getattr(client_obj, "id", None)
+    if client_id and not ctx.get("esg_comparison_rows"):
+        try:
+            esg_alloc = ctx.get("allocation_reference_name") or None
+            esg_fields = ctx.get("esg_default_fields") or []
+            if esg_alloc and not esg_fields:
+                esg_fields = [
+                    col
+                    for col in (ctx.get("esg_field_labels") or {}).keys()
+                ][:4]
+            if esg_alloc and not esg_fields:
+                esg_fields = [
+                    'Avoiding water scarcity',
+                    'Board independence',
+                    'GHG intensity-Value',
+                    'Gender pay gap'
+                ]
+            if esg_fields:
+                ctx['esg_default_fields'] = esg_fields[:4]
+            if esg_alloc and esg_fields:
+                payload_tmp, _ = _compute_client_esg_comparison(
+                    db=db,
+                    client_id=client_id,
+                    fields=esg_fields,
+                    alloc=esg_alloc,
+                    alloc_isin=None,
+                    as_of=None,
+                    alloc_date=None,
+                    debug=False,
+                )
+                rows_payload = payload_tmp.get('results') or []
+                labels_map = ctx.get('esg_field_labels') or {}
+                resolved_pairs = payload_tmp.get('resolved_pairs') or []
+                if not labels_map and resolved_pairs:
+                    for pair in resolved_pairs:
+                        req = pair.get('requested')
+                        res = pair.get('resolved')
+                        if res and req:
+                            labels_map[res] = req
+                formatted_rows = []
+                for row in rows_payload:
+                    if not isinstance(row, dict):
+                        continue
+                    field = row.get('field')
+                    label = row.get('label') or labels_map.get(field) or row.get('field_original') or field
+                    row['label'] = label
+                    formatted_rows.append(row)
+                ctx['esg_comparison_rows'] = formatted_rows
+                ctx['esg_unmatched_fields'] = payload_tmp.get('unmatched_fields') or []
+                ctx['esg_default_fields'] = payload_tmp.get('resolved_fields') or esg_fields[:4]
+                ctx['esg_comparison_alloc'] = esg_alloc
+                ctx['esg_field_labels'] = labels_map
+                rows_chart = [
+                    r for r in formatted_rows
+                    if r and r.get('index') is not None and r.get('client') is not None
+                ]
+                if rows_chart:
+                    cats = [str(r.get('label') or r.get('field')) for r in rows_chart]
+                    idx_vals = [float(r.get('index') or 0.0) for r in rows_chart]
+                    cli_vals = [float(r.get('client') or 0.0) for r in rows_chart]
+                    try:
+                        ctx['esg_comparison_chart_png'] = _build_matplotlib_esg_bar_chart(cats, idx_vals, cli_vals)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not ctx.get("report_logo_png"):
+        try:
+            logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+            if logo_path.exists():
+                ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+
+    ctx_render = dict(ctx)
+    ctx_render["request"] = request
+    affaire_ref = getattr(ctx.get("affaire"), "ref", None)
+    prenom = getattr(client_obj, "prenom", "") or ""
+    nom = getattr(client_obj, "nom", "") or ""
+    client_label = f"{prenom} {nom}".strip()
+    title_parts = ["Synthèse contrat"]
+    if affaire_ref:
+        title_parts.append(str(affaire_ref))
+    if client_label:
+        title_parts.append(client_label)
+    ctx_render["title"] = " – ".join([p for p in title_parts if p])
+
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("synthese_report.html").render(ctx_render)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    filename = f"synthese_affaire_{affaire_id}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/clients/{client_id}/der/pdf")
+async def dashboard_client_der_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    der_context = _build_der_context(db)
+    context = {
+        "request": request,
+        "client": client,
+        "client_id": client_id,
+        "fatca_today": _date.today().isoformat(),
+        "lm_today": _date.today().strftime('%d/%m/%Y'),
+    }
+    context.update(der_context)
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("der_report.html").render(context)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    filename = f"der_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
+
+
+@router.get("/clients/{client_id}/mission/pdf")
+async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    der_context = _build_der_context(db)
+    mission_context = _build_mission_context(db, client_id)
+    context = {
+        "request": request,
+        "client": client,
+        "client_id": client_id,
+    }
+    context.update(der_context)
+    context.update(mission_context)
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("mission_report.html").render(context)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    filename = f"lettre_mission_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
+
+
+@router.get("/clients/{client_id}/adequation/pdf")
+async def dashboard_client_adequation_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    ctx = _build_client_adequation_context(db, client_id)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    if not ctx.get("report_logo_png"):
+        try:
+            logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+            if logo_path.exists():
+                ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+
+    ctx_render = dict(ctx)
+    ctx_render["request"] = request
+    client_obj = ctx.get("client")
+    client_label = ""
+    if client_obj:
+        prenom = getattr(client_obj, "prenom", "") or ""
+        nom = getattr(client_obj, "nom", "") or ""
+        client_label = f"{prenom} {nom}".strip()
+    title_parts = ["Lettre d’adéquation"]
+    if client_label:
+        title_parts.append(client_label)
+    ctx_render["title"] = " – ".join([p for p in title_parts if p])
+
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("adequation_report.html").render(ctx_render)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    filename = f"lettre_adequation_{client_id}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
+
+
 # ---------------- KYC Report (HTML/PDF) ----------------
 @router.get("/clients/kyc/{client_id}/rapport")
 async def dashboard_client_kyc_report(
@@ -761,8 +3249,12 @@ async def dashboard_client_kyc_report(
     db: Session = Depends(get_db),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
+
     if not client:
-        return templates.TemplateResponse("kyc_report.html", {"request": request, "error": "Client introuvable."})
+        return templates.TemplateResponse(
+            "kyc_report.html",
+            {"request": request, "error": "Client introuvable.", "report_logo_png": report_logo_png},
+        )
 
     def _fmt_amount(v):
         try:
@@ -2628,6 +5120,464 @@ def _courtier_activite_columns(db: Session, table: str) -> tuple[str | None, str
     return id_col, fk_ref_col, fk_courtier_col, creation_col, modification_col
 
 
+def _build_der_context(db: Session) -> dict:
+    """Assemble DER-related data used by client detail modal and DER PDF export."""
+    context: dict = {
+        "DER_courtier": None,
+        "DER_statut_social": None,
+        "DER_courtier_garanties_normes": [],
+        "DER_sql_params_activite": {":cid": None},
+        "lm_remunerations": [],
+        "centre_mediation_lib": None,
+        "DER_activites": [],
+        "footer_text": None,
+        "footer_line1": None,
+        "footer_line2": None,
+        "footer_line2b": None,
+        "footer_line3": None,
+        "footer_line4": None,
+        "footer_line5": None,
+        "footer_line6": None,
+    }
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            der_courtier = dict(row._mapping)
+            context["DER_courtier"] = der_courtier
+            # Statut social resolution
+            ss_label = None
+            raw_val = None
+            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
+                if key in der_courtier and der_courtier.get(key) not in (None, ""):
+                    raw_val = der_courtier.get(key)
+                    break
+            if raw_val is not None:
+                try:
+                    ss_id = int(str(raw_val).strip())
+                    r2 = db.execute(text("SELECT lib FROM DER_statut_social WHERE id = :i"), {"i": ss_id}).fetchone()
+                    if r2 and r2[0]:
+                        ss_label = r2[0]
+                except Exception:
+                    ss_label = str(raw_val)
+            context["DER_statut_social"] = {"lib": ss_label} if ss_label is not None else None
+            # Params for DER activite SQL
+            try:
+                cid_val = der_courtier.get("id")
+                context["DER_sql_params_activite"] = {":cid": cid_val} if cid_val is not None else {":cid": None}
+            except Exception:
+                context["DER_sql_params_activite"] = {":cid": None}
+            # Centre de médiation libellé
+            centre_mediation_lib = None
+            try:
+                raw_cm = der_courtier.get("centre_mediation")
+                if raw_cm not in (None, ""):
+                    try:
+                        cm_id = int(str(raw_cm).strip())
+                        row_cm = db.execute(text("SELECT lib FROM DER_courtier_ref_autorite WHERE id = :i"), {"i": cm_id}).fetchone()
+                        if row_cm and row_cm[0]:
+                            centre_mediation_lib = row_cm[0]
+                    except Exception:
+                        centre_mediation_lib = str(raw_cm)
+            except Exception:
+                centre_mediation_lib = None
+            context["centre_mediation_lib"] = centre_mediation_lib
+            # Footer lines (reuse in PDF rapports)
+            try:
+                nom_cabinet = (der_courtier.get("nom_cabinet") or der_courtier.get("raison_sociale") or "").strip()
+                statut_id = der_courtier.get("statut_social")
+                capital_social = der_courtier.get("capital_social")
+                siren = (der_courtier.get("siren") or "").strip()
+                rcs = (der_courtier.get("rcs") or "").strip()
+                adresse_rue = (der_courtier.get("adresse_rue") or der_courtier.get("adresse") or "").strip()
+                adresse_cp = (der_courtier.get("adresse_cp") or "").strip()
+                adresse_ville = (der_courtier.get("adresse_ville") or "").strip()
+                nom_responsable = (der_courtier.get("nom_responsable") or "").strip()
+                courriel = (der_courtier.get("courriel") or der_courtier.get("email") or "").strip()
+                numero_orias = (der_courtier.get("numero_orias") or "").strip()
+                assoc_id = der_courtier.get("association_prof")
+                num_adh = (der_courtier.get("num_adh_assoc") or "").strip()
+
+                def _fmt_amount(val) -> str | None:
+                    if val in (None, "", "-"):
+                        return None
+                    try:
+                        f = float(val)
+                    except Exception:
+                        return str(val)
+                    try:
+                        return "{:,.0f}".format(f).replace(",", " ")
+                    except Exception:
+                        return str(val)
+
+                assoc_label = None
+                if assoc_id not in (None, ""):
+                    try:
+                        refs = _fetch_ref_list(db, ["DER_association_professionnelle", "DER_association_prof"]) or []
+                        for it in refs:
+                            try:
+                                if int(it.get("id")) == int(assoc_id):
+                                    assoc_label = it.get("libelle")
+                                    break
+                            except Exception:
+                                if str(it.get("id")) == str(assoc_id):
+                                    assoc_label = it.get("libelle")
+                                    break
+                    except Exception:
+                        assoc_label = None
+
+                statut_label = None
+                if statut_id not in (None, ""):
+                    try:
+                        srefs = _fetch_ref_list(db, ["DER_statut_social", "DER_statuts_sociaux"]) or []
+                        for it in srefs:
+                            try:
+                                if int(it.get("id")) == int(statut_id):
+                                    statut_label = it.get("libelle")
+                                    break
+                            except Exception:
+                                if str(it.get("id")) == str(statut_id):
+                                    statut_label = it.get("libelle")
+                                    break
+                    except Exception:
+                        statut_label = None
+
+                line1 = nom_cabinet or None
+                cap_str = _fmt_amount(capital_social)
+                stat_parts: list[str] = []
+                if statut_label:
+                    stat_parts.append(str(statut_label))
+                if cap_str and cap_str != "-":
+                    stat_parts.append(f"au capital social de {cap_str} €")
+                line2 = " ".join(stat_parts) if stat_parts else None
+                s_parts: list[str] = []
+                if siren:
+                    s_parts.append(f"SIREN {siren}")
+                if rcs:
+                    s_parts.append(f"RCS {rcs}")
+                line2b = " — ".join(s_parts) if s_parts else None
+                addr_parts: list[str] = []
+                if adresse_rue:
+                    addr_parts.append(adresse_rue)
+                cp_ville = (f"{adresse_cp} {adresse_ville}").strip()
+                if cp_ville:
+                    if addr_parts:
+                        addr_parts[-1] = f"{addr_parts[-1]}, {cp_ville}"
+                    else:
+                        addr_parts.append(cp_ville)
+                line3 = addr_parts[0] if addr_parts else None
+                r_parts = [p for p in [nom_responsable, courriel] if p]
+                line4 = " & ".join(r_parts) if r_parts else None
+                line5 = f"Numéro Orias {numero_orias}" if numero_orias else None
+                line6 = None
+                if assoc_label:
+                    line6 = f"Association professionnelle {assoc_label}"
+                    if num_adh:
+                        line6 += f" {num_adh}"
+
+                if nom_cabinet:
+                    context["footer_text"] = nom_cabinet
+                context["footer_line1"] = line1 or context.get("footer_line1")
+                context["footer_line2"] = line2 or context.get("footer_line2")
+                context["footer_line2b"] = line2b or context.get("footer_line2b")
+                context["footer_line3"] = line3 or context.get("footer_line3")
+                context["footer_line4"] = line4 or context.get("footer_line4")
+                context["footer_line5"] = line5 or context.get("footer_line5")
+                context["footer_line6"] = line6 or context.get("footer_line6")
+            except Exception:
+                pass
+    except Exception:
+        context["DER_courtier"] = None
+        context["DER_statut_social"] = None
+        context["centre_mediation_lib"] = None
+
+    # Garanties professionnelles
+    try:
+        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
+        if gar_table:
+            cols = _sqlite_table_columns(db, gar_table)
+            colnames = [c.get("name") for c in cols]
+            import unicodedata
+            def _norm(s: str) -> str:
+                s2 = unicodedata.normalize('NFKD', s or '')
+                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.lower()
+            inv = {_norm(name): name for name in colnames}
+            c_type = inv.get("type_garantie") or inv.get("type") or inv.get("garantie") or (colnames[0] if colnames else None)
+            c_ias = inv.get("ias") or "IAS"
+            c_iobsp = inv.get("iobsp") or "IOBSP"
+            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            garanties = []
+            for r in rows:
+                m = r._mapping
+                garanties.append({
+                    "type_garantie": m.get(c_type) if c_type else None,
+                    "IAS": m.get(c_ias),
+                    "IOBSP": m.get(c_iobsp),
+                })
+            context["DER_courtier_garanties_normes"] = garanties
+    except Exception:
+        context["DER_courtier_garanties_normes"] = []
+
+    # Modes de rémunération
+    context["lm_remunerations"] = []
+    try:
+        der_courtier = context.get("DER_courtier")
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone() if der_courtier is None else None
+        if row and not der_courtier:
+            der_courtier = dict(row._mapping)
+            context["DER_courtier"] = der_courtier
+        cid = der_courtier.get("id") if der_courtier else None
+        if cid is not None:
+            rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation WHERE courtier_id = :cid"), {"cid": cid}).fetchall()
+        else:
+            rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation")).fetchall()
+        try:
+            ref_modes = db.execute(text("SELECT id, mode FROM DER_courtier_mode_facturation_ref")).fetchall()
+        except Exception:
+            ref_modes = []
+        import unicodedata, re as _re
+        def _normtxt(s: str | None) -> str:
+            if s is None:
+                return ""
+            t = unicodedata.normalize('NFKD', str(s))
+            t = ''.join(ch for ch in t if not unicodedata.combining(ch))
+            t = t.lower().replace("_", " ").replace("'", " ")
+            t = _re.sub(r"[^a-z0-9]+", " ", t)
+            return _re.sub(r"\s+", " ", t).strip()
+        ref_map = {}
+        for rm in ref_modes:
+            try:
+                key = _normtxt(rm._mapping.get("mode") if hasattr(rm, "_mapping") else rm[1])
+                ref_map[key] = rm._mapping.get("mode") if hasattr(rm, "_mapping") else rm[1]
+            except Exception:
+                continue
+        def _label_for_type(t: str | None) -> str | None:
+            n = _normtxt(t)
+            if not n:
+                return None
+            if "honor" in n:
+                return ref_map.get("honoraires") or "Honoraires"
+            if "forfait" in n:
+                return ref_map.get("forfait") or "Forfait"
+            return ref_map.get(n) or (t if t else None)
+        remunerations = []
+        for row in rows or []:
+            m = row._mapping
+            orig_type = m.get("type")
+            label = _label_for_type(orig_type)
+            display = label or (str(orig_type).replace("_", " ").title() if orig_type else None)
+            remunerations.append({
+                "type": orig_type,
+                "mode": display,
+                "montant": m.get("montant"),
+                "pourcentage": m.get("pourcentage"),
+            })
+        try:
+            import unicodedata
+            def _normv(v: str | None) -> str:
+                if not v:
+                    return ""
+                s2 = unicodedata.normalize("NFKD", str(v))
+                s2 = "".join(ch for ch in s2 if not unicodedata.combining(ch))
+                return s2.upper()
+            remunerations.sort(
+                key=lambda r: (
+                    0 if "HONOR" in _normv(r.get("mode") or r.get("type")) else 1,
+                    _normv(r.get("mode") or r.get("type"))
+                )
+            )
+        except Exception:
+            pass
+        context["lm_remunerations"] = remunerations
+    except Exception:
+        context["lm_remunerations"] = []
+
+    # Activités
+    try:
+        der_courtier = context.get("DER_courtier")
+        cid_val = der_courtier.get("id") if der_courtier else None
+        if cid_val is not None:
+            rows_der_act = db.execute(
+                text(
+                    """
+                    SELECT a.activite_id, a.statut,
+                           r.code, r.libelle, r.domaine, r.sous_categorie, r.description
+                    FROM DER_courtier_activite a
+                    JOIN DER_courtier_activite_ref r ON r.id = a.activite_id
+                    WHERE a.courtier_id = :cid
+                    ORDER BY r.domaine, r.libelle
+                    """
+                ),
+                {"cid": cid_val},
+            ).fetchall()
+            activites = []
+            for rr in rows_der_act or []:
+                mm = rr._mapping
+                activites.append({
+                    "activite_id": mm.get("activite_id"),
+                    "statut": mm.get("statut"),
+                    "code": mm.get("code"),
+                    "libelle": mm.get("libelle"),
+                    "domaine": mm.get("domaine"),
+                    "sous_categorie": mm.get("sous_categorie"),
+                    "description": mm.get("description"),
+                })
+            context["DER_activites"] = activites
+    except Exception:
+        context["DER_activites"] = []
+
+    return context
+
+
+def _build_mission_context(db: Session, client_id: int) -> dict:
+    """Collect data required for the Lettre de Mission modal and PDF."""
+    context: dict = {
+        "lm_objectifs": [],
+        "lm_total_invest": 0.0,
+        "lm_total_invest_str": "0",
+        "lm_entretien_date": None,
+        "lm_objectifs_summary": "",
+        "risque_latest": None,
+        "lm_today": _date.today().strftime('%d/%m/%Y'),
+        "date_signature": None,
+        "signature_id": None,
+        "report_logo_png": None,
+    }
+    # Risque latest
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT 
+                  r.libelle AS niveau_risque,
+                  k.niveau_id AS niveau_id,
+                  k.duree AS horizon_placement,
+                  k.experience,
+                  k.connaissance,
+                  k.commentaire,
+                  k.confirmation_client
+                FROM KYC_Client_Risque k
+                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                WHERE k.client_id = :cid
+                ORDER BY k.date_saisie DESC, k.id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            context["risque_latest"] = dict(row._mapping)
+    except Exception:
+        context["risque_latest"] = None
+
+    # Objectifs client
+    lm_objectifs: list[dict] = []
+    lm_total_invest = 0.0
+    lm_total_invest_str = "0"
+    lm_entretien_date: str | None = None
+    _lm_latest_date: _date | None = None
+    try:
+        objectif_labels: dict[int, str] = {}
+        try:
+            rows_labels = db.execute(text("SELECT id, libelle FROM ref_objectif")).fetchall()
+            objectif_labels = {int(r.id): str(r.libelle) for r in rows_labels}
+        except Exception:
+            objectif_labels = {}
+        if not objectif_labels:
+            try:
+                rows_labels = db.execute(text("SELECT id, label FROM risque_objectif_option")).fetchall()
+                objectif_labels = {int(r.id): str(r.label) for r in rows_labels}
+            except Exception:
+                objectif_labels = {}
+        niveau_labels: dict[int, str] = {}
+        try:
+            rows_niveau = db.execute(text("SELECT id, libelle FROM ref_niveau_risque")).fetchall()
+            niveau_labels = {int(r.id): str(r.libelle) for r in rows_niveau}
+        except Exception:
+            niveau_labels = {}
+        rows = db.execute(
+            text(
+                """
+                SELECT id,
+                       objectif_id,
+                       horizon_investissement,
+                       niveau_id,
+                       commentaire,
+                       date_saisie,
+                       date_expiration,
+                       montant
+                FROM KYC_Client_Objectifs
+                WHERE client_id = :cid
+                ORDER BY COALESCE(date_saisie, '0000-00-00') DESC, id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for row in rows:
+            m = row._mapping
+            montant_val = float(m.get("montant") or 0.0)
+            lm_total_invest += montant_val
+            objectif_id = m.get("objectif_id")
+            libelle = None
+            if objectif_id is not None:
+                try:
+                    libelle = objectif_labels.get(int(objectif_id))
+                except Exception:
+                    libelle = None
+            niveau_libelle = None
+            niveau_id = m.get("niveau_id")
+            if niveau_id is not None:
+                try:
+                    niveau_libelle = niveau_labels.get(int(niveau_id))
+                except Exception:
+                    niveau_libelle = None
+            date_saisie_raw = m.get("date_saisie")
+            date_expiration_raw = m.get("date_expiration")
+            parsed_date = _parse_date_safe(date_saisie_raw)
+            if parsed_date is None and isinstance(date_saisie_raw, datetime):
+                parsed_date = date_saisie_raw.date()
+            if parsed_date:
+                if _lm_latest_date is None or parsed_date > _lm_latest_date:
+                    _lm_latest_date = parsed_date
+            lm_objectifs.append(
+                {
+                    "id": m.get("id"),
+                    "libelle": libelle or (f"Objectif {objectif_id}" if objectif_id is not None else "Objectif"),
+                    "montant": montant_val,
+                    "montant_str": "{:,.0f}".format(montant_val).replace(",", " "),
+                    "horizon": m.get("horizon_investissement") or "",
+                    "niveau": niveau_libelle,
+                    "commentaire": m.get("commentaire") or "",
+                    "date_saisie": parsed_date.strftime("%d/%m/%Y") if parsed_date else (str(date_saisie_raw) if date_saisie_raw else ""),
+                    "date_expiration": (
+                        _parse_date_safe(date_expiration_raw).strftime("%d/%m/%Y")
+                        if _parse_date_safe(date_expiration_raw)
+                        else (str(date_expiration_raw) if date_expiration_raw else "")
+                    ),
+                }
+            )
+        if lm_objectifs:
+            lm_total_invest_str = "{:,.0f}".format(lm_total_invest).replace(",", " ")
+        else:
+            lm_total_invest = 0.0
+            lm_total_invest_str = "0"
+        if _lm_latest_date:
+            lm_entretien_date = _lm_latest_date.strftime("%d/%m/%Y")
+    except Exception:
+        lm_objectifs = []
+        lm_total_invest = 0.0
+        lm_total_invest_str = "0"
+        lm_entretien_date = None
+
+    context["lm_objectifs"] = lm_objectifs
+    context["lm_total_invest"] = lm_total_invest
+    context["lm_total_invest_str"] = lm_total_invest_str
+    context["lm_entretien_date"] = lm_entretien_date
+    context["lm_objectifs_summary"] = ", ".join([obj["libelle"] for obj in lm_objectifs if obj.get("libelle")]) if lm_objectifs else ""
+
+    return context
+
+
 def _courtier_relation_columns(db: Session, table: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     """Infer (id_col, fk_societe_col, fk_courtier_col, creation_col, modification_col) for DER_courtier_relation_commerciale-like table."""
     cols = _sqlite_table_columns(db, table)
@@ -3778,6 +6728,7 @@ async def delete_contrat_support(row_id: int, request: Request, db: Session = De
 # ---------------- Accueil ----------------
 @router.get("/", response_class=HTMLResponse)
 def dashboard_home(request: Request, db: Session = Depends(get_db)):
+    tb_markers_visible = request.query_params.get("markers") == "1"
     # Totaux simples
     total_clients = db.query(func.count(Client.id)).scalar() or 0
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
@@ -3919,6 +6870,91 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     # Informations Documents (comme sur la page Documents)
     try:
         total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
+        der_total = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == 'der')
+            .scalar()
+            or 0
+        )
+        der_obsolete = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == 'der')
+            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+            .scalar()
+            or 0
+        )
+        der_total_pct = (der_total / total_clients * 100.0) if total_clients else 0.0
+        der_obsolete_pct = (der_obsolete / total_clients * 100.0) if total_clients else 0.0
+        cc_total = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "recueil d'informations")
+            .scalar()
+            or 0
+        )
+        cc_obsolete = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "recueil d'informations")
+            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+            .scalar()
+            or 0
+        )
+        cc_total_pct = (cc_total / total_clients * 100.0) if total_clients else 0.0
+        cc_obsolete_pct = (cc_obsolete / total_clients * 100.0) if total_clients else 0.0
+        esg_total = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "questionnaire esg")
+            .scalar()
+            or 0
+        )
+        esg_obsolete = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "questionnaire esg")
+            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+            .scalar()
+            or 0
+        )
+        esg_total_pct = (esg_total / total_clients * 100.0) if total_clients else 0.0
+        esg_obsolete_pct = (esg_obsolete / total_clients * 100.0) if total_clients else 0.0
+        lm_total = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "lettre de mission")
+            .scalar()
+            or 0
+        )
+        lm_obsolete = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "lettre de mission")
+            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+            .scalar()
+            or 0
+        )
+        lm_total_pct = (lm_total / total_clients * 100.0) if total_clients else 0.0
+        lm_obsolete_pct = (lm_obsolete / total_clients * 100.0) if total_clients else 0.0
+        la_total = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "lettre d'adéquation")
+            .scalar()
+            or 0
+        )
+        la_obsolete = (
+            db.query(func.count(DocumentClient.id))
+            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .filter(func.lower(Document.documents) == "lettre d'adéquation")
+            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+            .scalar()
+            or 0
+        )
+        la_total_pct = (la_total / total_clients * 100.0) if total_clients else 0.0
+        la_obsolete_pct = (la_obsolete / total_clients * 100.0) if total_clients else 0.0
         # Obsolescences par niveau
         obs_by_niveau_rows = (
             db.query(
@@ -3943,8 +6979,67 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             .all()
         )
         obs_by_risque = [{"risque": r, "nb": int(nb)} for r, nb in obs_by_risque_rows]
+
+        from src.models.evenement import Evenement
+        from src.models.type_evenement import TypeEvenement
+
+        reclam_total = (
+            db.query(func.count(Evenement.id))
+            .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
+            .filter(func.lower(TypeEvenement.categorie) == 'reclamation')
+            .scalar()
+            or 0
+        )
+
+        rows_reclam_status = (
+            db.query(
+                func.lower(func.trim(Evenement.statut)).label('statut'),
+                func.count(Evenement.id).label('nb')
+            )
+            .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
+            .filter(func.lower(TypeEvenement.categorie) == 'reclamation')
+            .group_by(func.lower(func.trim(Evenement.statut)))
+            .all()
+        )
+
+        status_map = { (row.statut or ''): int(row.nb) for row in rows_reclam_status }
+
+        def _status_count(*keys):
+            for key in keys:
+                if key in status_map:
+                    return status_map[key]
+            return 0
+
+        reclam_stats = {
+            'total': reclam_total,
+            'a_faire': _status_count('à faire', 'a faire'),
+            'en_cours': _status_count('en cours'),
+            'en_attente': _status_count('en attente'),
+            'terminees': _status_count('terminé', 'termine', 'cloturé', 'cloture', 'clôturé'),
+        }
     except Exception:
         total_documents = 0
+        der_total = 0
+        der_obsolete = 0
+        der_total_pct = 0.0
+        der_obsolete_pct = 0.0
+        cc_total = 0
+        cc_obsolete = 0
+        cc_total_pct = 0.0
+        cc_obsolete_pct = 0.0
+        esg_total = 0
+        esg_obsolete = 0
+        esg_total_pct = 0.0
+        esg_obsolete_pct = 0.0
+        lm_total = 0
+        lm_obsolete = 0
+        lm_total_pct = 0.0
+        lm_obsolete_pct = 0.0
+        reclam_stats = {'total': 0, 'a_faire': 0, 'en_cours': 0, 'en_attente': 0, 'terminees': 0}
+        la_total = 0
+        la_obsolete = 0
+        la_total_pct = 0.0
+        la_obsolete_pct = 0.0
         obs_by_niveau = []
         obs_by_risque = []
 
@@ -4684,6 +7779,27 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "srri_affaires_amount": srri_affaires_amount,
             # Infos Documents pour la carte Risque Documents
             "docs_total": total_documents,
+            "docs_der_total": der_total,
+            "docs_der_obsolete": der_obsolete,
+            "docs_der_total_pct": der_total_pct,
+            "docs_der_obsolete_pct": der_obsolete_pct,
+            "docs_cc_total": cc_total,
+            "docs_cc_obsolete": cc_obsolete,
+            "docs_cc_total_pct": cc_total_pct,
+            "docs_cc_obsolete_pct": cc_obsolete_pct,
+            "docs_esg_total": esg_total,
+            "docs_esg_obsolete": esg_obsolete,
+            "docs_esg_total_pct": esg_total_pct,
+            "docs_esg_obsolete_pct": esg_obsolete_pct,
+            "docs_lm_total": lm_total,
+            "docs_lm_obsolete": lm_obsolete,
+            "docs_lm_total_pct": lm_total_pct,
+            "docs_lm_obsolete_pct": lm_obsolete_pct,
+            "docs_la_total": la_total,
+            "docs_la_obsolete": la_obsolete,
+            "docs_la_total_pct": la_total_pct,
+            "docs_la_obsolete_pct": la_obsolete_pct,
+            "reclam_stats": reclam_stats,
             "docs_obs_by_niveau": obs_by_niveau,
             "docs_obs_by_risque": obs_by_risque,
             # Infos contrats vs risque
@@ -4757,6 +7873,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "esg_field_labels": esg_field_labels_dash, # backwards compatibility
             "esg_fields_list": esg_fields_dash,        # explicit list of {col,label}
             "esg_fields_debug": esg_fields_debug_dash,
+            "tb_markers_visible": tb_markers_visible,
+            "tb_markers_param": "markers=1" if tb_markers_visible else "",
         }
     )
 
@@ -8957,88 +12075,8 @@ async def dashboard_client_kyc(
 # ---------------- Clients ----------------
 @router.get("/clients", response_class=HTMLResponse)
 def dashboard_clients(request: Request, db: Session = Depends(get_db)):
+    tb_markers_visible = request.query_params.get("markers") == "1"
     total_clients = db.query(func.count(Client.id)).scalar() or 0
-
-    group_filter_raw = request.query_params.get("group")
-    group_filter_id: int | None = None
-    if group_filter_raw not in (None, ""):
-        try:
-            group_filter_id = int(group_filter_raw)
-        except (TypeError, ValueError):
-            group_filter_id = None
-
-    # Groupes (personnes) pour filtres et ajouts
-    try:
-        group_rows = db.execute(
-            text(
-                """
-                SELECT d.id,
-                       d.nom,
-                       d.type_groupe,
-                       COALESCE(m.nb_membres, 0) AS nb_membres
-                FROM administration_groupe_detail d
-                LEFT JOIN (
-                    SELECT groupe_id, COUNT(*) AS nb_membres
-                    FROM administration_groupe
-                    WHERE client_id IS NOT NULL
-                    GROUP BY groupe_id
-                ) m ON m.groupe_id = d.id
-                WHERE LOWER(COALESCE(d.type_groupe, '')) IN ('client','clients','personne','personnes')
-                ORDER BY d.nom
-                """
-            )
-        ).fetchall()
-    except Exception:
-        group_rows = []
-
-    client_groups = []
-    group_filter_label: str | None = None
-    normalized_filter_id = str(group_filter_id) if group_filter_id is not None else None
-    for gr in group_rows or []:
-        gm = gr._mapping if hasattr(gr, "_mapping") else None
-        gid = gm.get("id") if gm else (gr[0] if len(gr) > 0 else None)
-        nom = gm.get("nom") if gm else (gr[1] if len(gr) > 1 else None)
-        nb = gm.get("nb_membres") if gm else (gr[3] if len(gr) > 3 else 0)
-        client_groups.append(
-            {
-                "id": gid,
-                "nom": nom,
-                "nb_membres": nb,
-            }
-        )
-        if normalized_filter_id is not None and gid is not None and str(gid) == normalized_filter_id:
-            group_filter_label = nom
-
-    filter_client_ids: set[int] | None = None
-    if group_filter_id is not None:
-        try:
-            membership_rows = db.execute(
-                text(
-                    """
-                    SELECT DISTINCT client_id
-                    FROM administration_groupe
-                    WHERE groupe_id = :gid
-                      AND client_id IS NOT NULL
-                      AND COALESCE(actif, 1) != 0
-                      AND (date_retrait IS NULL OR date_retrait = '')
-                    """
-                ),
-                {"gid": group_filter_id},
-            ).fetchall()
-        except Exception:
-            membership_rows = []
-        ids = set()
-        for row in membership_rows or []:
-            if hasattr(row, "_mapping"):
-                cid = row._mapping.get("client_id")
-            else:
-                cid = row[0] if row and len(row) > 0 else None
-            if cid is not None:
-                try:
-                    ids.add(int(cid))
-                except (TypeError, ValueError):
-                    continue
-        filter_client_ids = ids
 
     # Données SRRI pour le graphique
     srri_data = (
@@ -9050,8 +12088,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
     rows = get_clients(db)
-    if filter_client_ids is not None:
-        rows = [r for r in rows if getattr(r, "id", None) in filter_client_ids]
 
     # Référentiel RH pour associer le commercial (responsable)
     rh_entries = fetch_rh_list(db)
@@ -9148,9 +12184,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_clients": total_clients,
             "srri_chart": srri_chart,
             "clients": clients,
-            "client_groups": client_groups,
-            "group_filter_id": group_filter_id,
-            "group_filter_label": group_filter_label,
             # Analyse financière
             "finance_supports": finance_supports,
             "finance_total_valo": finance_total_valo,
@@ -9161,6 +12194,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "finance_rh_selected": finance_rh_id,
             "finance_effective_date_iso": finance_effective_date_iso,
             "finance_valo_input": finance_ctx.get("finance_valo_input"),
+            "tb_markers_visible": tb_markers_visible,
+            "tb_markers_param": "markers=1" if tb_markers_visible else "",
         }
     )
 
@@ -9169,88 +12204,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 @router.get("/affaires", response_class=HTMLResponse)
 def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
-
-    group_filter_raw = request.query_params.get("group")
-    group_filter_id: int | None = None
-    if group_filter_raw not in (None, ""):
-        try:
-            group_filter_id = int(group_filter_raw)
-        except (TypeError, ValueError):
-            group_filter_id = None
-
-    try:
-        group_rows = db.execute(
-            text(
-                """
-                SELECT d.id,
-                       d.nom,
-                       d.type_groupe,
-                       COALESCE(m.nb_membres, 0) AS nb_membres
-                FROM administration_groupe_detail d
-                LEFT JOIN (
-                    SELECT groupe_id, COUNT(*) AS nb_membres
-                    FROM administration_groupe
-                    WHERE affaire_id IS NOT NULL
-                    GROUP BY groupe_id
-                ) m ON m.groupe_id = d.id
-                WHERE LOWER(COALESCE(d.type_groupe, '')) IN ('affaire','affaires','contrat','contrats')
-                ORDER BY d.nom
-                """
-            )
-        ).fetchall()
-    except Exception:
-        group_rows = []
-
-    affaire_groups: list[dict] = []
-    group_filter_label: str | None = None
-    normalized_gid = str(group_filter_id) if group_filter_id is not None else None
-    for gr in group_rows or []:
-        gm = gr._mapping if hasattr(gr, "_mapping") else None
-        gid = gm.get("id") if gm else (gr[0] if len(gr) > 0 else None)
-        nom = gm.get("nom") if gm else (gr[1] if len(gr) > 1 else None)
-        nb = gm.get("nb_membres") if gm else (gr[3] if len(gr) > 3 else 0)
-        affaire_groups.append(
-            {
-                "id": gid,
-                "nom": nom,
-                "nb_membres": nb,
-            }
-        )
-        if normalized_gid is not None and gid is not None and str(gid) == normalized_gid:
-            group_filter_label = nom
-
-    filter_affaire_ids: set[int] | None = None
-    if group_filter_id is not None:
-        try:
-            membership_rows = db.execute(
-                text(
-                    """
-                    SELECT DISTINCT affaire_id
-                    FROM administration_groupe
-                    WHERE groupe_id = :gid
-                      AND affaire_id IS NOT NULL
-                      AND COALESCE(actif, 1) != 0
-                      AND (date_retrait IS NULL OR date_retrait = '')
-                    """
-                ),
-                {"gid": group_filter_id},
-            ).fetchall()
-        except Exception:
-            membership_rows = []
-        ids: set[int] = set()
-        for row in membership_rows or []:
-            if hasattr(row, "_mapping"):
-                aid = row._mapping.get("affaire_id")
-            else:
-                aid = row[0] if row and len(row) > 0 else None
-            if aid is not None:
-                try:
-                    ids.add(int(aid))
-                except (TypeError, ValueError):
-                    continue
-        filter_affaire_ids = ids if ids else set()
-        if not filter_affaire_ids:
-            filter_affaire_ids = set()
 
     srri_data = (
         db.query(Affaire.SRRI, func.count(Affaire.id).label("nb"))
@@ -9291,11 +12244,6 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .outerjoin(Client, Client.id == Affaire.id_personne)
         .all()
     )
-    if filter_affaire_ids is not None:
-        affaires_rows = [
-            r for r in affaires_rows if getattr(r, "id", None) in filter_affaire_ids
-        ]
-
     # SRRI calculé selon bandes standard à partir de la volat (valeurs <=1 interprétées comme fraction → %)
     def srri_from_vol(v: float | None) -> int | None:
         if v is None:
@@ -9373,9 +12321,6 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
-            "affaire_groups": affaire_groups,
-            "group_filter_id": group_filter_id,
-            "group_filter_label": group_filter_label,
         }
     )
 
@@ -9383,9 +12328,18 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
 # ---------------- Détail Affaire ----------------
 @router.get("/affaires/{affaire_id}", response_class=HTMLResponse)
 def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    tb_markers_visible = request.query_params.get("markers") == "1"
     affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
     if not affaire:
-        return templates.TemplateResponse("dashboard_affaire_detail.html", {"request": request, "error": "Affaire introuvable"})
+        return templates.TemplateResponse(
+            "dashboard_affaire_detail.html",
+            {
+                "request": request,
+                "error": "Affaire introuvable",
+                "tb_markers_visible": tb_markers_visible,
+                "tb_markers_param": "markers=1" if tb_markers_visible else "",
+            },
+        )
 
     # Informations client liées à l'affaire (pour en-tête et liens)
     client_nom = None
@@ -9445,6 +12399,14 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         if abs(n) <= 1:
             n *= 100.0
         return float(n)
+
+    def _fmt_float_2(v):
+        if v is None:
+            return "-"
+        try:
+            return "{:,.2f}".format(float(v)).replace(",", " ")
+        except Exception:
+            return str(v)
     last_perf_pct_aff = _to_pct_float(hist[-1].perf_sicav_52) if hist else None
     last_vol_pct_aff = _to_pct_float(hist[-1].volat) if hist else None
 
@@ -9639,7 +12601,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         last_date = pick
         q = text(
             """
-            SELECT s.code_isin AS code_isin,
+            SELECT s.id AS support_id,
+                   s.code_isin AS code_isin,
                    s.nom AS nom,
                    s.SRRI AS srri_support,
                    s.cat_gene AS cat_gene,
@@ -9661,7 +12624,82 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         )
         rows = db.execute(q, {"aid": affaire_id, "d": last_date}).fetchall()
         for r in rows:
+            try:
+                support_id = int(getattr(r, "support_id", None)) if getattr(r, "support_id", None) is not None else None
+            except Exception:
+                support_id = None
+            movements: list[dict] = []
+            if support_id is not None:
+                try:
+                    mov_rows = db.execute(
+                        text(
+                            """
+                            SELECT COALESCE(m.vl_date, m.date_sp) AS mouvement_date,
+                                   m.montant_ope,
+                                   m.vl,
+                                   m.nb_uc,
+                                   mr.sens,
+                                   mr.titre AS regle_label
+                            FROM mouvement m
+                            LEFT JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+                            WHERE m.id_affaire = :aid AND m.id_support = :sid
+                            ORDER BY COALESCE(m.vl_date, m.date_sp) DESC, m.id DESC
+                            """
+                        ),
+                        {"aid": affaire_id, "sid": support_id},
+                    ).fetchall()
+                except Exception:
+                    mov_rows = []
+                for mv in mov_rows or []:
+                    dt_raw = getattr(mv, "mouvement_date", None)
+                    try:
+                        dt_str = dt_raw.strftime("%Y-%m-%d") if dt_raw else None
+                    except Exception:
+                        dt_str = str(dt_raw)[:10] if dt_raw else None
+                    sens_raw = getattr(mv, "sens", None)
+                    try:
+                        sens_int = int(sens_raw) if sens_raw is not None else None
+                    except Exception:
+                        sens_int = None
+
+                    def _sign_for_value(val: float | None) -> str:
+                        if sens_int is not None:
+                            if sens_int > 0:
+                                return "+"
+                            if sens_int < 0:
+                                return "-"
+                        if val is None:
+                            return ""
+                        try:
+                            num = float(val)
+                        except Exception:
+                            return ""
+                        if num > 0:
+                            return "+"
+                        if num < 0:
+                            return "-"
+                        return ""
+
+                    def _fmt_signed(val) -> str:
+                        if val is None:
+                            return "-"
+                        try:
+                            num = float(val or 0.0)
+                        except Exception:
+                            return "-"
+                        sign_char = _sign_for_value(num)
+                        base = _fmt_float_2(abs(num))
+                        return f"{sign_char}{base}" if sign_char else base
+
+                    movements.append({
+                        "date": dt_str or "-",
+                        "regle": getattr(mv, "regle_label", None),
+                        "montant": _fmt_signed(getattr(mv, "montant_ope", None)),
+                        "vl": ("-" if getattr(mv, "vl", None) is None else _fmt_float_2(getattr(mv, "vl", None))),
+                        "nb_uc": _fmt_signed(getattr(mv, "nb_uc", None)),
+                    })
             supports.append({
+                "support_id": support_id,
                 "code_isin": r.code_isin,
                 "nom": r.nom,
                 "nbuc": r.nbuc,
@@ -9676,6 +12714,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 "cat_principale": getattr(r, "cat_principale", None),
                 "cat_det": getattr(r, "cat_det", None),
                 "cat_geo": getattr(r, "cat_geo", None),
+                "movements": movements,
             })
     except Exception:
         supports = []
@@ -9765,6 +12804,11 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         sid = stat_ids.get(key)
         if sid: status_ui.append({"label":label_ui, "id":sid, "key":key})
     en_cours_id = stat_ids.get("en cours")
+    reclam_statuses = (
+        db.query(EvenementStatutReclamation)
+        .order_by(EvenementStatutReclamation.is_cloture.asc(), EvenementStatutReclamation.libelle.asc())
+        .all()
+    )
     clients_suggest = db.query(Client.id, Client.nom, Client.prenom).order_by(Client.nom.asc(), Client.prenom.asc()).all()
     aff_rows = db.query(Affaire.id, Affaire.ref, Affaire.id_personne).order_by(Affaire.ref.asc()).all()
     _clients_map = {c.id: f"{getattr(c,'nom','') or ''} {getattr(c,'prenom','') or ''}".strip() for c in clients_suggest}
@@ -9785,8 +12829,14 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             Evenement.type_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
+            Evenement.statut_reclamation_id,
+            EvenementStatutReclamation.libelle.label("statut_reclamation_libelle"),
         )
         .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
+        .outerjoin(
+            EvenementStatutReclamation,
+            EvenementStatutReclamation.id == Evenement.statut_reclamation_id,
+        )
         .filter(Evenement.affaire_id == affaire_id)
         .filter(
             or_(
@@ -9826,6 +12876,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "type_id": getattr(r, 'type_id', None),
             "type_libelle": getattr(r, 'type_libelle', None),
             "type_categorie": getattr(r, 'type_categorie', None),
+            "statut_reclamation_id": getattr(r, 'statut_reclamation_id', None),
+            "statut_reclamation_label": getattr(r, 'statut_reclamation_libelle', None),
         })
 
     # Avis d'opération pour cette affaire (avis + avis_regle)
@@ -9959,6 +13011,9 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "affaires_suggest": affaires_suggest,
             "client_fullname_default": client_fullname_default,
             "affaire_ref_default": affaire_ref_default,
+            "reclam_statuses": reclam_statuses,
+            "tb_markers_visible": tb_markers_visible,
+            "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "avis_affaire": avis_affaire,
             # Messages/alertes en-tête affaire
             "msgs_reg_count": msgs_reg_count,
@@ -10259,217 +13314,18 @@ def dashboard_client_esg(
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
 
-    debug_info = {"client_query": None, "alloc_query": None, "esg_query": None}
-
-    # Composition client (consolidée sur toutes les affaires à la date as_of ou dernière par affaire)
-    client_weights: dict[str, float] = {}
-    try:
-        # Récupérer les affaires du client
-        affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
-        # Agréger les valorisations par ISIN
-        sums: dict[str, float] = {}
-        total_valo = 0.0
-        params_list = []
-        weight_sql = (
-            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
-            "FROM mariadb_historique_support_w h\n"
-            "JOIN mariadb_support s ON s.id = h.id_support\n"
-            "WHERE h.id_source = :aid AND h.date = :d\n"
-            "GROUP BY s.code_isin"
-        )
-        for aid in affaire_ids:
-            if as_of:
-                ref_date = as_of
-            else:
-                ref_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"), {"aid": aid}).scalar()
-                if not ref_date:
-                    continue
-            q = text(
-                weight_sql
-            )
-            params = {"aid": aid, "d": ref_date}
-            rows = db.execute(q, params).fetchall()
-            params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
-            for r in rows or []:
-                isin = getattr(r, 'isin', None)
-                v = float(getattr(r, 'somme_valo', 0) or 0)
-                if isin:
-                    sums[isin] = sums.get(isin, 0.0) + v
-                    total_valo += v
-        if total_valo > 0:
-            for isin, v in sums.items():
-                if v is not None:
-                    client_weights[isin] = float(v) / float(total_valo)
-        debug_info["client_query"] = {"sql": weight_sql, "params_list": params_list, "affaires": affaire_ids, "as_of": as_of, "weights_count": len(client_weights)}
-    except Exception:
-        client_weights = {}
-
-    # Composition allocation (ISIN -> poids)
-    alloc_weights: dict[str, float] = {}
-    alloc_date_val = None
-    try:
-        import re as _re
-        isin_param = alloc_isin or (alloc if alloc and _re.match(r'^[A-Z0-9]{9,12}$', str(alloc).strip()) else None)
-        if isin_param:
-            if alloc_date:
-                # Utiliser la dernière date <= celle choisie pour éviter les décalages
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"), {"i": isin_param, "d": alloc_date}).scalar()
-                if not alloc_date_val:
-                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
-            else:
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
-            q2 = text(
-                """
-                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
-                FROM allocations
-                WHERE ISIN = :i AND date = :d
-                """
-            )
-            params2 = {"i": isin_param, "d": alloc_date_val}
-            # Log query before exec so it's always visible
-            try:
-                sql_txt = q2.text
-            except Exception:
-                sql_txt = str(q2)
-            debug_info["alloc_query"] = {"mode": "isin", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
-            rows2 = db.execute(q2, params2).fetchall()
-            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
-            if total2 and total2 > 0:
-                for r in rows2:
-                    isin = getattr(r, 'isin', None)
-                    v = float(getattr(r, 'v', 0) or 0)
-                    if isin and v is not None:
-                        alloc_weights[isin] = v / total2
-        elif alloc:
-            if alloc_date:
-                # Idem: dernière date <= celle choisie (nom normalisé)
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"), {"n": alloc, "d": alloc_date}).scalar()
-                if not alloc_date_val:
-                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
-            else:
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
-            q2 = text(
-                """
-                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
-                FROM allocations
-                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
-                """
-            )
-            params2 = {"n": alloc, "d": alloc_date_val}
-            # Renseigner le debug AVANT l'exécution pour toujours afficher la requête
-            try:
-                sql_txt = q2.text
-            except Exception:
-                sql_txt = str(q2)
-            debug_info["alloc_query"] = {"mode": "nom", "sql": sql_txt, "params": {k: (str(v) if v is not None else None) for k,v in params2.items()}}
-            rows2 = db.execute(q2, params2).fetchall()
-            total2 = sum(float(getattr(r, 'v', 0) or 0) for r in rows2) if rows2 else 0.0
-            if total2 and total2 > 0:
-                for r in rows2:
-                    isin = getattr(r, 'isin', None)
-                    v = float(getattr(r, 'v', 0) or 0)
-                    if isin and v is not None:
-                        alloc_weights[isin] = v / total2
-    except Exception:
-        alloc_weights = {}
-
-    all_isins = set(client_weights.keys()) | set(alloc_weights.keys())
-    if not all_isins:
-        return {"fields": sel_fields, "results": []}
-
-    def quote_col(c: str) -> str:
-        c = c.strip()
-        if not c:
-            return c
-        return f"`{c}`"
-
-    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
-    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
-    esg_map: dict[str, dict[str, float]] = {}
-    try:
-        isin_list = list(all_isins)
-        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
-        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
-        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
-        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
-        rows_esg = db.execute(q_esg, params).fetchall()
-        for row in rows_esg or []:
-            mm = row._mapping
-            isin = mm.get("ISIN")
-            if not isin:
-                continue
-            d = {}
-            for (f, al) in aliases:
-                try:
-                    val = mm.get(al)
-                except Exception:
-                    val = None
-                try:
-                    d[f] = float(val) if val is not None else None
-                except Exception:
-                    d[f] = None
-            esg_map[isin] = d
-    except Exception:
-        esg_map = {}
-
-    results = []
-    for f in sel_fields:
-        cli_val = 0.0
-        cli_wsum = 0.0
-        for isin, w in client_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
-            if v is None:
-                continue
-            cli_val += float(w) * float(v)
-            cli_wsum += float(w)
-        cli_val = (cli_val / cli_wsum) if cli_wsum > 0 else None
-
-        idx_val = 0.0
-        idx_wsum = 0.0
-        for isin, w in alloc_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
-            if v is None:
-                continue
-            idx_val += float(w) * float(v)
-            idx_wsum += float(w)
-        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
-
-        cli_present = sum(1 for isin,_w in client_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
-        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
-
-        if cli_val is None or idx_val is None or idx_val == 0:
-            results.append({"field": f, "index": None, "client": None, "cli_present": cli_present, "idx_present": idx_present})
-        else:
-            results.append({"field": f, "index": 100.0, "client": (cli_val / idx_val) * 100.0, "cli_present": cli_present, "idx_present": idx_present})
-
-    payload = {
-        "fields": sel_fields,
-        "alloc": alloc,
-        "alloc_isin": isin_param if 'isin_param' in locals() else None,
-        "as_of": as_of,
-        "alloc_date": alloc_date_val,
-        "results": results,
-    }
-    if debug:
-        payload["debug"] = {
-            "client": {
-                "weights_count": len(client_weights),
-                "weights_sum": sum(client_weights.values()) if client_weights else 0,
-                "query": debug_info.get("client_query"),
-                "isins": sorted(list(client_weights.keys())),
-            },
-            "allocation": {
-                "weights_count": len(alloc_weights),
-                "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
-                "date": alloc_date_val,
-                "query": debug_info.get("alloc_query"),
-                "isins": sorted(list(alloc_weights.keys())),
-            },
-            "esg": {
-                "isin_count": len(all_isins),
-                "query": debug_info.get("esg_query"),
-            }
-        }
+    payload, debug_payload = _compute_client_esg_comparison(
+        db=db,
+        client_id=client_id,
+        fields=sel_fields,
+        alloc=alloc,
+        alloc_isin=alloc_isin,
+        as_of=as_of,
+        alloc_date=alloc_date,
+        debug=bool(debug),
+    )
+    if debug and debug_payload is not None:
+        payload["debug"] = debug_payload
     return payload
 
 
@@ -11051,6 +13907,117 @@ def dashboard_support_details(
             }
         )
 
+    valuations_payload: list[dict] = []
+    valuations_weekly_payload: list[dict] = []
+    if support_ids:
+        try:
+            ids_list = [int(x) for x in support_ids if x is not None]
+            if ids_list:
+                val_query = text(
+                    """
+                    SELECT id_support, date, valeur
+                    FROM mariadb_support_val
+                    WHERE id_support IN :ids
+                    ORDER BY date
+                    """
+                ).bindparams(bindparam("ids", expanding=True))
+                val_rows = db.execute(val_query, {"ids": ids_list}).fetchall()
+            else:
+                val_rows = []
+            def _format_val_date(raw):
+                if isinstance(raw, datetime):
+                    return raw.date().isoformat()
+                if isinstance(raw, _date):
+                    return raw.isoformat()
+                if raw is None:
+                    return None
+                try:
+                    raw_str = str(raw)
+                    if not raw_str:
+                        return None
+                    if len(raw_str) >= 10:
+                        return raw_str[:10]
+                    return raw_str
+                except Exception:
+                    return None
+            for row in val_rows or []:
+                mapping = row._mapping if hasattr(row, "_mapping") else None
+                date_raw = mapping.get("date") if mapping else (row[1] if len(row) > 1 else None)
+                valeur_raw = mapping.get("valeur") if mapping else (row[2] if len(row) > 2 else None)
+                try:
+                    valeur_num = float(valeur_raw) if valeur_raw is not None else None
+                except Exception:
+                    valeur_num = None
+                valuations_payload.append(
+                    {
+                        "date": _format_val_date(date_raw),
+                        "valeur": valeur_num,
+                    }
+                )
+            if ids_list:
+                db_engine = str(db.bind.engine.name).lower() if db.bind and db.bind.engine else "sqlite"
+                if "sqlite" in db_engine:
+                    weekly_query = text(
+                        """
+                        SELECT
+                            strftime('%Y-%W', h.date) AS iso_week,
+                            date(h.date, '-' || ((strftime('%w', h.date) + 6) % 7) || ' days') AS week_start,
+                            SUM(h.valo) AS total_valo
+                        FROM mariadb_historique_support_w h
+                        WHERE h.id_support IN :ids
+                        GROUP BY iso_week, week_start
+                        ORDER BY week_start
+                        """
+                    ).bindparams(bindparam("ids", expanding=True))
+                else:
+                    weekly_query = text(
+                        """
+                        SELECT
+                            DATE_FORMAT(DATE(h.date), '%x-%v') AS iso_week,
+                            DATE(DATE_ADD(DATE(h.date), INTERVAL (1 - DAYOFWEEK(DATE(h.date))) DAY)) AS week_start,
+                            SUM(h.valo) AS total_valo
+                        FROM mariadb_historique_support_w h
+                        WHERE h.id_support IN :ids
+                        GROUP BY iso_week, week_start
+                        ORDER BY week_start
+                        """
+                    ).bindparams(bindparam("ids", expanding=True))
+                weekly_rows = db.execute(weekly_query, {"ids": ids_list}).fetchall()
+            else:
+                weekly_rows = []
+        except Exception:
+            valuations_payload = []
+            weekly_rows = []
+
+        for row in weekly_rows or []:
+            mapping = row._mapping if hasattr(row, "_mapping") else None
+            week_start_raw = mapping.get("week_start") if mapping else (row[1] if len(row) > 1 else None)
+            total_valo_raw = mapping.get("total_valo") if mapping else (row[2] if len(row) > 2 else None)
+            try:
+                total_valo_num = float(total_valo_raw)
+            except Exception:
+                total_valo_num = None
+            def _fmt_week_date(raw):
+                if isinstance(raw, datetime):
+                    return raw.date().isoformat()
+                if isinstance(raw, _date):
+                    return raw.isoformat()
+                if raw is None:
+                    return None
+                try:
+                    text_val = str(raw)
+                    if len(text_val) >= 10:
+                        return text_val[:10]
+                    return text_val
+                except Exception:
+                    return None
+            valuations_weekly_payload.append(
+                {
+                    "week_start": _fmt_week_date(week_start_raw),
+                    "total_valo": total_valo_num,
+                }
+            )
+
     if format.lower() == "csv":
         output = io.StringIO()
         writer = csv.writer(output, delimiter=";")
@@ -11139,6 +14106,8 @@ def dashboard_support_details(
             "support_ids": support_ids,
             "task_types": task_types_payload,
             "default_type_id": default_type_id,
+            "valuations_weekly": valuations_weekly_payload,
+            "valuations": valuations_payload,
             "csv_url": f"/dashboard/supports/details?code_isin={code_isin}&format=csv",
         }
     )
@@ -11275,6 +14244,7 @@ def dashboard_taches(
     exclude_statut: str | None = None,
 ):
     from sqlalchemy import text
+    from src.models.evenement import Evenement as EvenementModel
     conds = []
     params: dict = {}
     if statut:
@@ -11389,6 +14359,37 @@ def dashboard_taches(
         converted_items.append(base)
     items = converted_items
 
+    # Récupération du statut de réclamation associé aux événements listés
+    ev_ids = [base.get('evenement_id') for base in items if base.get('evenement_id')]
+    reclam_lookup: dict[int, dict] = {}
+    if ev_ids:
+        rows_reclam = (
+            db.query(
+                EvenementModel.id,
+                EvenementModel.statut_reclamation_id,
+                EvenementStatutReclamation.libelle,
+            )
+            .outerjoin(
+                EvenementStatutReclamation,
+                EvenementStatutReclamation.id == EvenementModel.statut_reclamation_id,
+            )
+            .filter(EvenementModel.id.in_(ev_ids))
+            .all()
+        )
+        for row in rows_reclam:
+            eid = getattr(row, 'id', None)
+            if eid is None:
+                continue
+            reclam_lookup[eid] = {
+                "id": getattr(row, 'statut_reclamation_id', None),
+                "label": getattr(row, 'libelle', None),
+            }
+    for base in items:
+        eid = base.get('evenement_id')
+        info = reclam_lookup.get(eid, {})
+        base['statut_reclamation_id'] = info.get('id')
+        base['statut_reclamation_label'] = info.get('label')
+
     # Options types & catégories pour filtres/creation
     types = db.execute(text("SELECT id, libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
     cats = sorted({t.categorie for t in types if getattr(t, 'categorie', None)})
@@ -11422,6 +14423,12 @@ def dashboard_taches(
         if sid:
             status_ui.append({"label": label_ui, "id": sid, "key": key})
     en_cours_id = stat_ids.get("en cours")
+
+    reclam_statuses = (
+        db.query(EvenementStatutReclamation)
+        .order_by(EvenementStatutReclamation.is_cloture.asc(), EvenementStatutReclamation.libelle.asc())
+        .all()
+    )
 
     # Suggestions Clients / Affaires (ergonomie création)
     clients_suggest = (
@@ -11462,6 +14469,10 @@ def dashboard_taches(
     )
     reclamations_count = _count(
         "SELECT COUNT(1) FROM vue_suivi_evenement WHERE categorie = 'reclamation' AND (statut IS NULL OR lower(statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé'))",
+        {},
+    )
+    reclamations_terminees_count = _count(
+        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE categorie = 'reclamation' AND lower(statut) IN ('terminé','termine','cloturé','cloture','clôturé')",
         {},
     )
     en_attente_count = _count(
@@ -11506,6 +14517,7 @@ def dashboard_taches(
                 "today": today_count,
                 "late": late_count,
                 "reclamations": reclamations_count,
+                "reclamations_terminees": reclamations_terminees_count,
                 "en_attente": en_attente_count,
                 "a_faire": a_faire_count,
                 "en_cours": en_cours_count,
@@ -11525,6 +14537,7 @@ def dashboard_taches(
             },
             "rh_list": rh_list,
             "rh_options": rh_options,
+            "reclam_statuses": reclam_statuses,
         },
     )
 
@@ -11652,10 +14665,16 @@ def dashboard_tache_edit(
             Evenement.client_id,
             Evenement.affaire_id,
             Evenement.rh_id,
+            Evenement.statut_reclamation_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
+            EvenementStatutReclamation.libelle.label("statut_reclamation_libelle"),
         )
         .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
+        .outerjoin(
+            EvenementStatutReclamation,
+            EvenementStatutReclamation.id == Evenement.statut_reclamation_id,
+        )
         .filter(Evenement.id == evenement_id)
         .first()
     )
@@ -11718,6 +14737,14 @@ def dashboard_tache_edit(
     rh_list = fetch_rh_list(db)
     rh_selected = getattr(ev, "rh_id", None)
 
+    reclam_statuses = (
+        db.query(EvenementStatutReclamation)
+        .order_by(EvenementStatutReclamation.is_cloture.asc(), EvenementStatutReclamation.libelle.asc())
+        .all()
+    )
+
+    prefill_comment = request.query_params.get("prefill_comment")
+
     return templates.TemplateResponse(
         "dashboard_tache_edit.html",
         {
@@ -11731,6 +14758,8 @@ def dashboard_tache_edit(
             "comment_entries": comment_entries,
              "rh_list": rh_list,
              "rh_selected": rh_selected,
+             "reclam_statuses": reclam_statuses,
+            "prefill_comment": prefill_comment,
         },
     )
 
@@ -11750,6 +14779,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
     responsables_l = form.getlist("utilisateur_responsable")
     rh_ids_l = form.getlist("rh_id")
     commentaires_l = form.getlist("commentaire")
+    reclam_statuts_l = form.getlist("statut_reclamation_id")
 
     def resolve_client(fullname: str):
         if not fullname:
@@ -11785,8 +14815,16 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
         return q.first()
 
     # Crée chaque ligne non vide
-    for type_lbl, cat, cli_full, aff_ref, resp, comm, rh_raw in zip_longest(
-        types_l, cats_l, clients_l, affaires_l, responsables_l, commentaires_l, rh_ids_l, fillvalue=""
+    for type_lbl, cat, cli_full, aff_ref, resp, comm, reclam_stat_raw, rh_raw in zip_longest(
+        types_l,
+        cats_l,
+        clients_l,
+        affaires_l,
+        responsables_l,
+        commentaires_l,
+        reclam_statuts_l,
+        rh_ids_l,
+        fillvalue="",
     ):
         has_content = (type_lbl or comm or cli_full or aff_ref)
         if not has_content:
@@ -11806,6 +14844,14 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             rh_id = int(rh_raw) if str(rh_raw).strip() else None
         except Exception:
             rh_id = None
+        try:
+            statut_reclam_id = int(reclam_stat_raw) if str(reclam_stat_raw).strip() else None
+        except Exception:
+            statut_reclam_id = None
+        cat_lower = (cat or "").strip().lower()
+        if cat_lower != "reclamation":
+            statut_reclam_id = None
+
         payload = TacheCreateSchema(
             type_libelle=(type_lbl or "tâche").strip(),
             categorie=(cat or "tache").strip() or "tache",
@@ -11814,6 +14860,7 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             commentaire=comm or None,
             utilisateur_responsable=(resp or None),
             rh_id=rh_id,
+            statut_reclamation_id=statut_reclam_id,
         )
         ev = create_tache(db, payload)
 
@@ -11841,6 +14888,7 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
     form = await request.form()
     statut_id = form.get("statut_id")
     commentaire = form.get("commentaire")
+    statut_reclamation_raw = form.get("statut_reclamation_id")
     user = form.get("utilisateur_responsable")
     redirect_to = form.get("redirect") or "/dashboard/taches"
     rh_id_raw = form.get("rh_id")
@@ -11850,25 +14898,43 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
             rh_id_val = int(rh_id_raw) if str(rh_id_raw).strip() else None
         except Exception:
             rh_id_val = None
+    comment_text = (commentaire or '').strip()
+
     ev_model = None
-    if commentaire or rh_id_raw is not None:
+    needs_event_model = bool(comment_text) or (rh_id_raw is not None) or (statut_reclamation_raw is not None)
+    if needs_event_model:
         try:
             from src.models.evenement import Evenement as _Ev
             ev_model = db.query(_Ev).filter(_Ev.id == evenement_id).first()
         except Exception:
             ev_model = None
     # Mise à jour du commentaire de la tâche: préfixer avec date-heure
-    if commentaire and commentaire.strip():
+    def _append_comment_entry(entry: str | None):
+        if not entry or ev_model is None:
+            return
+        current = getattr(ev_model, "commentaire", None)
+        if current:
+            ev_model.commentaire = f"{current}\n{entry}"
+        else:
+            ev_model.commentaire = entry
+
+    prefill_comment = request.query_params.get("prefill_comment")
+
+    if comment_text or prefill_comment:
         try:
             if ev_model:
                 from datetime import datetime as _dt
                 ts = _dt.utcnow().strftime("%Y-%m-%d %H:%M")
-                # Date-heure sur une ligne, texte sur la ligne suivante
-                new_line = f"[{ts}]\n{commentaire.strip()}"
-                if getattr(ev_model, "commentaire", None):
-                    ev_model.commentaire = f"{ev_model.commentaire}\n{new_line}"
+                base_text = comment_text
+                if prefill_comment and (not comment_text or comment_text.strip() == prefill_comment.strip()):
+                    base_text = prefill_comment
+                text_trim = (base_text or "").lstrip()
+                if text_trim.startswith("[") and "]" in text_trim.split("\n", 1)[0]:
+                    processed = base_text
                 else:
-                    ev_model.commentaire = new_line
+                    processed = f"[{ts}]\n{base_text}"
+                if processed.strip():
+                    _append_comment_entry(processed)
         except Exception:
             pass
     if ev_model is not None and rh_id_raw is not None:
@@ -11876,6 +14942,34 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
             ev_model.rh_id = rh_id_val
         except Exception:
             pass
+    prefill_comment: str | None = None
+    recorded_prefill: str | None = None
+    if ev_model is not None and statut_reclamation_raw is not None:
+        old_reclam_id = getattr(ev_model, "statut_reclamation_id", None)
+        try:
+            new_reclam_id = int(statut_reclamation_raw) if str(statut_reclamation_raw).strip() else None
+        except Exception:
+            new_reclam_id = None
+        if new_reclam_id != old_reclam_id:
+            old_label = None
+            if old_reclam_id is not None:
+                try:
+                    old_label = (
+                        db.query(EvenementStatutReclamation.libelle)
+                        .filter(EvenementStatutReclamation.id == old_reclam_id)
+                        .scalar()
+                    )
+                except Exception:
+                    old_label = None
+            ts_change = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+            label_text = old_label or "—"
+            prefill_comment = f"[{ts_change}]\nStatut réclamation précédent : {label_text}. motif : "
+            recorded_prefill = prefill_comment
+        try:
+            ev_model.statut_reclamation_id = new_reclam_id
+        except Exception:
+            ev_model.statut_reclamation_id = None
+
     if ev_model is not None:
         try:
             db.add(ev_model)
@@ -11888,8 +14982,24 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
     except Exception:
         sid = None
     if sid is not None:
-        payload = EvenementStatutCreateSchema(statut_id=sid, commentaire=commentaire, utilisateur_responsable=user)
+        payload = EvenementStatutCreateSchema(
+            statut_id=sid,
+            commentaire=(comment_text or None),
+            utilisateur_responsable=user,
+        )
         add_statut_to_evenement(db, evenement_id, payload)
+    if recorded_prefill and not comment_text:
+        try:
+            _append_comment_entry(recorded_prefill.rstrip())
+        except Exception:
+            pass
+
+    if prefill_comment:
+        parts = urlsplit(redirect_to)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["prefill_comment"] = prefill_comment
+        redirect_to = urlunsplit(parts._replace(query=urlencode(query, doseq=True)))
+
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
@@ -11935,14 +15045,24 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
     except Exception:
         rh_id_val = None
 
+    categorie_raw = (form.get("categorie") or "tache").strip() or "tache"
+    statut_reclam_raw = form.get("statut_reclamation_id")
+    try:
+        statut_reclam_id = int(statut_reclam_raw) if statut_reclam_raw not in (None, "") else None
+    except Exception:
+        statut_reclam_id = None
+    if categorie_raw.lower() != "reclamation":
+        statut_reclam_id = None
+
     payload = TacheCreateSchema(
         type_libelle=(form.get("type_libelle") or "").strip(),
-        categorie=(form.get("categorie") or "tache").strip() or "tache",
+        categorie=categorie_raw,
         client_id=getattr(cli, "id", None),
         affaire_id=getattr(aff, "id", None),
         commentaire=form.get("commentaire") or None,
         utilisateur_responsable=form.get("utilisateur_responsable") or None,
         rh_id=rh_id_val,
+        statut_reclamation_id=statut_reclam_id,
     )
     # Sélection automatique du type si vide et catégorie fournie
     if (not payload.type_libelle) and payload.categorie:
@@ -12020,14 +15140,24 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
     except Exception:
         rh_id_val = None
 
+    categorie_raw = (form.get("categorie") or "tache").strip() or "tache"
+    statut_reclam_raw = form.get("statut_reclamation_id")
+    try:
+        statut_reclam_id = int(statut_reclam_raw) if statut_reclam_raw not in (None, "") else None
+    except Exception:
+        statut_reclam_id = None
+    if categorie_raw.lower() != "reclamation":
+        statut_reclam_id = None
+
     payload = TacheCreateSchema(
         type_libelle=(form.get("type_libelle") or "").strip(),
-        categorie=(form.get("categorie") or "tache").strip() or "tache",
+        categorie=categorie_raw,
         client_id=getattr(cli, "id", None),
         affaire_id=getattr(aff, "id", None),
         commentaire=form.get("commentaire") or None,
         utilisateur_responsable=form.get("utilisateur_responsable") or None,
         rh_id=rh_id_val,
+        statut_reclamation_id=statut_reclam_id,
     )
     # Sélection automatique du type si vide et catégorie fournie
     if (not payload.type_libelle) and payload.categorie:
@@ -12066,6 +15196,7 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
 # ---------------- Détail Client ----------------
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
+    tb_markers_visible = request.query_params.get("markers") == "1"
     # Ensure DER context variables always exist to avoid NameError in templates
     DER_courtier = None
     DER_statut_social = None
@@ -12497,6 +15628,50 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             return "hands-praying"
         return "snowflake"
 
+    try:
+        if selected_dt:
+            mouvements_rows = db.execute(
+                text(
+                    """
+                    SELECT h.id AS id_affaire,
+                           SUM(COALESCE(h.mouvement, 0)) AS total_mvt
+                    FROM mariadb_historique_affaire_w h
+                    WHERE h.date <= :sel
+                    GROUP BY h.id
+                    """
+                ),
+                {"sel": selected_dt},
+            ).fetchall()
+        else:
+            mouvements_rows = db.execute(
+                text(
+                    """
+                    SELECT h.id AS id_affaire,
+                           SUM(COALESCE(h.mouvement, 0)) AS total_mvt
+                    FROM mariadb_historique_affaire_w h
+                    GROUP BY h.id
+                    """
+                )
+            ).fetchall()
+    except Exception:
+        mouvements_rows = []
+
+    mouvements_map: dict[int, float] = {}
+    for row in mouvements_rows:
+        mapping = row._mapping if hasattr(row, "_mapping") else None
+        rid_raw = mapping.get("id_affaire") if mapping else (row[0] if len(row) > 0 else None)
+        total_raw = mapping.get("total_mvt") if mapping else (row[1] if len(row) > 1 else None)
+        try:
+            rid = int(rid_raw) if rid_raw is not None else None
+        except Exception:
+            rid = None
+        if rid is None:
+            continue
+        try:
+            mouvements_map[rid] = float(total_raw or 0.0)
+        except Exception:
+            mouvements_map[rid] = 0.0
+
     client_affaires = []
     for r in affaires_rows:
         srri_calc = _srri_from_vol(r.last_volat)
@@ -12514,6 +15689,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             return n
         perf_pct = _pct_or_none(r.last_perf)
         vol_pct = _pct_or_none(r.last_volat)
+        total_mvt = mouvements_map.get(r.id)
+        try:
+            last_valo_numeric = float(r.last_valo or 0.0)
+        except Exception:
+            last_valo_numeric = 0.0
+        ecart_valo_mvt = None
+        if total_mvt is not None:
+            ecart_valo_mvt = last_valo_numeric - total_mvt
         client_affaires.append({
             "id": r.id,
             "ref": r.ref,
@@ -12526,6 +15709,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "last_vol_pct": vol_pct,
             "srri_calc": srri_calc,
             "srri_icon": icon,
+            "total_mvt": total_mvt,
+            "ecart_valo_mvt": ecart_valo_mvt,
+            "last_valo_numeric": last_valo_numeric,
         })
 
     # Comptages contrats ouverts/fermés
@@ -12590,6 +15776,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             return str(v)
 
     client_supports_map: dict[str, dict] = {}
+    movements_cache: dict[tuple[int, int], list[dict]] = {}
     nb_supports_actifs = 0
     try:
         # Liste des contrats (affaires) de ce client
@@ -12605,13 +15792,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             rows = db.execute(
                 text(
                     """
-                    SELECT s.code_isin AS code_isin,
+                    SELECT s.id AS support_id,
+                           s.code_isin AS code_isin,
                            s.nom AS nom,
                            s.SRRI AS srri_support,
                            s.cat_gene AS cat_gene,
                            s.cat_principale AS cat_principale,
                            s.cat_det AS cat_det,
                            s.cat_geo AS cat_geo,
+                           a.id AS affaire_id,
+                           a.ref AS affaire_ref,
                            h.nbuc AS nbuc,
                            h.vl AS vl,
                            h.prmp AS prmp,
@@ -12621,6 +15811,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                            esg.noteG AS noteG
                     FROM mariadb_historique_support_w h
                     JOIN mariadb_support s ON s.id = h.id_support
+                    JOIN mariadb_affaires a ON a.id = h.id_source
                     LEFT JOIN donnees_esg_etendu esg ON esg.isin = s.code_isin
                     WHERE h.id_source = :aid AND h.date = :d
                     """
@@ -12628,10 +15819,17 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 {"aid": aid, "d": ref_date}
             ).fetchall()
             for r in rows:
+                try:
+                    support_id = int(getattr(r, "support_id", None)) if getattr(r, "support_id", None) is not None else None
+                except Exception:
+                    support_id = None
                 key = r.code_isin or r.nom
                 it = client_supports_map.get(key)
+                if it and it.get("support_id") is None and support_id is not None:
+                    it["support_id"] = support_id
                 nb = float(r.nbuc or 0)
                 valo = float(r.valo or 0)
+                vl_val = float(r.vl) if getattr(r, "vl", None) is not None else None
                 prmp = float(r.prmp or 0) if r.prmp is not None else None
                 if not it:
                     it = {
@@ -12642,8 +15840,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                         "cat_principale": getattr(r, "cat_principale", None),
                         "cat_det": getattr(r, "cat_det", None),
                         "cat_geo": getattr(r, "cat_geo", None),
+                        "support_id": support_id,
+                        "contracts": [],
                         "sum_nbuc": 0.0,
                         "sum_valo": 0.0,
+                        "vl_num": 0.0,
+                        "vl_den": 0.0,
                         "prmp_num": 0.0,
                         "prmp_den": 0.0,
                         "noteE": getattr(r, "noteE", None),
@@ -12653,9 +15855,110 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     client_supports_map[key] = it
                 it["sum_nbuc"] += nb
                 it["sum_valo"] += valo
+                if vl_val is not None:
+                    weight = nb if nb and nb != 0 else 1.0
+                    it["vl_num"] += vl_val * weight
+                    it["vl_den"] += weight
                 if prmp is not None and nb is not None:
                     it["prmp_num"] += prmp * nb
                     it["prmp_den"] += nb
+                contract_movements: list[dict] = []
+                cache_key = None
+                if aid is not None and support_id is not None:
+                    cache_key = (aid, support_id)
+                    if cache_key in movements_cache:
+                        contract_movements = movements_cache[cache_key]
+                    else:
+                        contract_movements = []
+                        try:
+                            mov_rows = db.execute(
+                                text(
+                                    """
+                                    SELECT COALESCE(m.vl_date, m.date_sp) AS mouvement_date,
+                                           m.montant_ope,
+                                           m.vl,
+                                           m.nb_uc,
+                                           mr.sens,
+                                           mr.titre AS regle_label
+                                    FROM mouvement m
+                                    LEFT JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+                                    WHERE m.id_affaire = :aid AND m.id_support = :sid
+                                    ORDER BY COALESCE(m.vl_date, m.date_sp) DESC, m.id DESC
+                                    """
+                                ),
+                                {"aid": aid, "sid": support_id},
+                            ).fetchall()
+                        except Exception:
+                            mov_rows = []
+                        for mv in mov_rows:
+                            dt_raw = getattr(mv, "mouvement_date", None)
+                            try:
+                                dt_str = dt_raw.strftime("%Y-%m-%d") if dt_raw else None
+                            except Exception:
+                                dt_str = str(dt_raw)[:10] if dt_raw else None
+                            sens_raw = getattr(mv, "sens", None)
+                            sens_int: int | None = None
+                            try:
+                                sens_int = int(sens_raw) if sens_raw is not None else None
+                            except Exception:
+                                sens_int = None
+                            def _sign_for(val: float | None, default_sign: str = "") -> str:
+                                if sens_int is not None:
+                                    if sens_int > 0:
+                                        return "+"
+                                    if sens_int < 0:
+                                        return "-"
+                                if val is None:
+                                    return default_sign
+                                try:
+                                    num = float(val)
+                                except Exception:
+                                    return default_sign
+                                if num > 0:
+                                    return "+"
+                                if num < 0:
+                                    return "-"
+                                return default_sign
+                            def _fmt_signed(value) -> str:
+                                if value is None:
+                                    return "-"
+                                try:
+                                    num = float(value or 0.0)
+                                except Exception:
+                                    return "-"
+                                sign_char = _sign_for(num)
+                                abs_val = abs(num)
+                                base = _fmt_float_2(abs_val)
+                                if sign_char:
+                                    return f"{sign_char}{base}"
+                                return base
+                            montant_signed = _fmt_signed(getattr(mv, "montant_ope", None))
+                            nb_parts_signed = _fmt_signed(getattr(mv, "nb_uc", None))
+                            vl_str = ("-" if getattr(mv, "vl", None) is None else _fmt_float_2(getattr(mv, "vl", None)))
+                            contract_movements.append({
+                                "date": dt_str or "-",
+                                "regle": getattr(mv, "regle_label", None),
+                                "montant": montant_signed,
+                                "vl": vl_str,
+                                "nb_uc": nb_parts_signed,
+                            })
+                        movements_cache[cache_key] = contract_movements
+                it["contracts"].append({
+                    "affaire_id": getattr(r, "affaire_id", aid),
+                    "affaire_ref": getattr(r, "affaire_ref", None) or f"Affaire {aid}",
+                    "nb_parts": nb,
+                    "nb_parts_str": _fmt_float_2(nb),
+                    "prix_revient": prmp,
+                    "prix_revient_str": ("-" if prmp is None else _fmt_float_2(prmp)),
+                    "vl": vl_val,
+                    "vl_str": ("-" if vl_val is None else _fmt_float_2(vl_val)),
+                    "valorisation": valo,
+                    "valorisation_str": _fmt_valo(valo),
+                    "code_isin": r.code_isin,
+                    "support_nom": r.nom,
+                    "support_id": support_id,
+                    "movements": contract_movements,
+                })
                 # Enrichir notes ESG / catégories si absentes
                 for k in ("noteE", "noteS", "noteG"):
                     if it.get(k) is None and getattr(r, k, None) is not None:
@@ -12667,6 +15970,18 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         for it in client_supports_map.values():
             den = it.get("prmp_den", 0.0) or 0.0
             prmp_val = (it.get("prmp_num", 0.0) / den) if den > 0 else None
+            vl_den = it.get("vl_den", 0.0) or 0.0
+            vl_val = (it.get("vl_num", 0.0) / vl_den) if vl_den > 0 else None
+            contracts_list = [
+                {
+                    **c,
+                    "nb_parts_str": c.get("nb_parts_str"),
+                    "prix_revient_str": c.get("prix_revient_str"),
+                    "vl_str": c.get("vl_str"),
+                    "valorisation_str": c.get("valorisation_str"),
+                }
+                for c in it.get("contracts", [])
+            ]
             client_supports.append({
                 "code_isin": it.get("code_isin"),
                 "nom": it.get("nom"),
@@ -12679,11 +15994,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 "nbuc_str": _fmt_float_2(it.get("sum_nbuc", 0.0)),
                 "prmp": prmp_val,
                 "prmp_str": ("-" if prmp_val is None else _fmt_float_2(prmp_val)),
+                "vl": vl_val,
+                "vl_str": ("-" if vl_val is None else _fmt_float_2(vl_val)),
                 "valo": it.get("sum_valo", 0.0),
                 "valo_str": _fmt_valo(it.get("sum_valo", 0.0)),
                 "noteE": it.get("noteE"),
                 "noteS": it.get("noteS"),
                 "noteG": it.get("noteG"),
+                "contracts": contracts_list,
             })
         # Trier par valorisation décroissante
         client_supports.sort(key=lambda x: x.get("valo", 0.0), reverse=True)
@@ -12784,6 +16102,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             status_ui.append({"label": label_ui, "id": sid, "key": key})
     en_cours_id = stat_ids.get("en cours")
 
+    reclam_statuses = (
+        db.query(EvenementStatutReclamation)
+        .order_by(EvenementStatutReclamation.is_cloture.asc(), EvenementStatutReclamation.libelle.asc())
+        .all()
+    )
+
     clients_suggest = db.query(Client.id, Client.nom, Client.prenom).order_by(Client.nom.asc(), Client.prenom.asc()).all()
     aff_rows = db.query(Affaire.id, Affaire.ref, Affaire.id_personne).order_by(Affaire.ref.asc()).all()
     _clients_map = {c.id: f"{getattr(c,'nom','') or ''} {getattr(c,'prenom','') or ''}".strip() for c in clients_suggest}
@@ -12804,10 +16128,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             Evenement.commentaire,
             Evenement.type_id,
             Evenement.affaire_id,
+            Evenement.statut_reclamation_id,
             TypeEvenement.libelle.label("type_libelle"),
             TypeEvenement.categorie.label("type_categorie"),
+            EvenementStatutReclamation.libelle.label("statut_reclamation_libelle"),
         )
         .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
+        .outerjoin(
+            EvenementStatutReclamation,
+            EvenementStatutReclamation.id == Evenement.statut_reclamation_id,
+        )
         .filter(Evenement.client_id == client_id)
         .filter(
             or_(
@@ -12852,6 +16182,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "type_categorie": getattr(r, 'type_categorie', None),
             "affaire_id": getattr(r, 'affaire_id', None),
             "affaire_ref": _aff_ref.get(getattr(r, 'affaire_id', None)),
+            "statut_reclamation_id": getattr(r, 'statut_reclamation_id', None),
+            "statut_reclamation_label": getattr(r, 'statut_reclamation_libelle', None),
         })
 
     # KYC: Actifs du client
@@ -12972,150 +16304,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     fatca_today = _date.today().isoformat()
 
     # --- DER data for Conformité modal (client detail) ---
-    DER_courtier = None
-    DER_statut_social = None
-    DER_courtier_garanties_normes: list[dict] = []
-    try:
-        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
-        if row:
-            DER_courtier = dict(row._mapping)
-            # Resolve statut social against reference table if numeric id
-            ss_label = None
-            raw_val = None
-            for key in ("statut_social", "statut", "statut_soc", "statut_social_lib"):
-                if key in DER_courtier and DER_courtier.get(key) not in (None, ""):
-                    raw_val = DER_courtier.get(key)
-                    break
-            if raw_val is not None:
-                try:
-                    ss_id = int(str(raw_val).strip())
-                    r2 = db.execute(text("SELECT lib FROM DER_statut_social WHERE id = :i"), {"i": ss_id}).fetchone()
-                    if r2 and r2[0]:
-                        ss_label = r2[0]
-                except Exception:
-                    ss_label = str(raw_val)
-            DER_statut_social = {"lib": ss_label} if ss_label is not None else None
-            # Médiation join retiré temporairement
-    except Exception:
-        DER_courtier = None
-        DER_statut_social = None
-
-    try:
-        gar_table = _resolve_table_name(db, ["DER_courtier_garanties_normes"])
-        if gar_table:
-            cols = _sqlite_table_columns(db, gar_table)
-            colnames = [c.get("name") for c in cols]
-            import unicodedata
-            def _norm(s: str) -> str:
-                s2 = unicodedata.normalize('NFKD', s or '')
-                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
-                return s2.lower()
-            inv = { _norm(n): n for n in colnames }
-            c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
-            c_ias = inv.get('ias') or 'IAS'
-            c_iobsp = inv.get('iobsp') or 'IOBSP'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
-            for r in rows:
-                m = r._mapping
-                DER_courtier_garanties_normes.append({
-                    'type_garantie': m.get(c_type) if c_type else None,
-                    'IAS': m.get(c_ias),
-                    'IOBSP': m.get(c_iobsp),
-                })
-    except Exception:
-        DER_courtier_garanties_normes = []
-
-    # Safety: ensure debug params always exist
-    try:
-        DER_sql_params_activite
-    except NameError:
-        DER_sql_params_activite = {":cid": None}
-
-    # Lettre de mission (H): chargement dédié (si pas déjà fait dans d'autres blocs)
-    try:
-        lm_remunerations  # type: ignore[name-defined]
-    except NameError:
-        lm_remunerations = []  # type: ignore[assignment]
-        try:
-            row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
-            DER_courtier = dict(row._mapping) if row else None
-            cid = DER_courtier.get("id") if DER_courtier else None
-            if cid is not None:
-                rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation WHERE courtier_id = :cid"), {"cid": cid}).fetchall()
-            else:
-                rows = db.execute(text("SELECT type, montant, pourcentage FROM DER_courtier_mode_facturation")).fetchall()
-            # Build ref mode map for human-friendly labels
-            ref_modes = []
-            try:
-                ref_modes = db.execute(text("SELECT id, mode FROM DER_courtier_mode_facturation_ref")).fetchall()
-            except Exception:
-                ref_modes = []
-            import unicodedata, re
-            def _normtxt(s: str | None) -> str:
-                if s is None:
-                    return ""
-                t = unicodedata.normalize('NFKD', str(s))
-                t = ''.join(ch for ch in t if not unicodedata.combining(ch))
-                t = t.lower().replace("_", " ").replace("'", " ")
-                t = re.sub(r"[^a-z0-9]+", " ", t)
-                return re.sub(r"\s+", " ", t).strip()
-            ref_map = {}
-            for rm in ref_modes:
-                try:
-                    key = _normtxt(rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
-                    ref_map[key] = (rm._mapping.get('mode') if hasattr(rm, '_mapping') else rm[1])
-                except Exception:
-                    continue
-            def _label_for_type(t: str | None) -> str | None:
-                n = _normtxt(t)
-                if not n:
-                    return None
-                if 'honor' in n:
-                    return ref_map.get('honoraires') or 'Honoraires'
-                if 'entree' in n:
-                    return ref_map.get('frais d entree') or "Frais d'entrée"
-                if 'gestion' in n:
-                    return ref_map.get('frais de gestion') or 'Frais de gestion'
-                return ref_map.get(n)
-            for r in rows:
-                m = r._mapping if hasattr(r, "_mapping") else {"type": r[0], "montant": r[1], "pourcentage": r[2]}
-                t = m.get("type")
-                lm_remunerations.append({
-                    "type": t,
-                    "mode": _label_for_type(t) or (str(t).replace('_', ' ').title() if t else None),
-                    "montant": m.get("montant"),
-                    "pourcentage": m.get("pourcentage"),
-                })
-            import unicodedata
-            def _normv(v: str) -> str:
-                s2 = unicodedata.normalize('NFKD', v or '')
-                s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
-                return s2.upper()
-            lm_remunerations.sort(key=lambda r: (0 if 'HONOR' in _normv(str(r.get('type') or '')) else 1, _normv(str(r.get('type') or ''))))
-        except Exception:
-            lm_remunerations = []
-
-    # Safety: guarantee lm_remunerations exists even if earlier block failed
-    try:
-        lm_remunerations  # type: ignore[name-defined]
-    except NameError:
-        lm_remunerations = []  # type: ignore[assignment]
-
-    # Préparer affichage autorité de médiation (label depuis ref)
-    centre_mediation_lib = None
-    try:
-        cm_id = None
-        if DER_courtier and DER_courtier.get("centre_mediation") not in (None, ""):
-            try:
-                cm_id = int(str(DER_courtier.get("centre_mediation")).strip())
-            except Exception:
-                cm_id = None
-        if cm_id is not None:
-            row = db.execute(text("SELECT lib FROM DER_courtier_ref_autorite WHERE id = :i"), {"i": cm_id}).fetchone()
-            if row:
-                centre_mediation_lib = row[0]
-    except Exception:
-        centre_mediation_lib = None
+    der_context = _build_der_context(db)
+    DER_courtier = der_context.get("DER_courtier")
+    DER_statut_social = der_context.get("DER_statut_social")
+    DER_courtier_garanties_normes = der_context.get("DER_courtier_garanties_normes") or []
+    DER_sql_params_activite = der_context.get("DER_sql_params_activite") or {":cid": None}
+    lm_remunerations = der_context.get("lm_remunerations") or []
+    centre_mediation_lib = der_context.get("centre_mediation_lib")
+    DER_activites = der_context.get("DER_activites") or []
 
     # Lettre de mission : objectifs client (KYC_Client_Objectifs)
     lm_objectifs: list[dict] = []
@@ -13259,6 +16455,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         alloc_names_client = []
     esg_fields_client: list[dict] = []
     esg_field_labels_client: dict[str, str] = {}
+    esg_comparison_alloc: str | None = None
+    esg_comparison_rows: list[dict] = []
+    esg_comparison_chart_png = None
+    esg_unmatched_fields: list[str] = []
+    esg_default_fields: list[str] = []
     try:
         ok = False
         # MariaDB/MySQL
@@ -13318,7 +16519,173 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         seen_cli.add(key)
         uniq_cli.append(it)
     esg_fields_client = sorted(uniq_cli, key=lambda x: str(x.get("label", "")).lower())
+    # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
+    allocation_reference_name: str | None = None
+    adequation_allocation_html = None
+    try:
+        rid = None
+        if risque_latest and (risque_latest.get("niveau_id") is not None):
+            rid = int(risque_latest.get("niveau_id"))
+        if rid is not None:
+            row = db.execute(text(
+                """
+                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                       ar.texte
+                FROM allocation_risque ar
+                LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                WHERE ar.risque_id = :rid
+                ORDER BY ar.date_attribution DESC, ar.id DESC
+                LIMIT 1
+                """
+            ), {"rid": rid}).fetchone()
+            if row:
+                allocation_reference_name = row[0]
+            if row and row[1] is not None:
+                md = str(row[1])
+                try:
+                    import re, html as _html
+                    text_md = _html.escape(md)
+                    text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
+                    text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
+                    text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
+                    text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
+                    text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
+                    lines = text_md.split('\n')
+                    out = []
+                    in_ul = False
+                    for ln in lines:
+                        if re.match(r"^\s*-\s+", ln):
+                            if not in_ul:
+                                out.append("<ul>"); in_ul=True
+                            out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                        else:
+                            if in_ul:
+                                out.append("</ul>"); in_ul=False
+                            if ln.strip(): out.append("<p>"+ln+"</p>")
+                    if in_ul: out.append("</ul>")
+                    adequation_allocation_html = "\n".join(out)
+                except Exception:
+                    adequation_allocation_html = md.replace('\n','<br/>')
+    except Exception:
+        adequation_allocation_html = None
+
     esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
+
+    if not allocation_reference_name and alloc_names_client:
+        allocation_reference_name = alloc_names_client[0]
+
+    esg_comparison_alloc = allocation_reference_name or (alloc_names_client[0] if alloc_names_client else None)
+    # Tenter de déterminer des indicateurs ESG pertinents (ceux qui possèdent des données numériques)
+    fields_to_try = [it.get("col") for it in esg_fields_client if it.get("col")]
+    if len(fields_to_try) > 12:
+        fields_to_try = fields_to_try[:12]
+    esg_comparison_payload = None
+    if esg_comparison_alloc and fields_to_try:
+        try:
+            esg_comparison_payload, _dbg = _compute_client_esg_comparison(
+                db=db,
+                client_id=client_id,
+                fields=fields_to_try,
+                alloc=esg_comparison_alloc,
+                alloc_isin=None,
+                as_of=None,
+                alloc_date=None,
+                debug=False,
+            )
+            all_rows: list[dict] = []
+            for row in esg_comparison_payload.get("results", []):
+                field_name = row.get("field")
+                label = esg_field_labels_client.get(field_name, field_name)
+                all_rows.append({
+                    "field": field_name,
+                    "label": label,
+                    "index": row.get("index"),
+                    "client": row.get("client"),
+                    "cli_present": row.get("cli_present"),
+                    "idx_present": row.get("idx_present"),
+                })
+            rows_with_values = [
+                r for r in all_rows if (r.get("index") is not None and r.get("client") is not None)
+            ]
+            esg_comparison_rows = rows_with_values[:4] if rows_with_values else all_rows[:4]
+            esg_default_fields = [r.get("field") for r in esg_comparison_rows if r.get("field")]
+
+            preferred_fields = [r.get("field") for r in rows_with_values]
+            if preferred_fields:
+                ordered = []
+                seen_pf = set()
+                for f in preferred_fields:
+                    for it in esg_fields_client:
+                        col = it.get("col")
+                        if col == f and col not in seen_pf:
+                            ordered.append(it)
+                            seen_pf.add(col)
+                for it in esg_fields_client:
+                    col = it.get("col")
+                    if col not in seen_pf:
+                        ordered.append(it)
+                esg_fields_client = ordered
+                esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
+
+            if rows_with_values:
+                categories = [str(r.get("label") or r.get("field")) for r in rows_with_values]
+                index_values = [float(r.get("index") or 0.0) for r in rows_with_values]
+                client_values = [float(r.get("client") or 0.0) for r in rows_with_values]
+                esg_comparison_chart_png = _build_matplotlib_esg_bar_chart(categories, index_values, client_values)
+        except Exception:
+            esg_comparison_payload = None
+
+    if not esg_comparison_rows and esg_comparison_alloc:
+        try:
+            payload_tmp, _ = _compute_client_esg_comparison(
+                db=db,
+                client_id=client_id,
+                fields=[it.get("col") for it in esg_fields_client if it.get("col")][:4],
+                alloc=esg_comparison_alloc,
+                alloc_isin=None,
+                as_of=None,
+                alloc_date=None,
+                debug=False,
+            )
+            esg_comparison_rows = payload_tmp.get("results") or []
+            esg_unmatched_fields = payload_tmp.get("unmatched_fields") or []
+            esg_default_fields = payload_tmp.get("resolved_fields") or []
+        except Exception:
+            esg_comparison_rows = []
+
+    esg_unmatched_fields = esg_comparison_payload.get("unmatched_fields", []) if esg_comparison_payload else []
+
+    if (esg_comparison_alloc and not esg_comparison_rows):
+        fallback_fields = esg_default_fields[:] if esg_default_fields else []
+        if not fallback_fields:
+            fallback_fields = [
+                it.get("col")
+                for it in esg_fields_client
+                if it.get("col")
+            ][:4]
+        if not fallback_fields:
+            fallback_fields = [
+                "Avoiding water scarcity",
+                "Board independence",
+                "GHG intensity-Value",
+                "Gender pay gap",
+            ]
+        try:
+            payload_tmp, _dbg2 = _compute_client_esg_comparison(
+                db=db,
+                client_id=client_id,
+                fields=fallback_fields,
+                alloc=esg_comparison_alloc,
+                alloc_isin=None,
+                as_of=None,
+                alloc_date=None,
+                debug=False,
+            )
+            esg_comparison_rows = payload_tmp.get("results") or []
+            esg_unmatched_fields = payload_tmp.get("unmatched_fields") or []
+            esg_default_fields = payload_tmp.get("resolved_fields") or fallback_fields
+        except Exception:
+            esg_comparison_rows = []
 
     # Contrat choisi (si défini via KYC_contrat_choisi)
     contrat_choisi_nom = None
@@ -13432,53 +16799,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         adequation_objectifs = []
 
-    # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
-    adequation_allocation_html = None
+    report_logo_png = None
     try:
-        rid = None
-        if risque_latest and (risque_latest.get("niveau_id") is not None):
-            rid = int(risque_latest.get("niveau_id"))
-        if rid is not None:
-            row = db.execute(text(
-                """
-                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
-                       ar.texte
-                FROM allocation_risque ar
-                LEFT JOIN allocations a ON a.nom = ar.allocation_name
-                WHERE ar.risque_id = :rid
-                ORDER BY ar.date_attribution DESC, ar.id DESC
-                LIMIT 1
-                """
-            ), {"rid": rid}).fetchone()
-            if row and row[1] is not None:
-                md = str(row[1])
-                try:
-                    import re, html as _html
-                    text_md = _html.escape(md)
-                    text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
-                    text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
-                    text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
-                    text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
-                    text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
-                    lines = text_md.split('\n')
-                    out = []
-                    in_ul = False
-                    for ln in lines:
-                        if re.match(r"^\s*-\s+", ln):
-                            if not in_ul:
-                                out.append("<ul>"); in_ul=True
-                            out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
-                        else:
-                            if in_ul:
-                                out.append("</ul>"); in_ul=False
-                            if ln.strip(): out.append("<p>"+ln+"</p>")
-                    if in_ul: out.append("</ul>")
-                    adequation_allocation_html = "\n".join(out)
-                except Exception:
-                    adequation_allocation_html = md.replace('\n','<br/>')
+        logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+        report_logo_png = base64.b64encode(logo_path.read_bytes()).decode("ascii") if logo_path.exists() else None
     except Exception:
-        adequation_allocation_html = None
-
+        report_logo_png = None
 
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
@@ -13487,6 +16813,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "client": client,
             "historique": historique,
             "last_row": last_row,
+            "report_logo_png": report_logo_png,
             "documents_client": documents_client,
             # séries pour graphiques
             "labels": chart_labels,
@@ -13535,6 +16862,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "alloc_names": alloc_names_client,
             "esg_fields": esg_fields_client,
             "esg_field_labels": esg_field_labels_client,
+            "esg_comparison_alloc": esg_comparison_alloc,
+            "esg_comparison_rows": esg_comparison_rows,
+            "esg_comparison_chart_png": esg_comparison_chart_png,
+            "esg_default_fields": esg_default_fields,
+            "esg_unmatched_fields": esg_unmatched_fields,
             "contrat_choisi_nom": contrat_choisi_nom,
             "contrat_choisi_societe": contrat_choisi_societe,
             # Lettre d'adéquation: infos consolidées
@@ -13559,6 +16891,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "clients_suggest": clients_suggest,
             "affaires_suggest": affaires_suggest,
             "client_fullname_default": client_fullname_default,
+            "reclam_statuses": reclam_statuses,
+            "tb_markers_visible": tb_markers_visible,
+            "tb_markers_param": "markers=1" if tb_markers_visible else "",
             # Messages/alertes en-tête
             "msgs_reg_count": msgs_reg_count,
             "msgs_nonreg_count": msgs_nonreg_count,
@@ -13615,6 +16950,34 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "objectifsMission": lm_objectifs_summary or "—",
         }
     )
+
+
+@router.post("/clients/{client_id}/commercial", response_class=HTMLResponse)
+async def dashboard_client_update_commercial(client_id: int, request: Request, db: Session = Depends(get_db)):
+    """Met à jour le responsable (commercial) associé à un client depuis la fiche détail."""
+    form = await request.form()
+    raw_id = (form.get("commercial_id") or "").strip()
+    new_id: int | None
+    if not raw_id:
+        new_id = None
+    else:
+        try:
+            new_id = int(raw_id)
+        except (TypeError, ValueError):
+            new_id = None
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    try:
+        client.commercial_id = new_id
+        db.add(client)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Update commercial failed for client %s: %s", client_id, exc, exc_info=True)
+    return RedirectResponse(url=f"/dashboard/clients/{client_id}", status_code=303)
 
 
 @router.post("/clients/{client_id}/actifs", response_class=HTMLResponse)

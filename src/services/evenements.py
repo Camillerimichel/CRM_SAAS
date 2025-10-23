@@ -71,6 +71,7 @@ def create_evenement(db: Session, payload: EvenementCreateSchema) -> Evenement:
         commentaire=payload.commentaire,
         utilisateur_responsable=payload.utilisateur_responsable,
         rh_id=payload.rh_id,
+        statut_reclamation_id=payload.statut_reclamation_id,
     )
     db.add(ev)
     db.commit()
@@ -142,6 +143,7 @@ def create_tache(db: Session, payload: TacheCreateSchema) -> Evenement:
         commentaire=payload.commentaire,
         utilisateur_responsable=payload.utilisateur_responsable,
         rh_id=payload.rh_id,
+        statut_reclamation_id=payload.statut_reclamation_id,
     )
     db.add(ev)
     db.commit()

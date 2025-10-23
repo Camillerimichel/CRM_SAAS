@@ -31,47 +31,41 @@
   .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
   .badge-filter .x:hover { opacity:1; }
   .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+  .tb-markers-enabled [data-tb-marker] {
+    position: relative;
+    outline: 2px dashed rgba(37,99,235,0.35);
+  }
+  .tb-markers-enabled [data-tb-marker]::before {
+    content: attr(data-tb-marker);
+    position: absolute;
+    top: -12px;
+    left: 0;
+    background: rgba(37,99,235,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 20;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+  }
 </style>
 
-<div class="main-container">
-  <h2>Liste des clients</h2>
-  {% if risk_label or group_filter_label %}
-  <div class="badge-row">
-    {% if risk_label %}
-    <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/clients" title="Effacer le filtre">✕</a></span>
-    {% endif %}
-    {% if group_filter_label %}
-    <span class="badge-filter">Groupe: {{ group_filter_label }} <a class="x" href="#" data-clear-group="1" title="Effacer le filtre">✕</a></span>
-    {% endif %}
-  </div>
-  {% endif %}
-  <div id="cf_active_badges" class="badge-row"></div>
-  <div style="display:flex; gap:.5rem; justify-content:space-between; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;">
-    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-      <select id="cf_group_filter" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
-        <option value="">Tous les groupes</option>
-        {% for g in client_groups %}
-          <option value="{{ g.id }}" {% if group_filter_id is not none and g.id == group_filter_id %}selected{% endif %}>
-            {{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div style="display:flex; gap:.5rem; align-items:center;">
-      <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
-      <select id="cf_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
-        <option value="">Choisir un groupe (Personnes)</option>
-        {% for g in client_groups %}
-          <option value="{{ g.id }}">{{ g.nom }}{% if g.nb_membres is not none %} ({{ g.nb_membres }}){% endif %}</option>
-        {% endfor %}
-      </select>
-      <button class="btn" id="cf_add_to_group_btn" title="Ajouter tous les clients filtrés au groupe sélectionné">Ajouter au groupe</button>
-      <button class="btn" id="cf_reset_btn">Réinitialiser les filtres</button>
-    </div>
+{% set tb_markers_param = tb_markers_param or '' %}
+{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
+{% set tb_markers_prefix = ('?' + tb_markers_param) if tb_markers_param else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
+<div class="main-container" data-tb-marker="TB_202">
+  <h2 data-tb-marker="TB_203">Liste des clients</h2>
+  <div data-tb-marker="TB_204"></div>
+  <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205"></div>
+  <div style="display:flex; gap:.5rem; justify-content:flex-end; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;" data-tb-marker="TB_206">
+    <button class="btn" id="cf_reset_btn" data-tb-marker="TB_207">Réinitialiser les filtres</button>
   </div>
   <!-- Filtres intégrés dans l'en-tête du tableau -->
 
-  <table id="clientsTbl">
+  <table id="clientsTbl" data-tb-marker="TB_208">
     <thead>
       <tr>
         <th>Nom</th>
@@ -106,6 +100,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <script>
@@ -362,61 +357,6 @@
       renderBadges();
     });
   }
-
-  function visibleClientIds(){
-    var out = [];
-    rows.forEach(function(tr){
-      if (tr.style.display === 'none') return;
-      var id = tr.getAttribute('data-client-id');
-      if (id) out.push(parseInt(id,10));
-    });
-    return out;
-  }
-
-  async function addVisibleToGroup(){
-    const sel = document.getElementById('cf_group_select');
-    const info = document.getElementById('cf_info');
-    const gid = sel && sel.value ? parseInt(sel.value,10) : null;
-    if (!gid){ alert('Sélectionnez un groupe cible.'); return; }
-    const ids = visibleClientIds();
-    if (!ids.length){ alert('Aucun client filtré à ajouter.'); return; }
-    const btn = document.getElementById('cf_add_to_group_btn');
-    if (btn){ btn.disabled = true; btn.textContent = 'Ajout…'; }
-    let ok = 0, ko = 0;
-    for (const cid of ids){
-      try {
-        const r = await fetch('/api/groupes/memberships', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupe_id: gid, client_id: cid }) });
-        if (r.ok) ok++; else ko++;
-      } catch(e){ ko++; }
-    }
-    if (btn){ btn.disabled = false; btn.textContent = 'Ajouter au groupe'; }
-    if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
-    alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
-  }
-var bulkBtn = document.getElementById('cf_add_to_group_btn');
-if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
-
-  // Filtre serveur par groupe
-  var groupFilterSel = document.getElementById('cf_group_filter');
-  if (groupFilterSel){
-    groupFilterSel.addEventListener('change', function(){
-      var params = new URLSearchParams(window.location.search || '');
-      var val = this.value || '';
-      if (val){ params.set('group', val); }
-      else { params.delete('group'); }
-      var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
-      window.location.assign(newUrl);
-    });
-  }
-  document.querySelectorAll('[data-clear-group]').forEach(function(anchor){
-    anchor.addEventListener('click', function(e){
-      e.preventDefault();
-      var params = new URLSearchParams(window.location.search || '');
-      params.delete('group');
-      var newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
-      window.location.assign(newUrl);
-    });
-  });
 
   // Initial state
   function renderBadges(){

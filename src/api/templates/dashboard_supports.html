@@ -110,6 +110,11 @@
     .support-modal__meta span { display:block; }
     .support-modal__meta .label { color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; }
     .support-modal__meta .value { font-weight:600; color:#1f2937; }
+    .support-meta-btn { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.75rem; font-weight:600; color:#1f2937; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition:background .2s ease, color .2s ease, border-color .2s ease; font-size:0.9rem; }
+    .support-meta-btn i { color:inherit; }
+    .support-meta-btn:hover { background:#e2e8f0; border-color:#cbd5f5; }
+    .support-meta-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); }
+    .support-meta-btn.active i { color:#fff; }
     .support-modal__clients { margin-top:1rem; }
     .support-modal__clients table { width:100%; border-collapse:collapse; }
     .support-modal__clients th, .support-modal__clients td { padding:0.5rem 0.6rem; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.9rem; }
@@ -127,6 +132,19 @@
     .support-modal__actions-group button:nth-child(2) { background:#6366f1; }
     .support-modal__actions-group button:nth-child(2):hover { filter:brightness(0.9); }
     .support-modal__actions-group button:disabled { opacity:0.45; cursor:not-allowed; filter:none; }
+    .support-modal__chart { display:none; margin-top:1rem; background:#f8fafc; border-radius:12px; padding:1rem; box-shadow:0 12px 32px rgba(15,23,42,0.12); }
+    .support-modal__chart canvas { width:100%; height:260px; }
+    .support-modal__series { display:none; margin-top:1rem; background:#fff; border-radius:12px; box-shadow:0 12px 32px rgba(15,23,42,0.08); padding:1rem; }
+    .support-series-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:0.6rem; }
+    .support-series-header h4 { margin:0; font-size:0.95rem; color:#1f2937; }
+    .support-series-toggle { background:transparent; border:1px solid #cbd5f5; border-radius:6px; padding:0.2rem 0.6rem; font-size:0.82rem; font-weight:600; color:#2563eb; cursor:pointer; transition:background .2s ease, color .2s ease; }
+    .support-series-toggle:hover { background:#dbeafe; color:#1d4ed8; }
+    .support-modal__series table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+    .support-modal__series th,
+    .support-modal__series td { border:1px solid #e2e8f0; padding:0.45rem 0.5rem; text-align:left; }
+    .support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
+    .support-modal__series .series-table { margin-bottom:1rem; }
+    .support-modal__series .series-empty { font-style:italic; color:#64748b; font-size:0.85rem; }
     .support-task-modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(15,23,42,0.55); z-index:1200; padding:2rem 1rem; }
     .support-task-modal.open { display:flex; }
     .support-task-modal__panel { background:#fff; border-radius:12px; box-shadow:0 24px 48px rgba(15,23,42,0.35); max-width:460px; width:100%; padding:1.5rem; position:relative; }
@@ -223,11 +241,11 @@
         <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
         <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
       </div>
-      <div class="support-modal__actions-group">
-        <button type="button" id="supportModalCreateTasks">Créer des tâches</button>
-        <button type="button" id="supportModalExport">Exporter CSV</button>
-      </div>
     </div>
+    <div class="support-modal__chart" id="supportModalChartContainer">
+      <canvas id="supportModalChart"></canvas>
+    </div>
+    <div class="support-modal__series" id="supportModalSeries"></div>
     <div class="support-modal__filters">
       <div>
         <label for="supportModalClientFilter">Client</label>
@@ -399,6 +417,34 @@ $(document).ready(function () {
             table.column(columnIdx).search(pattern, true, false).draw();
         }
     }
+
+    function updateSansNomButtonState(){
+        var btn = document.getElementById('supportSansNomBtn');
+        if (!btn) return;
+        var visible = $supportModalChartContainer && $supportModalChartContainer.is(':visible');
+        if (visible){
+            btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+        } else {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+        }
+    }
+
+    function toggleSupportChart(){
+        var hasGraph = (supportModalValuations && supportModalValuations.length) || (supportModalValuationsWeekly && supportModalValuationsWeekly.length);
+        if (!hasGraph){
+            alert('Aucune valeur liquidative disponible.');
+            return;
+        }
+        if ($supportModalChartContainer && $supportModalChartContainer.is(':visible')){
+            if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+            $supportModalChartContainer.hide();
+        } else {
+            ensureChartJs(function(){ renderSupportModalChart(); });
+        }
+        updateSansNomButtonState();
+    }
     function saveSupportsState(){
       try {
         var st = {
@@ -430,7 +476,21 @@ $(document).ready(function () {
         try { var params=new URLSearchParams(window.location.search); ['categorie','zone','srri'].forEach(k=>params.delete(k)); var newUrl=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', newUrl); } catch(e) {}
         try { localStorage.removeItem('supports_filters'); } catch(e) {}
         };
-    (function(){try{var t=document.getElementById('quickToggleSup'),s=document.getElementById('quickSectionSup');if(!t||!s)return;function setOpen(o){s.style.display=o?'':'none';t.classList.toggle('collapsed',!o);localStorage.setItem('sup_quick_open',o?'1':'');}var saved=localStorage.getItem('sup_quick_open')==='1';setOpen(saved);t.addEventListener('click',function(){setOpen(s.style.display==='none');});}catch(e){}})();
+    (function(){
+      try{
+        var t=document.getElementById('quickToggleSup'),s=document.getElementById('quickSectionSup');
+        if(!t||!s)return;
+        function setOpen(o){
+          s.style.display=o?'':'none';
+          t.classList.toggle('collapsed',!o);
+          localStorage.setItem('sup_quick_open',o?'1':'');
+        }
+        var stored = localStorage.getItem('sup_quick_open');
+        var initial = stored === null ? true : (stored === '1');
+        setOpen(initial);
+        t.addEventListener('click',function(){setOpen(s.style.display==='none');});
+      }catch(e){}
+    })();
 
     // reset depuis le badge restauré
     window.resetRestoredSupports = function(){ try{ document.getElementById('restoreSupports').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
@@ -471,6 +531,7 @@ $(document).ready(function () {
     var $supportModal = $('#supportModal');
     var $supportModalMeta = $('#supportModalMeta');
     var $supportModalClients = $('#supportModalClients');
+    var $supportModalSeries = $('#supportModalSeries');
     var $supportModalDate = $('#supportModalDate');
     var $supportModalTotal = $('#supportModalTotal');
     var $supportModalExport = $('#supportModalExport');
@@ -479,6 +540,8 @@ $(document).ready(function () {
     var $supportModalAmountFilter = $('#supportModalAmountFilter');
     var $supportModalFiltersReset = $('#supportModalFiltersReset');
     var $supportModalCreateTasks = $('#supportModalCreateTasks');
+    var $supportModalChartContainer = $('#supportModalChartContainer');
+    var supportModalChartCanvas = document.getElementById('supportModalChart');
     var supportModalClientsData = [];
     var supportModalFilteredData = [];
     var supportModalTaskTypes = [];
@@ -490,12 +553,299 @@ $(document).ready(function () {
     var $supportTaskSubmit = $('#supportTaskSubmit');
     var $supportTaskCancel = $('#supportTaskCancel');
     var $supportTaskStatus = $('#supportTaskStatus');
+    var supportModalValuations = [];
+    var supportModalChartInstance = null;
+    var chartJsLoaded = false;
 
     function escHtml(str){
         if (str === null || str === undefined) return '';
         return String(str).replace(/[&<>"']/g, function(ch){
             return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[ch]);
         });
+    }
+
+    function ensureChartJs(callback){
+        if (chartJsLoaded) { callback(); return; }
+        var existing = document.querySelector('script[data-loader="chartjs"]');
+        if (existing) {
+            existing.addEventListener('load', function(){ chartJsLoaded = true; callback(); });
+            existing.addEventListener('error', function(){ console.warn('Chart.js load error'); });
+            return;
+        }
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js';
+        script.async = true;
+        script.setAttribute('data-loader', 'chartjs');
+        script.onload = function(){ chartJsLoaded = true; callback(); };
+        script.onerror = function(){ console.warn('Chart.js load error'); };
+        document.head.appendChild(script);
+    }
+
+    function formatEuro(value){
+        if (value === null || value === undefined || !isFinite(value)) return '—';
+        try {
+            return Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        } catch(e){
+            return String(value);
+        }
+    }
+
+    function formatDateLabel(iso){
+        if (!iso) return '—';
+        try {
+            var d = new Date(iso);
+            if (!isNaN(d)) return d.toLocaleDateString('fr-FR');
+        } catch(e){}
+        return iso;
+    }
+
+    function bindSupportSeriesToggles(){
+        if (!$supportModalSeries.length) return;
+        $supportModalSeries
+            .off('click.supportToggle')
+            .on('click.supportToggle', '.support-series-toggle', function(){
+                var $btn = $(this);
+                var targetId = $btn.data('target');
+                if (!targetId) return;
+                var $panel = $('#' + targetId);
+                if (!$panel.length) return;
+                var isVisible = $panel.is(':visible');
+                if (isVisible){
+                    $panel.slideUp(150);
+                    $btn.attr('aria-expanded', 'false');
+                    $btn.attr('aria-label', 'Afficher la série');
+                    $btn.find('i').attr('class', 'fa-solid fa-chevron-down');
+                } else {
+                    $panel.slideDown(150);
+                    $btn.attr('aria-expanded', 'true');
+                    $btn.attr('aria-label', 'Masquer la série');
+                    $btn.find('i').attr('class', 'fa-solid fa-chevron-up');
+                }
+            });
+    }
+
+    function renderSupportSeriesTables(){
+        if (!$supportModalSeries.length){
+            return;
+        }
+        var html = '';
+        if (supportModalValuations && supportModalValuations.length){
+            var rows = supportModalValuations
+                .filter(function(r){ return r && r.date; })
+                .slice()
+                .sort(function(a, b){ return a.date < b.date ? 1 : -1; })
+                .slice(0, 20);
+            if (rows.length){
+                html += '<div class="series-table">';
+                html += '<div class="support-series-header">';
+                html += '<h4>Valeur liquidative – 20 dernières observations</h4>';
+                html += '<button type="button" class="support-series-toggle" data-target="seriesDaily" aria-expanded="false" aria-label="Afficher la série"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>';
+                html += '</div>';
+                html += '<div id="seriesDaily" class="series-table-body" style="display:none;">';
+                html += '<table><thead><tr><th>Date</th><th>Valeur</th></tr></thead><tbody>';
+                rows.forEach(function(row){
+                    html += '<tr><td>' + formatDateLabel(row.date) + '</td><td>' + formatEuro(parseFloat(row.valeur)) + '</td></tr>';
+                });
+                html += '</tbody></table></div></div>';
+            }
+        }
+        if (supportModalValuationsWeekly && supportModalValuationsWeekly.length){
+            var wrows = supportModalValuationsWeekly
+                .filter(function(r){ return r && r.week_start; })
+                .slice()
+                .sort(function(a, b){ return a.week_start < b.week_start ? 1 : -1; })
+                .slice(0, 20);
+            if (wrows.length){
+                html += '<div class="series-table">';
+                html += '<div class="support-series-header">';
+                html += '<h4>AUM hebdomadaire – 20 dernières semaines</h4>';
+                html += '<button type="button" class="support-series-toggle" data-target="seriesWeekly" aria-expanded="false" aria-label="Afficher la série"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>';
+                html += '</div>';
+                html += '<div id="seriesWeekly" class="series-table-body" style="display:none;">';
+                html += '<table><thead><tr><th>Semaine début</th><th>Montant (€)</th></tr></thead><tbody>';
+                wrows.forEach(function(row){
+                    html += '<tr><td>' + formatDateLabel(row.week_start) + '</td><td>' + formatEuro(parseFloat(row.total_valo)) + '</td></tr>';
+                });
+                html += '</tbody></table></div></div>';
+            }
+        }
+        if (!html){
+            html = '<div class="series-empty">Aucune série historique disponible.</div>';
+            $supportModalSeries.html(html).hide();
+            return;
+        }
+        $supportModalSeries.html(html).show();
+        bindSupportSeriesToggles();
+    }
+
+    function renderSupportModalChart(){
+        var hasDaily = supportModalValuations && supportModalValuations.length;
+        var hasWeekly = supportModalValuationsWeekly && supportModalValuationsWeekly.length;
+        if (!hasDaily && !hasWeekly){
+            alert('Aucune valeur liquidative disponible.');
+            return;
+        }
+        if (!$supportModalChartContainer.length || !supportModalChartCanvas){
+            return;
+        }
+
+        var labelsIso = [];
+        var dailyValues = [];
+        var rawDaily = supportModalValuations || [];
+        rawDaily.forEach(function(row){
+            if (!row || !row.date) return;
+            var iso = String(row.date).slice(0, 10);
+            labelsIso.push(iso);
+            var val = parseFloat(row.valeur);
+            dailyValues.push(isFinite(val) ? val : null);
+        });
+        if (!labelsIso.length && hasWeekly){
+            (supportModalValuationsWeekly || []).forEach(function(row){
+                if (!row || !row.week_start) return;
+                var iso = String(row.week_start).slice(0, 10);
+                labelsIso.push(iso);
+                dailyValues.push(null);
+            });
+        }
+        if (!labelsIso.length){
+            alert('Aucune valeur liquidative disponible.');
+            return;
+        }
+
+        var weeklyMap = {};
+        (supportModalValuationsWeekly || []).forEach(function(row){
+            if (!row || !row.week_start) return;
+            var val = parseFloat(row.total_valo);
+            weeklyMap[row.week_start] = isFinite(val) ? val : null;
+        });
+        function weekStartFromIso(iso){
+            try {
+                var d = new Date(iso);
+                if (isNaN(d)) return null;
+                var day = d.getDay();
+                var offset = (day === 0 ? -6 : 1 - day);
+                var monday = new Date(d);
+                monday.setDate(d.getDate() + offset);
+                return monday.toISOString().slice(0, 10);
+            } catch(e){ return null; }
+        }
+        var weeklyValues = labelsIso.map(function(iso){
+            var mondayIso = weekStartFromIso(iso);
+            if (!mondayIso) return null;
+            return weeklyMap.hasOwnProperty(mondayIso) ? weeklyMap[mondayIso] : null;
+        });
+        var weeklyValuesFiltered = weeklyValues.filter(function(val){
+            return val !== null && isFinite(val);
+        });
+        var weeklySuggestedMax = null;
+        var weeklyHardMax = null;
+        var weeklyTrimmedMin = 0;
+        if (weeklyValuesFiltered.length){
+            var sortedWeekly = weeklyValuesFiltered.slice().sort(function(a, b){ return b - a; });
+            var topCount = Math.max(1, Math.floor(sortedWeekly.length * 0.9));
+            var sumTop = 0;
+            for (var i = 0; i < topCount; i++){
+                sumTop += sortedWeekly[i];
+            }
+            weeklySuggestedMax = sumTop / topCount;
+            weeklyHardMax = sortedWeekly[0];
+            var bottomCount = Math.max(1, Math.floor(sortedWeekly.length * 0.9));
+            var bottomSlice = sortedWeekly.slice(-bottomCount);
+            if (bottomSlice.length){
+                weeklyTrimmedMin = bottomSlice.reduce(function(acc, val){ return acc + val; }, 0) / bottomSlice.length;
+            }
+        }
+        var weeklyAxisMax = null;
+        if (weeklyHardMax){
+            weeklyAxisMax = weeklyHardMax * 1.05;
+        }
+        console.debug('[Support Chart] daily sample:', dailyValues.slice(0,5), 'weekly sample:', weeklyValuesFiltered.slice(0,5), 'axisMax:', weeklyAxisMax);
+        if (supportModalChartInstance){
+            supportModalChartInstance.destroy();
+        }
+        $supportModalChartContainer.show();
+        var ctx = supportModalChartCanvas.getContext('2d');
+        supportModalChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labelsIso,
+                datasets: [
+                    {
+                        label: 'Valeur liquidative',
+                        data: dailyValues,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37,99,235,0.18)',
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.25,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'AUM',
+                        type: 'bar',
+                        data: weeklyValues,
+                        borderColor: '#f97316',
+                        backgroundColor: 'rgba(249,115,22,0.35)',
+                        borderWidth: 1,
+                        yAxisID: 'y1',
+                        order: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx){
+                                var val = ctx.parsed.y;
+                                if (!isFinite(val)) return 'Valeur indisponible';
+                                if (ctx.dataset.yAxisID === 'y1') {
+                                    return (ctx.dataset.label || 'Total hebdomadaire') + ' : ' + val.toLocaleString('fr-FR') + ' €';
+                                }
+                                return (ctx.dataset.label || 'Valeur') + ' : ' + val.toLocaleString('fr-FR');
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            callback: function(value, index){
+                                var iso = labelsIso[index];
+                                try {
+                                    var d = new Date(iso);
+                                    if (!isNaN(d)) return d.toLocaleDateString('fr-FR');
+                                } catch(e){}
+                                return iso;
+                            }
+                        }
+                    },
+                    y: {
+                        position: 'left',
+                        ticks: {
+                            callback: function(value){
+                                return value.toLocaleString('fr-FR');
+                            }
+                        }
+                    },
+                    y1: {
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        ticks: {
+                            callback: function(value){
+                                return value.toLocaleString('fr-FR') + ' €';
+                            }
+                        },
+                        min: (weeklyTrimmedMin && isFinite(weeklyTrimmedMin)) ? Math.max(0, weeklyTrimmedMin * 0.95) : 0,
+                        max: (weeklyAxisMax && isFinite(weeklyAxisMax)) ? weeklyAxisMax : undefined
+                    }
+                }
+            }
+        });
+        updateSansNomButtonState();
     }
 
     function openSupportModal(){
@@ -505,8 +855,12 @@ $(document).ready(function () {
 
     function closeSupportModal(){
         closeSupportTaskModal();
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
         $supportModal.removeClass('open').attr('aria-hidden', 'true');
         document.body.style.overflow = '';
+        updateSansNomButtonState();
     }
 
     function renderSupportModalLoading(code){
@@ -517,6 +871,12 @@ $(document).ready(function () {
         $supportModalDate.text('');
         $supportModalTotal.text('');
         $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
+        supportModalValuations = [];
+        supportModalValuationsWeekly = [];
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        updateSansNomButtonState();
     }
 
     function renderSupportModal(data){
@@ -526,6 +886,10 @@ $(document).ready(function () {
             $supportModalDate.text('');
             $supportModalTotal.text('');
             $supportModalExport.prop('disabled', true);
+            supportModalValuations = [];
+            supportModalValuationsWeekly = [];
+            if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+            if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
             return;
         }
         var s = data.support;
@@ -543,7 +907,47 @@ $(document).ready(function () {
         fields.forEach(function(item){
             metaHtml += '<div><span class="label">' + item.label + '</span><span class="value">' + item.value + '</span></div>';
         });
+        metaHtml += '<button type="button" class="support-meta-btn" id="supportSansNomBtn" aria-pressed="false"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Graphiques</span></button>';
         $supportModalMeta.html(metaHtml);
+        var sansNomBtn = document.getElementById('supportSansNomBtn');
+        if (sansNomBtn){
+            sansNomBtn.addEventListener('click', function(){
+                toggleSupportChart();
+            });
+        }
+        $supportModalMeta.closest('.support-modal__panel').find('.support-modal__graph-row').remove();
+        $supportModalMeta.closest('.support-modal__panel').find('.support-modal__actions').before(
+            '<div class="support-modal__graph-row" style="display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-bottom:1rem;"></div>'
+        );
+        supportModalValuations = Array.isArray(data.valuations) ? data.valuations.filter(function(v){ return v && v.date; }) : [];
+        if (supportModalValuations.length){
+            supportModalValuations = supportModalValuations.slice().sort(function(a,b){
+                var da = a.date || '';
+                var db = b.date || '';
+                if (da < db) return -1;
+                if (da > db) return 1;
+                return 0;
+            });
+        }
+        supportModalValuationsWeekly = Array.isArray(data.valuations_weekly) ? data.valuations_weekly.filter(function(v){ return v && v.week_start; }) : [];
+        if (supportModalValuationsWeekly.length){
+            supportModalValuationsWeekly = supportModalValuationsWeekly.slice().sort(function(a,b){
+                var da = a.week_start || '';
+                var db = b.week_start || '';
+                if (da < db) return -1;
+                if (da > db) return 1;
+                return 0;
+            });
+        }
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        var hasGraphData = (supportModalValuations && supportModalValuations.length) || (supportModalValuationsWeekly && supportModalValuationsWeekly.length);
+        if (sansNomBtn){
+            sansNomBtn.disabled = !hasGraphData;
+        }
+        updateSansNomButtonState();
+        renderSupportSeriesTables();
         $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
         $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
         var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
@@ -795,6 +1199,10 @@ $(document).ready(function () {
                 $supportModalMeta.html('<div><span class="label">Erreur</span><span class="value">' + (err.message || 'Impossible de récupérer les données') + '</span></div>');
                 $supportModalClients.empty();
                 $supportModalExport.prop('disabled', true);
+                supportModalValuations = [];
+                if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+                if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+                if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
             });
     });
 

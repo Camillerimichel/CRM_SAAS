@@ -16,3 +16,8 @@ class Evenement(Base):
     utilisateur_responsable = Column(String, nullable=True)
     # Stocke l'affectation RH sans contrainte FK pour rester compatible si la table administration_RH n'est pas gérée par SQLAlchemy
     rh_id = Column(Integer, nullable=True)
+    statut_reclamation_id = Column(
+        Integer,
+        ForeignKey("mariadb_evenement_statut_reclamation.id"),
+        nullable=True,
+    )

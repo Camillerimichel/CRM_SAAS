@@ -61,6 +61,18 @@
         </div>
       </div>
 
+      <div class="form-row" id="reclam_status_row" style="margin-bottom:.6rem; display:none;">
+        <div class="field">
+          <label>Statut réclamation</label>
+          <select class="select-choice" name="statut_reclamation_id" id="reclam_status_select">
+            <option value="">-- choisir --</option>
+            {% for st in reclam_statuses %}
+              <option value="{{ st.id }}">{{ st.libelle }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
       <!-- Bloc communication (caché par défaut) -->
       <div id="comm_block" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
         <div class="form-row" style="margin-bottom:.6rem;">
@@ -142,6 +154,8 @@
           { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
         {% endfor %}
       ];
+      const RECLAM_STATUS_ROW = document.getElementById('reclam_status_row');
+      const RECLAM_STATUS_SELECT = document.getElementById('reclam_status_select');
       function populateTypes(cat) {
         const sel = document.getElementById('type_select');
         sel.innerHTML = '';
@@ -161,9 +175,25 @@
         if (opts.length > 0) sel.value = opts[0];
       }
       const catSel = document.getElementById('categorie_select');
-      catSel.addEventListener('change', (e) => populateTypes(e.target.value));
+      function updateReclamStatusVisibility(){
+        if (!RECLAM_STATUS_ROW || !catSel) return;
+        const cat = (catSel.value || '').toLowerCase();
+        if (cat === 'reclamation') {
+          RECLAM_STATUS_ROW.style.display = 'flex';
+        } else {
+          RECLAM_STATUS_ROW.style.display = 'none';
+          if (RECLAM_STATUS_SELECT) RECLAM_STATUS_SELECT.value = '';
+        }
+      }
+      if (catSel){
+        catSel.addEventListener('change', (e) => {
+          populateTypes(e.target.value);
+          updateReclamStatusVisibility();
+        });
+      }
       // Initialize on load if category already chosen
       if (catSel && catSel.value) { populateTypes(catSel.value); }
+      updateReclamStatusVisibility();
       function toggleCommBtn() {
         const hidden = document.getElementById('comm_toggle');
         const btn = document.getElementById('comm_btn');
@@ -228,6 +258,7 @@
       <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun" style="margin-right:6px;"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>En retard <span class="badge">{{ counts.late }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé"><i class="fa-solid fa-bell" style="margin-right:6px;"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&statut=termin%C3%A9"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>Réclamations terminées <span class="badge">{{ counts.reclamations_terminees }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire"><i class="fa-regular fa-square" style="margin-right:6px;"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente"><i class="fa-regular fa-clock" style="margin-right:6px;"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours"><i class="fa-solid fa-play" style="margin-right:6px;"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
@@ -235,7 +266,15 @@
       <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9"><i class="fa-solid fa-xmark" style="margin-right:6px;"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
     </div>
     <form method="get" action="/dashboard/taches">
-      <table id="tasksTable" class="display nowrap" style="width:100%">
+      <style>
+        table.tasks-table-condensed thead th:nth-child(2),
+        table.tasks-table-condensed tbody td:nth-child(2) { width: 120px; }
+        table.tasks-table-condensed thead th:nth-child(5),
+        table.tasks-table-condensed tbody td:nth-child(5) { width: 140px; }
+        table.tasks-table-condensed thead th:nth-child(6),
+        table.tasks-table-condensed tbody td:nth-child(6) { width: 150px; }
+      </style>
+      <table id="tasksTable" class="display nowrap tasks-table-condensed" style="width:100%">
         <thead>
           <tr>
             <th>Date</th>
@@ -302,6 +341,9 @@
                   {% set btn_style = '' %}
                 {% endif %}
                 <a class="btn {{ btn_class }}" href="/dashboard/taches/{{ r.evenement_id }}" style="padding:2px 6px; font-size:11px; border-radius:4px; {{ btn_style }}">{{ r.statut or 'à faire' }}</a>
+                {% if r.statut_reclamation_label %}
+                  <div class="muted" style="font-size:0.75rem; margin-top:2px;">Réclamation : {{ r.statut_reclamation_label }}</div>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
