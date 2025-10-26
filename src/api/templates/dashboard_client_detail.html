@@ -13,6 +13,7 @@
           <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
         {% endif %}
         <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openClientAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
+        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Edition de synthèse</button>
       </span>
     </span>
   {% else %}
@@ -1473,8 +1474,8 @@ function generateClientSynthese(){
       <canvas id="valoChart" height="120"></canvas>
     </div>
     <div class="card" style="margin-top:12px;">
-      <h3>Performances et volatilité annuelles</h3>
-      <canvas id="clientAnnuelChart" height="120"></canvas>
+      <h3>Evolutions performances annuelle et SRRI moyen</h3>
+      <canvas id="clientSrriChart" height="120"></canvas>
     </div>
     <div class="card" style="margin-top:12px;">
       <h3>Évolution des allocations (SICAV)</h3>
@@ -1788,7 +1789,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   new Chart(ctx, {
     type: 'line',
     data: { labels: normLabels, datasets: [
-      { label: 'Valorisation', data, borderColor: 'var(--primary)', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+      { label: 'Valorisation', data, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8', fill: false, pointRadius: 0, pointHoverRadius: 0 },
       { label: 'Cumul mouvements', data: movs, borderColor: '#ff6b6b', fill: false, pointRadius: 0, pointHoverRadius: 0 },
     ] },
     options: {
@@ -1814,24 +1815,145 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       }
     }
   });
-
-  // Graphique annuel: performances et volatilité (barres)
+  // Graphique SRRI + performance (double courbe)
   (function(){
     const yearsClient = {{ years_client | tojson }};
-    const annPerfClient = {{ ann_perf_client | tojson }};
     const annVolClient = {{ ann_vol_client | tojson }};
-    const el = document.getElementById('clientAnnuelChart');
+    const annPerfClient = {{ ann_perf_client | tojson }};
+    const el = document.getElementById('clientSrriChart');
     if (!el) return;
-    const ctxA = el.getContext('2d');
-    const perfPct = (annPerfClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-    const volPct = (annVolClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-    new Chart(ctxA, {
-      type: 'bar',
-      data: { labels: (yearsClient||[]).map(String), datasets: [
-        { label: 'Perf 52s (%)', data: perfPct, backgroundColor: 'var(--primary)' },
-        { label: 'Volatilité (%)', data: volPct, backgroundColor: '#ff6b6b' },
-      ]},
-      options: { responsive:true, scales:{ y:{ ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true } } }
+    const srriColor = '#ff6b6b';
+    const srriBandColor = 'rgba(255, 107, 107, 0.12)';
+    function normalizeVol(value){
+      if (value === null || typeof value === 'undefined') return null;
+      const str = typeof value === 'string' ? value.replace(',', '.') : value;
+      let n = Number(str);
+      if (!isFinite(n)) return null;
+      if (Math.abs(n) > 1) n = n / 100;
+      return n;
+    }
+    function srriFromVol(vol){
+      if (vol === null) return null;
+      const v = Math.abs(vol);
+      const buckets = [
+        { min: 0.0000, max: 0.0050, base: 1 },
+        { min: 0.0050, max: 0.0200, base: 2 },
+        { min: 0.0200, max: 0.0500, base: 3 },
+        { min: 0.0500, max: 0.1000, base: 4 },
+        { min: 0.1000, max: 0.1500, base: 5 },
+        { min: 0.1500, max: 0.2500, base: 6 },
+        { min: 0.2500, max: Infinity, base: 7 }
+      ];
+      for (const bucket of buckets){
+        if (v < bucket.max || bucket.max === Infinity){
+          if (bucket.max === Infinity || bucket.max <= bucket.min) return bucket.base;
+          const span = bucket.max - bucket.min;
+          if (span <= 0) return bucket.base;
+          const ratio = Math.min(Math.max((v - bucket.min) / span, 0), 0.99);
+          if (!isFinite(ratio)) return bucket.base;
+          const value = bucket.base + ratio;
+          if (!isFinite(value)) return bucket.base;
+          if (bucket.base === 7) return 7;
+          return +value.toFixed(2);
+        }
+      }
+      return null;
+    }
+    const srriSeries = (annVolClient||[]).map(v=> srriFromVol(normalizeVol(v)));
+    const perfSeries = (annPerfClient||[]).map(v=>{
+      let n = Number(v);
+      if (!isFinite(n)) return null;
+      if (Math.abs(n) <= 1) n *= 100;
+      return +n.toFixed(2);
+    });
+    if (!srriSeries.some(v=> v !== null) && !perfSeries.some(v=> v !== null)) return;
+    const ctx = el.getContext('2d');
+    const srriBandsPlugin = {
+      id: 'srriBands',
+      beforeDraw(chart){
+        const yAxis = chart.scales.y2;
+        const chartArea = chart.chartArea;
+        if (!yAxis || !chartArea) return;
+        const ctxPlugin = chart.ctx;
+        const ranges = [
+          { from: 1, to: 2 },
+          { from: 3, to: 4 },
+          { from: 5, to: 6 }
+        ];
+        ctxPlugin.save();
+        ctxPlugin.fillStyle = srriBandColor;
+        ranges.forEach(range => {
+          const yTop = yAxis.getPixelForValue(range.to);
+          const yBottom = yAxis.getPixelForValue(range.from);
+          if (Number.isFinite(yTop) && Number.isFinite(yBottom)) {
+            ctxPlugin.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBottom - yTop);
+          }
+        });
+        {% if client_srri is not none %}
+        const clientSrri = {{ client_srri | int }};
+        const srriLevels = [clientSrri, clientSrri + 1];
+        srriLevels.forEach(level => {
+          if (level < 1 || level > 7) return;
+          const yLine = yAxis.getPixelForValue(level);
+          if (Number.isFinite(yLine)) {
+            ctxPlugin.strokeStyle = srriColor;
+            ctxPlugin.lineWidth = 2;
+            ctxPlugin.setLineDash(level === clientSrri ? [6,4] : [4,6]);
+            ctxPlugin.beginPath();
+            ctxPlugin.moveTo(chartArea.left, yLine);
+            ctxPlugin.lineTo(chartArea.right, yLine);
+            ctxPlugin.stroke();
+          }
+        });
+        ctxPlugin.setLineDash([]);
+        {% endif %}
+        ctxPlugin.restore();
+      }
+    };
+    const perfColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8';
+    const chart = new Chart(ctx, {
+      plugins: [srriBandsPlugin],
+      data: {
+        labels: (yearsClient||[]).map(String),
+        datasets: [
+          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
+          { type:'line', label: 'Perf 52s (%)', data: perfSeries, borderColor: perfColor, backgroundColor: perfColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y', order: 3 }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            position: 'left',
+            ticks: { callback: v => v + ' %' }
+          },
+          y2: {
+            position: 'right',
+            min: 1,
+            max: 7,
+            ticks: { stepSize: 1, callback: v => v, color: srriColor },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'SRRI', color: srriColor },
+            border: { color: srriColor }
+          }
+        },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const value = Number(ctx.parsed.y);
+                if (ctx.dataset.yAxisID === 'y2') {
+                  if (!isFinite(value)) return 'SRRI: n/a';
+                  return 'SRRI: ' + value.toFixed(2);
+                }
+                if (!isFinite(value)) return 'Perf: n/a';
+                return 'Perf: ' + value.toFixed(2) + ' %';
+              }
+            }
+          }
+        }
+      }
     });
   })();
 

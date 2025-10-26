@@ -4,137 +4,116 @@
 {% block header_title %}<i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord{% endblock %}
 
 {% block content %}
+
+
+{% set tb_markers_param = tb_markers_param or '' %}
+{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_01">
+<!-- KPIs -->
 <style>
-  .home-title { text-align: center; margin: 0 0 1rem 0; }
-  .home-sub { text-align: center; margin: 0 0 2rem 0; color: #666; }
-  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; max-width: 1100px; margin: 0 auto 2rem auto; }
-  .kpi-card { background:#fff; border-radius:12px; padding:18px; text-align:center; box-shadow: 0 6px 18px rgba(0,0,0,0.08); }
-  .kpi-card--primary {
-    background: var(--primary);
-    color: #fff;
+  .dashboard-kpi-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.6rem;
+    flex-wrap: wrap;
   }
-  .kpi-card--primary .kpi-value {
+  .dashboard-kpi-pill {
+    background: #1f4eb8;
     color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 0.65rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    box-shadow: 0 6px 14px rgba(31, 78, 184, 0.25);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
   }
-  .kpi-value { font-size:1.6rem; font-weight:700; margin-top:6px; }
-  .charts { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; max-width: 1200px; margin: 0 auto; }
-  /* Liens discrets dans la carte Documents */
-  .doc-filter-link { text-decoration:none; color:inherit; }
-  .doc-filter-link:hover { text-decoration: underline; }
-  /* Chevrons accordéon: rotation sur fermeture */
-  div[id$='Toggle'] {
+  .dashboard-kpi-pill span.value {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .dashboard-kpi-pill:disabled {
+    opacity: 1;
+    cursor: default;
+  }
+  .dashboard-kpi-pill span {
+    display: block;
+    line-height: 1.2;
+  }
+</style>
+<style>
+  .accordion-toggle {
     transition: background .2s ease, color .2s ease, border .2s ease;
     border: 1px solid var(--border);
     background: #fff;
     color: inherit;
   }
-  div[id$='Toggle']:not(.collapsed) {
-    background: var(--primary);
-    color: #fff;
-    border-color: var(--primary);
+  .accordion-toggle .chevron {
+    transition: transform .2s ease, color .2s ease;
+    color: #1f4eb8;
   }
-  div[id$='Toggle']:not(.collapsed) h3,
-  div[id$='Toggle']:not(.collapsed) .chevron {
-    color: #fff;
-  }
-  div[id$='Toggle'] .chevron {
-    transition: transform .2s ease;
-    color: var(--primary);
-  }
-  div[id$='Toggle'].collapsed .chevron {
+  .accordion-toggle.collapsed .chevron {
     transform: rotate(-90deg);
   }
-  /* Risk dots */
-  .dot { display:inline-block; width: 0.9em; height: 0.9em; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
-  .dot-red { background:#ef4444; }
-  .dot-green { background:#16a34a; }
-  .dot-blue { background:#3b82f6; }
-  .risk-card-title {
-    margin:0;
-    font-size:1.05rem;
-    background:var(--primary);
-    color:#fff;
-    padding:6px 12px;
-    border-radius:8px;
-    display:inline-flex;
-    align-items:center;
-    gap:8px;
-  }
-  /* ESG global: boutons compacts */
-  #esgSection .esg-field-global {
-    font-size: 10px;
-    padding: 2px 6px;
-    height: auto;
-    line-height: 1.2;
-    border-radius: 6px;
-    margin: 2px;
-  }
-  /* Dropdown RH width control */
-  #tasksRhSelect { width: 160px; max-width: 160px; }
-  @media (max-width: 480px) { #tasksRhSelect { width: 140px; max-width: 140px; } }
-  .finance-support-link { color:#111827; text-decoration:underline; }
-  .finance-support-link:hover { text-decoration:none; }
-  #financeSupportModal { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:10000; }
-  #financeSupportModal .modal-card { background:#fff; border-radius:12px; width:900px; max-width:95vw; max-height:90vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
-  #financeSupportModal .modal-header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); }
-  #financeSupportModal .modal-header h3 { margin:0; font-size:1.05rem; }
-  #financeSupportModal .modal-close { border:none; background:transparent; cursor:pointer; font-size:18px; }
-  #financeSupportModal .modal-body { padding:12px 14px; }
-  #financeSupportModalTable { width:100%; border-collapse:collapse; font-size:0.9rem; }
-  #financeSupportModalTable th, #financeSupportModalTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
-  #financeSupportModalTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; text-align:left; }
-  #financeSupportModalTable td.numeric { text-align:right; }
-  .compliance-progress { margin-top:8px; width:100%; height:1em; display:flex; border-radius:6px; overflow:hidden; background:#e2e8f0; }
-  .compliance-progress div { height:100%; }
-  .compliance-progress-valid { background:#16a34a; }
-  .compliance-progress-obsolete { background:#ef4444; }
-  .tb-markers-enabled [data-tb-marker] {
-    position: relative;
-    outline: 2px dashed rgba(37,99,235,0.35);
-  }
-  .tb-markers-enabled [data-tb-marker]::before {
-    content: attr(data-tb-marker);
-    position: absolute;
-    top: -12px;
-    left: 0;
-    background: rgba(37,99,235,0.9);
+  .accordion-toggle:not(.collapsed) {
+    background: #1f4eb8;
     color: #fff;
-    font-size: 0.65rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
-    z-index: 20;
-    pointer-events: none;
-    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+    border-color: #1f4eb8;
   }
+  .accordion-toggle:not(.collapsed) .chevron {
+    color: #fff;
+  }
+  .accordion-toggle:not(.collapsed) h3,
+  .accordion-toggle:not(.collapsed) span,
+  .accordion-toggle:not(.collapsed) i {
+    color: #fff;
+  }
+  .risk-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 4px 0;
+    font-size: 0.9rem;
+  }
+  .risk-stat-row a {
+    color: inherit;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .risk-dot {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .risk-dot.red { background: #ef4444; }
+  .risk-dot.green { background: #16a34a; }
+  .risk-dot.blue { background: #3b82f6; }
 </style>
-
-{% set tb_markers_param = tb_markers_param or '' %}
-{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
-<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_01">
-  <div data-tb-marker="TB_02" style="text-align:center;">
-    <h2 class="home-title" data-tb-marker="TB_03">Tableau de bord</h2>
-    <p class="home-sub" data-tb-marker="TB_04">Accès rapide et indicateurs clés</p>
-  </div>
-
-<!-- KPIs -->
-<div class="kpis" data-tb-marker="TB_05">
-  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_06">
-    <div>Nombre de placements financiers</div>
-    <div class="kpi-value">{{ total_affaires }}</div>
-  </div>
-  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_07">
-    <div>Valorisation totale</div>
-    <div class="kpi-value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</div>
-  </div>
-  <div class="kpi-card kpi-card--primary" data-tb-marker="TB_08">
-    <div>Nombre de clients</div>
-    <div class="kpi-value">{{ total_clients }}</div>
-  </div>
+<div class="dashboard-kpi-bar" data-tb-marker="TB_05">
+  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_06">
+    <span class="label">Nombre de placements financiers</span>
+    <span class="value">{{ total_affaires }}</span>
+  </button>
+  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_07">
+    <span class="label">Valorisation totale</span>
+    <span class="value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</span>
+  </button>
+  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_08">
+    <span class="label">Nombre de clients</span>
+    <span class="value">{{ total_clients }}</span>
+  </button>
 </div>
 
   <!-- Accordéon Tâches en cours (remonté avant Risques) -->
-  <div id="tasksToggle" class="card collapsed" data-tb-marker="TB_09" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="tasksToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_09" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
     <span class="chevron">▾</span>
   </div>
@@ -190,13 +169,13 @@
   </div>
 
   <!-- Accordéon Risques -->
-  <div id="risksToggle" class="card collapsed" data-tb-marker="TB_21" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="risksToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_21" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Conformité et suivi du risque</h3>
     <span class="chevron">▾</span>
   </div>
   <div id="risksSection" data-tb-marker="TB_22" style="display:none;">
   <!-- Sous-accordéon: Conformité réglementaire -->
-  <div id="complianceToggle" class="card collapsed" data-tb-marker="TB_23" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="complianceToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_23" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Conformité réglementaire</h3>
     <span class="chevron">▾</span>
   </div>
@@ -276,41 +255,489 @@
   </div>
 
   <!-- Sous-accordéon: Répartition par clientèle -->
-  <div id="clienteleToggle" class="card collapsed" data-tb-marker="TB_33" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
+  <div id="rcpToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_33" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Requis réglementaires</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="clienteleSection" data-tb-marker="TB_34" style="display:none;">
-    <div class="card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
-      <h3>Découpage clients par détention</h3>
-      <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+  <div id="rcpSection" data-tb-marker="TB_34" style="display:none; max-width:900px; margin: 0 auto 1rem auto;">
+    <div class="card" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+      
+      <style>
+        .info-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15,23,42,0.55);
+          display: none;
+          align-items: center;
+          justify-content: center;
+          padding: 1.25rem;
+          z-index: 1200;
+        }
+        .info-modal-backdrop.active {
+          display: flex;
+        }
+        .info-modal-dialog {
+          background: #fff;
+          border-radius: 10px;
+          padding: 1rem 1.4rem;
+          max-width: min(90vw, 820px);
+          width: max-content;
+          min-width: 420px;
+          overflow-x: auto;
+          box-shadow: 0 15px 30px rgba(15,23,42,0.2);
+          position: relative;
+        }
+        .info-modal-close {
+          position: absolute;
+          top: 0.5rem;
+          right: 0.5rem;
+          border: none;
+          background: none;
+          font-size: 1.1rem;
+          color: var(--muted, #64748b);
+          cursor: pointer;
+        }
+        .info-modal-close:hover {
+          color: var(--primary, #1f2b6c);
+        }
+        .info-modal-body {
+          font-size: 0.95rem;
+          color: #0f172a;
+        }
+        .orias-detail-row {
+          margin-bottom: 0.45rem;
+          font-size: 0.9rem;
+          color: #0f172a;
+          white-space: nowrap;
+        }
+        .orias-detail-row strong {
+          display: inline-block;
+          min-width: 180px;
+          color: var(--primary-700, #1d4ed8);
+        }
+        .info-btn {
+          border: none;
+          background: none;
+          color: var(--primary, #1f2b6c);
+          cursor: pointer;
+          font-size: 1rem;
+        }
+        .info-btn:hover {
+          color: var(--primary-600, #2f47ad);
+        }
+        .compliance-progress {
+          display: flex;
+          align-items: stretch;
+          height: 18px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: #e2e8f0;
+          margin-top: 0.45rem;
+        }
+        .compliance-progress-valid,
+        .compliance-progress-obsolete {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: #0f172a;
+          white-space: nowrap;
+          transition: width 0.3s ease;
+        }
+        .compliance-progress-valid {
+          background: linear-gradient(90deg, #34d399, #22c55e);
+          color: #064e3b;
+        }
+        .compliance-progress-obsolete {
+          background: linear-gradient(90deg, #fb7185, #f43f5e);
+          color: #7f1d1d;
+        }
+        .doc-expired-flag {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: #dc2626;
+          color: #fff;
+          border-radius: 999px;
+          padding: 0 0.4rem;
+          font-size: 0.72rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          margin-right: 0.45rem;
+        }
+      </style>
+
+      <div style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
+        {% set info_ids = {
+          'Inscription ORIAS': 'orias',
+          'Adhésion association professionnelle': 'association',
+          'Souscription RC Pro': 'rcpro',
+          'Distribution des contrats': 'distribution',
+          "Conditions d'exercice": 'conditions',
+          'Rôle du distributeur': 'role',
+          'Blanchiment': 'blanchiment',
+          'Gouvernance produit': 'gouvernance',
+          'Conclusion des contrats': 'conclusion'
+        } %}
+        {% set info_records = {
+          'orias': 1,
+          'association': 2,
+          'rcpro': 3,
+          'distribution': 4,
+          'conditions': 5,
+          'role': 6,
+          'blanchiment': 7,
+          'gouvernance': 8,
+          'conclusion': 9
+        } %}
+        {% for title in [
+          'Inscription ORIAS',
+          'Adhésion association professionnelle',
+          'Souscription RC Pro',
+          'Distribution des contrats',
+          "Conditions d'exercice",
+          'Rôle du distributeur',
+          'Blanchiment',
+          'Gouvernance produit',
+          'Conclusion des contrats'
+        ] %}
+      {% set tile_style = "background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);" %}
+      {% if title == 'Souscription RC Pro' and rcpro_doc_count > 0 and not rcpro_doc_valid %}
+        {% set tile_style = tile_style + " background:#fee2e2; border-color:#b91c1c;" %}
+      {% endif %}
+      <div style="{{ tile_style }}">
+        <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px; display:flex; align-items:center; justify-content:center; gap:8px;">{{ title }}{% set info_id = info_ids.get(title) %}{% if info_id %} <button type='button' class='info-btn' onclick="openInfoModal('{{ info_id }}')" title='Informations'>ℹ️</button>{% endif %}</div>
+          {% if title == 'Inscription ORIAS' %}
+            {% if orias_doc_valid %}
+              <p style="margin:0; font-weight:600; color:#166534;">🟢 Valide jusqu'au {{ orias_doc_expiry_display }}</p>
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Risque RC Pro</p>
+            {% endif %}
+            {% if orias_detail %}
+              <div class="muted" style="margin-top:0.75rem; text-align:left; font-size:0.85rem; line-height:1.4;">
+                {% if orias_detail.code_reglement %}
+                  <div><strong>Code réglementaire :</strong> <span>{{ orias_detail.code_reglement }}</span></div>
+                {% endif %}
+                {% if orias_detail.articles %}
+                  <div><strong>Articles :</strong> <span>{{ orias_detail.articles }}</span></div>
+                {% endif %}
+                {% if orias_detail.references_complementaires %}
+                  <div><strong>Références complémentaires :</strong> <span>{{ orias_detail.references_complementaires }}</span></div>
+                {% endif %}
+                {% for link_key in ['lien_1','lien_2','lien_3','lien_4','lien_5'] %}
+                  {% set link_value = orias_detail.get(link_key) %}
+                  {% if link_value %}
+                    <div><strong>{{ link_key|replace('_', ' ')|title }} :</strong> <a href="{{ link_value }}" target="_blank" rel="noopener">{{ link_value }}</a></div>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% elif title == 'Adhésion association professionnelle' %}
+            {% if assoc_doc_valid %}
+              <p style="margin:0; font-weight:600; color:#166534;">🟢 Valide jusqu'au {{ assoc_doc_expiry_display }}</p>
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Risque association professionnelle</p>
+            {% endif %}
+          {% elif title == 'Souscription RC Pro' %}
+            {% if rcpro_doc_count > 0 %}
+              {% if rcpro_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ rcpro_doc_valid_count }} document{% if rcpro_doc_valid_count > 1 %}s{% endif %} valide{% if rcpro_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ rcpro_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ rcpro_doc_count }} document{% if rcpro_doc_count > 1 %}s{% endif %} — Risque RC Pro</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque RC Pro</p>
+            {% endif %}
+            {% if rcpro_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ rcpro_doc_expired_count }} document{% if rcpro_doc_expired_count > 1 %}s{% endif %} expiré{% if rcpro_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Conditions d\'exercice' %}
+            {% if conditions_doc_count > 0 %}
+              {% if conditions_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ conditions_doc_valid_count }} document{% if conditions_doc_valid_count > 1 %}s{% endif %} valide{% if conditions_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ conditions_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ conditions_doc_count }} document{% if conditions_doc_count > 1 %}s{% endif %} — Risque conditions d'exercice</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque conditions d'exercice</p>
+            {% endif %}
+            {% if conditions_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ conditions_doc_expired_count }} document{% if conditions_doc_expired_count > 1 %}s{% endif %} expiré{% if conditions_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Rôle du distributeur' %}
+            {% if role_doc_count > 0 %}
+              {% if role_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ role_doc_valid_count }} document{% if role_doc_valid_count > 1 %}s{% endif %} valide{% if role_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ role_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ role_doc_count }} document{% if role_doc_count > 1 %}s{% endif %} — Risque rôle du distributeur</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque rôle du distributeur</p>
+            {% endif %}
+            {% if role_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ role_doc_expired_count }} document{% if role_doc_expired_count > 1 %}s{% endif %} expiré{% if role_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Gouvernance produit' %}
+            {% if gouvernance_doc_count > 0 %}
+              {% if gouvernance_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ gouvernance_doc_valid_count }} document{% if gouvernance_doc_valid_count > 1 %}s{% endif %} valide{% if gouvernance_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ gouvernance_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ gouvernance_doc_count }} document{% if gouvernance_doc_count > 1 %}s{% endif %} — Risque gouvernance produit</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque gouvernance produit</p>
+            {% endif %}
+            {% if gouvernance_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ gouvernance_doc_expired_count }} document{% if gouvernance_doc_expired_count > 1 %}s{% endif %} expiré{% if gouvernance_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Conclusion des contrats' %}
+            {% if conclusion_doc_count > 0 %}
+              {% if conclusion_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ conclusion_doc_valid_count }} document{% if conclusion_doc_valid_count > 1 %}s{% endif %} valide{% if conclusion_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ conclusion_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ conclusion_doc_count }} document{% if conclusion_doc_count > 1 %}s{% endif %} — Risque conclusion des contrats</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque conclusion des contrats</p>
+            {% endif %}
+            {% if conclusion_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ conclusion_doc_expired_count }} document{% if conclusion_doc_expired_count > 1 %}s{% endif %} expiré{% if conclusion_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Blanchiment' %}
+            {% if blanchiment_doc_count > 0 %}
+              {% if blanchiment_doc_valid %}
+                <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ blanchiment_doc_valid_count }} document{% if blanchiment_doc_valid_count > 1 %}s{% endif %} valide{% if blanchiment_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ blanchiment_doc_expiry_display }})</p>
+              {% else %}
+                <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 {{ blanchiment_doc_count }} document{% if blanchiment_doc_count > 1 %}s{% endif %} — Risque blanchiment</p>
+              {% endif %}
+            {% else %}
+              <p style="margin:0; font-weight:600; color:#b91c1c;">🔴 Aucun document — Risque blanchiment</p>
+            {% endif %}
+            {% if blanchiment_doc_expired_count > 0 %}
+              <div style="margin-top:6px;">
+                <span class="btn btn-list btn-list-danger" style="cursor:default; font-weight:600;">
+                  <span class="doc-expired-flag">Expiré</span>
+                  {{ blanchiment_doc_expired_count }} document{% if blanchiment_doc_expired_count > 1 %}s{% endif %} expiré{% if blanchiment_doc_expired_count > 1 %}s{% endif %}
+                </span>
+              </div>
+            {% endif %}
+          {% elif title == 'Distribution des contrats' %}
+            <div class="muted" style="font-size:0.85rem;">Obsolescence moyenne : {{ '%.1f'|format(distribution_avg_obsolete_pct or 0.0) }} %</div>
+            <div class="muted" style="font-size:0.85rem;">Validité moyenne : {{ '%.1f'|format(distribution_avg_valid_pct or 0.0) }} %</div>
+            <div class="compliance-progress" role="img" aria-label="Distribution des contrats : {{ distribution_avg_valid_pct|round(1) }} % valides, {{ distribution_avg_obsolete_pct|round(1) }} % obsolètes">
+              <div class="compliance-progress-valid" style="width: {{ distribution_avg_valid_pct }}%;"></div>
+              <div class="compliance-progress-obsolete" style="width: {{ distribution_avg_obsolete_pct }}%;"></div>
+            </div>
+          {% else %}
+            <p class="muted" style="margin:0;">En développement.</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
-  <!-- Sous-accordéon: Répartitions SRRI -->
-  <div id="srriToggle" class="card collapsed" data-tb-marker="TB_36" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  {% for title, slug in info_ids.items() %}
+    <div class="info-modal-backdrop" id="infoModal-{{ slug }}" aria-hidden="true">
+      <div class="info-modal-dialog">
+        <button type="button" class="info-modal-close" onclick="closeInfoModal('{{ slug }}')">×</button>
+        <div class="info-modal-body" data-info-slug="{{ slug }}">
+          {% set record_id = info_records.get(slug) %}
+          {% if record_id %}
+            <div class="compliance-detail-content" data-loaded="0" data-record-id="{{ record_id }}">
+              <p class="muted" style="margin:0;">Chargement…</p>
+            </div>
+          {% else %}
+            <p>En cours de développement.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+  <script>
+    function renderComplianceDetail(container, data){
+      if(!container) return;
+      container.innerHTML = '';
+      var labelMap = {
+        activite: 'Activité',
+        code_reglement: 'Code réglementaire',
+        articles: 'Articles',
+        references_complementaires: 'Références complémentaires'
+      };
+      var orderedKeys = ['activite', 'code_reglement', 'articles', 'references_complementaires'];
+      var linkKeys = ['lien_1','lien_2','lien_3','lien_4','lien_5'];
+      function appendRow(label, value, isLink){
+        var row = document.createElement('div');
+        row.className = 'orias-detail-row';
+        var strong = document.createElement('strong');
+        strong.textContent = label + ' :';
+        row.appendChild(strong);
+        if(isLink){
+          var anchor = document.createElement('a');
+          anchor.href = value;
+          anchor.target = '_blank';
+          anchor.rel = 'noopener';
+          anchor.textContent = value;
+          row.appendChild(document.createTextNode(' '));
+          row.appendChild(anchor);
+        } else {
+          var span = document.createElement('span');
+          span.textContent = value;
+          row.appendChild(document.createTextNode(' '));
+          row.appendChild(span);
+        }
+        container.appendChild(row);
+      }
+      if(!data || Object.keys(data).length === 0){
+        var empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'Aucune donnée disponible.';
+        container.appendChild(empty);
+        return;
+      }
+      var seen = {};
+      orderedKeys.forEach(function(key){
+        if(!Object.prototype.hasOwnProperty.call(data, key)) return;
+        var value = data[key];
+        if(value === null || value === undefined || value === '') return;
+        appendRow(labelMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }), value, linkKeys.indexOf(key) !== -1);
+        seen[key] = true;
+      });
+      Object.keys(data).forEach(function(key){
+        if(seen[key]) return;
+        var value = data[key];
+        if(value === null || value === undefined || value === '') return;
+        var isLink = linkKeys.indexOf(key) !== -1;
+        appendRow(labelMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }), value, isLink);
+      });
+    }
+    function fetchComplianceDetail(container){
+      if(!container || container.getAttribute('data-loaded') === '1' || container.getAttribute('data-loading') === '1'){
+        return;
+      }
+      var recordId = container.getAttribute('data-record-id');
+      if(!recordId){
+        container.innerHTML = '<p class="muted" style="margin:0;">Aucune donnée disponible.</p>';
+        return;
+      }
+      container.setAttribute('data-loading', '1');
+      container.innerHTML = '<p class="muted" style="margin:0;">Chargement…</p>';
+      fetch('/dashboard/compliance_rc_pro/' + recordId)
+        .then(function(resp){
+          if(!resp.ok){
+            throw new Error('fetch-failed');
+          }
+          return resp.json();
+        })
+        .then(function(payload){
+          renderComplianceDetail(container, payload);
+          container.setAttribute('data-loaded', '1');
+        })
+        .catch(function(){
+          container.innerHTML = '<p class="muted" style="margin:0;">Erreur lors du chargement des données.</p>';
+        })
+        .finally(function(){
+          container.removeAttribute('data-loading');
+        });
+    }
+    function openInfoModal(id){
+      var modal = document.getElementById('infoModal-' + id);
+      if(!modal) return;
+      var content = modal.querySelector('.compliance-detail-content');
+      fetchComplianceDetail(content);
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden','false');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeInfoModal(id){
+      var modal = document.getElementById('infoModal-' + id);
+      if(!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden','true');
+      document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', function(ev){
+      if(ev.key === 'Escape'){
+        document.querySelectorAll('.info-modal-backdrop.active').forEach(function(modal){
+          closeInfoModal(modal.id.replace('infoModal-',''));
+        });
+      }
+    });
+    document.addEventListener('click', function(ev){
+      var target = ev.target;
+      if(target.classList && target.classList.contains('info-modal-backdrop')){
+        closeInfoModal(target.id.replace('infoModal-',''));
+      }
+    });
+  </script>
+
+
+
+
+<div id="clienteleToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_35" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+    <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="clienteleSection" data-tb-marker="TB_36" style="display:none;">
+    <div class="card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+      <h3>Découpage clients par détention</h3>
+      <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+  </div>
+</div>
+
+<!-- Sous-accordéon: Répartitions SRRI -->
+  <div id="srriToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_37" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Suivi du risque</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="srriSection" data-tb-marker="TB_37" style="display:none;">
+  <div id="srriSection" data-tb-marker="TB_38" style="display:none;">
     <div class="card" data-tb-marker="TB_38" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
       <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:center; gap:8px;">
         <h3 class="risk-card-title">Clients</h3>
       </div>
-      <div data-tb-marker="TB_40" style="margin-top:8px; font-size:0.9rem; line-height:1.6; text-align:center;">
-        <div data-tb-marker="TB_41">
-          <a href="/dashboard/clients?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-red"></span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
+      <div data-tb-marker="TB_40" style="margin-top:8px; text-align:center;">
+        <div class="risk-stat-row" data-tb-marker="TB_41">
+          <span class="risk-dot red"></span>
+          <a href="/dashboard/clients?risk=above" target="_blank" rel="noopener noreferrer">
+            <strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
           </a>
         </div>
-        <div data-tb-marker="TB_42">
-          <a href="/dashboard/clients?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-green"></span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
+        <div class="risk-stat-row" data-tb-marker="TB_42">
+          <span class="risk-dot green"></span>
+          <a href="/dashboard/clients?risk=equal" target="_blank" rel="noopener noreferrer">
+            <strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
           </a>
         </div>
-        <div data-tb-marker="TB_43">
-          <a href="/dashboard/clients?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-blue"></span><strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
+        <div class="risk-stat-row" data-tb-marker="TB_43">
+          <span class="risk-dot blue"></span>
+          <a href="/dashboard/clients?risk=below" target="_blank" rel="noopener noreferrer">
+            <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
           </a>
         </div>
       </div>
@@ -329,20 +756,23 @@
       <div data-tb-marker="TB_48" style="display:flex; align-items:center; justify-content:center; gap:8px;">
         <h3 class="risk-card-title">Affaires</h3>
       </div>
-      <div data-tb-marker="TB_49" style="margin-top:8px; font-size:0.9rem; line-height:1.6; text-align:center;">
-        <div data-tb-marker="TB_50">
-          <a href="/dashboard/affaires?risk=above" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-red"></span><strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
+      <div data-tb-marker="TB_49" style="margin-top:8px; text-align:center;">
+        <div class="risk-stat-row" data-tb-marker="TB_50">
+          <span class="risk-dot red"></span>
+          <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
+            <strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
           </a>
         </div>
-        <div data-tb-marker="TB_51">
-          <a href="/dashboard/affaires?risk=equal" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-green"></span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
+        <div class="risk-stat-row" data-tb-marker="TB_51">
+          <span class="risk-dot green"></span>
+          <a href="/dashboard/affaires?risk=equal" target="_blank" rel="noopener noreferrer">
+            <strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
           </a>
         </div>
-        <div data-tb-marker="TB_52">
-          <a href="/dashboard/affaires?risk=below" style="text-decoration:none; color:inherit;" target="_blank" rel="noopener noreferrer">
-            <span class="dot dot-blue"></span><strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
+        <div class="risk-stat-row" data-tb-marker="TB_52">
+          <span class="risk-dot blue"></span>
+          <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
+            <strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
           </a>
         </div>
       </div>
@@ -362,7 +792,7 @@
   </div>
 
 <!-- Accordéon Analyse portefeuille -->
-<div id="analysisToggle" class="card collapsed" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="analysisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
   <span class="chevron">▾</span>
  </div>
@@ -459,7 +889,7 @@
 </div>
 
 <!-- Accordéon ESG (global) -->
-<div id="esgToggle" class="card collapsed" data-tb-marker="TB_62" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="esgToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_62" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">ESG</h3>
   <span class="chevron">▾</span>
 </div>
@@ -501,13 +931,13 @@
 <!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
-<div id="remToggle" class="card collapsed" data-tb-marker="TB_75" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="remToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_75" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Rémunérations</h3>
   <span class="chevron">▾</span>
 </div>
 <div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
   <!-- Sous-accordéon: Frais de gestion -->
-  <div id="remFraisToggle" class="card collapsed" data-tb-marker="TB_77" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="remFraisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_77" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.0rem;">Frais de gestion</h3>
     <span class="chevron">▾</span>
   </div>
@@ -625,7 +1055,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 </div>
 
 <!-- Accordéon Rétrocession des supports -->
-<div id="retroToggle" class="card collapsed" data-tb-marker="TB_85" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="retroToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_85" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Rétrocession des supports</h3>
   <span class="chevron">▾</span>
 </div>
@@ -998,7 +1428,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
   // Accordéons (un seul ouvert à la fois, possibilité de tout fermer)
   (function(){
-    const storageKey = 'dashboard_open_v2';
     const groups = [
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
@@ -1014,19 +1443,9 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         if (g.key === key){ s.style.display = ''; t.classList.remove('collapsed'); }
         else { s.style.display = 'none'; t.classList.add('collapsed'); }
       });
-      try { localStorage.setItem(storageKey, key || ''); } catch(e) {}
     }
-    // Restore saved open section
-    let saved = '';
-    try { saved = localStorage.getItem(storageKey) || ''; } catch(e) {}
-    if (saved) setOpen(saved);
-    else {
-      const defaultGroup = groups.find(g => {
-        const t = $(g.toggle);
-        return t && t.dataset.open === '1';
-      });
-      if (defaultGroup) setOpen(defaultGroup.key);
-    }
+    // Ensure all closed by default
+    setOpen('');
     // Wire clicks
     groups.forEach(g => {
       const t = $(g.toggle), s = $(g.section);
@@ -1094,6 +1513,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   (function(){
     const pairs = [
       ['complianceToggle','complianceSection'],
+      ['rcpToggle','rcpSection'],
       ['clienteleToggle','clienteleSection'],
       ['srriToggle','srriSection'],
     ];
