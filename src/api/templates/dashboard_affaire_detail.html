@@ -44,8 +44,8 @@
   /* table supports: compact and widths */
   #supportsTableContract { table-layout: fixed; }
   #supportsTableContract th, #supportsTableContract td { padding: 6px 8px; }
-  #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 14%; }
-  #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 15%; overflow:hidden; text-overflow: ellipsis; }
+  #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 20%; }
+  #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 18%; overflow:hidden; text-overflow: ellipsis; }
   #supportsTableContract th:nth-child(3), #supportsTableContract td:nth-child(3) { width: 5%; text-align: center; }
   /* Numeric columns (Nb UC, VL, PRMP, Valorisation) widths */
   #supportsTableContract th:nth-child(4), #supportsTableContract td:nth-child(4) { width: 8%; }
@@ -55,7 +55,7 @@
   /* ESG columns ultra-compact */
   #supportsTableContract th:nth-child(8), #supportsTableContract td:nth-child(8),
   #supportsTableContract th:nth-child(9), #supportsTableContract td:nth-child(9),
-  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px 4px; }
+  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 2%; text-align: center; padding: 2px; }
   /* Right-align headers for Nb UC, PRMP, Valorisation */
   #supportsTableContract th:nth-child(4), #supportsTableContract th:nth-child(6), #supportsTableContract th:nth-child(7) { text-align: right; }
   /* DataTables center alignment helper */
@@ -77,6 +77,7 @@
   .pie-card { display: flex; flex-direction: column; height: 300px; overflow: hidden; }
   .pie-card canvas { flex: 1 1 auto; display:block; }
   .chart-title { font-size: 0.95rem; margin: 0 0 4px 0; }
+  .accordion-toggle h3 { font-size: 1.05rem !important; margin: 0; font-weight: 600; }
   /* Small SRRI icon override */
   .card .srri-icon { font-size: 0.9rem !important; margin-left: 6px; margin-bottom: 0 !important; vertical-align: middle; }
   /* Harmoniser boutons avec Détail Client */
@@ -465,7 +466,7 @@
   </script>
 
 <!-- Accordéon Investissements -->
-<div id="invToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
+<div id="invToggle" class="card accordion-toggle" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Investissements</h3>
   <span class="chevron">▾</span>
 </div>
@@ -644,7 +645,7 @@
   </div>
 </div>
 
-<div id="graphsToggle" class="card" data-tb-marker="AF_17" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
+<div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Graphiques</h3>
   <span class="chevron">▾</span>
 </div>
@@ -663,7 +664,7 @@
 </div>
 
 <div class="card" data-tb-marker="AF_20" style="margin-top:12px;">
-  <h3>Performances et volatilité annuelles</h3>
+  <h3>Performances et SRRI</h3>
   <canvas id="chartAnnuel" height="120"></canvas>
 </div>
 
@@ -690,7 +691,7 @@
 </div>
 
 <!-- Reportings pluriannuels (accordéon pleine largeur) -->
-<div id="reportToggle" class="card" data-tb-marker="AF_22" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
+<div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Reportings pluriannuels</h3>
   <span class="chevron">▾</span>
 </div>
@@ -1168,18 +1169,109 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   drawChart1(labels, valo, cum);
   document.querySelectorAll('.rangeBtn').forEach(b=> b.addEventListener('click', ()=> applyRange1(b.dataset.range)));
 
-  // Chart 2: annuel perf/vol (barres) sur une seule échelle
+  // Chart 2: annual performance (bars) vs SRRI (line) with dual axes
   const ctx2 = document.getElementById('chartAnnuel').getContext('2d');
   const annPerfPct = (annPerf||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-  const annVolPct = (annVol||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-  const ann = new Chart(ctx2, {
-    type: 'bar',
-    data: { labels: (years||[]).map(String), datasets: [
-      { label: 'Perf 52s (%)', data: annPerfPct, backgroundColor: primaryColor },
-      { label: 'Volatilité (%)', data: annVolPct, backgroundColor: '#ff6b6b' },
-    ]},
-    options: { responsive:true, scales:{ y:{ position:'left', ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color: primaryColor, formatter:(v)=> (Number(v).toFixed(2)+' %'), font:{ size:10 } } } }
-  });
+  function normalizeVolDecimal(v){
+    if (typeof v === 'string') {
+      v = v.replace(',', '.');
+    }
+    let n = parseFloat(v);
+    if (!isFinite(n)) return null;
+    if (Math.abs(n) > 1) n = n / 100;
+    return n;
+  }
+  function srriFromVol(volDecimal){
+    if (volDecimal === null) return null;
+    const vol = Math.abs(volDecimal);
+    const buckets = [
+      { min: 0, max: 0.005, base: 1 },
+      { min: 0.005, max: 0.02, base: 2 },
+      { min: 0.02, max: 0.05, base: 3 },
+      { min: 0.05, max: 0.10, base: 4 },
+      { min: 0.10, max: 0.15, base: 5 },
+      { min: 0.15, max: 0.25, base: 6 },
+      { min: 0.25, max: Infinity, base: 7 }
+    ];
+    for (let i = 0; i < buckets.length; i++){
+      const bucket = buckets[i];
+      if (vol < bucket.max || bucket.max === Infinity){
+        if (bucket.max === Infinity || bucket.max <= bucket.min){
+          return bucket.base;
+        }
+        const span = bucket.max - bucket.min;
+        if (span <= 0) return bucket.base;
+        const ratio = Math.min(Math.max((vol - bucket.min) / span, 0), 0.99);
+        if (!isFinite(ratio)) return bucket.base;
+        const value = bucket.base + ratio;
+        if (!isFinite(value)) return bucket.base;
+        // classe 7 reste bornée à 7
+        if (bucket.base === 7) return 7;
+        return +value.toFixed(2);
+      }
+    }
+    return null;
+  }
+  const annSrri = (annVol||[]).map(v=> srriFromVol(normalizeVolDecimal(v)));
+  const srriHighlightPlugin = {
+    id: 'srriHighlight',
+    beforeDraw(chart){
+      const yAxis = chart.scales.y2;
+      const area = chart.chartArea;
+      if (!yAxis || !area) return;
+      const ctx = chart.ctx;
+      const clientSrri = {{ srri_client if srri_client is not none else 'null' }};
+      if (clientSrri === null) return;
+      const ranges = [];
+      const srriFloat = Number(clientSrri);
+      if (Number.isFinite(srriFloat)) {
+        const upper = Math.min(srriFloat + 1, 7);
+        ranges.push({ from: srriFloat, to: srriFloat });
+        if (upper > srriFloat) {
+          ranges.push({ from: srriFloat, to: upper });
+        }
+      }
+      const fillColor = 'rgba(255, 107, 107, 0.15)';
+      ctx.save();
+      ctx.fillStyle = fillColor;
+      ranges.forEach(range => {
+        const yTop = yAxis.getPixelForValue(range.to);
+        const yBottom = yAxis.getPixelForValue(range.from);
+        if (!Number.isFinite(yTop) || !Number.isFinite(yBottom)) return;
+        const top = Math.min(yTop, yBottom);
+        const height = Math.abs(yBottom - yTop) || 2;
+        ctx.fillRect(area.left, top, area.right - area.left, height);
+      });
+      ctx.restore();
+    }
+  };
+  let ann = null;
+  try{
+    ann = new Chart(ctx2, {
+      type: 'bar',
+      plugins: [srriHighlightPlugin],
+      data: { labels: (years||[]).map(String), datasets: [
+        { type: 'line', label: 'Perf 52s (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: primaryColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y' },
+        { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#ff6b6b', backgroundColor: '#ff6b6b', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
+      ]},
+      options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{
+          y:{ position:'left', ticks:{ callback:v=> v+' %' } },
+          y2:{ position:'right', min:1, max:7, ticks:{ stepSize:1, callback:v=> v, color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, border:{ color:'#ff6b6b' }, title:{ display:true, text:'SRRI', color:'#ff6b6b' } }
+        }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color:(ctx)=> ctx.dataset && ctx.dataset.yAxisID==='y2' ? '#ff6b6b' : primaryColor, formatter:(value, ctx)=> {
+            if (value === null || typeof value === 'undefined') return '';
+            if (ctx.dataset && ctx.dataset.yAxisID === 'y2') {
+              const num = Number(value);
+              if (!isFinite(num)) return '';
+              return num.toFixed(2);
+            }
+            const numVal = Number(value);
+            if (!isFinite(numVal)) return '';
+            return numVal.toFixed(2)+' %';
+          }, font:{ size:10 } } } }
+    });
+  } catch(err){
+    console.error('Affaire SRRI chart error', err);
+  }
 
   // Chart 3: SICAV comparatif (aligné sur dates de l'affaire)
   const ctx3 = document.getElementById('chartSicav').getContext('2d');

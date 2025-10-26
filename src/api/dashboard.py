@@ -1,10 +1,11 @@
 import logging
 import base64
 import re
+import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Depends, Query, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam
 from sqlalchemy import text
@@ -48,9 +49,27 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 logger = logging.getLogger("uvicorn.error")
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+DOCUMENTS_DIR = BASE_DIR / "documents"
+
 
 def rows_to_dicts(rows):
     return [dict(row._mapping) for row in rows]
+
+
+def _slugify_filename(value: str | None) -> str:
+    """Simple ASCII slugification for filenames."""
+    if not value:
+        return "document"
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", value)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.strip()
+    normalized = normalized.lower()
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
+    normalized = normalized.strip("-")
+    return normalized or "document"
 
 
 def fetch_rh_list(db: Session) -> list[dict]:
@@ -2019,7 +2038,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         row = db.execute(
             text(
                 """
-                SELECT 
+                SELECT
                   r.libelle AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
@@ -3643,14 +3662,14 @@ async def dashboard_client_kyc_report(
     try:
         row = db.execute(text(
             """
-            SELECT 
+            SELECT
               r.libelle AS niveau_risque,
               k.duree AS horizon_placement,
               k.experience,
               k.connaissance,
               k.commentaire
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r 
+            JOIN ref_niveau_risque r
               ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
@@ -4377,6 +4396,13 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     saved_success = True if (request.query_params.get("saved") in ("1", "true", "yes")) else False
     saved_error = True if (request.query_params.get("error") in ("1", "true", "yes")) else False
     saved_error_msg = request.query_params.get("errmsg") or None
+    raw_edit_doc_id = request.query_params.get("editDoc")
+    edit_doc_id: int | None = None
+    try:
+        if raw_edit_doc_id is not None and str(raw_edit_doc_id).strip() != "":
+            edit_doc_id = int(str(raw_edit_doc_id))
+    except Exception:
+        edit_doc_id = None
 
     # Valeurs par défaut pour garantir le rendu même si certaines tables manquent
     contrats_generiques: list[dict] = []
@@ -4405,6 +4431,10 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     admin_types: list[dict] = []
     admin_intervenants: list[dict] = []
     groupes_details: list[dict] = []
+    # Courtier Documents officiels
+    compliance_activites: list[dict] = []
+    courtier_documents: list[dict] = []
+    courtier_document_edit: dict | None = None
 
     # Chargement des données si les tables existent
     from sqlalchemy import text as _text
@@ -4629,6 +4659,100 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         ])
     except Exception:
         pass
+
+    # -------- Courtier: Documents officiels
+    orias_detail: dict | None = None
+    compliance_table = _resolve_table_name(db, ["Compliance_rc_pro", "compliance_rc_pro"]) or "Compliance_rc_pro"
+    try:
+        compliance_activites = rows_to_dicts(
+            db.execute(
+                text(
+                    f"""
+                    SELECT id, activite
+                    FROM {compliance_table}
+                    ORDER BY activite
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        compliance_activites = []
+
+    try:
+        orias_detail_row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {compliance_table}
+                WHERE id = :oid
+                LIMIT 1
+                """
+            ),
+            {"oid": 1},
+        ).fetchone()
+        orias_detail = dict(orias_detail_row._mapping) if orias_detail_row else None
+    except Exception:
+        orias_detail = None
+
+    doc_table_name = _ensure_courtier_documents_table(db)
+    if doc_table_name:
+        try:
+            raw_docs = rows_to_dicts(
+                db.execute(
+                    text(
+                        f"""
+                        SELECT d.id,
+                               d.activite_id,
+                               d.date_validite,
+                               d.original_filename,
+                               d.stored_filename,
+                               d.stored_path,
+                               d.mime_type,
+                               d.file_size,
+                               d.created_at,
+                               d.updated_at,
+                               c.activite AS activite_libelle
+                        FROM {doc_table_name} d
+                        LEFT JOIN Compliance_rc_pro c ON c.id = d.activite_id
+                        ORDER BY COALESCE(c.activite, ''), d.date_validite DESC, d.id DESC
+                        """
+                    )
+                ).fetchall()
+            )
+            today = _date.today()
+            for item in raw_docs:
+                parsed_date = _parse_date_safe(item.get("date_validite"))
+                if parsed_date:
+                    item["date_validite_display"] = parsed_date.strftime("%d/%m/%Y")
+                    item["is_expired"] = parsed_date < today
+                else:
+                    item["date_validite_display"] = ""
+                    item["is_expired"] = False
+                iid = item.get("id")
+                item["download_url"] = f"/dashboard/parametres/courtier/documents/{iid}/download"
+                item["view_url"] = f"/dashboard/parametres/courtier/documents/{iid}/view"
+                item["delete_url"] = f"/dashboard/parametres/courtier/documents/{iid}/delete"
+                item["edit_url"] = f"/dashboard/parametres?open=courtierDocuments&editDoc={iid}"
+                item["date_validite_value"] = parsed_date.isoformat() if parsed_date else ""
+                if edit_doc_id is not None and iid == edit_doc_id and courtier_document_edit is None:
+                    courtier_document_edit = dict(item)
+                courtier_documents.append(item)
+        except Exception as exc:
+            logger.error(f"load courtier documents failed: {exc}")
+    if edit_doc_id is not None and courtier_document_edit is None:
+        if doc_table_name:
+            try:
+                row = _get_courtier_document(db, doc_table_name, edit_doc_id)
+            except Exception:
+                row = None
+            if row:
+                parsed_date = _parse_date_safe(row.get("date_validite"))
+                courtier_document_edit = {
+                    "id": row.get("id"),
+                    "activite_id": row.get("activite_id"),
+                    "date_validite_value": parsed_date.isoformat() if parsed_date else "",
+                    "original_filename": row.get("original_filename") or row.get("stored_filename"),
+                }
 
     # -------- Détails: Activité
 
@@ -4877,12 +5001,284 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "remun_items": remun_items,
             "remun_extra_cols": remun_extra_cols,
             "garanties_normes": garanties_normes,
+            "compliance_activites": compliance_activites,
+            "courtier_documents": courtier_documents,
+            "courtier_document_edit": courtier_document_edit,
             "admin_types": admin_types,
             "admin_intervenants": admin_intervenants,
             "groupes_details": groupes_details,
             "admin_rh": admin_rh,
         },
     )
+
+
+@router.post("/parametres/courtier/documents", response_class=HTMLResponse)
+async def upload_courtier_document(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    raw_doc_id = form.get("doc_id")
+    raw_activite = form.get("activite_id") or form.get("activite")
+    raw_date = form.get("date_validite")
+    upload: UploadFile | None = form.get("document_file") or form.get("document_pdf") or form.get("document")
+
+    def _parse_int(value) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+    doc_id = _parse_int(raw_doc_id)
+
+    async def _error(message: str, keep_edit: bool = False) -> RedirectResponse:
+        from urllib.parse import quote
+
+        if upload is not None:
+            try:
+                await upload.close()
+            except Exception:
+                pass
+        url = "/dashboard/parametres?open=courtierDocuments"
+        if keep_edit and doc_id is not None:
+            url += f"&editDoc={doc_id}"
+        url += f"&error=1&errmsg={quote(message)}"
+        return RedirectResponse(url=url, status_code=303)
+
+    activite_id = _parse_int(raw_activite)
+    date_value = raw_date.strip() if isinstance(raw_date, str) else raw_date
+    parsed_date = _parse_date_safe(date_value)
+    if date_value and parsed_date is None:
+        return await _error("Date de validité invalide.", keep_edit=True)
+    if activite_id is None:
+        return await _error("Type de document requis.", keep_edit=True)
+
+    has_new_file = bool(upload and getattr(upload, "filename", ""))
+    if doc_id is None and not has_new_file:
+        return await _error("Merci de sélectionner un fichier PDF.")
+
+    if has_new_file:
+        mime_type = (upload.content_type or "").lower()
+        filename_lower = (upload.filename or "").lower()
+        if not filename_lower.endswith(".pdf") and mime_type != "application/pdf":
+            return await _error("Le fichier doit être un PDF.", keep_edit=True)
+    else:
+        mime_type = None
+
+    try:
+        exists = db.execute(
+            text("SELECT 1 FROM Compliance_rc_pro WHERE id = :id LIMIT 1"), {"id": activite_id}
+        ).fetchone()
+    except Exception:
+        exists = None
+    if not exists:
+        return await _error("Type de document introuvable.", keep_edit=True)
+
+    table_name = _ensure_courtier_documents_table(db)
+    if not table_name:
+        return await _error("Impossible de préparer le stockage des documents.", keep_edit=True)
+
+    existing_doc = None
+    if doc_id is not None:
+        existing_doc = _get_courtier_document(db, table_name, doc_id)
+        if not existing_doc:
+            return await _error("Document introuvable.")
+
+    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    original_filename: str
+    content_type: str
+    stored_filename: str | None
+    stored_path: str | None
+    file_size: int
+    new_dest_path: Path | None = None
+    previous_path: Path | None = None
+
+    if has_new_file:
+        original_filename = upload.filename or "document.pdf"
+        content_type = upload.content_type or "application/pdf"
+        base_slug = _slugify_filename(Path(original_filename).stem)
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        stored_filename = f"{base_slug}-{timestamp}-{secrets.token_hex(4)}.pdf"
+        stored_path = str(Path("documents") / stored_filename)
+        try:
+            file_bytes = await upload.read()
+        finally:
+            try:
+                await upload.close()
+            except Exception:
+                pass
+        if not file_bytes:
+            return await _error("Le fichier est vide.", keep_edit=True)
+        dest_path = DOCUMENTS_DIR / stored_filename
+        try:
+            with open(dest_path, "wb") as buffer:
+                buffer.write(file_bytes)
+        except Exception as exc:
+            if dest_path.exists():
+                try:
+                    dest_path.unlink()
+                except Exception:
+                    pass
+            logger.error(f"failed to write uploaded document: {exc}")
+            return await _error("Enregistrement du fichier impossible.", keep_edit=True)
+        file_size = len(file_bytes)
+        new_dest_path = dest_path
+    else:
+        if existing_doc is None:
+            return await _error("Merci de sélectionner un fichier PDF.")
+        original_filename = (
+            existing_doc.get("original_filename")
+            or existing_doc.get("stored_filename")
+            or "document.pdf"
+        )
+        content_type = existing_doc.get("mime_type") or "application/pdf"
+        stored_filename = existing_doc.get("stored_filename")
+        stored_path = existing_doc.get("stored_path") or stored_filename
+        file_size = existing_doc.get("file_size") or 0
+        try:
+            previous_path = _resolve_document_path(existing_doc)
+        except Exception:
+            previous_path = None
+
+    date_iso = parsed_date.isoformat() if parsed_date else None
+
+    if doc_id is None:
+        params = {
+            "activite_id": activite_id,
+            "date_validite": date_iso,
+            "original_filename": original_filename,
+            "stored_filename": stored_filename,
+            "stored_path": stored_path,
+            "mime_type": content_type,
+            "file_size": file_size,
+        }
+        try:
+            db.execute(
+                text(
+                    f"""
+                    INSERT INTO {table_name} (
+                        activite_id, date_validite, original_filename, stored_filename,
+                        stored_path, mime_type, file_size, created_at, updated_at
+                    ) VALUES (
+                        :activite_id, :date_validite, :original_filename, :stored_filename,
+                        :stored_path, :mime_type, :file_size, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    """
+                ),
+                params,
+            )
+            db.commit()
+        except Exception as exc:
+            logger.error(f"failed to persist courtier document metadata: {exc}")
+            try:
+                if new_dest_path and new_dest_path.exists():
+                    new_dest_path.unlink()
+            except Exception:
+                pass
+            return await _error("Impossible d'enregistrer le document.")
+    else:
+        update_params = {
+            "id": doc_id,
+            "activite_id": activite_id,
+            "date_validite": date_iso,
+            "original_filename": original_filename,
+            "stored_filename": stored_filename,
+            "stored_path": stored_path,
+            "mime_type": content_type,
+            "file_size": file_size,
+        }
+        try:
+            db.execute(
+                text(
+                    f"""
+                    UPDATE {table_name}
+                    SET activite_id = :activite_id,
+                        date_validite = :date_validite,
+                        original_filename = :original_filename,
+                        stored_filename = :stored_filename,
+                        stored_path = :stored_path,
+                        mime_type = :mime_type,
+                        file_size = :file_size,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                    """
+                ),
+                update_params,
+            )
+            db.commit()
+        except Exception as exc:
+            logger.error(f"failed to update courtier document metadata: {exc}")
+            try:
+                if new_dest_path and new_dest_path.exists():
+                    new_dest_path.unlink()
+            except Exception:
+                pass
+            return await _error("Impossible de mettre à jour le document.", keep_edit=True)
+        if has_new_file and previous_path and previous_path.exists() and previous_path != new_dest_path:
+            try:
+                previous_path.unlink()
+            except Exception as exc:
+                logger.warning(f"failed to remove previous document file {previous_path}: {exc}")
+
+    return RedirectResponse(
+        url="/dashboard/parametres?open=courtierDocuments&saved=1",
+        status_code=303,
+    )
+
+
+@router.post("/parametres/courtier/documents/{doc_id}/delete", response_class=HTMLResponse)
+async def delete_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    table_name = _ensure_courtier_documents_table(db)
+    if not table_name:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Aucune table de documents disponible.')}",
+            status_code=303,
+        )
+    row = _get_courtier_document(db, table_name, doc_id)
+    if not row:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Document introuvable.')}",
+            status_code=303,
+        )
+    file_path = _resolve_document_path(row)
+    try:
+        db.execute(
+            text(f"DELETE FROM {table_name} WHERE id = :id"),
+            {"id": doc_id},
+        )
+        db.commit()
+    except Exception as exc:
+        logger.error(f"failed to delete courtier document metadata: {exc}")
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Suppression impossible.')}",
+            status_code=303,
+        )
+
+    try:
+        if file_path.exists():
+            file_path.unlink()
+    except Exception as exc:
+        logger.warning(f"failed to remove document file {file_path}: {exc}")
+
+    return RedirectResponse(
+        url="/dashboard/parametres?open=courtierDocuments&saved=1",
+        status_code=303,
+    )
+
+
+@router.get("/parametres/courtier/documents/{doc_id}/download")
+def download_courtier_document(doc_id: int, db: Session = Depends(get_db)):
+    return _serve_courtier_document(doc_id, inline=False, db=db)
+
+
+@router.get("/parametres/courtier/documents/{doc_id}/view")
+def view_courtier_document(doc_id: int, db: Session = Depends(get_db)):
+    return _serve_courtier_document(doc_id, inline=True, db=db)
 
 
 @router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
@@ -5082,6 +5478,141 @@ def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
             except Exception:
                 return row._mapping.get("name")
     return None
+
+
+def _ensure_courtier_documents_table(db: Session) -> str | None:
+    """Ensure the storage table for official broker documents exists and return its name."""
+    table = _resolve_table_name(db, ["courtier_documents_officiels"])
+    if table:
+        return table
+    try:
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS courtier_documents_officiels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    activite_id INTEGER NOT NULL,
+                    date_validite TEXT,
+                    original_filename TEXT,
+                    stored_filename TEXT NOT NULL,
+                    stored_path TEXT NOT NULL,
+                    mime_type TEXT,
+                    file_size INTEGER,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (activite_id) REFERENCES Compliance_rc_pro(id)
+                )
+                """
+            )
+        )
+        db.commit()
+        return "courtier_documents_officiels"
+    except Exception as exc:
+        logger.error(f"failed to ensure courtier_documents_officiels table: {exc}")
+        return None
+
+
+def _get_courtier_document(db: Session, table: str, doc_id: int) -> dict | None:
+    try:
+        row = db.execute(
+            text(f"SELECT * FROM {table} WHERE id = :id"),
+            {"id": doc_id},
+        ).fetchone()
+        if row:
+            return dict(row._mapping)
+    except Exception as exc:
+        logger.error(f"fetch courtier document failed for id={doc_id}: {exc}")
+    return None
+
+
+@router.get("/compliance_rc_pro/{item_id}", response_class=JSONResponse)
+async def dashboard_compliance_rc_pro_detail(item_id: int, db: Session = Depends(get_db)):
+    """Return the Compliance RC Pro record as JSON for dynamic displays."""
+    table_name = _resolve_table_name(db, ["Compliance_rc_pro", "compliance_rc_pro"]) or "Compliance_rc_pro"
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table_name}
+                WHERE id = :oid
+                LIMIT 1
+                """
+            ),
+            {"oid": item_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error(f"fetch compliance rc pro failed: {exc}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la récupération des données de conformité.")
+    if not row:
+        raise HTTPException(status_code=404, detail="Enregistrement introuvable.")
+
+    def _normalize(val):
+        if isinstance(val, datetime):
+            return val.isoformat()
+        if isinstance(val, _date):
+            return val.isoformat()
+        if isinstance(val, Decimal):
+            try:
+                return float(val)
+            except (TypeError, InvalidOperation):
+                return str(val)
+        if isinstance(val, bytes):
+            try:
+                return val.decode("utf-8")
+            except Exception:
+                return base64.b64encode(val).decode("ascii")
+        return val
+
+    payload = {key: _normalize(value) for key, value in row._mapping.items()}
+    return JSONResponse(payload)
+
+
+def _resolve_document_path(row: dict) -> Path:
+    """Compute safe absolute path for a stored document entry."""
+    base = DOCUMENTS_DIR.resolve()
+    candidates: list[Path] = []
+    stored_filename = row.get("stored_filename")
+    stored_path = row.get("stored_path")
+    if stored_filename:
+        candidates.append((base / stored_filename))
+    if stored_path:
+        sp = Path(stored_path)
+        if sp.is_absolute():
+            candidates.append(sp)
+        else:
+            candidates.append((base / sp))
+            candidates.append((BASE_DIR / sp))
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except FileNotFoundError:
+            resolved = candidate
+        try:
+            resolved.relative_to(base)
+            return resolved
+        except Exception:
+            continue
+    fallback_name = stored_filename or Path(stored_path or "document.pdf").name
+    return base / fallback_name
+
+
+def _serve_courtier_document(doc_id: int, inline: bool, db: Session) -> FileResponse:
+    table = _ensure_courtier_documents_table(db)
+    if not table:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    row = _get_courtier_document(db, table, doc_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    file_path = _resolve_document_path(row)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+    mime_type = row.get("mime_type") or "application/pdf"
+    original_filename = (row.get("original_filename") or file_path.name or "document.pdf").replace('"', "")
+    if inline:
+        headers = {"Content-Disposition": f'inline; filename="{original_filename}"'}
+        return FileResponse(str(file_path), media_type=mime_type, headers=headers)
+    return FileResponse(str(file_path), media_type=mime_type, filename=original_filename)
 
 
 def _courtier_activite_columns(db: Session, table: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
@@ -5448,7 +5979,7 @@ def _build_mission_context(db: Session, client_id: int) -> dict:
         row = db.execute(
             text(
                 """
-                SELECT 
+                SELECT
                   r.libelle AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
@@ -6868,6 +7399,46 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
 
     # Informations Documents (comme sur la page Documents)
+    orias_doc_found = False
+    orias_doc_valid = False
+    orias_doc_expiry_display = ""
+    assoc_doc_found = False
+    assoc_doc_valid = False
+    assoc_doc_expiry_display = ""
+    rcpro_doc_count = 0
+    rcpro_doc_valid = False
+    rcpro_doc_expiry_display = ""
+    rcpro_doc_expired_count = 0
+    rcpro_doc_valid_count = 0
+    conditions_doc_count = 0
+    conditions_doc_valid = False
+    conditions_doc_expiry_display = ""
+    conditions_doc_expired_count = 0
+    conditions_doc_valid_count = 0
+    role_doc_count = 0
+    role_doc_valid = False
+    role_doc_expiry_display = ""
+    role_doc_expired_count = 0
+    role_doc_valid_count = 0
+    gouvernance_doc_count = 0
+    gouvernance_doc_valid = False
+    gouvernance_doc_expiry_display = ""
+    gouvernance_doc_expired_count = 0
+    gouvernance_doc_valid_count = 0
+    conclusion_doc_count = 0
+    conclusion_doc_valid = False
+    conclusion_doc_expiry_display = ""
+    conclusion_doc_expired_count = 0
+    conclusion_doc_valid_count = 0
+    blanchiment_doc_count = 0
+    blanchiment_doc_valid = False
+    blanchiment_doc_expiry_display = ""
+    blanchiment_doc_expired_count = 0
+    blanchiment_doc_valid_count = 0
+    doc_today = _date.today()
+    distribution_avg_obsolete_pct = 0.0
+    distribution_avg_valid_pct = 100.0
+    reclam_stats = {'total': 0, 'a_faire': 0, 'en_cours': 0, 'en_attente': 0, 'terminees': 0}
     try:
         total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
         der_total = (
@@ -6980,6 +7551,374 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         )
         obs_by_risque = [{"risque": r, "nb": int(nb)} for r, nb in obs_by_risque_rows]
 
+        doc_table_name = _resolve_table_name(db, ["courtier_documents_officiels"])
+        if doc_table_name:
+            row = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 1},
+            ).fetchone()
+            if row:
+                orias_doc_found = True
+                expiry_raw = row._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    orias_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        orias_doc_valid = True
+            row_assoc = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 2},
+            ).fetchone()
+            if row_assoc:
+                assoc_doc_found = True
+                expiry_raw = row_assoc._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    assoc_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        assoc_doc_valid = True
+            rc_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+            ).fetchone()
+            count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                    """
+                ),
+            ).fetchone()
+            expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"today": doc_today.isoformat()},
+            ).fetchone()
+            rcpro_doc_count = int(count_row[0]) if count_row else 0
+            rcpro_doc_expired_count = int(expired_row[0]) if expired_row else 0
+            rcpro_doc_valid_count = max(rcpro_doc_count - rcpro_doc_expired_count, 0)
+            if rc_rows:
+                expiry_raw = rc_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    rcpro_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        rcpro_doc_valid = True
+            cond_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 5},
+            ).fetchone()
+            cond_count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    """
+                ),
+                {"act": 5},
+            ).fetchone()
+            cond_expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"act": 5, "today": doc_today.isoformat()},
+            ).fetchone()
+            conditions_doc_count = int(cond_count_row[0]) if cond_count_row else 0
+            conditions_doc_expired_count = int(cond_expired_row[0]) if cond_expired_row else 0
+            conditions_doc_valid_count = max(conditions_doc_count - conditions_doc_expired_count, 0)
+            if cond_rows:
+                expiry_raw = cond_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    conditions_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        conditions_doc_valid = True
+            role_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 6},
+            ).fetchone()
+            role_count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    """
+                ),
+                {"act": 6},
+            ).fetchone()
+            role_expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"act": 6, "today": doc_today.isoformat()},
+            ).fetchone()
+            role_doc_count = int(role_count_row[0]) if role_count_row else 0
+            role_doc_expired_count = int(role_expired_row[0]) if role_expired_row else 0
+            role_doc_valid_count = max(role_doc_count - role_doc_expired_count, 0)
+            if role_rows:
+                expiry_raw = role_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    role_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        role_doc_valid = True
+            gouvernance_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 8},
+            ).fetchone()
+            gouvernance_count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    """
+                ),
+                {"act": 8},
+            ).fetchone()
+            gouvernance_expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"act": 8, "today": doc_today.isoformat()},
+            ).fetchone()
+            gouvernance_doc_count = int(gouvernance_count_row[0]) if gouvernance_count_row else 0
+            gouvernance_doc_expired_count = int(gouvernance_expired_row[0]) if gouvernance_expired_row else 0
+            gouvernance_doc_valid_count = max(gouvernance_doc_count - gouvernance_doc_expired_count, 0)
+            if gouvernance_rows:
+                expiry_raw = gouvernance_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    gouvernance_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        gouvernance_doc_valid = True
+            conclusion_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 9},
+            ).fetchone()
+            conclusion_count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    """
+                ),
+                {"act": 9},
+            ).fetchone()
+            conclusion_expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"act": 9, "today": doc_today.isoformat()},
+            ).fetchone()
+            conclusion_doc_count = int(conclusion_count_row[0]) if conclusion_count_row else 0
+            conclusion_doc_expired_count = int(conclusion_expired_row[0]) if conclusion_expired_row else 0
+            conclusion_doc_valid_count = max(conclusion_doc_count - conclusion_doc_expired_count, 0)
+            if conclusion_rows:
+                expiry_raw = conclusion_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    conclusion_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        conclusion_doc_valid = True
+            blanch_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 7},
+            ).fetchone()
+            blanch_count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    """
+                ),
+                {"act": 7},
+            ).fetchone()
+            blanch_expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"act": 7, "today": doc_today.isoformat()},
+            ).fetchone()
+            blanchiment_doc_count = int(blanch_count_row[0]) if blanch_count_row else 0
+            blanchiment_doc_expired_count = int(blanch_expired_row[0]) if blanch_expired_row else 0
+            blanchiment_doc_valid_count = max(blanchiment_doc_count - blanchiment_doc_expired_count, 0)
+            if blanch_rows:
+                expiry_raw = blanch_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    blanchiment_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= doc_today:
+                        blanchiment_doc_valid = True
+
+        distribution_obsolete_values = [
+            v for v in [
+                der_obsolete_pct,
+                cc_obsolete_pct,
+                esg_obsolete_pct,
+                lm_obsolete_pct,
+                la_obsolete_pct,
+            ]
+            if isinstance(v, (int, float))
+        ]
+        distribution_avg_obsolete_pct = (sum(distribution_obsolete_values) / len(distribution_obsolete_values)) if distribution_obsolete_values else 0.0
+        if distribution_avg_obsolete_pct < 0:
+            distribution_avg_obsolete_pct = 0.0
+        if distribution_avg_obsolete_pct > 100:
+            distribution_avg_obsolete_pct = 100.0
+        distribution_avg_valid_pct = 100.0 - distribution_avg_obsolete_pct
+    except Exception as exc:
+        logger.debug("Dashboard ORIAS document lookup failed: %s", exc, exc_info=True)
+        distribution_avg_obsolete_pct = 0.0
+        distribution_avg_valid_pct = 100.0
+
         from src.models.evenement import Evenement
         from src.models.type_evenement import TypeEvenement
 
@@ -7042,6 +7981,22 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         la_obsolete_pct = 0.0
         obs_by_niveau = []
         obs_by_risque = []
+        orias_doc_found = False
+        orias_doc_valid = False
+        orias_doc_expiry_display = ""
+        assoc_doc_found = False
+        assoc_doc_valid = False
+        assoc_doc_expiry_display = ""
+        rcpro_doc_count = 0
+        rcpro_doc_valid = False
+        rcpro_doc_expiry_display = ""
+        blanchiment_doc_count = 0
+        blanchiment_doc_valid = False
+        blanchiment_doc_expiry_display = ""
+        distribution_avg_obsolete_pct = 0.0
+        distribution_avg_valid_pct = 100.0
+
+    orias_detail = locals().get("orias_detail", None)
 
     # Comparatif contrats: au-dessus / identique / en-dessous du risque (SRRI contrat vs calculé)
     try:
@@ -7370,7 +8325,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             rows = db.execute(
                 text(
                     """
-                    SELECT 
+                    SELECT
                         h.date AS date,
                         SUM(h.valo) AS total_valorisation,
                         SUM(h.valo) * (g.frais_gestion_courtier / 52.0 / 100.0) AS commission_frais_gestion,
@@ -7799,6 +8754,45 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "docs_la_obsolete": la_obsolete,
             "docs_la_total_pct": la_total_pct,
             "docs_la_obsolete_pct": la_obsolete_pct,
+            "orias_doc_found": orias_doc_found,
+            "orias_doc_valid": orias_doc_valid,
+            "orias_doc_expiry_display": orias_doc_expiry_display,
+            "assoc_doc_found": assoc_doc_found,
+            "assoc_doc_valid": assoc_doc_valid,
+            "assoc_doc_expiry_display": assoc_doc_expiry_display,
+            "rcpro_doc_count": rcpro_doc_count,
+            "rcpro_doc_valid": rcpro_doc_valid,
+            "rcpro_doc_expiry_display": rcpro_doc_expiry_display,
+            "rcpro_doc_expired_count": rcpro_doc_expired_count,
+            "rcpro_doc_valid_count": rcpro_doc_valid_count,
+            "conditions_doc_count": conditions_doc_count,
+            "conditions_doc_valid": conditions_doc_valid,
+            "conditions_doc_expiry_display": conditions_doc_expiry_display,
+            "conditions_doc_expired_count": conditions_doc_expired_count,
+            "conditions_doc_valid_count": conditions_doc_valid_count,
+            "role_doc_count": role_doc_count,
+            "role_doc_valid": role_doc_valid,
+            "role_doc_expiry_display": role_doc_expiry_display,
+            "role_doc_expired_count": role_doc_expired_count,
+            "role_doc_valid_count": role_doc_valid_count,
+            "gouvernance_doc_count": gouvernance_doc_count,
+            "gouvernance_doc_valid": gouvernance_doc_valid,
+            "gouvernance_doc_expiry_display": gouvernance_doc_expiry_display,
+            "gouvernance_doc_expired_count": gouvernance_doc_expired_count,
+            "gouvernance_doc_valid_count": gouvernance_doc_valid_count,
+            "conclusion_doc_count": conclusion_doc_count,
+            "conclusion_doc_valid": conclusion_doc_valid,
+            "conclusion_doc_expiry_display": conclusion_doc_expiry_display,
+            "conclusion_doc_expired_count": conclusion_doc_expired_count,
+            "conclusion_doc_valid_count": conclusion_doc_valid_count,
+            "blanchiment_doc_count": blanchiment_doc_count,
+            "blanchiment_doc_valid": blanchiment_doc_valid,
+            "blanchiment_doc_expiry_display": blanchiment_doc_expiry_display,
+            "blanchiment_doc_expired_count": blanchiment_doc_expired_count,
+            "blanchiment_doc_valid_count": blanchiment_doc_valid_count,
+            "distribution_avg_obsolete_pct": distribution_avg_obsolete_pct,
+            "distribution_avg_valid_pct": distribution_avg_valid_pct,
+            "orias_detail": orias_detail,
             "reclam_stats": reclam_stats,
             "docs_obs_by_niveau": obs_by_niveau,
             "docs_obs_by_risque": obs_by_risque,
@@ -8642,7 +9636,7 @@ async def dashboard_client_kyc(
             montant_decimal: Decimal | None = None
             if not revenu_error:
                 if montant_raw in (None, ""):
-                    revenu_error = "Veuillez renseigner le montant annuel." 
+                    revenu_error = "Veuillez renseigner le montant annuel."
                 else:
                     try:
                         montant_decimal = Decimal(str(montant_raw).replace(",", "."))
@@ -8754,7 +9748,7 @@ async def dashboard_client_kyc(
             montant_decimal: Decimal | None = None
             if not charge_error:
                 if montant_raw in (None, ""):
-                    charge_error = "Veuillez renseigner le montant annuel." 
+                    charge_error = "Veuillez renseigner le montant annuel."
                 else:
                     try:
                         montant_decimal = Decimal(str(montant_raw).replace(",", "."))
@@ -16740,7 +17734,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     try:
         row = db.execute(text(
             """
-            SELECT 
+            SELECT
               r.libelle AS niveau_risque,
               k.niveau_id AS niveau_id,
               k.duree AS horizon_placement,
@@ -16821,7 +17815,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "serie_mov_cum": chart_mov_cum,
             "serie_mov_raw": chart_mov_raw,
             "client_affaires": client_affaires,
-            
+
             # KPIs
             "last_valo_str": last_valo_str,
             "last_perf_pct": last_perf_pct,
