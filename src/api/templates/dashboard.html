@@ -181,6 +181,72 @@
   </div>
   <div id="complianceSection" data-tb-marker="TB_24" style="display:none;">
     <div class="card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+      <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+        <div class="card" style="width:360px; padding:18px; border:1px solid var(--primary); border-radius:10px; box-shadow:0 4px 12px rgba(15,23,42,0.08); text-align:center;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
+            <i class="fa-solid fa-users" style="color:var(--primary);"></i>
+            <h3 class="risk-card-title" style="margin:0;">Dépassement de risque clients</h3>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="risk-stat-row">
+              <span class="risk-dot red"></span>
+              <span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque</span>
+            </div>
+            <div class="risk-stat-row">
+              <span class="risk-dot green"></span>
+              <span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque</span>
+            </div>
+            <div class="risk-stat-row">
+              <span class="risk-dot blue"></span>
+              <span><strong>{{ cli_risk_counts.below }}</strong> — En dessous du risque</span>
+            </div>
+            <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-coins" style="color:var(--primary);"></i>
+                <strong>{{ cli_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+              </span>
+            </div>
+            <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-percent" style="color:var(--primary);"></i>
+                <strong>{{ cli_risk_under_pct }}</strong> % — Part sous risque
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="width:360px; padding:18px; border:1px solid #f87171; border-radius:10px; box-shadow:0 4px 12px rgba(220,38,38,0.15); text-align:center;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
+            <i class="fa-solid fa-briefcase" style="color:#dc2626;"></i>
+            <h3 class="risk-card-title" style="margin:0;">Dépassement de risque contrats</h3>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="risk-stat-row">
+              <span class="risk-dot blue"></span>
+              <span><strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque</span>
+            </div>
+            <div class="risk-stat-row">
+              <span class="risk-dot green"></span>
+              <span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque</span>
+            </div>
+            <div class="risk-stat-row">
+              <span class="risk-dot red"></span>
+              <span><strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque</span>
+            </div>
+            <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-coins" style="color:#dc2626;"></i>
+                <strong>{{ aff_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+              </span>
+            </div>
+            <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-percent" style="color:#dc2626;"></i>
+                <strong>{{ aff_risk_under_pct }}</strong> % — Part sous risque
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
         {% set der_obsolete_pct = (docs_der_obsolete_pct or 0)|float %}
         {% if der_obsolete_pct < 0 %}{% set der_obsolete_pct = 0.0 %}{% elif der_obsolete_pct > 100 %}{% set der_obsolete_pct = 100.0 %}{% endif %}
@@ -243,13 +309,120 @@
           </div>
         </div>
         <div data-tb-marker="TB_32" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
-          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Réclamations</div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+            <div style="font-weight:600; background:#f1f5f9; border-radius:8px; padding:6px; flex:1; text-align:center;">Réclamations</div>
+            <button type="button" onclick="openInfoModal('reclamPivot')" aria-label="Voir le détail des réclamations" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; border:1px solid var(--primary); background:#fff; color:var(--primary); font-weight:600; cursor:pointer;">i</button>
+          </div>
           <div class="muted" style="font-size:0.85rem;">Total : {{ reclam_stats.total or 0 }}</div>
-          <div class="muted" style="font-size:0.85rem;">À faire : {{ reclam_stats.a_faire or 0 }}</div>
-          <div class="muted" style="font-size:0.85rem;">En cours : {{ reclam_stats.en_cours or 0 }}</div>
-          <div class="muted" style="font-size:0.85rem;">En attente : {{ reclam_stats.en_attente or 0 }}</div>
-          <div class="muted" style="font-size:0.85rem;">Terminées : {{ reclam_stats.terminees or 0 }}</div>
+          {% if reclam_stats.by_status %}
+            {% for item in reclam_stats.by_status %}
+              <div class="muted" style="font-size:0.85rem;">
+                {{ item.label or 'statut non renseigné' }} : {{ item.count }}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="muted" style="font-size:0.85rem;">Aucun statut renseigné</div>
+          {% endif %}
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-modal-backdrop" id="infoModal-reclamPivot" aria-hidden="true">
+    <div class="info-modal-dialog" style="max-height: 90vh; overflow-y:auto;">
+      <button type="button" class="info-modal-close" onclick="closeInfoModal('reclamPivot')">×</button>
+      <div class="info-modal-body" style="max-height: 75vh; overflow-y: auto;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+          <h3 style="margin:0;">Réclamations par type et statut</h3>
+          <a href="/dashboard/reclamations/export"
+             style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-size:0.85rem; text-decoration:none;"
+             download>
+            Export Excel
+          </a>
+        </div>
+        {% if reclam_pivot.types and reclam_pivot.statuses %}
+          <style>
+            .reclam-pivot-table {
+              width: 100%;
+              border-collapse: separate;
+              border-spacing: 0;
+              font-size: 0.78rem;
+              margin-top: 0.5rem;
+            }
+            .reclam-pivot-table thead {
+              position: sticky;
+              top: 0;
+              z-index: 3;
+            }
+            .reclam-pivot-table th {
+              border: 1px solid #e2e8f0;
+              padding: 4px 6px;
+              text-align: center;
+              white-space: normal;
+              line-height: 1.2;
+            }
+            .reclam-pivot-table td {
+              border: 1px solid #e2e8f0;
+              padding: 4px 6px;
+              text-align: center;
+              white-space: nowrap;
+            }
+            .reclam-pivot-table tbody td:first-child {
+              text-align: left;
+              background: #e2e8f0;
+              font-weight: 600;
+              position: sticky;
+              left: 0;
+              z-index: 1;
+            }
+            .reclam-pivot-table thead th {
+              position: sticky;
+              top: 0;
+              background: var(--primary);
+              color: #fff;
+              z-index: 2;
+              font-size: 0.78rem;
+            }
+            .reclam-pivot-table thead th:first-child {
+              left: 0;
+            }
+          </style>
+          <div style="overflow:auto; max-height:60vh; position: relative;">
+            <table class="reclam-pivot-table">
+              <thead>
+                <tr>
+                  <th>Type d'événement</th>
+                  {% for status in reclam_pivot.statuses %}
+                    {% set status_lower = (status or '')|lower %}
+                    {% if status_lower.startswith('annul') or status_lower.startswith('clotur') or status_lower.startswith('clôtur') %}
+                      {% set status_display = (status or '').replace(' ', '<br>') %}
+                    {% else %}
+                      {% set status_display = status %}
+                    {% endif %}
+                    <th>{{ status_display|safe }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for type in reclam_pivot.types %}
+                  <tr>
+                    <td>{{ type.label or 'Type non renseigné' }}</td>
+                    {% for status in reclam_pivot.statuses %}
+                      {% set cell_value = type.counts.get(status, 0) %}
+                      <td>
+                        {% if cell_value %}
+                          {{ cell_value }}
+                        {% endif %}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted" style="margin:0;">Aucune donnée disponible.</p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -280,12 +453,12 @@
           background: #fff;
           border-radius: 10px;
           padding: 1rem 1.4rem;
-          max-width: min(90vw, 820px);
-          width: max-content;
-          min-width: 420px;
+          width: min(95vw, 1200px);
+          max-width: 1200px;
           overflow-x: auto;
           box-shadow: 0 15px 30px rgba(15,23,42,0.2);
           position: relative;
+          
         }
         .info-modal-close {
           position: absolute;
@@ -758,9 +931,9 @@
       </div>
       <div data-tb-marker="TB_49" style="margin-top:8px; text-align:center;">
         <div class="risk-stat-row" data-tb-marker="TB_50">
-          <span class="risk-dot red"></span>
-          <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
-            <strong>{{ aff_risk_counts.above }}</strong> — Au‑dessus du risque
+          <span class="risk-dot blue"></span>
+          <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
+            <strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque
           </a>
         </div>
         <div class="risk-stat-row" data-tb-marker="TB_51">
@@ -770,9 +943,9 @@
           </a>
         </div>
         <div class="risk-stat-row" data-tb-marker="TB_52">
-          <span class="risk-dot blue"></span>
-          <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
-            <strong>{{ aff_risk_counts.below }}</strong> — Sous le risque
+          <span class="risk-dot red"></span>
+          <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
+            <strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque
           </a>
         </div>
       </div>
