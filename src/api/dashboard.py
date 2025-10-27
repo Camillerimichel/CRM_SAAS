@@ -41,6 +41,8 @@ from src.models.document_client import DocumentClient
 from src.models.historique_personne import HistoriquePersonne
 from src.models.historique_affaire import HistoriqueAffaire
 from src.models.historique_support import HistoriqueSupport
+from src.models.evenement import Evenement
+from src.models.type_evenement import TypeEvenement
 from src.models.evenement_statut_reclamation import EvenementStatutReclamation
 
 
@@ -54,7 +56,18 @@ DOCUMENTS_DIR = BASE_DIR / "documents"
 
 
 def rows_to_dicts(rows):
-    return [dict(row._mapping) for row in rows]
+    result = []
+    for row in rows:
+        data = dict(row._mapping)
+        if "prenom" in data and "nom" in data and "full_name" not in data:
+            prenom = (data.get("prenom") or "").strip()
+            nom = (data.get("nom") or "").strip()
+            full_name = (prenom + " " + nom).strip()
+            if not full_name:
+                full_name = str(data.get("id", "")).strip()
+            data["full_name"] = full_name
+        result.append(data)
+    return result
 
 
 def _slugify_filename(value: str | None) -> str:
@@ -105,6 +118,130 @@ def _align_to_friday(value):
         return None
     offset = (4 - value.weekday()) % 7
     return value + timedelta(days=offset)
+
+
+def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
+    """Return aggregated reclamation stats and pivot data."""
+    try:
+        reclam_total = db.execute(
+            text(
+                """
+                SELECT COUNT(mariadb_evenement.id) AS total
+                FROM mariadb_evenement
+                JOIN mariadb_type_evenement
+                    ON mariadb_type_evenement.id = mariadb_evenement.type_id
+                WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
+                """
+            )
+        ).scalar() or 0
+
+        rows_reclam_status = db.execute(
+            text(
+                """
+                SELECT COALESCE(
+                        lower(trim(mariadb_evenement_statut_reclamation.libelle)),
+                        lower(trim(mariadb_evenement.statut))
+                    ) AS statut,
+                    COUNT(mariadb_evenement.id) AS nb
+                FROM mariadb_evenement
+                JOIN mariadb_type_evenement
+                    ON mariadb_type_evenement.id = mariadb_evenement.type_id
+                LEFT OUTER JOIN mariadb_evenement_statut_reclamation
+                    ON mariadb_evenement_statut_reclamation.id = mariadb_evenement.statut_reclamation_id
+                WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
+                GROUP BY COALESCE(
+                    lower(trim(mariadb_evenement_statut_reclamation.libelle)),
+                    lower(trim(mariadb_evenement.statut))
+                )
+                """
+            )
+        ).fetchall()
+
+        rows_reclam_types = db.execute(
+            text(
+                """
+                SELECT id, libelle
+                FROM mariadb_type_evenement
+                WHERE lower(categorie) IN ('reclamation', 'réclamation')
+                ORDER BY libelle
+                """
+            )
+        ).fetchall()
+
+        rows_reclam_counts = db.execute(
+            text(
+                """
+                SELECT
+                    mariadb_type_evenement.id AS type_id,
+                    mariadb_type_evenement.libelle AS type_libelle,
+                    COALESCE(
+                        NULLIF(TRIM(mariadb_evenement_statut_reclamation.libelle), ''),
+                        NULLIF(TRIM(mariadb_evenement.statut), ''),
+                        'Statut non renseigné'
+                    ) AS statut_libelle,
+                    COUNT(mariadb_evenement.id) AS nb
+                FROM mariadb_evenement
+                JOIN mariadb_type_evenement
+                    ON mariadb_type_evenement.id = mariadb_evenement.type_id
+                LEFT JOIN mariadb_evenement_statut_reclamation
+                    ON mariadb_evenement_statut_reclamation.id = mariadb_evenement.statut_reclamation_id
+                WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
+                GROUP BY
+                    mariadb_type_evenement.id,
+                    mariadb_type_evenement.libelle,
+                    COALESCE(
+                        NULLIF(TRIM(mariadb_evenement_statut_reclamation.libelle), ''),
+                        NULLIF(TRIM(mariadb_evenement.statut), ''),
+                        'Statut non renseigné'
+                    )
+                """
+            )
+        ).fetchall()
+
+        reclam_stats = {
+            "total": int(reclam_total),
+            "by_status": [
+                {
+                    "label": getattr(row, "statut", None) or "",
+                    "count": int(getattr(row, "nb", 0) or 0),
+                }
+                for row in rows_reclam_status
+            ],
+        }
+
+        pivot_statuses: set[str] = set()
+        pivot_types: dict[int, dict] = {}
+
+        for row in rows_reclam_types:
+            try:
+                type_id = int(getattr(row, "id", 0) or 0)
+            except Exception:
+                type_id = 0
+            label = (getattr(row, "libelle", "") or "").strip()
+            pivot_types[type_id] = {"id": type_id, "label": label, "counts": {}}
+
+        for row in rows_reclam_counts:
+            try:
+                type_id = int(getattr(row, "type_id", 0) or 0)
+            except Exception:
+                type_id = 0
+            type_label = (getattr(row, "type_libelle", "") or "").strip()
+            status_label = (getattr(row, "statut_libelle", "") or "").strip() or "Statut non renseigné"
+            count_value = int(getattr(row, "nb", 0) or 0)
+            pivot_statuses.add(status_label)
+            if type_id not in pivot_types:
+                pivot_types[type_id] = {"id": type_id, "label": type_label, "counts": {}}
+            pivot_types[type_id]["counts"][status_label] = count_value
+            if not pivot_types[type_id].get("label"):
+                pivot_types[type_id]["label"] = type_label
+
+        sorted_statuses = sorted(pivot_statuses, key=lambda value: value.lower())
+        sorted_types = sorted(pivot_types.values(), key=lambda item: (item.get("label") or "").lower())
+        reclam_pivot = {"types": sorted_types, "statuses": sorted_statuses}
+        return reclam_stats, reclam_pivot
+    except Exception as exc:
+        logger.exception("Failed to compute reclamation stats", exc_info=exc)
+        return {"total": 0, "by_status": []}, {"types": [], "statuses": []}
 
 
 def _normalize_valo_token(token: str | float | int) -> float | None:
@@ -2937,6 +3074,37 @@ def dashboard_finance_export(request: Request, db: Session = Depends(get_db)) ->
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/reclamations/export")
+def dashboard_reclamations_export(db: Session = Depends(get_db)) -> StreamingResponse:
+    reclam_stats, reclam_pivot = _compute_reclamations_data(db)
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+
+    statuses = reclam_pivot.get("statuses", [])
+    header = ["Type d'événement"] + statuses
+    writer.writerow(header)
+
+    for type_row in reclam_pivot.get("types", []):
+        label = (type_row.get("label") or "Type non renseigné")
+        counts = [
+            type_row.get("counts", {}).get(status, 0)
+            for status in statuses
+        ]
+        writer.writerow([label, *counts])
+
+    writer.writerow([])
+    writer.writerow(["Total réclamations", reclam_stats.get("total", 0)])
+
+    output.seek(0)
+    csv_bytes = output.getvalue().encode("utf-8-sig")
+    filename = f"reclamations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -7438,7 +7606,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     doc_today = _date.today()
     distribution_avg_obsolete_pct = 0.0
     distribution_avg_valid_pct = 100.0
-    reclam_stats = {'total': 0, 'a_faire': 0, 'en_cours': 0, 'en_attente': 0, 'terminees': 0}
+    reclam_stats = {"total": 0, "by_status": []}
+    reclam_pivot = {"types": [], "statuses": []}
     try:
         total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
         der_total = (
@@ -7918,45 +8087,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         logger.debug("Dashboard ORIAS document lookup failed: %s", exc, exc_info=True)
         distribution_avg_obsolete_pct = 0.0
         distribution_avg_valid_pct = 100.0
-
-        from src.models.evenement import Evenement
-        from src.models.type_evenement import TypeEvenement
-
-        reclam_total = (
-            db.query(func.count(Evenement.id))
-            .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
-            .filter(func.lower(TypeEvenement.categorie) == 'reclamation')
-            .scalar()
-            or 0
-        )
-
-        rows_reclam_status = (
-            db.query(
-                func.lower(func.trim(Evenement.statut)).label('statut'),
-                func.count(Evenement.id).label('nb')
-            )
-            .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
-            .filter(func.lower(TypeEvenement.categorie) == 'reclamation')
-            .group_by(func.lower(func.trim(Evenement.statut)))
-            .all()
-        )
-
-        status_map = { (row.statut or ''): int(row.nb) for row in rows_reclam_status }
-
-        def _status_count(*keys):
-            for key in keys:
-                if key in status_map:
-                    return status_map[key]
-            return 0
-
-        reclam_stats = {
-            'total': reclam_total,
-            'a_faire': _status_count('à faire', 'a faire'),
-            'en_cours': _status_count('en cours'),
-            'en_attente': _status_count('en attente'),
-            'terminees': _status_count('terminé', 'termine', 'cloturé', 'cloture', 'clôturé'),
-        }
-    except Exception:
+    except Exception as exc:
+        logger.exception("Failed to compute compliance stats", exc_info=exc)
         total_documents = 0
         der_total = 0
         der_obsolete = 0
@@ -7974,7 +8106,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         lm_obsolete = 0
         lm_total_pct = 0.0
         lm_obsolete_pct = 0.0
-        reclam_stats = {'total': 0, 'a_faire': 0, 'en_cours': 0, 'en_attente': 0, 'terminees': 0}
         la_total = 0
         la_obsolete = 0
         la_total_pct = 0.0
@@ -7995,6 +8126,10 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         blanchiment_doc_expiry_display = ""
         distribution_avg_obsolete_pct = 0.0
         distribution_avg_valid_pct = 100.0
+        reclam_stats = {"total": 0, "by_status": []}
+        reclam_pivot = {"types": [], "statuses": []}
+
+    reclam_stats, reclam_pivot = _compute_reclamations_data(db)
 
     orias_detail = locals().get("orias_detail", None)
 
@@ -8011,7 +8146,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         rows = (
             db.query(
                 Affaire.SRRI,
-                HistoriqueAffaire.volat
+                HistoriqueAffaire.volat,
+                HistoriqueAffaire.valo
             )
             .join(subq_aff, subq_aff.c.affaire_id == Affaire.id)
             .join(
@@ -8038,7 +8174,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             if x <= 25: return 6
             return 7
         compare_counts = {"above": 0, "equal": 0, "below": 0}
-        for srri_contract, vol in rows:
+        compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
+        for srri_contract, vol, valo in rows:
             calc = _srri_from_vol(vol)
             if srri_contract is None or calc is None:
                 continue
@@ -8047,15 +8184,23 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 k = int(calc)
             except Exception:
                 continue
+            try:
+                amount = float(valo or 0.0)
+            except Exception:
+                amount = 0.0
             # Règle cohérente avec les icônes: Au-dessus = c > k, En-dessous = c < k
             if c > k:
                 compare_counts["above"] += 1
+                compare_amounts["above"] += amount
             elif c == k:
                 compare_counts["equal"] += 1
+                compare_amounts["equal"] += amount
             else:
                 compare_counts["below"] += 1
+                compare_amounts["below"] += amount
     except Exception:
         compare_counts = {"above": 0, "equal": 0, "below": 0}
+        compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
 
     # Comparatif clients: client vs risque (SRRI client vs SRRI historique courant)
     try:
@@ -8063,7 +8208,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         rows_cli = (
             db.query(
                 Client.SRRI.label("client_srri"),
-                HistoriquePersonne.SRRI.label("hist_srri")
+                HistoriquePersonne.SRRI.label("hist_srri"),
+                HistoriquePersonne.valo.label("valo")
             )
             .join(sub_cli, sub_cli.c.client_id == HistoriquePersonne.id)
             .join(Client, Client.id == sub_cli.c.client_id)
@@ -8071,9 +8217,11 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             .all()
         )
         cli_counts = {"above": 0, "equal": 0, "below": 0}
+        cli_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
         for r in rows_cli:
             cs = getattr(r, "client_srri", None)
             hs = getattr(r, "hist_srri", None)
+            valo = getattr(r, "valo", None)
             if cs is None or hs is None:
                 continue
             try:
@@ -8081,16 +8229,49 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 h = int(hs)
             except Exception:
                 continue
+            try:
+                amount = float(valo or 0.0)
+            except Exception:
+                amount = 0.0
             # Interprétation: "Au-dessus du risque" = le niveau de risque de l'historique (réalité)
             # est au-dessus du risque cible client (h > c). "Sous le risque" = h < c.
             if h > c:
                 cli_counts["above"] += 1
+                cli_amounts["above"] += amount
             elif h == c:
                 cli_counts["equal"] += 1
+                cli_amounts["equal"] += amount
             else:
                 cli_counts["below"] += 1
+                cli_amounts["below"] += amount
     except Exception:
         cli_counts = {"above": 0, "equal": 0, "below": 0}
+        cli_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
+
+    def _format_amount(value: float) -> str:
+        try:
+            return "{:,}".format(round(value)).replace(",", " ")
+        except Exception:
+            return "0"
+
+    def _format_pct(amount: float, total: float) -> str:
+        try:
+            if not total:
+                return "0.00"
+            return f"{(amount / total) * 100:.2f}".replace(".", ",")
+        except Exception:
+            return "0,00"
+
+    compare_amounts_fmt = {k: _format_amount(v) for k, v in compare_amounts.items()}
+    cli_amounts_fmt = {k: _format_amount(v) for k, v in cli_amounts.items()}
+    total_valo_safe = 0.0
+    try:
+        total_valo_safe = float(total_valo or 0.0)
+    except Exception:
+        total_valo_safe = 0.0
+
+    cli_under_pct = _format_pct(cli_amounts.get("above", 0.0), total_valo_safe)
+    aff_under_pct = _format_pct(compare_amounts.get("above", 0.0), total_valo_safe)
 
     # ------- Tâches / événements (vue_suivi_evenement) -------
     try:
@@ -8794,12 +8975,19 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "distribution_avg_valid_pct": distribution_avg_valid_pct,
             "orias_detail": orias_detail,
             "reclam_stats": reclam_stats,
+            "reclam_pivot": reclam_pivot,
             "docs_obs_by_niveau": obs_by_niveau,
             "docs_obs_by_risque": obs_by_risque,
             # Infos contrats vs risque
             "aff_risk_counts": compare_counts,
+            "aff_risk_amounts": compare_amounts,
+            "aff_risk_amounts_fmt": compare_amounts_fmt,
+            "aff_risk_under_pct": aff_under_pct,
             # Infos clients vs risque
             "cli_risk_counts": cli_counts,
+            "cli_risk_amounts": cli_amounts,
+            "cli_risk_amounts_fmt": cli_amounts_fmt,
+            "cli_risk_under_pct": cli_under_pct,
             # Analyse financière (supports)
             "finance_supports": finance_supports,
             "finance_total_valo": finance_total_valo,
@@ -13794,9 +13982,16 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         k=_norm(getattr(s,'libelle',None))
         if k and getattr(s,'id',None) is not None: stat_ids[k]=s.id
     status_ui = []
-    for label_ui,key in [("à faire","a faire"),("en attente","en attente"),("terminé","termine"),("annulé","annule")]:
+    for label_ui, key in [
+        ("à faire", "a faire"),
+        ("en cours", "en cours"),
+        ("en attente", "en attente"),
+        ("terminé", "termine"),
+        ("annulé", "annule"),
+    ]:
         sid = stat_ids.get(key)
-        if sid: status_ui.append({"label":label_ui, "id":sid, "key":key})
+        if sid:
+            status_ui.append({"label": label_ui, "id": sid, "key": key})
     en_cours_id = stat_ids.get("en cours")
     reclam_statuses = (
         db.query(EvenementStatutReclamation)
@@ -15412,7 +15607,13 @@ def dashboard_taches(
             stat_ids[key] = s.id
     # UI order and labels
     status_ui = []
-    for label_ui, key in [("à faire", "a faire"), ("en attente", "en attente"), ("terminé", "termine"), ("annulé", "annule")]:
+    for label_ui, key in [
+        ("à faire", "a faire"),
+        ("en cours", "en cours"),
+        ("en attente", "en attente"),
+        ("terminé", "termine"),
+        ("annulé", "annule"),
+    ]:
         sid = stat_ids.get(key)
         if sid:
             status_ui.append({"label": label_ui, "id": sid, "key": key})
@@ -15698,7 +15899,13 @@ def dashboard_tache_edit(
         if k and getattr(s,'id',None) is not None:
             stat_ids[k] = s.id
     status_ui = []
-    for label_ui, key in [("à faire","a faire"),("en attente","en attente"),("terminé","termine"),("annulé","annule")]:
+    for label_ui, key in [
+        ("à faire", "a faire"),
+        ("en cours", "en cours"),
+        ("en attente", "en attente"),
+        ("terminé", "termine"),
+        ("annulé", "annule"),
+    ]:
         sid = stat_ids.get(key)
         if sid:
             status_ui.append({"label": label_ui, "id": sid, "key": key})
@@ -16031,6 +16238,11 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
         return q.first()
 
     cli = resolve_client(form.get("client_fullname") or "")
+    if cli is None:
+        try:
+            cli = db.get(Client, client_id)
+        except Exception:
+            cli = None
     aff = resolve_affaire(form.get("affaire_ref") or "", getattr(cli, "id", None))
 
     rh_id_raw = form.get("rh_id")
@@ -17090,7 +17302,13 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         if k and getattr(s, 'id', None) is not None:
             stat_ids[k] = s.id
     status_ui = []
-    for label_ui, key in [("à faire","a faire"),("en attente","en attente"),("terminé","termine"),("annulé","annule")]:
+    for label_ui, key in [
+        ("à faire", "a faire"),
+        ("en cours", "en cours"),
+        ("en attente", "en attente"),
+        ("terminé", "termine"),
+        ("annulé", "annule"),
+    ]:
         sid = stat_ids.get(key)
         if sid:
             status_ui.append({"label": label_ui, "id": sid, "key": key})
