@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Allocations{% endblock %}
-{% block header_title %}<i class="fa-solid fa-coins" style="margin-right:8px;"></i>Allocations{% endblock %}
+{% block title %}Offres financières{% endblock %}
+{% block header_title %}<i class="fa-solid fa-coins" style="margin-right:8px;"></i>Offres financières{% endblock %}
 
 {% block content %}
 <style>
@@ -160,6 +160,7 @@
 <script>
 $(document).ready(function () {
     var table = $('#allocationsTable').DataTable({
+        dom: 'rtip',
         order: [[1, "asc"], [2, "asc"]],
         pageLength: 25,
         fixedHeader: true,

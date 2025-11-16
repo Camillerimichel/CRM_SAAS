@@ -31,29 +31,52 @@
   .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
   .badge-filter .x:hover { opacity:1; }
   .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+  .tb-markers-enabled [data-tb-marker] {
+    position: relative;
+    outline: 2px dashed rgba(37,99,235,0.35);
+  }
+  .tb-markers-enabled [data-tb-marker]::before {
+    content: attr(data-tb-marker);
+    position: absolute;
+    top: -12px;
+    left: 0;
+    background: rgba(37,99,235,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 20;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+  }
 </style>
 
-<div class="main-container">
-  <h2>Liste des clients</h2>
-  {% if risk_label %}
-  <div class="badge-row">
-    <span class="badge-filter">Filtre: {{ risk_label }} <a class="x" href="/dashboard/clients" title="Effacer le filtre">✕</a></span>
+{% set tb_markers_param = tb_markers_param or '' %}
+{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
+{% set tb_markers_prefix = ('?' + tb_markers_param) if tb_markers_param else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
+<div class="main-container" data-tb-marker="TB_202">
+  <h2 data-tb-marker="TB_203">Liste des clients</h2>
+  <div data-tb-marker="TB_204"></div>
+  <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
+    {% if group_filter_label %}
+      <div class="badge-filter">
+        Groupe : {{ group_filter_label }}
+        {% if tb_markers_visible %}
+          <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
+        {% else %}
+          <a class="x" href="/dashboard/clients">×</a>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
-  {% endif %}
-  <div id="cf_active_badges" class="badge-row"></div>
-  <div style="display:flex; gap:.5rem; justify-content:space-between; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;">
-    <div class="muted" id="cf_info" style="font-size:.9rem;"></div>
-    <div style="display:flex; gap:.5rem; align-items:center;">
-      <select id="cf_group_select" style="min-width:240px; height:36px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;">
-        <option value="">Choisir un groupe (Personnes)</option>
-      </select>
-      <button class="btn" id="cf_add_to_group_btn" title="Ajouter tous les clients filtrés au groupe sélectionné">Ajouter au groupe</button>
-      <button class="btn" id="cf_reset_btn">Réinitialiser les filtres</button>
-    </div>
+  <div style="display:flex; gap:.5rem; justify-content:flex-end; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;" data-tb-marker="TB_206">
+    <button class="btn" id="cf_reset_btn" data-tb-marker="TB_207">Réinitialiser les filtres</button>
   </div>
   <!-- Filtres intégrés dans l'en-tête du tableau -->
 
-  <table id="clientsTbl">
+  <table id="clientsTbl" data-tb-marker="TB_208">
     <thead>
       <tr>
         <th>Nom</th>
@@ -88,6 +111,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <script>
@@ -253,6 +277,13 @@
   var fPerf = document.getElementById('cf_perf');
   var fVol = document.getElementById('cf_vol');
 
+  // Paramètre URL: risk=above|equal|below (filtre côté front)
+  var urlParams = new URLSearchParams(window.location.search || '');
+  var riskParam = String(urlParams.get('risk') || '').toLowerCase();
+  if (["above","equal","below"].indexOf(riskParam) === -1) {
+    riskParam = '';
+  }
+
   // Pastille de comparaison (SRRI calculé vs SRRI du client)
   rows.forEach(function(tr){
     var tds = tr.querySelectorAll('td');
@@ -284,6 +315,8 @@
       var prenom = text(tds[1]).toLowerCase();
       var resp = text(tds[2]).toLowerCase();
       var srriCalc = text(tds[3]);
+      var srriCalcNum = Number(srriCalc);
+      var srriBaseNum = Number(tr.getAttribute('data-srri'));
       var valoTxt = text(tds[4]);
       var valoNum = _numFromCell(valoTxt);
       var perfTxt = text(tds[5]);
@@ -295,6 +328,18 @@
       if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
       if (ok && qResp && resp !== qResp) ok = false;
       if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
+      // Filtre RISK (URL) basé sur comparaison SRRI calculé vs SRRI contrat (data-srri)
+      if (ok && riskParam) {
+        if (!isFinite(srriBaseNum) || !isFinite(srriCalcNum)) {
+          ok = false; // si valeurs manquantes, exclure de la vue filtrée
+        } else if (riskParam === 'above' && !(srriCalcNum > srriBaseNum)) {
+          ok = false;
+        } else if (riskParam === 'equal' && !(srriCalcNum === srriBaseNum)) {
+          ok = false;
+        } else if (riskParam === 'below' && !(srriCalcNum < srriBaseNum)) {
+          ok = false;
+        }
+      }
       if (ok && qValo && !predValo(valoNum)) ok = false;
       if (ok && qPerf && !predPerf(perfNum)) ok = false;
       if (ok && qVol && !predVol(volNum)) ok = false;
@@ -311,64 +356,44 @@
   if (resetBtn){
     resetBtn.addEventListener('click', function(){
       [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
+      // Réinitialise aussi le filtre RISK et nettoie l'URL
+      if (riskParam) {
+        riskParam = '';
+        var p = new URLSearchParams(window.location.search || '');
+        p.delete('risk');
+        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
+        try { history.replaceState(null, '', newUrl); } catch(e) {}
+      }
       applyFilters();
+      renderBadges();
     });
   }
-
-  // Charger la liste des groupes (Personnes)
-  async function loadClientGroupsForBulk(){
-    try {
-      const sel = document.getElementById('cf_group_select');
-      if (!sel) return;
-      const r = await fetch('/api/groupes/details?type=client&actifs_only=true');
-      const arr = r.ok ? await r.json() : [];
-      (arr||[]).forEach(function(g){
-        const opt = document.createElement('option');
-        opt.value = g.id; opt.textContent = g.nom + ((String(g.actif)==='0')?' (inactif)':'');
-        sel.appendChild(opt);
-      });
-    } catch(e){ console.warn('load groups failed', e); }
-  }
-  loadClientGroupsForBulk();
-
-  function visibleClientIds(){
-    var out = [];
-    rows.forEach(function(tr){
-      if (tr.style.display === 'none') return;
-      var id = tr.getAttribute('data-client-id');
-      if (id) out.push(parseInt(id,10));
-    });
-    return out;
-  }
-
-  async function addVisibleToGroup(){
-    const sel = document.getElementById('cf_group_select');
-    const info = document.getElementById('cf_info');
-    const gid = sel && sel.value ? parseInt(sel.value,10) : null;
-    if (!gid){ alert('Sélectionnez un groupe cible.'); return; }
-    const ids = visibleClientIds();
-    if (!ids.length){ alert('Aucun client filtré à ajouter.'); return; }
-    const btn = document.getElementById('cf_add_to_group_btn');
-    if (btn){ btn.disabled = true; btn.textContent = 'Ajout…'; }
-    let ok = 0, ko = 0;
-    for (const cid of ids){
-      try {
-        const r = await fetch('/api/groupes/memberships', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupe_id: gid, client_id: cid }) });
-        if (r.ok) ok++; else ko++;
-      } catch(e){ ko++; }
-    }
-    if (btn){ btn.disabled = false; btn.textContent = 'Ajouter au groupe'; }
-    if (info){ info.textContent = ok + ' ajout(s), ' + ko + ' échec(s).'; }
-    alert('Ajout au groupe terminé: ' + ok + ' / ' + ids.length + '');
-  }
-  var bulkBtn = document.getElementById('cf_add_to_group_btn');
-  if (bulkBtn){ bulkBtn.addEventListener('click', addVisibleToGroup); }
 
   // Initial state
   function renderBadges(){
     var host = document.getElementById('cf_active_badges');
     if (!host) return;
     host.innerHTML = '';
+    // Badge RISK (depuis URL)
+    if (riskParam) {
+      var riskMap = { above: 'Au‑dessus du risque', equal: 'Dans le risque', below: 'Sous le risque' };
+      var spanR = document.createElement('span');
+      spanR.className = 'badge-filter';
+      spanR.appendChild(document.createTextNode('Filtre: ' + (riskMap[riskParam] || riskParam) + ' '));
+      var aR = document.createElement('a'); aR.href = '#'; aR.className = 'x'; aR.title = 'Effacer le filtre'; aR.textContent = '✕';
+      aR.addEventListener('click', function(e){
+        e.preventDefault();
+        riskParam = '';
+        var p = new URLSearchParams(window.location.search || '');
+        p.delete('risk');
+        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
+        try { history.replaceState(null, '', newUrl); } catch(err) {}
+        applyFilters();
+        renderBadges();
+      });
+      spanR.appendChild(aR);
+      host.appendChild(spanR);
+    }
     // Responsable badge
     var respSel = document.getElementById('cf_resp');
     if (respSel && respSel.value){

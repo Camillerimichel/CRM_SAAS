@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Document d’Entrée en Relation</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 11pt; color:#1f2937; line-height:1.5; }
+    h1, h2, h3, h4 { color:#0f172a; margin:0 0 8px; }
+    h1 { font-size:1.6rem; text-transform:uppercase; text-align:center; margin-bottom:14px; }
+    h2 { font-size:1.2rem; margin-top:18px; }
+    h3 { font-size:1.05rem; margin-top:14px; }
+    h4 { font-size:1rem; }
+    p { margin:6px 0; text-align:justify; }
+    ul { margin:6px 0 6px 18px; padding:0; }
+    li { margin:4px 0; }
+    table { width:100%; border-collapse:collapse; margin:8px 0; }
+    th, td { border:1px solid #d1d5db; padding:6px 8px; text-align:left; font-size:0.95rem; }
+    th { background:#1d4ed8; color:#fff; }
+    .muted-note { color:#64748b; font-size:0.9rem; margin-bottom:10px; }
+    .section { margin-bottom:16px; }
+    .sig-block { display:flex; flex-wrap:wrap; gap:16px; margin-top:14px; }
+    .sig { flex:1 1 240px; border:1px dashed #cbd5f5; padding:12px; min-height:90px; }
+    .title-block { text-align:center; margin-bottom:20px; }
+    .title-block .subtitle { font-size:0.95rem; color:#475569; }
+    .footer-note { margin-top:18px; font-size:0.85rem; color:#94a3b8; text-align:right; }
+  </style>
+</head>
+<body>
+  {% set _d = fatca_today|default('') %}
+  <div class="title-block">
+    <h1>Document d’Entrée en Relation (DER)</h1>
+    <div class="subtitle">Conformément aux articles L.520-1 et suivants du Code des assurances et L.541-8-1 du Code monétaire et financier</div>
+  </div>
+
+  <div class="section">
+    <h2>1. Identification du courtier</h2>
+    <ul>
+      <li><strong>Dénomination sociale :</strong> {{ DER_courtier.nom_cabinet if DER_courtier else '' }}</li>
+      <li><strong>Responsable :</strong> {{ DER_courtier.nom_responsable if DER_courtier else '' }}</li>
+      <li><strong>Statut social :</strong> {{ DER_statut_social.lib if DER_statut_social else '' }}</li>
+      <li><strong>Capital social :</strong> {% if DER_courtier and DER_courtier.capital_social is not none %}{{ '{:,.0f}'.format((DER_courtier.capital_social)|float).replace(',', ' ') }} €{% endif %}</li>
+      <li><strong>SIREN :</strong> {{ DER_courtier.siren if DER_courtier else '' }}</li>
+      <li><strong>RCS :</strong> {{ DER_courtier.rcs if DER_courtier else '' }}</li>
+      <li><strong>Numéro ORIAS :</strong> {{ DER_courtier.numero_orias if DER_courtier else '' }}</li>
+      <li><strong>Adresse :</strong> {{ DER_courtier.adresse_rue if DER_courtier else '' }}, {{ DER_courtier.adresse_cp if DER_courtier else '' }} {{ DER_courtier.adresse_ville if DER_courtier else '' }}</li>
+      <li><strong>Courriel :</strong> {{ DER_courtier.courriel if DER_courtier else '' }}</li>
+      <li><strong>Association professionnelle :</strong> {{ DER_courtier.association_prof if DER_courtier else '' }}{% if DER_courtier and DER_courtier.num_adh_assoc %} (adhérent n° {{ DER_courtier.num_adh_assoc }}){% endif %}</li>
+      <li><strong>Catégorie de courtage :</strong> {{ DER_courtier.categorie_courtage if DER_courtier else '' }}</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>2. Activités et domaines d’exercice</h2>
+    {% if DER_activites and (DER_activites|length > 0) %}
+      <table>
+        <thead>
+          <tr>
+            <th>Domaine</th>
+            <th>Activité</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in DER_activites %}
+          <tr>
+            <td>{{ a.domaine or '—' }}</td>
+            <td>{{ a.libelle or '—' }}</td>
+            <td>{{ 'Exercée' if (a.statut or '')|lower == 'exercee' else 'Non exercée' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted-note">Aucune activité renseignée.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>3. Autorités de tutelle</h2>
+    <ul>
+      <li><strong>AMF (Autorité des Marchés Financiers)</strong><br/>17, place de la Bourse – 75082 Paris Cedex 02</li>
+      <li><strong>ACPR (Autorité de Contrôle Prudentiel et de Résolution)</strong><br/>61, rue Taitbout – 75436 Paris Cedex 09</li>
+    </ul>
+    <p class="muted-note">Ces autorités veillent au respect des obligations professionnelles du courtier.</p>
+  </div>
+
+  <div class="section">
+    <h2>4. Nature et étendue du service</h2>
+    <p>{{ DER_courtier.nom_cabinet if DER_courtier else '' }} agit en qualité de <strong>courtier indépendant</strong>. Son rôle est d’analyser <strong>vos besoins, vos objectifs et votre profil de risque</strong> afin de recommander les solutions adaptées.</p>
+    <p>Le cabinet ne perçoit ni ne conserve de fonds destinés aux assureurs ou aux clients.</p>
+  </div>
+
+  <div class="section">
+    <h2>5. Rémunération et frais</h2>
+    <p>Le cabinet est rémunéré sous forme :</p>
+    <ul>
+      <li>de <strong>commissions</strong> versées par les compagnies partenaires ;</li>
+      <li>et/ou de <strong>frais</strong> ou <strong>honoraires</strong> prévus dans la lettre de mission.</li>
+    </ul>
+    {% if lm_remunerations %}
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Montant (€)</th>
+            <th>Pourcentage (%)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in lm_remunerations %}
+            <tr>
+              <td>{{ r.mode or r.type or '—' }}</td>
+              <td>{{ r.montant if r.montant is not none else '—' }}</td>
+              <td>{{ r.pourcentage if r.pourcentage is not none else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>6. Garanties professionnelles</h2>
+    <p>Le cabinet justifie d’une <strong>assurance responsabilité civile professionnelle</strong> et d’une <strong>garantie financière</strong> adaptées à son activité. Les niveaux de couverture sont présentés ci-dessous :</p>
+    {% if DER_courtier_garanties_normes %}
+      <table>
+        <thead>
+          <tr>
+            <th>Type de garantie</th>
+            <th>IAS</th>
+            <th>IOBSP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in DER_courtier_garanties_normes %}
+            <tr>
+              <td>{{ g.type_garantie or '—' }}</td>
+              <td>{{ g.IAS if g.IAS is not none else '—' }}</td>
+              <td>{{ g.IOBSP if g.IOBSP is not none else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted-note">Aucune information de garantie disponible.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>7. Traitement des données personnelles (RGPD)</h2>
+    <p>Les données collectées sont utilisées pour :</p>
+    <ul>
+      <li>Évaluer votre situation patrimoniale, financière et personnelle ;</li>
+      <li>Établir un conseil adapté à vos besoins, objectifs et profil de risque ;</li>
+      <li>Préparer, souscrire et gérer vos contrats ;</li>
+      <li>Respecter les obligations légales du courtier (lutte contre le blanchiment, devoir de conseil, contrôles réglementaires) ;</li>
+      <li>Communiquer des informations utiles à la relation de suivi.</li>
+    </ul>
+    <p>La base légale repose sur l’exécution du contrat, les obligations légales, l’intérêt légitime du cabinet et, le cas échéant, votre consentement.</p>
+    <p>Les données sont destinées à {{ DER_courtier.nom_cabinet if DER_courtier else '' }} et aux partenaires nécessaires à la mise en œuvre des contrats, ainsi qu’aux autorités de contrôle lorsque la loi l’exige. Elles sont conservées pendant la durée de la relation et les délais légaux applicables.</p>
+    <p>Mesures de sécurité : systèmes informatiques protégés, accès restreints, chiffrement des communications, sauvegardes régulières.</p>
+    <p>Droits : accès, rectification, effacement, limitation, opposition, portabilité, retrait du consentement. Contact DPO : {{ DER_courtier.responsable_dpo if DER_courtier else '' }} – {{ DER_courtier.courriel if DER_courtier else '' }}</p>
+  </div>
+
+  <div class="section">
+    <h2>8. Médiation et réclamations</h2>
+    <p>Toute réclamation peut être adressée à :<br/>
+      <strong>Courtage du Centre – Service Réclamations</strong><br/>
+      23 rue du quai, 56150 Chatillon sur Saône<br/>
+      Email : jc@cc.fr
+    </p>
+    <p>En cas d’absence de solution amiable, le Client peut saisir :<br/>
+      <strong>{{ centre_mediation_lib or DER_courtier.centre_mediation }}</strong><br/>
+      Contact : banqueroute@acpr.fr
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>9. Acceptation</h2>
+    <p>Je, soussigné(e) <strong>{{ client.prenom if client else '' }} {{ client.nom if client else '' }}</strong>, reconnais avoir reçu et pris connaissance du présent <strong>Document d’Entrée en Relation</strong> avant tout engagement.</p>
+    <p><strong>Fait à :</strong> {{ DER_courtier.adresse_ville if DER_courtier else '' }}<br/>
+    <strong>Le :</strong> {% if _d and (_d|length >= 10) %}{{ _d[8:10] ~ '/' ~ _d[5:7] ~ '/' ~ _d[0:4] }}{% else %}{{ fatca_today }}{% endif %}</p>
+    <div class="sig-block">
+      <div class="sig"><strong>Signature du client</strong></div>
+      <div class="sig"><strong>Signature du courtier</strong></div>
+    </div>
+  </div>
+
+  <div class="footer-note">Document généré automatiquement le {{ _d[8:10] ~ '/' ~ _d[5:7] ~ '/' ~ _d[0:4] if _d and (_d|length >=10) else lm_today }}.</div>
+</body>
+</html>

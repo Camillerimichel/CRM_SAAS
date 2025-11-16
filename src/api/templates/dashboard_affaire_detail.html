@@ -14,6 +14,9 @@
       {% if msgs_reg_count and msgs_reg_count > 0 %}
         <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
       {% endif %}
+      {% if affaire %}
+        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="generateAffaireSynthese()"><i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Synthèse PDF</button>
+      {% endif %}
       <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openAffAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
     </span>
   </span>
@@ -41,8 +44,8 @@
   /* table supports: compact and widths */
   #supportsTableContract { table-layout: fixed; }
   #supportsTableContract th, #supportsTableContract td { padding: 6px 8px; }
-  #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 14%; }
-  #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 15%; overflow:hidden; text-overflow: ellipsis; }
+  #supportsTableContract th:nth-child(1), #supportsTableContract td:nth-child(1) { width: 20%; }
+  #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 18%; overflow:hidden; text-overflow: ellipsis; }
   #supportsTableContract th:nth-child(3), #supportsTableContract td:nth-child(3) { width: 5%; text-align: center; }
   /* Numeric columns (Nb UC, VL, PRMP, Valorisation) widths */
   #supportsTableContract th:nth-child(4), #supportsTableContract td:nth-child(4) { width: 8%; }
@@ -52,19 +55,29 @@
   /* ESG columns ultra-compact */
   #supportsTableContract th:nth-child(8), #supportsTableContract td:nth-child(8),
   #supportsTableContract th:nth-child(9), #supportsTableContract td:nth-child(9),
-  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px 4px; }
+  #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 2%; text-align: center; padding: 2px; }
   /* Right-align headers for Nb UC, PRMP, Valorisation */
   #supportsTableContract th:nth-child(4), #supportsTableContract th:nth-child(6), #supportsTableContract th:nth-child(7) { text-align: right; }
   /* DataTables center alignment helper */
   .dt-center { text-align: center; }
   .gain { color: #2e7d32; }
   .loss { color: #c62828; }
+  .kpi-heading {
+    display:inline-block;
+    background: var(--primary);
+    color:#fff;
+    font-weight:600;
+    border-radius:8px;
+    padding:6px 10px;
+    margin-bottom:6px;
+  }
   /* Equal-size pie charts */
   .pie-grid { grid-template-columns: 1fr 1fr; align-items: stretch; }
   /* Cadres fixes, assez hauts pour afficher les abscisses */
   .pie-card { display: flex; flex-direction: column; height: 300px; overflow: hidden; }
   .pie-card canvas { flex: 1 1 auto; display:block; }
   .chart-title { font-size: 0.95rem; margin: 0 0 4px 0; }
+  .accordion-toggle h3 { font-size: 1.05rem !important; margin: 0; font-weight: 600; }
   /* Small SRRI icon override */
   .card .srri-icon { font-size: 0.9rem !important; margin-left: 6px; margin-bottom: 0 !important; vertical-align: middle; }
   /* Harmoniser boutons avec Détail Client */
@@ -72,12 +85,30 @@
   .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
   .rangeBtn { padding:3px 7px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:11px; margin-right:4px; }
   .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
+  .aff-support-link { color:#111827; text-decoration:underline; }
+  .aff-support-link:hover { text-decoration:none; }
+  #affSupportMovementsTable th, #affSupportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+  #affSupportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
+  #affSupportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
   /* ESG block full width enforcement */
   #esgToggle, #esgSection, #esgSection > .card { width:100%; box-sizing:border-box; grid-column: 1 / -1; }
   /* Toggle chevron styles (reuse for inv+graphs) */
   #invToggle, #esgToggle, #avisToggle, #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; width:100%; box-sizing:border-box; grid-column: 1 / -1; clear: both; }
-  #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   #invToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #invToggle:not(.collapsed), #esgToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed) {
+    background: var(--primary);
+    color:#fff;
+    border-color: var(--primary);
+    box-shadow:0 10px 22px rgba(36,86,166,0.28);
+  }
+  #invToggle:not(.collapsed) *, #esgToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) * {
+    color:#fff !important;
+  }
+  #invToggle:not(.collapsed) .badge, #esgToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
+    background:rgba(255,255,255,0.2) !important;
+    border-color:rgba(255,255,255,0.35) !important;
+  }
   /* Ensure accordion sections take full row under any grid */
   #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
   /* Reportings pluriannuels toggle full width */
@@ -89,7 +120,67 @@
   #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; }
   #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
   #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #affTasksToggle {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #affTasksToggle .chevron {
+    color:var(--muted);
+  }
+  #affTasksToggle:not(.collapsed) {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #affTasksToggle:not(.collapsed) * {
+    color:inherit !important;
+  }
+  #avisToggle {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #avisToggle .chevron,
+  #avisToggle .badge,
+  #avisToggle i { color:var(--muted); }
+  #avisToggle:not(.collapsed) {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #avisToggle:not(.collapsed) * {
+    color:inherit !important;
+  }
 </style>
+<style>
+  .tb-markers-enabled [data-tb-marker] {
+    position: relative;
+    outline: 2px dashed rgba(5,121,180,0.35);
+  }
+.tb-markers-enabled [data-tb-marker]::before {
+    content: attr(data-tb-marker);
+    position: absolute;
+    top: -12px;
+    left: 0;
+    background: rgba(5,121,180,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 30;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+  }
+</style>
+
+{% set af_markers_param = tb_markers_param if tb_markers_param is defined else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="AF_01">
 
 <h1>
   {% if client_id %}
@@ -121,8 +212,8 @@
   #affMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #affMsgsTable td:nth-child(5) { white-space: normal; word-break: break-word; }
 </style>
-<div id="affMsgsModal" class="modal-overlay" onclick="if(event.target===this) closeAffMsgs()">
-  <div class="modal-card">
+<div id="affMsgsModal" class="modal-overlay" data-tb-marker="AF_09" onclick="if(event.target===this) closeAffMsgs()">
+  <div class="modal-card" data-tb-marker="AF_10">
     <div class="modal-header">
       <h3 id="affMsgsTitle"><i class="fa-solid fa-envelope" style="margin-right:8px;"></i>Messages</h3>
       <button class="modal-close" onclick="closeAffMsgs()">✕</button>
@@ -146,9 +237,9 @@
 </div>
 
 <!-- KPIs en tête -->
-<div class="kpi-grid" style="margin-top:12px;">
-  <div class="card">
-    <div class="muted">Synthèse</div>
+<div class="kpi-grid" data-tb-marker="AF_02" style="margin-top:12px;">
+  <div class="card" data-tb-marker="AF_03">
+    <div class="kpi-heading">Synthèse</div>
     <div class="kpi-mini"><strong>Statut:</strong>
       {% if affaire and affaire.date_cle %}
         Clôturé (<span class="js-local-dt" data-iso="{{ affaire.date_cle }}">{{ affaire.date_cle }}</span>)
@@ -158,18 +249,22 @@
     </div>
     <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
   </div>
-  <div class="card">
-    <div class="muted">Valorisation actuelle</div>
-    <div class="kpi">{{ '{:,.0f}'.format(last_valo or 0).replace(',', ' ') }} €</div>
-    <div class="{% if (last_valo or 0) >= (solde or 0) %}gain{% else %}loss{% endif %}" style="font-weight:600;">
-      {% if (last_valo or 0) >= (solde or 0) %}En plus-value{% else %}En moins-value{% endif %}
+  <div class="card" data-tb-marker="AF_04">
+    <div class="kpi-heading">Investissement</div>
+    <div class="kpi-mini kpi-line" style="margin-top:6px;">
+      <span>Valorisation</span>
+      <span class="kv" style="font-size:1.35rem;">{{ '{:,.0f}'.format(last_valo or 0).replace(',', ' ') }} €</span>
+    </div>
+    <div class="kpi-mini kpi-line" style="margin-top:4px;">
+      <span>Variation</span>
+      <span class="kv {% if (last_valo or 0) >= (solde or 0) %}gain{% else %}loss{% endif %}">{% if (last_valo or 0) >= (solde or 0) %}En plus-value{% else %}En moins-value{% endif %}</span>
     </div>
     <div class="kpi-mini kpi-line" style="margin-top:6px;"><span>Versements</span><span class="kv">{{ '{:,.0f}'.format(depots or 0).replace(',', ' ') }} €</span></div>
     <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ '{:,.0f}'.format(retraits or 0).replace(',', ' ') }} €</span></div>
     <div class="kpi-mini kpi-line"><span>Solde mouvements</span><span class="kv">{{ '{:,.0f}'.format(solde or 0).replace(',', ' ') }} €</span></div>
   </div>
-  <div class="card">
-    <div class="muted">Indicateurs</div>
+  <div class="card" data-tb-marker="AF_05">
+    <div class="kpi-heading">Indicateurs</div>
     <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
     <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
     <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
@@ -177,7 +272,7 @@
   </div>
 
   <!-- Définir une tâche (ouverture de pop-up, même stratégie que Détail Client) -->
-  <div id="affTasksToggle" class="card accordion-toggle" style="margin-top:12px; cursor:pointer; width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center;" onclick="openAffTaskPopup()">
+  <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" style="margin-top:12px; cursor:pointer; width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center;" onclick="openAffTaskPopup()">
     <h3 style="margin:0;">Définir une tâche</h3>
     <span class="chevron">▾</span>
   </div>
@@ -191,8 +286,8 @@
     .modal-body { padding: 12px 14px; }
     .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
   </style>
-  <div id="affTaskModal" class="modal-overlay" onclick="if(event.target===this) closeAffTaskPopup()">
-    <div class="modal-card">
+  <div id="affTaskModal" class="modal-overlay" data-tb-marker="AF_07" onclick="if(event.target===this) closeAffTaskPopup()">
+    <div class="modal-card" data-tb-marker="AF_08">
       <div class="modal-header">
         <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
         <button class="modal-close" onclick="closeAffTaskPopup()">✕</button>
@@ -202,6 +297,7 @@
           #affTaskModal select.select-choice { height: 36px; }
         </style>
         <form method="post" action="/dashboard/affaires/{{ affaire.id }}/taches">
+          {% if af_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
           <div class="form-row" style="margin-bottom:.6rem;">
             <div class="field">
               <label>Client (Nom Prénom)</label>
@@ -242,6 +338,18 @@
               <label>&nbsp;</label>
               <button type="button" id="aff_comm_btn_modal" class="btn btn-choice" onclick="toggleAffCommModal()">Préparer une communication</button>
               <input type="hidden" id="aff_comm_toggle_modal" name="comm_toggle" value="0" />
+            </div>
+          </div>
+
+          <div class="form-row" id="aff_reclam_status_row_modal" style="margin-bottom:.6rem; display:none;">
+            <div class="field">
+              <label>Statut réclamation</label>
+              <select class="select-choice" name="statut_reclamation_id" id="aff_reclam_status_select_modal">
+                <option value="">-- choisir --</option>
+                {% for st in reclam_statuses %}
+                  <option value="{{ st.id }}">{{ st.libelle }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
 
@@ -323,14 +431,42 @@
         {% endfor %}
       ];
       const cat=document.getElementById('aff_cat_select_modal'); const typ=document.getElementById('aff_type_select_modal');
-      function sync(){ typ.innerHTML=''; if(!cat.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o); return; } const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle); list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); }); if(list.length>0) typ.value=list[0]; }
-      if (cat){ cat.addEventListener('change', sync); if(cat.value) sync(); }
+      const reclamRow = document.getElementById('aff_reclam_status_row_modal');
+      const reclamSelect = document.getElementById('aff_reclam_status_select_modal');
+      function updateReclamVisibility(){
+        if(!reclamRow) return;
+        const catVal = (cat && cat.value ? cat.value : '').trim().toLowerCase();
+        if(catVal === 'reclamation'){
+          reclamRow.style.display = 'flex';
+        } else {
+          reclamRow.style.display = 'none';
+          if(reclamSelect){ reclamSelect.value=''; }
+        }
+      }
+      function sync(){
+        typ.innerHTML='';
+        if(!cat.value){
+          const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o);
+          updateReclamVisibility();
+          return;
+        }
+        const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle);
+        list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); });
+        if(list.length>0) typ.value=list[0];
+        updateReclamVisibility();
+      }
+      if (cat){
+        cat.addEventListener('change', function(){ sync(); });
+        if(cat.value) sync(); else updateReclamVisibility();
+      } else {
+        updateReclamVisibility();
+      }
     })();
     function affSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('aff_statut_id_modal').value=sid; const peers=document.getElementById('aff_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('aff_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
   </script>
 
 <!-- Accordéon Investissements -->
-<div id="invToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
+<div id="invToggle" class="card accordion-toggle" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Investissements</h3>
   <span class="chevron">▾</span>
 </div>
@@ -338,6 +474,7 @@
 <div class="card" style="margin-top:12px;">
   <h3 class="chart-title">Supports financiers</h3>
   <form method="get" action="" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+    {% if af_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
     <label class="muted">Date d'analyse :</label>
     <input type="date" name="as_of" value="{{ as_of_effective }}" style="padding:4px 8px; border:1px solid #ccc; border-radius:6px; width:auto; max-width:180px; flex:0 0 auto;" />
     <button type="submit" style="padding:4px 10px; border-radius:6px; border:1px solid var(--primary); background: var(--primary); color:#fff;">Mettre à jour</button>
@@ -354,7 +491,13 @@
     <tbody>
     {% for s in supports %}
     <tr class="{% if (s.prmp|float) < (s.vl|float) %}row-good{% else %}row-bad{% endif %}">
-      <td>{{ s.code_isin }}</td>
+      <td>
+        {% if s.code_isin %}
+          <a href="#" class="aff-support-link" data-support-code="{{ s.code_isin }}" data-support-name="{{ s.nom }}" data-contract="{{ affaire.ref if affaire else '' }}" data-movements='{{ s.movements | tojson | safe }}'>{{ s.code_isin }}</a>
+        {% else %}
+          {{ s.code_isin }}
+        {% endif %}
+      </td>
       <td>{{ s.nom }}</td>
       <td style="text-align:center;">{{ s.srri_support }}</td>
       <td class="right">{{ s.nbuc }}</td>
@@ -372,6 +515,28 @@
     </tbody>
   </table>
   <small class="muted">Source: mariadb_historique_support_w + mariadb_support + donnees_esg_etendu</small>
+  <div id="affSupportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeAffSupportMovementsModal()">
+    <div class="modal-card" style="width:820px; max-width:97vw;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-right-left" style="margin-right:8px;"></i><span id="affSupportMovementsLabel">Mouvements du support</span></h3>
+        <button class="modal-close" onclick="closeAffSupportMovementsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <table id="affSupportMovementsTable" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;">Date</th>
+              <th style="text-align:left;">Règle</th>
+              <th style="text-align:right;">Montant</th>
+              <th style="text-align:right;">VL</th>
+              <th style="text-align:right;">Nb parts</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="grid pie-grid" style="margin-top:12px; gap:12px;">
@@ -432,12 +597,12 @@
 </div>
 
 <!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
-<div id="avisToggle" class="card accordion-toggle" style="margin-top:12px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center;" onclick="openAvisModal()">
+<div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" style="margin-top:12px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center;" onclick="openAvisModal()">
   <h3 class="chart-title" style="font-size: 0.95rem;">Avis d'opération <span class="badge">{{ (avis_affaire|length) if avis_affaire else 0 }}</span></h3>
   <span class="chevron">▾</span>
 </div>
-<div id="avisSection" style="display:none;">
-  <div class="card">
+<div id="avisSection" data-tb-marker="AF_13" style="display:none;">
+  <div class="card" data-tb-marker="AF_14">
     <h3 class="chart-title">Avis d'opération</h3>
     <style>
       /* Largeurs et non-retour à la ligne pour tenir sur une ligne */
@@ -480,13 +645,13 @@
   </div>
 </div>
 
-<div id="graphsToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
+<div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Graphiques</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="graphsSection" style="display:none;">
+<div id="graphsSection" data-tb-marker="AF_18" style="display:none;">
 
-<div class="card" style="margin-top:12px;">
+<div class="card" data-tb-marker="AF_19" style="margin-top:12px;">
   <h3>Evolution valorisation et cumul des mouvements</h3>
   <canvas id="chartValo" height="120"></canvas>
   <small class="muted">Courbes sans points; axes ajustés automatiquement.</small>
@@ -498,12 +663,12 @@
   </div>
 </div>
 
-<div class="card" style="margin-top:12px;">
-  <h3>Performances et volatilité annuelles</h3>
+<div class="card" data-tb-marker="AF_20" style="margin-top:12px;">
+  <h3>Performances et SRRI</h3>
   <canvas id="chartAnnuel" height="120"></canvas>
 </div>
 
-<div class="card" style="margin-top:12px;">
+<div class="card" data-tb-marker="AF_21" style="margin-top:12px;">
   <h3>Comparatif investissements vs Offre produit</h3>
   <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
     <div>
@@ -526,12 +691,12 @@
 </div>
 
 <!-- Reportings pluriannuels (accordéon pleine largeur) -->
-<div id="reportToggle" class="card" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
+<div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
   <h3 class="chart-title" style="font-size: 0.95rem;">Reportings pluriannuels</h3>
   <span class="chevron">▾</span>
 </div>
-<div id="reportSection" style="width:100%; grid-column: 1 / -1;">
-  <div class="card" style="margin-top:8px;">
+<div id="reportSection" data-tb-marker="AF_23" style="width:100%; grid-column: 1 / -1;">
+  <div class="card" data-tb-marker="AF_24" style="margin-top:8px;">
     {% if reporting_years %}
     <table style="font-size:12px;">
       <thead>
@@ -577,10 +742,18 @@
   </div>
 </div>
 
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 // Chart.js: couleur par défaut (axes/labels) = bleu CSS
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+const AF_MARKERS_PARAM = "{{ af_markers_param }}";
+function appendMarkers(url){
+  if (!AF_MARKERS_PARAM) return url;
+  if (url.indexOf('markers=') !== -1) return url;
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + AF_MARKERS_PARAM;
+}
 // Messages header buttons & modal (Affaire)
 const AFF_EVENTS_OPEN = {{ affaire_events_open | tojson }};
 function _normCatAff(s){ if(!s) return ''; return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c'); }
@@ -610,7 +783,7 @@ function openAffMsgs(kind){
       var left = Math.max(0, Math.floor(((screen.availWidth||screen.width||w) - w) / 2));
       var top = Math.max(0, Math.floor(((screen.availHeight||screen.height||h) - h) / 2));
       var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
-      var win = window.open('/dashboard/taches/'+id, 'taskEdit'+id, feat);
+      var win = window.open(appendMarkers('/dashboard/taches/'+id), 'taskEdit'+id, feat);
       if (win && win.focus) { try { win.focus(); } catch(e){} }
     } catch(e){}
   }
@@ -626,13 +799,21 @@ function openAffMsgs(kind){
     sb.className = 'btn btn-choice';
     sb.textContent = ev.statut || 'à faire';
     sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
-    sb.href = '/dashboard/taches/' + (ev.id||'');
+    sb.href = appendMarkers('/dashboard/taches/' + (ev.id||''));
     sb.target = '_blank';
     sb.rel = 'noopener noreferrer';
     const statTd = document.createElement('td'); statTd.appendChild(sb);
     // RH badge si présent
     var rh = ev.rh_nom || ev.rh || ev.rhnom;
     if (rh){ const b = document.createElement('span'); b.className='badge'; b.textContent = 'RH: ' + rh; b.style.marginLeft='6px'; statTd.appendChild(b); }
+    if (ev.statut_reclamation_label){
+      const rec = document.createElement('div');
+      rec.className = 'muted';
+      rec.style.fontSize = '0.75rem';
+      rec.style.marginTop = '2px';
+      rec.textContent = 'Réclamation : ' + ev.statut_reclamation_label;
+      statTd.appendChild(rec);
+    }
     tr.appendChild(statTd);
     // Commentaire tronqué avec Voir plus/moins
     const ctd = document.createElement('td');
@@ -687,6 +868,70 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <script>
+  function openAffSupportMovementsModal(code, name, contractLabel, movements){
+    const modal = document.getElementById('affSupportMovementsModal');
+    if (!modal) return;
+    const tbody = modal.querySelector('#affSupportMovementsTable tbody');
+    const labelEl = document.getElementById('affSupportMovementsLabel');
+    if (labelEl){
+      const parts = ['Mouvements du support'];
+      const detail = [contractLabel, name, code].filter(Boolean).join(' • ');
+      if (detail) parts.push(detail);
+      labelEl.textContent = parts.join(' — ');
+    }
+    if (tbody){
+      tbody.innerHTML = '';
+      const rows = Array.isArray(movements) ? movements : [];
+      rows.forEach(function(mv){
+        const tr = document.createElement('tr');
+        [
+          { value: mv.date || '-' },
+          { value: mv.regle || '-' },
+          { value: mv.montant || '-', align: 'right' },
+          { value: mv.vl || '-', align: 'right' },
+          { value: mv.nb_uc || '-', align: 'right' },
+        ].forEach(function(col){
+          const td = document.createElement('td');
+          td.textContent = col.value;
+          if (col.align === 'right') td.style.textAlign = 'right';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      if (!rows.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'muted';
+        td.textContent = 'Aucun mouvement trouvé pour ce support.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+    modal.style.display = 'flex';
+  }
+  function closeAffSupportMovementsModal(){ const modal = document.getElementById('affSupportMovementsModal'); if (modal) modal.style.display = 'none'; }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.aff-support-link').forEach(function(link){
+      link.addEventListener('click', function(ev){
+        ev.preventDefault();
+        let movements = [];
+        try {
+          movements = this.dataset.movements ? JSON.parse(this.dataset.movements) : [];
+        } catch (e) {
+          console.warn('aff-support movements parse error', e);
+        }
+        openAffSupportMovementsModal(
+          this.dataset.supportCode || '',
+          this.dataset.supportName || '',
+          this.dataset.contract || '',
+          movements
+        );
+      });
+    });
+  });
+
   // Accordéons mutualisés: un seul ouvert, possibilité de tout fermer; scroll en haut à l'ouverture
   (function(){
     var groups = [
@@ -707,7 +952,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     }
     // Init: restaurer la dernière ouverte si possible
     var saved = ''; try { saved = localStorage.getItem('aff_detail_open') || ''; } catch(e) {}
-    if (saved){ setOpen(saved); }
+    if (saved) { setOpen(saved); }
+    else { setOpen(''); }
     // Bind clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);
@@ -793,6 +1039,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       ensurePlotly(function(){
         var url = `/dashboard/affaires/{{ affaire.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` +
                   (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'') + (allocIsin?`&alloc_isin=${encodeURIComponent(allocIsin)}`:'');
+        url = appendMarkers(url);
         fetch(url).then(function(r){
           if (!r.ok){ throw new Error('HTTP ' + r.status + ' for ' + url); }
           return r.json();
@@ -922,18 +1169,109 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   drawChart1(labels, valo, cum);
   document.querySelectorAll('.rangeBtn').forEach(b=> b.addEventListener('click', ()=> applyRange1(b.dataset.range)));
 
-  // Chart 2: annuel perf/vol (barres) sur une seule échelle
+  // Chart 2: annual performance (bars) vs SRRI (line) with dual axes
   const ctx2 = document.getElementById('chartAnnuel').getContext('2d');
   const annPerfPct = (annPerf||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-  const annVolPct = (annVol||[]).map(v=> { let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-  const ann = new Chart(ctx2, {
-    type: 'bar',
-    data: { labels: (years||[]).map(String), datasets: [
-      { label: 'Perf 52s (%)', data: annPerfPct, backgroundColor: primaryColor },
-      { label: 'Volatilité (%)', data: annVolPct, backgroundColor: '#ff6b6b' },
-    ]},
-    options: { responsive:true, scales:{ y:{ position:'left', ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color: primaryColor, formatter:(v)=> (Number(v).toFixed(2)+' %'), font:{ size:10 } } } }
-  });
+  function normalizeVolDecimal(v){
+    if (typeof v === 'string') {
+      v = v.replace(',', '.');
+    }
+    let n = parseFloat(v);
+    if (!isFinite(n)) return null;
+    if (Math.abs(n) > 1) n = n / 100;
+    return n;
+  }
+  function srriFromVol(volDecimal){
+    if (volDecimal === null) return null;
+    const vol = Math.abs(volDecimal);
+    const buckets = [
+      { min: 0, max: 0.005, base: 1 },
+      { min: 0.005, max: 0.02, base: 2 },
+      { min: 0.02, max: 0.05, base: 3 },
+      { min: 0.05, max: 0.10, base: 4 },
+      { min: 0.10, max: 0.15, base: 5 },
+      { min: 0.15, max: 0.25, base: 6 },
+      { min: 0.25, max: Infinity, base: 7 }
+    ];
+    for (let i = 0; i < buckets.length; i++){
+      const bucket = buckets[i];
+      if (vol < bucket.max || bucket.max === Infinity){
+        if (bucket.max === Infinity || bucket.max <= bucket.min){
+          return bucket.base;
+        }
+        const span = bucket.max - bucket.min;
+        if (span <= 0) return bucket.base;
+        const ratio = Math.min(Math.max((vol - bucket.min) / span, 0), 0.99);
+        if (!isFinite(ratio)) return bucket.base;
+        const value = bucket.base + ratio;
+        if (!isFinite(value)) return bucket.base;
+        // classe 7 reste bornée à 7
+        if (bucket.base === 7) return 7;
+        return +value.toFixed(2);
+      }
+    }
+    return null;
+  }
+  const annSrri = (annVol||[]).map(v=> srriFromVol(normalizeVolDecimal(v)));
+  const srriHighlightPlugin = {
+    id: 'srriHighlight',
+    beforeDraw(chart){
+      const yAxis = chart.scales.y2;
+      const area = chart.chartArea;
+      if (!yAxis || !area) return;
+      const ctx = chart.ctx;
+      const clientSrri = {{ srri_client if srri_client is not none else 'null' }};
+      if (clientSrri === null) return;
+      const ranges = [];
+      const srriFloat = Number(clientSrri);
+      if (Number.isFinite(srriFloat)) {
+        const upper = Math.min(srriFloat + 1, 7);
+        ranges.push({ from: srriFloat, to: srriFloat });
+        if (upper > srriFloat) {
+          ranges.push({ from: srriFloat, to: upper });
+        }
+      }
+      const fillColor = 'rgba(255, 107, 107, 0.15)';
+      ctx.save();
+      ctx.fillStyle = fillColor;
+      ranges.forEach(range => {
+        const yTop = yAxis.getPixelForValue(range.to);
+        const yBottom = yAxis.getPixelForValue(range.from);
+        if (!Number.isFinite(yTop) || !Number.isFinite(yBottom)) return;
+        const top = Math.min(yTop, yBottom);
+        const height = Math.abs(yBottom - yTop) || 2;
+        ctx.fillRect(area.left, top, area.right - area.left, height);
+      });
+      ctx.restore();
+    }
+  };
+  let ann = null;
+  try{
+    ann = new Chart(ctx2, {
+      type: 'bar',
+      plugins: [srriHighlightPlugin],
+      data: { labels: (years||[]).map(String), datasets: [
+        { type: 'line', label: 'Perf 52s (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: primaryColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y' },
+        { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#ff6b6b', backgroundColor: '#ff6b6b', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
+      ]},
+      options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{
+          y:{ position:'left', ticks:{ callback:v=> v+' %' } },
+          y2:{ position:'right', min:1, max:7, ticks:{ stepSize:1, callback:v=> v, color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, border:{ color:'#ff6b6b' }, title:{ display:true, text:'SRRI', color:'#ff6b6b' } }
+        }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color:(ctx)=> ctx.dataset && ctx.dataset.yAxisID==='y2' ? '#ff6b6b' : primaryColor, formatter:(value, ctx)=> {
+            if (value === null || typeof value === 'undefined') return '';
+            if (ctx.dataset && ctx.dataset.yAxisID === 'y2') {
+              const num = Number(value);
+              if (!isFinite(num)) return '';
+              return num.toFixed(2);
+            }
+            const numVal = Number(value);
+            if (!isFinite(numVal)) return '';
+            return numVal.toFixed(2)+' %';
+          }, font:{ size:10 } } } }
+    });
+  } catch(err){
+    console.error('Affaire SRRI chart error', err);
+  }
 
   // Chart 3: SICAV comparatif (aligné sur dates de l'affaire)
   const ctx3 = document.getElementById('chartSicav').getContext('2d');
@@ -1121,6 +1459,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         var top = Math.max(0, Math.floor((maxH - h) / 2));
         var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
         var url = '/dashboard/mouvements?affaire_id=' + encodeURIComponent(affId||'') + '&avis_id=' + encodeURIComponent(avisId||'');
+        url = appendMarkers(url);
         var win = window.open(url, 'mouvements_'+(affId||'')+'_'+(avisId||''), feat);
         if (win && win.focus) { try { win.focus(); } catch(e){} }
       } catch(e){}
@@ -1177,8 +1516,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   </script>
 
   <!-- Modale Administration Groupes (Affaire) -->
-  <div id="affAdminGroupsModal" class="modal-overlay" onclick="if(event.target===this) document.getElementById('affAdminGroupsModal').style.display='none'">
-    <div class="modal-card">
+  <div id="affAdminGroupsModal" class="modal-overlay" data-tb-marker="AF_15" onclick="if(event.target===this) document.getElementById('affAdminGroupsModal').style.display='none'">
+    <div class="modal-card" data-tb-marker="AF_16">
       <div class="modal-header">
         <h3><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Groupes de l'affaire</h3>
         <button class="modal-close" onclick="document.getElementById('affAdminGroupsModal').style.display='none'">✕</button>
@@ -1212,6 +1551,29 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const AFFAIRE_ID = {{ affaire.id if affaire else 'null' }};
       let affGroupDetails = [];
       let affGroupLinks = [];
+    function generateAffaireSynthese(){
+      try{
+        if (!AFFAIRE_ID){
+          alert('Affaire introuvable.');
+          return;
+        }
+        if (typeof window.showGlobalLoader === 'function'){
+          window.showGlobalLoader('Génération du PDF…');
+        }
+        const url = '/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/pdf';
+        window.open(url, '_blank', 'noopener');
+        const clearLoader = function(){
+          if (typeof window.hideGlobalLoader === 'function'){
+            window.hideGlobalLoader();
+          }
+          window.removeEventListener('focus', clearLoader);
+        };
+        window.addEventListener('focus', clearLoader);
+        setTimeout(clearLoader, 4000);
+      }catch(err){
+        console.warn('Affaire synthèse PDF generation failed', err);
+      }
+    }
     function openAffAdminGroups(){
       const el = document.getElementById('affAdminGroupsModal');
       el.style.display = 'flex';
