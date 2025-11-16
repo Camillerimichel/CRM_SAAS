@@ -59,7 +59,18 @@
 <div class="main-container" data-tb-marker="TB_202">
   <h2 data-tb-marker="TB_203">Liste des clients</h2>
   <div data-tb-marker="TB_204"></div>
-  <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205"></div>
+  <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
+    {% if group_filter_label %}
+      <div class="badge-filter">
+        Groupe : {{ group_filter_label }}
+        {% if tb_markers_visible %}
+          <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
+        {% else %}
+          <a class="x" href="/dashboard/clients">×</a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
   <div style="display:flex; gap:.5rem; justify-content:flex-end; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;" data-tb-marker="TB_206">
     <button class="btn" id="cf_reset_btn" data-tb-marker="TB_207">Réinitialiser les filtres</button>
   </div>

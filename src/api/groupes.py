@@ -17,12 +17,38 @@ from src.services.groupes import (
 router = APIRouter(prefix="/api/groupes", tags=["Groupes"])
 
 
+def _ensure_group_ids(db: Session):
+    try:
+        missing = db.execute(_text("SELECT rowid FROM administration_groupe_detail WHERE id IS NULL")).fetchall()
+    except Exception:
+        return
+    if not missing:
+        return
+    try:
+        next_id_row = db.execute(_text("SELECT MAX(id) AS max_id FROM administration_groupe_detail")).fetchone()
+        next_id = ((next_id_row[0] if next_id_row else 0) or 0) + 1
+    except Exception:
+        next_id = 1
+    try:
+        for row in missing:
+            rid = row[0]
+            db.execute(
+                _text("UPDATE administration_groupe_detail SET id = :new_id WHERE rowid = :rid"),
+                {"new_id": next_id, "rid": rid},
+            )
+            next_id += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @router.get("/details", response_model=list[GroupeDetailSchema])
 def api_list_group_details(
     type: Optional[Literal['client','affaire']] = Query(default=None, alias="type"),
     actifs_only: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
+    _ensure_group_ids(db)
     return list_group_details(db, type_groupe=type, actifs_only=actifs_only)
 
 
