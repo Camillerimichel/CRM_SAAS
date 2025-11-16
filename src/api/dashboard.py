@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 import csv
 import io
-from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl, quote
 
 
 from src.database import get_db
@@ -44,6 +44,7 @@ from src.models.historique_support import HistoriqueSupport
 from src.models.evenement import Evenement
 from src.models.type_evenement import TypeEvenement
 from src.models.evenement_statut_reclamation import EvenementStatutReclamation
+from src.models.administration_groupe_detail import AdministrationGroupeDetail
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -94,6 +95,41 @@ def fetch_rh_list(db: Session) -> list[dict]:
         return rows_to_dicts(rows)
     except Exception:
         return []
+
+
+def _load_groupes_details(db: Session) -> list[dict]:
+    """Return all group definitions with member counts and RH names."""
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT d.rowid AS __rid,
+                       d.id,
+                       d.type_groupe,
+                       d.nom,
+                       d.date_creation,
+                       d.date_fin,
+                       d.responsable_id,
+                       d.motif,
+                       d.actif,
+                       COALESCE(m.nb_membres, 0) AS nb_membres,
+                       rh.prenom AS resp_prenom,
+                       rh.nom AS resp_nom
+                FROM administration_groupe_detail d
+                LEFT JOIN (
+                    SELECT groupe_id, COUNT(*) AS nb_membres
+                    FROM administration_groupe
+                    WHERE (COALESCE(actif,1) != 0)
+                    GROUP BY groupe_id
+                ) m ON m.groupe_id = d.id
+                LEFT JOIN administration_RH rh ON rh.id = d.responsable_id
+                ORDER BY d.nom
+                """
+            )
+        ).fetchall()
+    except Exception:
+        return []
+    return rows_to_dicts(rows)
 
 
 def _parse_date_safe(raw):
@@ -4734,36 +4770,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
 
     admin_intervenants = _load_admin_intervenants_list()
 
-    def _load_groupes_details() -> list[dict]:
-        try:
-            rows = db.execute(
-                _text(
-                    """
-                    SELECT d.rowid AS __rid,
-                           d.id,
-                           d.type_groupe,
-                           d.nom,
-                           d.date_creation,
-                           d.date_fin,
-                           d.responsable_id,
-                           d.motif,
-                           d.actif,
-                           COALESCE(m.nb_membres, 0) AS nb_membres
-                    FROM administration_groupe_detail d
-                    LEFT JOIN (
-                        SELECT groupe_id, COUNT(*) AS nb_membres
-                        FROM administration_groupe
-                        GROUP BY groupe_id
-                    ) m ON m.groupe_id = d.id
-                    ORDER BY d.nom
-                    """
-                )
-            ).fetchall()
-        except Exception:
-            return []
-        return rows_to_dicts(rows)
-
-    groupes_details = _load_groupes_details()
+    groupes_details = _load_groupes_details(db)
 
     try:
         # Carte des supports par contrat (avec enrichissements nécessaires au tableau/CSV)
@@ -6942,7 +6949,7 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
                 "admin_types": _load_admin_types_list(),
                 "admin_intervenants": _load_admin_intervenants_list(),
-                "groupes_details": _load_groupes_details(),
+                "groupes_details": _load_groupes_details(db),
                 "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 # Contexte courtier avec erreur
                 "courtier": None,
@@ -7019,7 +7026,7 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
                 "admin_types": _load_admin_types_list(),
                 "admin_intervenants": _load_admin_intervenants_list(),
-                "groupes_details": _load_groupes_details(),
+                "groupes_details": _load_groupes_details(db),
                 "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 "courtier": None,
                 "form_courtier": params,
@@ -7077,6 +7084,190 @@ def _as_int(value: str | None, default: int | None = None) -> int | None:
 def _redirect_back(request: Request, fallback_open: str) -> RedirectResponse:
     target_open = request.query_params.get("open") or fallback_open
     return RedirectResponse(url=f"/dashboard/parametres?open={target_open}", status_code=303)
+
+
+def _normalize_group_type(value: str | None) -> str | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low in ("personnes", "personne", "client", "clients"):
+        return "client"
+    if low in ("affaires", "affaire", "contrat", "contrats"):
+        return "affaire"
+    return low
+
+
+def _as_flag(value: str | None, default: int = 1) -> int:
+    if value is None:
+        return default
+    v = str(value).strip().lower()
+    if v in ("0", "false", "non", "no", "off"):
+        return 0
+    return 1
+
+
+def _group_success_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/dashboard/parametres?open=administration_groupes&saved=1", status_code=303)
+
+
+def _group_error_redirect(message: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(message)}",
+        status_code=303,
+    )
+
+
+# ---- Administration : Groupes ----
+@router.post("/parametres/administration/groupes", response_class=HTMLResponse)
+async def create_administration_group(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    type_value = _normalize_group_type(form.get("type_groupe"))
+    nom = (form.get("nom") or "").strip()
+    responsable_id = _as_int(form.get("responsable_id"))
+    if not type_value:
+        return _group_error_redirect("Type de groupe requis.")
+    if not nom:
+        return _group_error_redirect("Nom du groupe requis.")
+    if responsable_id is None:
+        return _group_error_redirect("Responsable obligatoire.")
+    actif = _as_flag(form.get("actif"), 1)
+    date_creation = _parse_date_safe(form.get("date_creation"))
+    date_fin = _parse_date_safe(form.get("date_fin"))
+    motif = (form.get("motif") or "").strip() or None
+    try:
+        next_id: int | None = None
+        try:
+            max_id = db.query(func.max(AdministrationGroupeDetail.id)).scalar()
+            next_id = (max_id or 0) + 1
+        except Exception:
+            next_id = None
+        payload = {
+            "type_groupe": type_value,
+            "nom": nom,
+            "date_creation": date_creation,
+            "date_fin": date_fin,
+            "responsable_id": responsable_id,
+            "motif": motif,
+            "actif": actif,
+        }
+        if next_id is not None:
+            payload["id"] = next_id
+        group = AdministrationGroupeDetail(
+            **payload,
+        )
+        db.add(group)
+        db.commit()
+        return _group_success_redirect()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"create_administration_group failed: {e}")
+        return _group_error_redirect(f"Création impossible : {e}")
+
+
+@router.post("/parametres/administration/groupes/{group_key}", response_class=HTMLResponse)
+async def update_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    identifier = "rowid" if request.query_params.get("by") == "rowid" else "id"
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT rowid AS __rid, id, type_groupe, nom, responsable_id, actif
+                FROM administration_groupe_detail
+                WHERE {identifier} = :gid
+                LIMIT 1
+                """
+            ),
+            {"gid": group_key},
+        ).fetchone()
+    except Exception as e:
+        logger.error(f"update_administration_group lookup failed: {e}")
+        return _group_error_redirect("Table administration_groupe_detail inaccessible.")
+    if not row:
+        return _group_error_redirect("Groupe introuvable.")
+    data = row._mapping
+    type_value = _normalize_group_type(form.get("type_groupe")) or data.get("type_groupe")
+    nom = (form.get("nom") or "").strip() or data.get("nom")
+    responsable_id = _as_int(form.get("responsable_id"), data.get("responsable_id"))
+    current_actif = 0
+    try:
+        current_actif = 0 if int(data.get("actif") or 0) == 0 else 1
+    except Exception:
+        current_actif = 1
+    actif = _as_flag(form.get("actif"), current_actif)
+    if not type_value:
+        return _group_error_redirect("Type de groupe requis.")
+    if not nom:
+        return _group_error_redirect("Nom du groupe requis.")
+    if responsable_id is None:
+        return _group_error_redirect("Responsable obligatoire.")
+    params = {
+        "type_groupe": type_value,
+        "nom": nom,
+        "responsable_id": responsable_id,
+        "actif": actif,
+        "gid": group_key,
+    }
+    try:
+        db.execute(
+            text(
+                f"""
+                UPDATE administration_groupe_detail
+                SET type_groupe = :type_groupe,
+                    nom = :nom,
+                    responsable_id = :responsable_id,
+                    actif = :actif
+                WHERE {identifier} = :gid
+                """
+            ),
+            params,
+        )
+        db.commit()
+        return _group_success_redirect()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update_administration_group failed: {e}")
+        return _group_error_redirect(f"Mise à jour impossible : {e}")
+
+
+@router.post("/parametres/administration/groupes/{group_key}/delete", response_class=HTMLResponse)
+async def delete_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
+    identifier = "rowid" if request.query_params.get("by") == "rowid" else "id"
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT rowid AS __rid, id
+                FROM administration_groupe_detail
+                WHERE {identifier} = :gid
+                LIMIT 1
+                """
+            ),
+            {"gid": group_key},
+        ).fetchone()
+    except Exception as e:
+        logger.error(f"delete_administration_group lookup failed: {e}")
+        return _group_error_redirect("Table administration_groupe_detail inaccessible.")
+    if not row:
+        return _group_error_redirect("Groupe introuvable.")
+    mapping = row._mapping
+    real_id = mapping.get("id")
+    try:
+        if real_id is not None:
+            db.execute(text("DELETE FROM administration_groupe WHERE groupe_id = :gid"), {"gid": real_id})
+        db.execute(
+            text(f"DELETE FROM administration_groupe_detail WHERE {identifier} = :gid"),
+            {"gid": group_key},
+        )
+        db.commit()
+        return _group_success_redirect()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"delete_administration_group failed: {e}")
+        return _group_error_redirect(f"Suppression impossible : {e}")
 
 
 # ---- Contrats génériques ----
@@ -8901,6 +9092,46 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         esg_field_labels_dash = {}
         esg_fields_debug_dash = {"source": "ERROR", "raw_cols": [], "final": []}
 
+    group_rows_dash = _load_groupes_details(db)
+
+    def _format_dash_date(value):
+        if not value:
+            return "—"
+        try:
+            return value.strftime("%d/%m/%Y")
+        except Exception:
+            return str(value)
+
+    dashboard_groups_personnes = []
+    dashboard_groups_affaires = []
+    for row in group_rows_dash or []:
+        gid = row.get("id")
+        if not gid:
+            continue
+        type_raw = (row.get("type_groupe") or "").lower()
+        resp_label = " ".join(
+            p for p in [
+                (row.get("resp_prenom") or "").strip(),
+                (row.get("resp_nom") or "").strip()
+            ] if p
+        ) or (f"RH #{row.get('responsable_id')}" if row.get("responsable_id") else "—")
+        entry = {
+            "id": gid,
+            "nom": row.get("nom") or f"Groupe #{gid}",
+            "nb_membres": row.get("nb_membres") or 0,
+            "responsable": resp_label,
+            "date_creation": _format_dash_date(row.get("date_creation")),
+            "date_fin": _format_dash_date(row.get("date_fin")),
+        }
+        if type_raw in ("client", "clients", "personne", "personnes"):
+            entry["link"] = f"/dashboard/clients?group_id={gid}&group_type=client"
+            entry["link_label"] = "Voir les personnes"
+            dashboard_groups_personnes.append(entry)
+        elif type_raw in ("affaire", "affaires", "contrat", "contrats"):
+            entry["link"] = f"/dashboard/affaires?group_id={gid}&group_type=affaire"
+            entry["link_label"] = "Voir les affaires"
+            dashboard_groups_affaires.append(entry)
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -9057,6 +9288,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "esg_fields_debug": esg_fields_debug_dash,
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
+            "dashboard_groups_personnes": dashboard_groups_personnes,
+            "dashboard_groups_affaires": dashboard_groups_affaires,
         }
     )
 
@@ -13259,6 +13492,9 @@ async def dashboard_client_kyc(
 def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     tb_markers_visible = request.query_params.get("markers") == "1"
     total_clients = db.query(func.count(Client.id)).scalar() or 0
+    group_filter_param = request.query_params.get("group_id")
+    group_filter_ids: set[int] | None = None
+    group_filter_label: str | None = None
 
     # Données SRRI pour le graphique
     srri_data = (
@@ -13270,6 +13506,35 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
     rows = get_clients(db)
+    if group_filter_param:
+        try:
+            gid = int(group_filter_param)
+            meta = db.execute(
+                text("SELECT nom, type_groupe FROM administration_groupe_detail WHERE id = :gid"),
+                {"gid": gid},
+            ).fetchone()
+            if meta:
+                meta_map = meta._mapping
+                type_db = (meta_map.get("type_groupe") or "").lower()
+                if type_db in ("client", "clients", "personne", "personnes"):
+                    member_rows = db.execute(
+                        text(
+                            """
+                            SELECT client_id FROM administration_groupe
+                            WHERE groupe_id = :gid
+                              AND client_id IS NOT NULL
+                              AND (COALESCE(actif,1) != 0)
+                            """
+                        ),
+                        {"gid": gid},
+                    ).fetchall()
+                    ids = {int(r[0]) for r in member_rows if r[0] is not None}
+                    group_filter_ids = ids
+                    group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
+        except Exception:
+            group_filter_ids = set()
+    if group_filter_ids is not None:
+        rows = [r for r in rows if getattr(r, "id", None) in group_filter_ids]
 
     # Référentiel RH pour associer le commercial (responsable)
     rh_entries = fetch_rh_list(db)
@@ -13378,6 +13643,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "finance_valo_input": finance_ctx.get("finance_valo_input"),
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
+            "group_filter_label": group_filter_label if group_filter_ids is not None else None,
         }
     )
 
@@ -13386,6 +13652,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 @router.get("/affaires", response_class=HTMLResponse)
 def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
+    group_filter_param = request.query_params.get("group_id")
+    group_filter_label: str | None = None
 
     srri_data = (
         db.query(Affaire.SRRI, func.count(Affaire.id).label("nb"))
@@ -13426,6 +13694,34 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .outerjoin(Client, Client.id == Affaire.id_personne)
         .all()
     )
+    if group_filter_param:
+        try:
+            gid = int(group_filter_param)
+            meta = db.execute(
+                text("SELECT nom, type_groupe FROM administration_groupe_detail WHERE id = :gid"),
+                {"gid": gid},
+            ).fetchone()
+            if meta:
+                meta_map = meta._mapping
+                type_db = (meta_map.get("type_groupe") or "").lower()
+                if type_db in ("affaire", "affaires", "contrat", "contrats"):
+                    member_rows = db.execute(
+                        text(
+                            """
+                            SELECT affaire_id FROM administration_groupe
+                            WHERE groupe_id = :gid
+                              AND affaire_id IS NOT NULL
+                              AND (COALESCE(actif,1) != 0)
+                            """
+                        ),
+                        {"gid": gid},
+                    ).fetchall()
+                    ids = {int(r[0]) for r in member_rows if r[0] is not None}
+                    affaires_rows = [r for r in affaires_rows if r.id in ids]
+                    group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
+        except Exception:
+            affaires_rows = []
+
     # SRRI calculé selon bandes standard à partir de la volat (valeurs <=1 interprétées comme fraction → %)
     def srri_from_vol(v: float | None) -> int | None:
         if v is None:
@@ -13503,6 +13799,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
+            "group_filter_label": group_filter_label,
         }
     )
 

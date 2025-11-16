@@ -1679,7 +1679,7 @@
               <td>
                 <form id="grp-{{ rowkey }}" method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;"></form>
                 <span class="badge">{{ typedisp }}</span>
-                <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ typedisp }}" />
+                <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ g.type_groupe or '' }}" />
               </td>
               <td><input form="grp-{{ rowkey }}" type="text" name="nom" value="{{ g.nom or '' }}" required style="min-width:340px; width:100%;" /></td>
               <td>
@@ -1755,8 +1755,8 @@
                 <div class="field" style="min-width: 140px;">
                   <label>Type</label>
                   <select name="type_groupe" required>
-                    <option value="Personnes">Personnes</option>
-                    <option value="Affaires">Affaires</option>
+                    <option value="client">Personnes</option>
+                    <option value="affaire">Affaires</option>
                   </select>
                 </div>
                 <div class="field" style="min-width: 220px;">
@@ -1793,7 +1793,7 @@
                 </div>
               </div>
               <div class="create-btn-container">
-                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i>&nbsp;Créer le groupe</button>
+                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="color:#fff;"></i>&nbsp;Créer le groupe</button>
               </div>
             </form>
           </div>

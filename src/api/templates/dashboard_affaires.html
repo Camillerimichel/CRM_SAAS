@@ -115,7 +115,14 @@
 
 <div class="main-container">
     <!-- Bandeau total retiré -->
-    <div class="badge-row"></div>
+    <div class="badge-row">
+      {% if group_filter_label %}
+        <div class="badge-filter">
+          Groupe : {{ group_filter_label }}
+          <a class="x" href="/dashboard/affaires">×</a>
+        </div>
+      {% endif %}
+    </div>
 
     <!-- Accordéon: Risque rapide -->
     <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">

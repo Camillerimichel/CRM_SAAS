@@ -915,14 +915,18 @@
         </div>
       </div>
     </div>
-    <div class="charts" data-tb-marker="TB_44" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-      <div class="card" data-tb-marker="TB_45">
-        <h3>Clients par SRRI</h3>
-        <canvas id="chartClientsCount"></canvas>
+    <div class="charts" data-tb-marker="TB_44" style="display:flex; flex-wrap:wrap; gap:12px; max-width:1100px; margin:0 auto;">
+      <div class="card" data-tb-marker="TB_45" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+        <h3 style="margin-bottom:0;">Clients par SRRI</h3>
+        <div style="flex:1 1 auto; min-height:0;">
+          <canvas id="chartClientsCount" style="height:200px; max-height:200px;"></canvas>
+        </div>
       </div>
-      <div class="card" data-tb-marker="TB_46">
-        <h3>Montant par SRRI (Clients)</h3>
-        <canvas id="chartClientsAmount"></canvas>
+      <div class="card" data-tb-marker="TB_46" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+        <h3 style="margin-bottom:0;">Montant par SRRI (Clients)</h3>
+        <div style="flex:1 1 auto; min-height:0;">
+          <canvas id="chartClientsAmount" style="height:200px; max-height:200px;"></canvas>
+        </div>
       </div>
     </div>
     <div class="card" data-tb-marker="TB_47" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
@@ -950,14 +954,18 @@
         </div>
       </div>
     </div>
-    <div class="charts" data-tb-marker="TB_53" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); max-width:1100px; margin:0 auto;">
-      <div class="card" data-tb-marker="TB_54">
-        <h3>Affaires par SRRI</h3>
-        <canvas id="chartAffairesCount"></canvas>
+    <div class="charts" data-tb-marker="TB_53" style="display:flex; flex-wrap:wrap; gap:12px; max-width:1100px; margin:0 auto;">
+      <div class="card" data-tb-marker="TB_54" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+        <h3 style="margin-bottom:0;">Affaires par SRRI</h3>
+        <div style="flex:1 1 auto; min-height:0;">
+          <canvas id="chartAffairesCount" style="height:200px; max-height:200px;"></canvas>
+        </div>
       </div>
-      <div class="card" data-tb-marker="TB_55">
-        <h3>Montant par SRRI (Affaires)</h3>
-        <canvas id="chartAffairesAmount"></canvas>
+      <div class="card" data-tb-marker="TB_55" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+        <h3 style="margin-bottom:0;">Montant par SRRI (Affaires)</h3>
+        <div style="flex:1 1 auto; min-height:0;">
+          <canvas id="chartAffairesAmount" style="height:200px; max-height:200px;"></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -1042,6 +1050,21 @@
           <button class="modal-close" onclick="closeFinanceSupportModal()">✕</button>
         </div>
         <div class="modal-body">
+          <div id="financeSupportGroupActions" style="display:none; margin-bottom:12px;">
+            <div style="font-weight:600; margin-bottom:6px;">Ajouter ces clients à un groupe</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+              <div>
+                <label class="muted" style="font-size:0.85rem; display:block; margin-bottom:4px;">Groupe existant</label>
+                <select id="financeSupportGroupSelect" style="min-width:240px; height:34px;"></select>
+              </div>
+              <div>
+                <button type="button" class="btn btn-primary" id="financeSupportGroupAddBtn" style="height:34px;">
+                  <i class="fa-solid fa-user-group" style="margin-right:6px; color:#fff;"></i>Ajouter la liste
+                </button>
+              </div>
+            </div>
+            <div id="financeSupportGroupStatus" class="muted" style="margin-top:4px;"></div>
+          </div>
           <table id="financeSupportModalTable">
             <thead>
               <tr>
@@ -1101,6 +1124,64 @@
   </div>
 </div>
 
+<!-- Accordéon Groupes -->
+<div id="groupsToggle" class="card collapsed accordion-toggle" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <h3 style="margin:0; font-size:1.05rem;">Groupes</h3>
+  <span class="chevron">▾</span>
+</div>
+<div id="groupsSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <style>
+    #groupsSection .group-grid { display:flex; flex-wrap:wrap; gap:12px; }
+    #groupsSection .group-card { flex:1 1 260px; border:1px solid var(--border); border-radius:12px; padding:12px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,0.08); display:flex; flex-direction:column; gap:8px; }
+    #groupsSection .group-card h4 { margin:0; font-size:1rem; }
+    #groupsSection .group-meta { font-size:0.85rem; color:#475569; display:grid; grid-template-columns: 120px 1fr; row-gap:4px; column-gap:6px; }
+    #groupsSection .group-meta span { font-weight:600; color:#1e293b; }
+    #groupsSection .group-card .btn { align-self:flex-start; margin-top:auto; }
+  </style>
+  <div class="card" style="margin-bottom:12px;">
+    <h3 style="margin:0 0 8px 0;">Groupes de personnes</h3>
+    {% if dashboard_groups_personnes %}
+    <div class="group-grid">
+      {% for grp in dashboard_groups_personnes %}
+      <div class="group-card">
+        <h4>{{ grp.nom }}</h4>
+        <div class="group-meta">
+          <span>Membres</span><div>{{ grp.nb_membres }}</div>
+          <span>Responsable</span><div>{{ grp.responsable }}</div>
+          <span>Création</span><div>{{ grp.date_creation }}</div>
+          <span>Fin</span><div>{{ grp.date_fin }}</div>
+        </div>
+        <a class="btn btn-primary" href="{{ grp.link }}">{{ grp.link_label }}</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">Aucun groupe de personnes défini.</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 8px 0;">Groupes d'affaires</h3>
+    {% if dashboard_groups_affaires %}
+    <div class="group-grid">
+      {% for grp in dashboard_groups_affaires %}
+      <div class="group-card">
+        <h4>{{ grp.nom }}</h4>
+        <div class="group-meta">
+          <span>Membres</span><div>{{ grp.nb_membres }}</div>
+          <span>Responsable</span><div>{{ grp.responsable }}</div>
+          <span>Création</span><div>{{ grp.date_creation }}</div>
+          <span>Fin</span><div>{{ grp.date_fin }}</div>
+        </div>
+        <a class="btn btn-primary" href="{{ grp.link }}">{{ grp.link_label }}</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">Aucun groupe d'affaires défini.</div>
+    {% endif %}
+  </div>
+</div>
+
 <!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
@@ -1120,7 +1201,7 @@
       {% if not rem_contracts %}
         <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
       {% else %}
-        <form id="remForm" method="get" data-tb-marker="TB_80" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+        <form id="remForm" method="get" action="/dashboard#remFraisToggle" data-tb-marker="TB_80" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
           {% if tb_markers_param %}
             <input type="hidden" name="markers" value="1" />
           {% endif %}
@@ -1240,7 +1321,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     {% elif not retro_contracts %}
       <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
     {% else %}
-      <form id="retroForm" method="get" data-tb-marker="TB_88" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+      <form id="retroForm" method="get" action="/dashboard#retroToggle" data-tb-marker="TB_88" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
         {% if tb_markers_param %}
           <input type="hidden" name="markers" value="1" />
         {% endif %}
@@ -1373,6 +1454,135 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     const modal = document.getElementById('financeSupportModal');
     if (modal) modal.style.display = 'none';
   }
+  let financeSupportCurrentClients = [];
+  let financeSupportGroupDetails = [];
+  let financeSupportGroupsLoaded = false;
+  let financeSupportGroupLoading = false;
+  function setFinanceSupportGroupStatus(message, isError){
+    const el = document.getElementById('financeSupportGroupStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.color = isError ? '#b91c1c' : '#475569';
+  }
+  function renderFinanceSupportGroupSelect(){
+    const sel = document.getElementById('financeSupportGroupSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (!financeSupportGroupsLoaded){
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Chargement des groupes…';
+      sel.appendChild(opt);
+      return;
+    }
+    if (!Array.isArray(financeSupportGroupDetails) || financeSupportGroupDetails.length === 0){
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Aucun groupe Personnes';
+      sel.appendChild(opt);
+      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Paramètres > Groupes.', true);
+      return;
+    }
+    financeSupportGroupDetails.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.nom + (g.actif === 0 ? ' (inactif)' : '');
+      sel.appendChild(opt);
+    });
+    setFinanceSupportGroupStatus('', false);
+  }
+  async function loadFinanceSupportGroups(){
+    if (financeSupportGroupLoading) return;
+    financeSupportGroupLoading = true;
+    setFinanceSupportGroupStatus('Chargement des groupes…', false);
+    try{
+      let details = [];
+      const res = await fetch('/api/groupes/details?type=client&actifs_only=true');
+      if (res.ok){
+        details = await res.json();
+      }
+      if (!Array.isArray(details) || details.length === 0){
+        const res2 = await fetch('/api/groupes/details?type=client&actifs_only=false');
+        if (res2.ok){
+          details = await res2.json();
+        }
+      }
+      financeSupportGroupDetails = Array.isArray(details) ? details : [];
+      financeSupportGroupsLoaded = true;
+      renderFinanceSupportGroupSelect();
+      if (financeSupportGroupDetails.length === 0){
+        setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Paramètres > Groupes.', true);
+      } else {
+        setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
+      }
+    } catch(err){
+      console.warn('finance support group load error', err);
+      setFinanceSupportGroupStatus('Erreur de chargement des groupes.', true);
+    } finally {
+      financeSupportGroupLoading = false;
+    }
+  }
+  function toggleFinanceSupportGroupActions(shouldShow){
+    const container = document.getElementById('financeSupportGroupActions');
+    if (!container) return;
+    if (!shouldShow){
+      container.style.display = 'none';
+      setFinanceSupportGroupStatus('', false);
+      return;
+    }
+    container.style.display = '';
+    renderFinanceSupportGroupSelect();
+    if (!financeSupportGroupsLoaded && !financeSupportGroupLoading){
+      loadFinanceSupportGroups();
+    } else if (financeSupportGroupDetails.length){
+      setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
+    }
+  }
+  async function addFinanceSupportClientsToGroup(){
+    const btn = document.getElementById('financeSupportGroupAddBtn');
+    const sel = document.getElementById('financeSupportGroupSelect');
+    if (!btn || !sel) return;
+    const gid = parseInt(sel.value, 10);
+    if (!gid){
+      setFinanceSupportGroupStatus('Sélectionnez un groupe valide.', true);
+      return;
+    }
+    const clients = Array.isArray(financeSupportCurrentClients) ? financeSupportCurrentClients.filter(c => c && c.client_id) : [];
+    if (!clients.length){
+      setFinanceSupportGroupStatus('Aucun client identifiable à ajouter.', true);
+      return;
+    }
+    btn.disabled = true;
+    setFinanceSupportGroupStatus('Ajout en cours…', false);
+    let success = 0;
+    let attempted = 0;
+    for (const client of clients){
+      attempted++;
+      try{
+        const resp = await fetch('/api/groupes/memberships', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupe_id: gid, client_id: client.client_id })
+        });
+        if (resp.ok){
+          success++;
+        } else {
+          console.warn('finance support group add error', resp.status);
+        }
+      } catch(err){
+        console.warn('finance support group add error', err);
+      }
+    }
+    btn.disabled = false;
+    if (!attempted){
+      setFinanceSupportGroupStatus('Aucun client valide pour l’ajout.', true);
+    } else if (success === attempted){
+      const plural = success > 1 ? 'clients' : 'client';
+      setFinanceSupportGroupStatus(`Liste ajoutée (${success} ${plural}).`, false);
+    } else {
+      setFinanceSupportGroupStatus(`Ajout partiel : ${success}/${attempted} clients.`, true);
+    }
+  }
   function openFinanceSupportModal(code, name, clients){
     const modal = document.getElementById('financeSupportModal');
     if (!modal) return;
@@ -1387,6 +1597,8 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     if (tbody){
       tbody.innerHTML = '';
       const rows = Array.isArray(clients) ? clients : [];
+      financeSupportCurrentClients = rows.filter(function(item){ return item && item.client_id; });
+      toggleFinanceSupportGroupActions(rows.length > 0);
       rows.forEach(function(item){
         const tr = document.createElement('tr');
         const clientTd = document.createElement('td');
@@ -1446,6 +1658,13 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         openFinanceSupportModal(this.dataset.supportCode || '', this.dataset.supportName || '', clients);
       });
     });
+    const addBtn = document.getElementById('financeSupportGroupAddBtn');
+    if (addBtn){
+      addBtn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        addFinanceSupportClientsToGroup();
+      });
+    }
   });
 
   // Chart.js texte/axes en bleu corporate
@@ -1605,10 +1824,12 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
       { key:'esg', toggle:'esgToggle', section:'esgSection' },
+      { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
       { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'rem', toggle:'remToggle', section:'remSection' },
     ];
     const $ = (id)=> document.getElementById(id);
+    const getGroup = (key)=> groups.find(g => g.key === key);
     function setOpen(key){
       groups.forEach(g => {
         const t = $(g.toggle), s = $(g.section);
@@ -1617,8 +1838,45 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         else { s.style.display = 'none'; t.classList.add('collapsed'); }
       });
     }
-    // Ensure all closed by default
-    setOpen('');
+    function detectInitialKey(){
+      const hash = (window.location.hash || '').replace('#','');
+      const isRetroHash = hash === 'retroToggle' || hash === 'retroSection';
+      if (hash){
+        const match = groups.find(g => g.toggle === hash || g.section === hash || g.key === hash);
+        if (match) return match.key;
+        if (isRetroHash) return 'rem';
+        if (hash === 'groupsToggle' || hash === 'groupsSection') return 'groups';
+        if (hash === 'remFraisToggle' || hash === 'remFraisSection') return 'rem';
+      }
+      const search = window.location.search || '';
+      const params = new URLSearchParams(search);
+      const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
+      const hasRetroParams = retroParamKeys.some(key => params.has(key));
+      if (hasRetroParams) return 'rem';
+      if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
+        return 'analysis';
+      }
+      const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
+      const hasRemParams = remParamKeys.some(key => params.has(key));
+      if (hasRemParams){
+        return 'rem';
+      }
+      return '';
+    }
+    const initialKey = detectInitialKey();
+    // Ensure all closed by default, unless we detect one that should stay open
+    setOpen(initialKey);
+    if (initialKey){
+      const group = getGroup(initialKey);
+      if (group){
+        setTimeout(() => {
+          const toggle = $(group.toggle);
+          if (!toggle) return;
+          try { toggle.scrollIntoView({ behavior:'auto', block:'start' }); }
+          catch(e) {}
+        }, 0);
+      }
+    }
     // Wire clicks
     groups.forEach(g => {
       const t = $(g.toggle), s = $(g.section);
@@ -1642,6 +1900,12 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     const section = document.getElementById('retroSection');
     const remFraisToggle = document.getElementById('remFraisToggle');
     const remFraisSection = document.getElementById('remFraisSection');
+    const retroHash = (window.location.hash || '').replace('#','');
+    const retroParams = new URLSearchParams(window.location.search || '');
+    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
+    const shouldOpenByParams = retroParamKeys.some(key => retroParams.has(key));
+    const shouldOpenByHash = retroHash === 'retroToggle' || retroHash === 'retroSection';
+    const shouldOpenInitially = shouldOpenByParams || shouldOpenByHash;
     if (!toggle || !section) return;
     function closeRemFrais(){
       if (!remFraisToggle || !remFraisSection) return;
@@ -1653,7 +1917,10 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       toggle.classList.toggle('collapsed', !isOpen);
       if (isOpen) closeRemFrais();
     }
-    apply(false);
+    apply(shouldOpenInitially);
+    if (shouldOpenInitially){
+      try { toggle.scrollIntoView({ behavior:'auto', block:'start' }); } catch(e) {}
+    }
     toggle.addEventListener('click', function(){
       const isOpen = section.style.display !== 'none';
       const next = !isOpen;
@@ -1735,6 +2002,12 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     })).filter(o => o.t && o.s);
     const retroToggle = document.getElementById('retroToggle');
     const retroSection = document.getElementById('retroSection');
+    const remHash = (window.location.hash || '').replace('#','');
+    const remParams = new URLSearchParams(window.location.search || '');
+    const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
+    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
+    const hasRetroParams = retroParamKeys.some(key => remParams.has(key));
+    const shouldOpenByParams = !hasRetroParams && remParamKeys.some(key => remParams.has(key));
     function closeRetro(){
       if (!retroToggle || !retroSection) return;
       retroSection.style.display = 'none';
@@ -1751,7 +2024,11 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         o.s.style.display = 'none';
         o.t.classList.add('collapsed');
       }
-      close();
+      const targetToggleId = o.t ? o.t.id : '';
+      const targetSectionId = o.s ? o.s.id : '';
+      const shouldOpen = shouldOpenByParams || remHash === targetToggleId || remHash === targetSectionId;
+      if (shouldOpen){ open(); }
+      else { close(); }
       o.t.addEventListener('click', function(ev){
         ev.stopPropagation();
         const isOpen = o.s.style.display !== 'none';
