@@ -37,9 +37,9 @@
             line-height: 1.45;
         }
         h1, h2, h3 { margin: 0; font-weight: 600; color: var(--text); }
-        h1 { font-size: 1.75rem; }
-        h2 { font-size: 1.25rem; }
-        h3 { font-size: 1.05rem; }
+        h1 { font-size: 1.8rem; }
+        h2 { font-size: 1.35rem; letter-spacing: .01em; }
+        h3 { font-size: 1.12rem; font-weight: 650; }
         .muted { color: var(--muted); }
 
         /* ===== En-tête ===== */
@@ -68,8 +68,27 @@
             padding: .35rem .6rem;
             border-radius: 8px;
             transition: background-color .2s ease, color .2s ease;
+            position: relative;
         }
         nav a:hover { background: var(--primary-100); color: var(--primary-600); }
+        nav a.active {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(36, 86, 166, 0.35);
+            outline: 2px solid rgba(255,255,255,0.35);
+        }
+        nav a.active:hover {
+            background: var(--primary-600);
+            color: #fff;
+        }
+        nav a.active::after {
+            content: "";
+            position: absolute;
+            inset: -3px;
+            border-radius: 10px;
+            border: 2px solid rgba(255,255,255,0.2);
+            pointer-events: none;
+        }
 
         /* ===== Mise en page ===== */
         .container { max-width: 1200px; margin: 1.5rem auto 2rem; padding: 0 1rem; }
@@ -86,14 +105,16 @@
         .card i { font-size: 1.6rem; color: var(--primary); }
 
         /* ===== Boutons (utilitaires) ===== */
-        .btn { display: inline-block; padding: .5rem .9rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; cursor: pointer; transition: all .2s ease; }
-        .btn:hover { background: #f8fafc; }
+        .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem .9rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; cursor: pointer; transition: all .2s ease; }
+        .btn:hover { background: #f8fafc; border-color: var(--primary-100); }
         .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
         .btn-primary:hover { background: var(--primary-600); }
+        .btn-secondary { background: #edf2fd; color: var(--primary-600); border-color: rgba(36,86,166,0.3); }
+        .btn-secondary:hover { background: #dbe5fc; }
         .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
         .btn-danger:hover { background:#dc2626; }
-        .btn-choice { height: 44px; padding: .6rem .9rem; font-size: 1rem; border-radius: 10px; text-transform: capitalize; }
-        .btn-choice-active { background: var(--primary); color:#fff; border-color: var(--primary); }
+        .btn-choice { height: 44px; padding: .6rem .9rem; font-size: 1rem; border-radius: 10px; text-transform: capitalize; background:#fff; color:var(--text); border:1px solid var(--border); transition:background .2s ease, color .2s ease, border .2s ease, box-shadow .2s ease; }
+        .btn-choice-active { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow:0 6px 14px rgba(36,86,166,0.25); }
         /* Harmonisation blocs définition de tâches (typo proche KPI) */
         .task-block label { font-size: .95rem; font-weight: 600; color: var(--text); }
         .task-block .btn-choice { height: 44px; font-size: .95rem; }
@@ -184,8 +205,14 @@
         .step-hidden { display: none !important; }
 
         /* ===== Accordéons génériques ===== */
-        .accordion-toggle { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: .8rem 1rem; font-size: 1rem; font-weight: 600; position: relative; }
+        .accordion-toggle { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: .8rem 1rem; font-size: 1rem; font-weight: 600; position: relative; transition: background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
         .accordion-toggle:hover { box-shadow: var(--shadow); }
+        .accordion-toggle:not(.collapsed) { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow: 0 12px 24px rgba(36,86,166,0.25); }
+        .accordion-toggle:not(.collapsed) .chevron,
+        .accordion-toggle:not(.collapsed) i,
+        .accordion-toggle:not(.collapsed) span { color:#fff; }
+        .accordion-toggle:not(.collapsed) * { color:#fff; }
+        .accordion-toggle:not(.collapsed) .badge { background: rgba(255,255,255,0.2) !important; color:#fff !important; border-color: rgba(255,255,255,0.4) !important; }
 
         /* Centrage pour boutons Créer */
         .create-btn-container {
@@ -208,6 +235,48 @@
             left: 12px;
             margin-right: 0 !important;
         }
+        #globalLoader {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .2s ease;
+        }
+        #globalLoader.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        #globalLoader .loader-box {
+            background: #fff;
+            border-radius: 14px;
+            padding: 1rem 1.4rem;
+            box-shadow: 0 18px 36px rgba(15,23,42,0.18);
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            min-width: 240px;
+        }
+        #globalLoader .spinner {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 3px solid rgba(36, 86, 166, 0.25);
+            border-top-color: var(--primary);
+            animation: spin 0.8s linear infinite;
+        }
+        #globalLoader .loader-text {
+            color: var(--text);
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -219,14 +288,15 @@
 
     <!-- Navigation unifiée -->
     <nav>
-        <a href="/dashboard/"><i class="fa-solid fa-house" style="margin-right:6px;"></i>Accueil</a>
-        <a href="/dashboard/clients"><i class="fa-solid fa-users" style="margin-right:6px;"></i>Clients</a>
-        <a href="/dashboard/affaires"><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i>Affaires</a>
-        <a href="/dashboard/supports"><i class="fa-solid fa-chart-pie" style="margin-right:6px;"></i>Supports</a>
-        <a href="/dashboard/allocations"><i class="fa-solid fa-coins" style="margin-right:6px;"></i>Allocations</a>
-        <a href="/dashboard/documents"><i class="fa-solid fa-file" style="margin-right:6px;"></i>Documents</a>
-        <a href="/dashboard/taches"><i class="fa-solid fa-list-check" style="margin-right:6px;"></i>Tâches</a>
-        <a href="/dashboard/parametres"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Paramètres</a>
+        {% set path = request.url.path if request and request.url else '' %}
+        <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house" style="margin-right:6px;"></i>Accueil</a>
+        <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users" style="margin-right:6px;"></i>Clients</a>
+        <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i>Affaires</a>
+        <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie" style="margin-right:6px;"></i>Supports</a>
+        <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins" style="margin-right:6px;"></i>Offres financières</a>
+        <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file" style="margin-right:6px;"></i>Documents</a>
+        <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check" style="margin-right:6px;"></i>Tâches</a>
+        <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Paramètres</a>
     </nav>
 
     <!-- Contenu spécifique -->
@@ -234,7 +304,37 @@
         {% block content %}{% endblock %}
     </div>
 
+    <div id="globalLoader" aria-hidden="true" role="status">
+        <div class="loader-box">
+            <div class="spinner"></div>
+            <div class="loader-text">Veuillez patienter…</div>
+        </div>
+    </div>
+
     <script>
+      (function(){
+        var loader = document.getElementById('globalLoader');
+        var timer = null;
+        function show(label){
+          if(!loader) return;
+          var textEl = loader.querySelector('.loader-text');
+          if(label && textEl){ textEl.textContent = label; }
+          loader.classList.add('active');
+        }
+        function hide(delay){
+          if(!loader) return;
+          var fn = function(){ loader.classList.remove('active'); };
+          if(timer){ clearTimeout(timer); timer = null; }
+          if(delay){
+            timer = setTimeout(fn, delay);
+          } else {
+            fn();
+          }
+        }
+        window.showGlobalLoader = show;
+        window.hideGlobalLoader = hide;
+      })();
+
       // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
       (function () {
         function applyLocalDates() {
@@ -319,8 +419,9 @@
             if (!input){ input = document.createElement('input'); input.type='hidden'; input.name=name; form.appendChild(input); }
             var val = String(btn.getAttribute('data-value')||'');
             input.value = val;
-            group.querySelectorAll('button[data-value]').forEach(function(b){ b.classList.remove('btn-choice-active'); });
+            group.querySelectorAll('button[data-value]').forEach(function(b){ b.classList.remove('btn-choice-active'); b.setAttribute('aria-pressed', 'false'); });
             btn.classList.add('btn-choice-active');
+            btn.setAttribute('aria-pressed', 'true');
             return;
           }
           // Multi-choice

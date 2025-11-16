@@ -14,6 +14,7 @@ class EvenementSchema(BaseModel):
     commentaire: str | None = None
     utilisateur_responsable: str | None = None
     rh_id: int | None = None
+    statut_reclamation_id: int | None = None
 
     class Config:
         from_attributes = True
@@ -34,6 +35,7 @@ class EvenementCreateSchema(BaseModel):
     commentaire: str | None = None
     utilisateur_responsable: str | None = None
     rh_id: int | None = None
+    statut_reclamation_id: int | None = None
 
 
 class EvenementUpdateSchema(BaseModel):
@@ -46,6 +48,7 @@ class EvenementUpdateSchema(BaseModel):
     commentaire: str | None = None
     utilisateur_responsable: str | None = None
     rh_id: int | None = None
+    statut_reclamation_id: int | None = None
 
 
 class TacheCreateSchema(BaseModel):
@@ -60,3 +63,4 @@ class TacheCreateSchema(BaseModel):
     commentaire: str | None = None
     utilisateur_responsable: str | None = None
     rh_id: int | None = None
+    statut_reclamation_id: int | None = None

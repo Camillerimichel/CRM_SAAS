@@ -45,14 +45,14 @@
     .col-horizon { width:18%; white-space:nowrap; }
     .col-commentaire { width:auto; }
     .page-break { page-break-before: always; }
-    .title-page { min-height: 60vh; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-    /* Décalage du titre de la page 1 de 5 lignes environ */
-    .title-page .section-header { margin-top: 5em; }
+    .title-page { min-height: 60vh; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding-top: 15em; }
+    /* Décalage du titre de la page 1 d'environ 15 lignes */
+    .title-page .section-header { margin-top: 0; }
     .title-page img { display:block; margin-left:auto; margin-right:auto; }
     /* Sommaire centré */
     /* Sommaire décalé de ~10 lignes vers le bas */
     .sommaire-page { min-height: 70vh; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding-top: 10em; }
-    .sommaire-page ol { font-size:14pt; margin: 0; padding-left: 1.5rem; }
+    .sommaire-page ol { font-size:14pt; margin: 0; padding-left: 0; margin-left: 15ch; }
     /* Footer visible à l'écran (les moteurs HTML ignorent @page) */
     .screen-footer { position: fixed; left:0; right:0; bottom: 10mm; text-align:center; font-size:11pt; font-style:italic; color:#333; }
     @media print { .screen-footer { display:none; } }
@@ -73,7 +73,7 @@
   <!-- Page de garde -->
   <div class="title-page">
     {% if logo_url %}
-      <img src="{{ logo_url }}" alt="Logo" style="max-width: 240px; margin-bottom: 28mm;" />
+      <img src="{{ logo_url | safe }}" alt="Logo" style="max-width: 240px; margin-bottom: 28mm;" />
     {% else %}
       <div style="height:90mm"></div>
     {% endif %}
@@ -625,7 +625,7 @@ SELECT COUNT(*) FROM allocations WHERE lower(trim(nom)) = lower(trim(:alloc_name
   <!-- Page de fin -->
   <div class="page-break"></div>
   <div class="title-page" style="min-height:40vh;">
-    {% if logo_url %}<img src="{{ logo_url }}" alt="Logo" style="max-width: 200px; margin-bottom: 12mm;" />{% endif %}
+    {% if logo_url %}<img src="{{ logo_url | safe }}" alt="Logo" style="max-width: 200px; margin-bottom: 12mm;" />{% endif %}
     <div class="center" style="font-size:11pt;">{{ footer_line1 or 'Nom du cabinet' }}</div>
     {% if footer_line2 %}<div class="center" style="font-size:11pt;">{{ footer_line2 }}</div>{% endif %}
     {% if footer_line2b %}<div class="center" style="font-size:11pt;">{{ footer_line2b }}</div>{% endif %}

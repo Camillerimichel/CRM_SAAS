@@ -17,20 +17,43 @@
     margin: 0 1.25rem 0.75rem;
     padding: 0.75rem 1rem 0.75rem 2.5rem;
     border-radius: 10px;
+  }
+  #paramContainer .accordion-toggle,
+  #paramContainer .accordion-subtoggle {
+    background: #fff;
+    color: var(--primary-800, #1f2b6c);
     border: 1px solid var(--border);
-    background: var(--primary-100);
     box-shadow: none;
+    transition: background .2s ease, color .2s ease, border .2s ease;
   }
+  #paramContainer .accordion-toggle.collapsed,
+  #paramContainer .accordion-subtoggle.collapsed {
+    background: #fff;
+    color: var(--primary-800, #1f2b6c);
+    border-color: var(--border);
+  }
+  #paramContainer .accordion-toggle:not(.collapsed),
+  #paramContainer .accordion-subtoggle:not(.collapsed) {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  #paramContainer .accordion-toggle:hover,
   #paramContainer .accordion-subtoggle:hover {
-    background: #dbe6fb;
+    background: #f5f8ff;
   }
-  #paramContainer .accordion-subtoggle span {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+  #paramContainer .accordion-toggle.collapsed:hover,
+  #paramContainer .accordion-subtoggle.collapsed:hover {
+    color: var(--primary-800, #1f2b6c);
   }
+  #paramContainer .accordion-toggle .chevron,
   #paramContainer .accordion-subtoggle .chevron {
     color: var(--primary-600);
+    transition: transform .2s ease, color .2s ease;
+  }
+  #paramContainer .accordion-toggle:not(.collapsed) .chevron,
+  #paramContainer .accordion-subtoggle:not(.collapsed) .chevron {
+    color: #fff;
   }
   #paramContainer .btn-list {
     display: inline-flex;
@@ -481,6 +504,187 @@
             <div class="muted" style="font-style:italic; margin-top:.5rem;">
               {% if courtier and courtier.date_creation %}Date de création: {{ courtier.date_creation }}{% endif %}
               {% if courtier and courtier.date_obsolescence %}<br>Date de modification: {{ courtier.date_obsolescence }}{% endif %}
+            </div>
+          </form>
+        </div>
+
+        <div class="accordion-toggle accordion-subtoggle" data-target="courtierDocumentsPanel" data-group="courtierSub">
+          <span><i class="fa-solid fa-file-shield" style="margin-right:6px;"></i> Documents réglementaires</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="courtierDocumentsPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <h3 style="margin-top:0;">Documents réglementaires du courtier</h3>
+          <p class="muted" style="margin-bottom:1rem;">Importez les documents réglementaires (PDF) et suivez leurs dates de validité.</p>
+
+          {% if courtier_documents %}
+            {% set sorted_docs = courtier_documents|sort(attribute='activite_libelle') %}
+            {% set type_ns = namespace(options=[]) %}
+            {% for doc in sorted_docs %}
+              {% set doc_type = doc.activite_libelle or '—' %}
+              {% if doc_type not in type_ns.options %}
+                {% set _ = type_ns.options.append(doc_type) %}
+              {% endif %}
+            {% endfor %}
+            <div class="card" style="padding:0; overflow-x:auto; margin-bottom:1rem;">
+              <table id="courtierDocumentsTable" style="width:100%; border-collapse:collapse;">
+                <thead>
+                  <tr style="text-align:left; border-bottom:1px solid var(--border);">
+                    <th style="padding:0.75rem;">Type</th>
+                    <th style="padding:0.75rem;">Date de validité</th>
+                    <th style="padding:0.75rem;">Document</th>
+                    <th style="padding:0.75rem; width:160px; text-align:center;">Actions</th>
+                  </tr>
+                  <tr style="text-align:left; border-bottom:1px solid var(--border); background:rgba(31,43,108,0.04);">
+                    <th style="padding:0.5rem;">
+                      <select id="cd_filter_type" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem; height:36px;">
+                        <option value="">Tous les types</option>
+                        {% for opt in type_ns.options %}
+                          <option value="{{ opt }}">{{ opt }}</option>
+                        {% endfor %}
+                      </select>
+                    </th>
+                    <th style="padding:0.5rem;">
+                      <input id="cd_filter_date" type="text" placeholder="JJ/MM/AAAA" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
+                    </th>
+                    <th style="padding:0.5rem;">
+                      <input id="cd_filter_doc" type="text" placeholder="Nom du fichier" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
+                    </th>
+                    <th style="padding:0.5rem;">
+                      <button id="cd_filter_reset" type="button" class="btn btn-list btn-list-primary" style="width:100%; justify-content:center;">Réinitialiser</button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for doc in sorted_docs %}
+                    {% set doc_type = doc.activite_libelle or '—' %}
+                    <tr data-type="{{ doc_type }}" data-date="{{ doc.date_validite_display or '' }}" data-name="{{ doc.original_filename or doc.stored_filename }}">
+                      <td style="padding:0.65rem 0.75rem;">{{ doc_type }}</td>
+                      <td style="padding:0.65rem 0.75rem;">
+                        {% if doc.date_validite_display %}
+                          <span {% if doc.is_expired %}style="color:#b91c1c; font-weight:600;"{% endif %}>{{ doc.date_validite_display }}</span>
+                        {% else %}—{% endif %}
+                      </td>
+                      <td style="padding:0.65rem 0.75rem;">{{ doc.original_filename or doc.stored_filename }}</td>
+                      <td style="padding:0.65rem 0.75rem; white-space:nowrap;">
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.view_url }}" target="_blank" rel="noopener" title="Prévisualiser">
+                          <i class="fa-solid fa-eye"></i>
+                        </a>
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.download_url }}" title="Télécharger">
+                          <i class="fa-solid fa-download"></i>
+                        </a>
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.edit_url }}" title="Modifier">
+                          <i class="fa-solid fa-pen-to-square"></i>
+                        </a>
+                        <form method="post" action="{{ doc.delete_url }}?open=courtierDocuments" style="display:inline;" onsubmit="return confirm('Supprimer ce document ?');">
+                          <button type="submit" class="btn btn-list btn-list-danger" title="Supprimer">
+                            <i class="fa-solid fa-trash"></i>
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <script>
+              (function () {
+                const table = document.getElementById('courtierDocumentsTable');
+                if (!table) { return; }
+                const filterType = document.getElementById('cd_filter_type');
+                const filterDate = document.getElementById('cd_filter_date');
+                const filterDoc = document.getElementById('cd_filter_doc');
+                const resetBtn = document.getElementById('cd_filter_reset');
+                const rows = Array.from(table.querySelectorAll('tbody tr'));
+
+                const normalize = (value) => value ? value.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() : '';
+
+                function applyFilters() {
+                  const qType = normalize(filterType.value);
+                  const qDate = normalize(filterDate.value);
+                  const qDoc = normalize(filterDoc.value);
+
+                  rows.forEach((row) => {
+                    const type = normalize(row.getAttribute('data-type'));
+                    const date = normalize(row.getAttribute('data-date'));
+                    const name = normalize(row.getAttribute('data-name'));
+                    const matchType = !qType || type === qType;
+                    const matchDate = !qDate || date.includes(qDate);
+                    const matchDoc = !qDoc || name.includes(qDoc);
+                    row.style.display = (matchType && matchDate && matchDoc) ? '' : 'none';
+                  });
+                }
+
+                if (filterType) {
+                  filterType.addEventListener('change', applyFilters);
+                }
+                [filterDate, filterDoc].forEach((input) => {
+                  if (input) {
+                    input.addEventListener('input', applyFilters);
+                  }
+                });
+
+                if (resetBtn) {
+                  resetBtn.addEventListener('click', () => {
+                    [filterType, filterDate, filterDoc].forEach((input) => { if (input) { input.value = ''; } });
+                    applyFilters();
+                  });
+                }
+
+                applyFilters();
+              })();
+            </script>
+          {% else %}
+            <div class="card muted" style="padding:0.85rem 1rem; margin-bottom:1rem;">Aucun document enregistré pour le moment.</div>
+          {% endif %}
+
+          {% if not compliance_activites %}
+            <div class="card muted" style="padding:0.85rem 1rem; margin-bottom:1rem;">Aucun type d'activité n'est disponible dans la table Compliance_rc_pro.</div>
+          {% endif %}
+
+          {% if courtier_document_edit %}
+            <div class="card" style="padding:0.65rem 1rem; margin-bottom:0.75rem; background:#fff7ed; border:1px solid #fb923c;">
+              <strong>Modification</strong> du document <span style="font-style:italic;">{{ courtier_document_edit.original_filename }}</span>.
+              <a href="/dashboard/parametres?open=courtierDocuments" class="btn-add" style="margin-left:1rem;">Annuler</a>
+            </div>
+          {% endif %}
+          <form method="post" action="/dashboard/parametres/courtier/documents?open=courtierDocuments" enctype="multipart/form-data" class="card" style="margin:0;">
+            {% if courtier_document_edit %}
+              <input type="hidden" name="doc_id" value="{{ courtier_document_edit.id }}" />
+            {% endif %}
+            <div class="form-row">
+              <div class="field" style="min-width:260px;">
+                <label>Type de document</label>
+                <select name="activite_id" required {% if not compliance_activites %}disabled{% endif %}>
+                  <option value="">Choisir…</option>
+                  {% for item in compliance_activites %}
+                    {% set opt_id = item.id %}
+                    <option value="{{ opt_id }}" {% if courtier_document_edit and (opt_id|string) == (courtier_document_edit.activite_id|string) %}selected{% endif %}>{{ item.activite or item.libelle }}</option>
+                  {% endfor %}
+                  {% if not compliance_activites %}
+                    <option value="">Aucune activité disponible</option>
+                  {% endif %}
+                </select>
+              </div>
+              <div class="field" style="width:200px;">
+                <label>Date limite de validité</label>
+                <input type="date" name="date_validite" value="{{ courtier_document_edit.date_validite_value if courtier_document_edit else '' }}" />
+              </div>
+              <div class="field" style="flex:1 1 240px;">
+                <label>Document PDF</label>
+                <input type="file" name="document_file" accept="application/pdf" {% if not courtier_document_edit %}required{% endif %} />
+                {% if courtier_document_edit %}
+                  <div class="muted" style="font-size:0.8rem; margin-top:0.25rem;">Laissez vide pour conserver le fichier existant.</div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="create-btn-container" style="margin-top:0.75rem;">
+              <button class="btn btn-primary" type="submit" {% if not compliance_activites %}disabled{% endif %}>
+                {% if courtier_document_edit %}
+                  <i class="fa-solid fa-floppy-disk" style="color:#fff;"></i>&nbsp;Mettre à jour
+                {% else %}
+                  <i class="fa-solid fa-upload" style="color:#fff;"></i>&nbsp;Déposer
+                {% endif %}
+              </button>
             </div>
           </form>
         </div>
@@ -1475,7 +1679,7 @@
               <td>
                 <form id="grp-{{ rowkey }}" method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;"></form>
                 <span class="badge">{{ typedisp }}</span>
-                <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ typedisp }}" />
+                <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ g.type_groupe or '' }}" />
               </td>
               <td><input form="grp-{{ rowkey }}" type="text" name="nom" value="{{ g.nom or '' }}" required style="min-width:340px; width:100%;" /></td>
               <td>
@@ -1551,8 +1755,8 @@
                 <div class="field" style="min-width: 140px;">
                   <label>Type</label>
                   <select name="type_groupe" required>
-                    <option value="Personnes">Personnes</option>
-                    <option value="Affaires">Affaires</option>
+                    <option value="client">Personnes</option>
+                    <option value="affaire">Affaires</option>
                   </select>
                 </div>
                 <div class="field" style="min-width: 220px;">
@@ -1589,7 +1793,7 @@
                 </div>
               </div>
               <div class="create-btn-container">
-                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i>&nbsp;Créer le groupe</button>
+                <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="color:#fff;"></i>&nbsp;Créer le groupe</button>
               </div>
             </form>
           </div>
@@ -1981,6 +2185,7 @@ document.addEventListener('DOMContentLoaded', function(){
   const toggles = Array.from(document.querySelectorAll('.accordion-toggle[data-target]'));
 
   toggles.forEach(btn => {
+    btn.classList.add('collapsed');
     const panel = document.getElementById(btn.dataset.target);
     if (!panel){
       return;
@@ -2022,6 +2227,7 @@ document.addEventListener('DOMContentLoaded', function(){
     const mapping = {
       'courtier': ['courtierPanel'],
       'courtier_identite': ['courtierPanel','courtierIdentitePanel'],
+      'courtierDocuments': ['courtierPanel','courtierDocumentsPanel'],
       'courtierDetails': ['courtierPanel','courtierDetailsPanel'],
       'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
       'societes_categories': ['assureursPanel','societeCatsPanel'],

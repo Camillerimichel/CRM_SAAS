@@ -70,9 +70,13 @@
     .kyc-container { display:none; gap:12px; flex-direction:column; }
     .kyc-container.open { display:flex; }
     .accordion { border-radius:10px; overflow:hidden; }
-    .accordion-toggle { display:flex; justify-content:space-between; align-items:center; width:100%; border:none; background:#f5f7ff; color:#1f2b6c; font-weight:600; padding:10px 14px; cursor:pointer; font-size:0.95rem; }
-    .accordion-toggle .chevron { transition:transform .2s ease; }
+    .accordion-toggle { display:flex; justify-content:space-between; align-items:center; width:100%; border:1px solid rgba(36,86,166,0.15); border-radius:10px; background:#f5f7ff; color:#1f2b6c; font-weight:600; padding:10px 14px; cursor:pointer; font-size:0.95rem; transition:background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+    .accordion-toggle .chevron { transition:transform .2s ease, color .2s ease; }
     .accordion-toggle.collapsed .chevron { transform:rotate(-90deg); }
+    .accordion-toggle:not(.collapsed) { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 10px 22px rgba(36,86,166,0.28); }
+    .accordion-toggle:not(.collapsed) .chevron,
+    .accordion-toggle:not(.collapsed) i,
+    .accordion-toggle:not(.collapsed) span { color:#fff; }
     .accordion-panel { display:none; padding:12px 14px; background:#fff; border:1px solid #eef1ff; border-top:none; }
     .accordion-panel.active { display:block; }
     .toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
@@ -144,6 +148,10 @@
         <i class="fa-solid fa-file-contract"></i>
         Choix du contrat
       </button>
+      <button type="button" class="kyc-main-btn" id="openLcbftBtn">
+        <i class="fa-solid fa-shield-halved"></i>
+        LCBFT
+      </button>
       <a class="kyc-main-btn" href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1" download="rapport_kyc_{{ client_id }}.pdf">
         <i class="fa-solid fa-download"></i>
         Télécharger PDF
@@ -164,77 +172,15 @@
     
   </div>
 
-  {% if not request.query_params.get('embed') %}
-  <!-- Bloc Conformité (nouvel accordéon) -->
-  <div class="kyc-container open" id="conformiteContainer">
-    <div class="accordion card">
-      <button class="accordion-toggle" data-target="conformitePanel">
-        <span><i class="fa-solid fa-scale-balanced" style="margin-right:8px;"></i>Conformité</span>
-        <span class="chevron">▾</span>
-      </button>
-      <div class="accordion-panel" id="conformitePanel" style="display:none;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn" onclick="openConformiteConnaissance()"><i class="fa-solid fa-user-check" style="margin-right:6px;"></i>Connaissance client</button>
-          <button type="button" class="btn" onclick="openConformiteTacfin()"><i class="fa-solid fa-shield-halved" style="margin-right:6px;"></i>TRACFIN / FATCA</button>
-          <button type="button" class="btn" onclick="openConformiteEer()"><i class="fa-solid fa-file-signature" style="margin-right:6px;"></i>Entrée en relation</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
+  
 
-  <!-- Modals Conformité -->
-  <div class="modal-overlay" id="conformiteConnaissanceModal" onclick="if(event.target===this) closeConformiteConnaissance()">
-    <div class="modal-card" style="width:840px; max-width:95vw;">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3>
-        <button class="modal-close" onclick="closeConformiteConnaissance()">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="muted">En cours de développement — ce pop‑up regroupera les éléments clés de “Connaissances financières”.</p>
-        <p><a href="#" onclick="closeConformiteConnaissance(); document.getElementById('openKnowledgeBtn').click(); return false;" class="btn">Aller à l’édition détaillée</a></p>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="conformiteTacfinModal" onclick="if(event.target===this) closeConformiteTacfin()">
-    <div class="modal-card" style="width:960px; max-width:96vw; max-height:92vh;">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3>
-        <button class="modal-close" onclick="closeConformiteTacfin()">✕</button>
-      </div>
-      <div class="modal-body" id="conformiteTacfinBody">
-        <!-- Le contenu du panneau LCBFT sera cloné ici à l’ouverture -->
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="conformiteEerModal" onclick="if(event.target===this) closeConformiteEer()">
-    <div class="modal-card" style="width:720px; max-width:96vw;">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3>
-        <button class="modal-close" onclick="closeConformiteEer()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="accordion card" style="margin:0;">
-          <button class="accordion-toggle" data-target="eerDocPanel"><span>Document d’entrée en relation</span><span class="chevron">▾</span></button>
-          <div class="accordion-panel" id="eerDocPanel" style="display:none;">
-            <p class="muted">En cours de développement.</p>
-          </div>
-          <button class="accordion-toggle" data-target="eerMissionPanel"><span>Lettre de Mission</span><span class="chevron">▾</span></button>
-          <div class="accordion-panel" id="eerMissionPanel" style="display:none;">
-            <p class="muted">En cours de développement.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- Modals Conformité supprimées -->
 
 
   <div class="kyc-etat-container" id="etatContainer">
       <div class="accordion card">
         <button class="accordion-toggle" data-target="etatCivilPanel">
-          <span><i class="fa-solid fa-user" style="margin-right:8px;"></i>Etat civil</span>
+          <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">1</span><i class="fa-solid fa-user" style="margin-right:8px;"></i>Etat civil</span>
           <span class="chevron">▾</span>
         </button>
         <div class="accordion-panel" id="etatCivilPanel">
@@ -249,7 +195,7 @@
             <div class="row two-cols" style="display:flex; gap:12px; flex-wrap:wrap;">
               <div class="field" style="flex:1 1 220px; min-width:200px;">
                 <label for="etatCivilite">Civilité</label>
-                <select id="etatCivilite" name="civilite">
+                <select id="etatCivilite" name="civilite" style="height:40px; min-height:40px;">
                   <option value="">-- Choisir --</option>
                   {% for option in ['Monsieur','Madame','Mademoiselle','Autre'] %}
                     <option value="{{ option }}" {% if kyc_etat_civil and kyc_etat_civil.civilite == option %}selected{% endif %}>{{ option }}</option>
@@ -293,7 +239,7 @@
       </div>
       <div class="accordion card">
         <button class="accordion-toggle collapsed" data-target="etatAdressePanel">
-          <span><i class="fa-solid fa-location-dot" style="margin-right:8px;"></i>Adresse</span>
+          <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">2</span><i class="fa-solid fa-location-dot" style="margin-right:8px;"></i>Adresse</span>
           <span class="chevron">▾</span>
         </button>
         <div class="accordion-panel" id="etatAdressePanel">
@@ -374,7 +320,7 @@
       </div>
       <div class="accordion card">
         <button class="accordion-toggle collapsed" data-target="etatMatrimonialPanel">
-          <span><i class="fa-solid fa-people-arrows" style="margin-right:8px;"></i>Situation matrimoniale</span>
+          <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">3</span><i class="fa-solid fa-people-arrows" style="margin-right:8px;"></i>Situation matrimoniale</span>
           <span class="chevron">▾</span>
         </button>
         <div class="accordion-panel" id="etatMatrimonialPanel">
@@ -436,7 +382,7 @@
       </div>
       <div class="accordion card">
         <button class="accordion-toggle collapsed" data-target="etatProfessionnelPanel">
-          <span><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Situation professionnelle</span>
+          <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">4</span><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Situation professionnelle</span>
           <span class="chevron">▾</span>
         </button>
         <div class="accordion-panel" id="etatProfessionnelPanel">
@@ -533,6 +479,14 @@
         <div class="summary-balance">
           <span class="label">Solde budget (Recettes - Charges)</span>
           <span class="amount {{ 'positive' if budget_net_value >= 0 else 'negative' }}">{{ budget_net_str }} €</span>
+        </div>
+        <div class="summary-balance">
+          <span class="label">Contrats actifs</span>
+          <span class="amount">{{ nb_contrats_actifs }}</span>
+        </div>
+        <div class="summary-balance">
+          <span class="label">Supports référencés</span>
+          <span class="amount">{{ nb_supports_references }}</span>
         </div>
       </div>
     </div>
@@ -794,7 +748,7 @@
   <div class="kyc-container" id="knowledgeContainer">
     <div class="accordion card">
       <button class="accordion-toggle collapsed" data-target="knowledgePanel">
-        <span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
+        <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
         <span class="chevron">▾</span>
       </button>
       <div class="accordion-panel" id="knowledgePanel">
@@ -803,11 +757,12 @@
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
           .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
+          #knowledgePanel #risqueSnapshotCard .summary-balance .label { background:#1d4ed8; color:#fff; padding:4px 8px; border-radius:6px; display:inline-block; }
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
           .muted-small { color:#6b7280; font-size:0.85rem; }
           .offer-pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
-          .step-hidden { display:none; }
+          .step-hidden { display:none !important; }
           /* Bandeau sticky en haut du panel */
           .risk-sticky { position: sticky; top: 0; z-index: 20; background: var(--surface); }
         </style>
@@ -834,7 +789,7 @@
           {% if not risque_history_mode %}
           <div class="risk-grid">
             <div class="risk-block">
-              <h5>Connaissance générale</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">1</span>Connaissance générale</h5>
               <div class="btn-group" data-name="connaissance_adequate">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
                 <button type="button" class="btn btn-choice" data-value="non">Non</button>
@@ -844,7 +799,7 @@
             </div>
 
             <div class="risk-block step-kn step-hidden" id="riskStepConnaissance">
-              <h5>Niveau par produit</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">2</span>Niveau par produit</h5>
               <div class="two-col-grid" style="display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:10px;">
               {% for p in risque_opts.produits %}
                 <div class="field" style="margin-bottom:8px;">
@@ -861,7 +816,7 @@
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther1">
-              <h5>Perte acceptée</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">3</span>Perte acceptée</h5>
               <div class="btn-group" data-name="perte_option_id">
                 {% for o in risque_opts.perte %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
@@ -871,7 +826,7 @@
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther2">
-              <h5>Part de l’investissement dans le patrimoine</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">4</span>Part de l’investissement dans le patrimoine</h5>
               <div class="btn-group" data-name="patrimoine_part_option_id">
                 {% for o in risque_opts.patrimoine_part %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
@@ -881,7 +836,7 @@
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther3">
-              <h5>Disponibilité</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span>Disponibilité</h5>
               <div class="btn-group" data-name="disponibilite_option_id">
                 {% for o in risque_opts.disponibilite %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
@@ -891,7 +846,7 @@
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther4">
-              <h5>Durée de placement envisagée</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span>Durée de placement envisagée</h5>
               <div class="btn-group" data-name="duree_option_id">
                 {% for o in risque_opts.duree %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
@@ -901,7 +856,7 @@
             </div>
 
             <div class="risk-block step-other step-hidden" id="riskStepOther5">
-              <h5>Objectifs</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">7</span>Objectifs</h5>
               <div class="btn-group" data-name="objectif_ids">
                 {% for o in risque_opts.objectifs %}
                   <button type="button" class="btn btn-choice" data-id="{{ o.id }}">{{ o.label }}</button>
@@ -922,7 +877,7 @@
 
             <!-- Revenus court-terme: acceptation du risque / choix personnel -->
             <div class="risk-block step-other step-hidden" id="riskStepRevenusCt">
-              <h5>Revenus court-terme: acceptation du risque</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Revenus court-terme: acceptation du risque</h5>
               <div class="btn-group" data-name="revenus_ct_accept">
                 <button type="button" class="btn btn-choice" data-value="oui">J'accepte le risque Court Terme</button>
                 <button type="button" class="btn btn-choice" data-value="non">Je n'accepte pas</button>
@@ -936,11 +891,14 @@
                   {% endfor %}
                 </div>
                 <input type="hidden" name="offre_personnelle_niveau_id" value="{{ risque_decision.niveau_client_id if risque_decision and risque_decision.niveau_client_id else '' }}" />
+                <div class="muted-small" style="font-style: italic; margin-top:6px;">
+                  Si vous choisissez un niveau de risque personnel, la valeur « Finale » en haut se met à jour et sera enregistrée.
+                </div>
               </div>
             </div>
 
             <div class="risk-block" id="riskAcceptBlock">
-              <h5>Acceptez-vous le risque déterminé ?</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">9</span>Acceptez-vous le risque déterminé ?</h5>
               <div class="muted-small" style="margin-bottom:6px;">Le risque déterminé par vos réponses est : <strong id="riskDeterminedText">—</strong></div>
               <div class="btn-group" data-name="accept_offre_calculee">
                 <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
@@ -968,6 +926,9 @@
                   </span>
                 </label>
                 <input type="hidden" name="offre_personnelle_niveau_id" value="{{ risque_decision.niveau_client_id if risque_decision and risque_decision.niveau_client_id else '' }}" />
+                <div class="muted-small" style="font-style: italic; margin-top:6px;">
+                  Si vous choisissez un niveau de risque personnel, la valeur « Finale » en haut se met à jour et sera enregistrée.
+                </div>
                 <div class="field" style="margin-top:8px;">
                   <label>Motivation</label>
                   <textarea id="motivationRefus" name="motivation_refus" rows="2" placeholder="Expliquez la raison du refus du risque proposé">{{ risque_decision.motivation_refus if risque_decision and risque_decision.motivation_refus else '' }}</textarea>
@@ -979,7 +940,6 @@
           <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
             <div class="muted-small">Saisi le {{ risque_display_saisie }}, expire le {{ risque_display_obsolescence }}</div>
             <div>
-              <span class="muted-small">Offre recommandée:</span> <span id="riskOfferPill" class="offer-pill">—</span>
               <button type="submit" class="btn-primary" id="riskSaveBtn" style="margin-left:8px;" disabled>Enregistrer</button>
             </div>
           </div>
@@ -993,7 +953,7 @@
               <div style="font-weight:600;">Récapitulatif enregistré</div>
               {% if risque_snapshots and risque_snapshots|length > 0 %}
                 <label for="riskSnapshotSelect" class="muted-small">Historique</label>
-                <select id="riskSnapshotSelect" style="height:28px;">
+                <select id="riskSnapshotSelect" style="height:28px; width:50%; min-width:180px;">
                   {% for s in risque_snapshots %}
                     <option value="{{ s.id }}" {% if risque_selected_id and s.id == risque_selected_id %}selected{% endif %}>
                       {{ s.date_saisie }}{% if s.date_expiration %} → {{ s.date_expiration }}{% endif %}
@@ -1190,6 +1150,9 @@
             const accYesCk = document.getElementById('acceptYesCk');
             const accNoCk = document.getElementById('acceptNoCk');
             const personalRiskSelect = document.getElementById('personalRiskSelect');
+            function setOffrePers(val){
+              try{ form.querySelectorAll('input[name="offre_personnelle_niveau_id"]').forEach(function(i){ i.value = val || ''; }); }catch(e){}
+            }
             // Toggle buttons → hidden inputs
             function initSingle(group){
               const name = group.getAttribute('data-name');
@@ -1213,6 +1176,9 @@
                   }
                   if (name === 'revenus_ct_accept'){
                     try { syncRevPersonal(); } catch(e){}
+                  }
+                  if (name === 'offre_personnelle_niveau_id'){
+                    setOffrePers(v);
                   }
                 });
               });
@@ -1400,7 +1366,10 @@
                 return;
               }
               if (accG === 'non'){
-                // Activer dès que la case de refus est cochée (le détail pourra être précisé ensuite)
+                // Si un niveau personnel est choisi, autoriser l'enregistrement même sans cocher la case
+                const persNow = valInt('offre_personnelle_niveau_id');
+                if (persNow){ saveBtn.disabled = false; return; }
+                // Sinon, exiger la case de refus cochée
                 saveBtn.disabled = !(accNoCk && accNoCk.checked);
                 return;
               }
@@ -1447,8 +1416,9 @@
             if (accNoCk) accNoCk.addEventListener('change', updateSaveEnabled);
             if (personalRiskSelect){
               personalRiskSelect.addEventListener('change', function(){
-                const hid = form.querySelector('input[name="offre_personnelle_niveau_id"]');
-                if (hid) hid.value = personalRiskSelect.value || '';
+                setOffrePers(personalRiskSelect.value || '');
+                // Recalculer et refléter immédiatement la valeur "Finale" du bandeau
+                updateOffer();
                 updateSaveEnabled();
               });
             }
@@ -1479,7 +1449,7 @@
           (function(){
             const montantInput = document.getElementById('lcbftMontant');
             const pctInput = document.getElementById('lcbftPatrimoinePct');
-            const actifsInput = document.getElementById('actifsTotalValue');
+            const actifsInput = document.getElementById('patrimoineNetValue');
             if (!montantInput || !pctInput || !actifsInput) return;
             function parseAmount(v){
               if (v == null) return 0;
@@ -1538,10 +1508,77 @@
             updateSoc();
           })();
         </script>
-        <script>
+          <script>
           (function(){
             const form = document.getElementById('lcbftForm');
             if (!form) return;
+            function fieldValue(name){
+              const checkbox = form.querySelector('input[type="checkbox"][name="'+name+'"]');
+              if (checkbox) return checkbox.checked ? '1' : '0';
+              const input = form.querySelector('input[name="'+name+'"]');
+              if (input) return String(input.value || '').trim();
+              const select = form.querySelector('select[name="'+name+'"]');
+              if (select) return String(select.value || '').trim();
+              return '';
+            }
+        // Met à jour la visibilité du bloc Risque de cartographie
+        window.updateRiskList = function(){
+          const get = fieldValue;
+          const keys = ['has_existing_contracts','ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'];
+          const hasRisk = keys.some((key)=> get(key) === '1');
+          const riskBlock = document.getElementById('riskCartographieBlock');
+          const status = document.getElementById('lcbftRiskStatus');
+          const summary = document.getElementById('cartographieSummary');
+          const details = document.getElementById('cartographieDetails');
+          const mapElems = {
+            'has_existing_contracts': 'cartoVal_has_existing_contracts',
+            'ppe_self': 'cartoVal_ppe_self',
+            'ppe_family': 'cartoVal_ppe_family',
+            'flag_1a': 'cartoVal_flag_1a',
+            'flag_1b': 'cartoVal_flag_1b',
+            'flag_1c': 'cartoVal_flag_1c',
+            'flag_1d': 'cartoVal_flag_1d',
+            'flag_2a': 'cartoVal_flag_2a',
+            'flag_2b': 'cartoVal_flag_2b',
+            'flag_3a': 'cartoVal_flag_3a',
+          };
+          Object.entries(mapElems).forEach(([field, elId])=>{
+            const el = document.getElementById(elId);
+            if (el){ el.textContent = get(field) === '1' ? 'Oui' : 'Non'; }
+          });
+          let computedRisk = 1;
+          const isTrue = (key) => get(key) === '1';
+          if (['flag_1a','flag_1c','flag_1d','flag_2b','flag_3a'].some(isTrue)){
+            computedRisk = 4;
+          } else if (isTrue('flag_2a')){
+            computedRisk = 3;
+          } else if (isTrue('flag_1b') || isTrue('ppe_self') || isTrue('ppe_family')){
+            computedRisk = 2;
+          }
+          const riskLevelEl = document.getElementById('lcbftComputedRisk');
+          if (riskLevelEl){
+            riskLevelEl.textContent = String(computedRisk);
+            const colors = {1:'#16a34a', 2:'#f97316', 3:'#dc2626', 4:'#7f1d1d'};
+            riskLevelEl.style.color = colors[computedRisk] || '';
+          }
+          if (hasRisk){
+            if (status){
+              status.textContent = 'Risque détecté';
+              status.style.color = '#b91c1c';
+            }
+            if (riskBlock) riskBlock.style.display = '';
+            if (summary){ summary.textContent = 'Risque de cartographie'; summary.style.color = '#b91c1c'; }
+            if (details){ details.style.display = 'block'; }
+          } else {
+            if (status){
+              status.textContent = 'Aucun risque détecté';
+              status.style.color = '#16a34a';
+            }
+            if (riskBlock) riskBlock.style.display = 'none';
+            if (summary){ summary.textContent = 'Pas de risque de cartographie'; summary.style.color = '#16a34a'; }
+            if (details){ details.style.display = 'none'; }
+          }
+        };
             function initSingle(group){
               const name = group.getAttribute('data-name');
               const input = form.querySelector('input[name="' + name + '"]');
@@ -1554,19 +1591,16 @@
                   if (input){ input.value=v; }
                   group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active'));
                   btn.classList.add('btn-choice-active');
-                  // PPE/Contrats existants: toggle direct pour éviter toute latence
-                  if (name === 'ppe_self'){
-                    const blk = document.getElementById('ppeSelfBlock');
-                    if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
-                  } else if (name === 'ppe_family'){
-                    const blk = document.getElementById('ppeFamilyBlock');
-                    if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
-                  } else if (name === 'has_existing_contracts'){
+                  // Contrats existants: toggle direct pour éviter toute latence
+                  if (name === 'has_existing_contracts'){
                     const blk = document.getElementById('lcbftExistingBlock');
                     if (blk){ blk.classList.toggle('step-hidden', v !== '1'); }
                   } else {
                     syncBlocks();
                   }
+                  // MAJ simple couleurs + liste de risques
+                  try{ (function(){ const vEl=document.getElementById('verify_'+name); if (vEl){ vEl.textContent = (v==='1')?'':''; vEl.style.color = (v==='1')?'#16a34a':'#dc2626'; } })(); }catch(e){}
+                  try{ window.updateRiskList(); }catch(e){}
                 });
               });
             }
@@ -1574,15 +1608,50 @@
             function initMulti(group){ const name=group.getAttribute('data-name'); const container=ensureHiddenContainer(name); const selected=new Set(); group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ const id=btn.getAttribute('data-id'); if(btn.getAttribute('data-active')==='1'){ btn.classList.add('btn-choice-active'); selected.add(id);} btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id);} else { btn.classList.add('btn-choice-active'); selected.add(id);} container.innerHTML=''; Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); }); }); }); }
             Array.from(form.querySelectorAll('.btn-group')).forEach(function(g){ if(g.querySelector('[data-value]')) initSingle(g); });
             Array.from(form.querySelectorAll('.btn-multi-group')).forEach(function(g){ initMulti(g); });
-            function val(name){ const i=form.querySelector('[name="'+name+'"]'); return i? i.value : ''; }
+            function bindRiskCheckbox(name){
+              const checkbox = form.querySelector('input[type="checkbox"][name="'+name+'"]');
+              if (!checkbox) return;
+              const tagId = checkbox.getAttribute('data-tag');
+              const verifyId = checkbox.getAttribute('data-verify');
+              const targetSelector = checkbox.getAttribute('data-toggle-target');
+              const requiredSelector = checkbox.getAttribute('data-required');
+              const tagEl = tagId ? document.getElementById(tagId) : null;
+              const verifyEl = verifyId ? document.getElementById(verifyId) : null;
+              const targetEl = targetSelector ? document.querySelector(targetSelector) : null;
+              const requiredEl = requiredSelector ? document.querySelector(requiredSelector) : null;
+              if (targetEl && !targetEl.dataset.defaultDisplay){
+                targetEl.dataset.defaultDisplay = targetEl.style.display || '';
+              }
+              function refresh(){
+                const checked = checkbox.checked;
+                if (tagEl) tagEl.style.display = checked ? 'inline' : 'none';
+                if (verifyEl){
+                  verifyEl.textContent = '';
+                  verifyEl.style.color = checked ? '#16a34a' : '#dc2626';
+                }
+                if (targetEl){
+                  targetEl.classList.toggle('step-hidden', !checked);
+                  if (checked){
+                    targetEl.style.display = targetEl.dataset.defaultDisplay || '';
+                  } else {
+                    targetEl.style.display = 'none';
+                  }
+                }
+                if (requiredEl) requiredEl.required = checked;
+                try{ window.updateRiskList(); }catch(e){}
+              }
+              checkbox.addEventListener('change', refresh);
+              refresh();
+            }
+            function val(name){ return fieldValue(name); }
             function syncBlocks(){
               const hasExisting = val('has_existing_contracts');
               const exBlock = document.getElementById('lcbftExistingBlock');
               if (exBlock){ exBlock.classList.toggle('step-hidden', !(hasExisting==='1')); }
-              const ppeSelf = val('ppe_self'); const ppeSelfBlock=document.getElementById('ppeSelfBlock'); if(ppeSelfBlock){ ppeSelfBlock.classList.toggle('step-hidden', !(ppeSelf==='1')); }
-              const ppeFam = val('ppe_family'); const ppeFamBlock=document.getElementById('ppeFamilyBlock'); if(ppeFamBlock){ ppeFamBlock.classList.toggle('step-hidden', !(ppeFam==='1')); }
             }
             syncBlocks();
+            ['ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'].forEach(bindRiskCheckbox);
+            try{ window.updateRiskList(); }catch(e){}
           })();
         </script>
       </div>
@@ -1616,6 +1685,29 @@
             font-size: 0.85rem;
             height: 34px;
             min-height: 34px;
+          }
+          .esg-checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+          }
+          .esg-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #f8fafc;
+            cursor: pointer;
+            font-size: 0.85rem;
+          }
+          .esg-checkbox input {
+            margin: 0;
+          }
+          .esg-checkbox input:checked + span {
+            font-weight: 600;
+            color: var(--primary);
           }
         </style>
 
@@ -1682,23 +1774,33 @@
           <div class="esg-choices">
             <div class="esg-block">
               <h5>Exclusions</h5>
-              <div class="btn-multi-group" data-name="exclusions">
-                {% for opt in esg_exclusion_options %}
-                  <button type="button" class="btn btn-choice" data-id="{{ opt.id }}" {% if esg_selected_exclusions and opt.id in esg_selected_exclusions %}data-active="1"{% endif %}>{{ opt.label }}</button>
-                {% endfor %}
-                {% if not esg_exclusion_options %}<div class="muted">Aucune option disponible</div>{% endif %}
-              </div>
-              <div class="multi-hidden" data-name="exclusions"></div>
+              {% if esg_exclusion_options %}
+                <div class="esg-checkbox-grid">
+                  {% for opt in esg_exclusion_options %}
+                    <label class="esg-checkbox">
+                      <input type="checkbox" name="exclusions" value="{{ opt.id }}" {% if esg_selected_exclusions and opt.id in esg_selected_exclusions %}checked{% endif %} />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="muted">Aucune option disponible</div>
+              {% endif %}
             </div>
             <div class="esg-block">
               <h5>Indicateurs</h5>
-              <div class="btn-multi-group" data-name="indicators">
-                {% for opt in esg_indicator_options %}
-                  <button type="button" class="btn btn-choice" data-id="{{ opt.id }}" {% if esg_selected_indicators and opt.id in esg_selected_indicators %}data-active="1"{% endif %}>{{ opt.label }}</button>
-                {% endfor %}
-                {% if not esg_indicator_options %}<div class="muted">Aucune option disponible</div>{% endif %}
-              </div>
-              <div class="multi-hidden" data-name="indicators"></div>
+              {% if esg_indicator_options %}
+                <div class="esg-checkbox-grid">
+                  {% for opt in esg_indicator_options %}
+                    <label class="esg-checkbox">
+                      <input type="checkbox" name="indicators" value="{{ opt.id }}" {% if esg_selected_indicators and opt.id in esg_selected_indicators %}checked{% endif %} />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="muted">Aucune option disponible</div>
+              {% endif %}
             </div>
           </div>
           <div class="create-btn-container" style="justify-content:flex-end;">
@@ -1729,56 +1831,6 @@
             }
             panel.querySelectorAll('.btn-toggle-group').forEach(initGroup);
 
-            // Multi-sélection par boutons (exclusions / indicateurs) avec inputs cachés générés
-            function ensureHiddenContainer(name){
-              let container = panel.querySelector('.multi-hidden[data-name="' + name + '"]');
-              if (!container){
-                container = document.createElement('div');
-                container.className = 'multi-hidden';
-                container.setAttribute('data-name', name);
-                panel.appendChild(container);
-              }
-              return container;
-            }
-            function syncHidden(name, ids){
-              const container = ensureHiddenContainer(name);
-              container.innerHTML = '';
-              ids.forEach(function(id){
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = name;
-                input.value = String(id);
-                container.appendChild(input);
-              });
-            }
-            panel.querySelectorAll('.btn-multi-group').forEach(function(group){
-              const name = group.getAttribute('data-name');
-              if (!name) return;
-              // Etat initial depuis attribut data-active
-              const selected = new Set();
-              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){
-                const id = btn.getAttribute('data-id');
-                if (btn.getAttribute('data-active') === '1'){
-                  btn.classList.add('btn-choice-active');
-                  selected.add(id);
-                }
-              });
-              syncHidden(name, Array.from(selected));
-              // Clic: toggle
-              group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){
-                btn.addEventListener('click', function(){
-                  const id = btn.getAttribute('data-id');
-                  if (selected.has(id)){
-                    selected.delete(id);
-                    btn.classList.remove('btn-choice-active');
-                  } else {
-                    selected.add(id);
-                    btn.classList.add('btn-choice-active');
-                  }
-                  syncHidden(name, Array.from(selected));
-                });
-              });
-            });
           })();
         </script>
       </div>
@@ -1798,13 +1850,20 @@
         {% elif lcbft_error %}
           <div class="badge error">{{ lcbft_error }}</div>
         {% endif %}
+        <style>
+          .lcbft-checkbox-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+          .lcbft-checkbox { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:#f8fafc; cursor:pointer; font-size:0.85rem; }
+          .lcbft-checkbox input { margin:0; }
+          .lcbft-checkbox input:checked + span { font-weight:600; color:var(--primary); }
+          .lcbft-risk-tag { display:none; font-size:0.85rem; color:#b91c1c; margin-left:8px; }
+        </style>
         <form method="post" id="lcbftForm" style="display:flex; flex-direction:column; gap:12px;">
           <input type="hidden" name="form_action" value="lcbft_save" />
           <input type="hidden" id="patrimoineNetValue" value="{{ patrimoine_net_value if patrimoine_net_value is not none else '' }}" />
           <div class="risk-grid">
             <div class="risk-block">
-              <h5>FATCA</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">1</span>FATCA</h5>
+              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                 <div class="field" style="min-width:0;">
                   <label>Nom du produit</label>
                   <select name="fatca_contrat_id" id="fatcaContractSelect" style="width:100%; height:36px; min-height:36px;">
@@ -1835,7 +1894,7 @@
               </div>
             </div>
             <div class="risk-block">
-              <h5>Cartographie client</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">2</span>Cartographie client</h5>
               <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
                 <div class="field" style="min-width:0;">
                   <label>Depuis quand connaissez-vous le client</label>
@@ -1866,25 +1925,52 @@
               </div>
             </div>
             <div class="risk-block">
-              <h5>PPE</h5>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">3</span>PPE</h5>
               <div class="muted-small" style="margin-bottom:6px;">Reportez-vous au détail des fonctions PPE ci-après (chef d’État, parlement, haute juridiction, cour des comptes, banque centrale, ambassadeur, officiers supérieurs, entreprise publique, organisation internationale…).</div>
-              <div class="field"><label>Client PPE ?</label>
-                <div class="btn-group" data-name="ppe_self">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+              <div class="muted-small" style="font-style:italic; margin-bottom:6px;">Je travaille ici</div>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="ppe_self"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.ppe_self %}checked{% endif %}
+                           data-toggle-target="#ppeSelfBlock"
+                           data-required="#ppeSelfFonction"
+                           data-tag="tag_ppe_self"
+                           data-verify="verify_ppe_self" />
+                    <span>Client PPE ?</span>
+                  </label>
+                  <span id="tag_ppe_self" class="lcbft-risk-tag">Risque pris en compte</span>
                 </div>
-                <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
+                <div class="muted-small" id="verify_ppe_self" style="margin-top:4px; color:#dc2626;"></div>
               </div>
               <div id="ppeSelfBlock" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_self_fonction" value="{{ lcbft_current.ppe_self_fonction if lcbft_current else '' }}"/></div>
+                <div class="field"><label>Fonction exercée</label>
+                  <select name="ppe_self_fonction" id="ppeSelfFonction" style="width:100%; height:36px; min-height:36px;">
+                    <option value="">— Choisir —</option>
+                    {% for opt in lcbft_ppe_options %}
+                      <option value="{{ opt.lib }}" {% if lcbft_current and lcbft_current.ppe_self_fonction and opt.lib==lcbft_current.ppe_self_fonction %}selected{% endif %}>{{ opt.lib }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
                 <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
               </div>
-              <div class="field"><label>Un membre de la famille est PPE ?</label>
-                <div class="btn-group" data-name="ppe_family">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="ppe_family"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.ppe_family %}checked{% endif %}
+                           data-toggle-target="#ppeFamilyBlock"
+                           data-tag="tag_ppe_family"
+                           data-verify="verify_ppe_family" />
+                    <span>Un membre de la famille est PPE ?</span>
+                  </label>
+                  <span id="tag_ppe_family" class="lcbft-risk-tag">Risque pris en compte</span>
                 </div>
-                <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
+                <div class="muted-small" id="verify_ppe_family" style="margin-top:4px; color:#dc2626;"></div>
               </div>
               <div id="ppeFamilyBlock" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
                 <div class="field"><label>Fonction exercée</label><input type="text" name="ppe_family_fonction" value="{{ lcbft_current.ppe_family_fonction if lcbft_current else '' }}"/></div>
@@ -1894,72 +1980,325 @@
           </div>
           <div class="risk-grid">
             <div class="risk-block">
-              <h5>Comportement du client</h5>
-              <div class="field"><label>1.a – Comportement suspect du client, rechigne à fournir les documents demandés au préalable, présente des incohérences dans les propos liminaires de l’étude / audit du patrimoine et des revenus</label><div class="btn-group" data-name="flag_1a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1a" value="{{ lcbft_current.flag_1a if lcbft_current and lcbft_current.flag_1a is not none else '0' }}"/></div>
-              <div class="field"><label>1.b – Est un chef d’entreprise, dirigeant, artisan, commerçant, profession réglementée, profession libérale, français non résident fiscal en France, ou enregistré/établi dans un pays tiers imposant des obligations équivalentes en matière de LAB/FT</label><div class="btn-group" data-name="flag_1b"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1b" value="{{ lcbft_current.flag_1b if lcbft_current and lcbft_current.flag_1b is not none else '0' }}"/></div>
-              <div class="field"><label>1.c – N’est pas présent, se fait représenter par un tiers, agit pour le compte d’un tiers (Bénéficiaire Effectif) inconnu ou difficilement identifiable, ne réside pas en France / réside DOM/TOM, étranger hors EEE résident fiscal en France, ou enregistré/établi dans un pays de l’EEE</label><div class="btn-group" data-name="flag_1c"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1c" value="{{ lcbft_current.flag_1c if lcbft_current and lcbft_current.flag_1c is not none else '0' }}"/></div>
-              <div class="field"><label>1.d – Ne veut pas donner les pièces justificatives quant à l’origine des fonds ou les motifs de paiement, est une PPE, établi/enregistré dans un PTNC (GAFI), pays sous sanctions financières internationales, ou sans adresse clairement identifiée</label><div class="btn-group" data-name="flag_1d"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_1d" value="{{ lcbft_current.flag_1d if lcbft_current and lcbft_current.flag_1d is not none else '0' }}"/></div>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">4</span>Comportement du client</h5>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_1a"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_1a %}checked{% endif %}
+                           data-tag="tag_flag_1a"
+                           data-verify="verify_flag_1a" />
+                    <span>1.a – Comportement suspect du client, rechigne à fournir les documents demandés au préalable, présente des incohérences dans les propos liminaires de l’étude / audit du patrimoine et des revenus</span>
+                  </label>
+                  <span id="tag_flag_1a" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_1a" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_1b"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_1b %}checked{% endif %}
+                           data-tag="tag_flag_1b"
+                           data-verify="verify_flag_1b" />
+                    <span>1.b – Est un chef d’entreprise, dirigeant, artisan, commerçant, profession réglementée, profession libérale, français non résident fiscal en France, ou enregistré/établi dans un pays tiers imposant des obligations équivalentes en matière de LAB/FT</span>
+                  </label>
+                  <span id="tag_flag_1b" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_1b" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_1c"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_1c %}checked{% endif %}
+                           data-tag="tag_flag_1c"
+                           data-verify="verify_flag_1c" />
+                    <span>1.c – N’est pas présent, se fait représenter par un tiers, agit pour le compte d’un tiers (Bénéficiaire Effectif) inconnu ou difficilement identifiable, ne réside pas en France / réside DOM/TOM, étranger hors EEE résident fiscal en France, ou enregistré/établi dans un pays de l’EEE</span>
+                  </label>
+                  <span id="tag_flag_1c" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_1c" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_1d"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_1d %}checked{% endif %}
+                           data-tag="tag_flag_1d"
+                           data-verify="verify_flag_1d" />
+                    <span>1.d – Ne veut pas donner les pièces justificatives quant à l’origine des fonds ou les motifs de paiement, est une PPE, établi/enregistré dans un PTNC (GAFI), pays sous sanctions financières internationales, ou sans adresse clairement identifiée</span>
+                  </label>
+                  <span id="tag_flag_1d" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_1d" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
             </div>
             <div class="risk-block">
-              <h5>Opération souhaitée</h5>
-              <div class="field"><label>2.a – L’opération a des origines de fonds suspectes, versement trop important, incohérence, particulièrement complexe, non justifiée économiquement ou juridiquement, fonds difficilement traçables</label><div class="btn-group" data-name="flag_2a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_2a" value="{{ lcbft_current.flag_2a if lcbft_current and lcbft_current.flag_2a is not none else '0' }}"/></div>
-              <div class="field"><label>2.b – L’opération favorise l’anonymat, a pour unique but l’optimisation fiscale, fait intervenir une fiducie</label><div class="btn-group" data-name="flag_2b"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_2b" value="{{ lcbft_current.flag_2b if lcbft_current and lcbft_current.flag_2b is not none else '0' }}"/></div>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Opération souhaitée</h5>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_2a"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_2a %}checked{% endif %}
+                           data-tag="tag_flag_2a"
+                           data-verify="verify_flag_2a" />
+                    <span>2.a – L’opération a des origines de fonds suspectes, versement trop important, incohérence, particulièrement complexe, non justifiée économiquement ou juridiquement, fonds difficilement traçables</span>
+                  </label>
+                  <span id="tag_flag_2a" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_2a" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_2b"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_2b %}checked{% endif %}
+                           data-tag="tag_flag_2b"
+                           data-verify="verify_flag_2b" />
+                    <span>2.b – L’opération favorise l’anonymat, a pour unique but l’optimisation fiscale, fait intervenir une fiducie</span>
+                  </label>
+                  <span id="tag_flag_2b" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_2b" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
             </div>
             <div class="risk-block">
-              <h5>Modalités de paiement</h5>
-              <div class="field"><label>3.a – Modalités de paiement reposant sur des justificatifs présentant des anomalies manifestes (documents incomplets, illisibles, incompréhensibles ou non traduits…)</label><div class="btn-group" data-name="flag_3a"><button type="button" class="btn btn-choice" data-value="1">Oui</button><button type="button" class="btn btn-choice" data-value="0">Non</button></div><input type="hidden" name="flag_3a" value="{{ lcbft_current.flag_3a if lcbft_current and lcbft_current.flag_3a is not none else '0' }}"/></div>
+              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">9</span>Modalités de paiement</h5>
+              <div class="field">
+                <div class="lcbft-checkbox-row">
+                  <label class="lcbft-checkbox">
+                    <input type="checkbox"
+                           name="flag_3a"
+                           value="1"
+                           {% if lcbft_current and lcbft_current.flag_3a %}checked{% endif %}
+                           data-tag="tag_flag_3a"
+                           data-verify="verify_flag_3a" />
+                    <span>3.a – Modalités de paiement reposant sur des justificatifs présentant des anomalies manifestes (documents incomplets, illisibles, incompréhensibles ou non traduits…)</span>
+                  </label>
+                  <span id="tag_flag_3a" class="lcbft-risk-tag">Risque pris en compte</span>
+                </div>
+                <div class="muted-small" id="verify_flag_3a" style="margin-top:4px; color:#dc2626;"></div>
+              </div>
+          </div>
+        </div>
+        <div class="risk-grid">
+          <div class="risk-block" id="riskCartographieBlock" style="display:none;">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span>Risque de cartographie</h5>
+            <div id="lcbftRiskStatus" class="muted-small" style="font-weight:600; color:#16a34a;">Aucun risque détecté</div>
+          </div>
+        </div>
+        <div class="risk-grid">
+          <div class="risk-block">
+            {% set _prof = (kyc_situations_professionnelles|first) if kyc_situations_professionnelles else None %}
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">10</span>Profession</h5>
+            <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:end;">
+              <div class="field" style="min-width:0;">
+                <label>Activité</label>
+                <input type="text" value="{{ _prof.statut_libelle if _prof else '' }}" readonly style="width:100%; height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
+              <div class="field" style="min-width:0;">
+                <label>Secteur d’activité</label>
+                <input type="text" value="{{ _prof.secteur_libelle if _prof else '' }}" readonly style="width:100%; height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
+            </div>
+            <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="field" style="min-width:0;">
+                <label>Profession</label>
+                <input type="text" value="{{ _prof.profession if _prof else '' }}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
+              <div class="field" style="min-width:0;">
+                <label>Employeur</label>
+                <input type="text" value="{{ _prof.employeur if _prof else '' }}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
+            </div>
+            <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="field" style="min-width:0;">
+                <label>Ancienneté (années)</label>
+                <input type="text" value="{{ _prof.anciennete_annees if _prof and _prof.anciennete_annees is not none else '' }}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
+              <div class="field" style="min-width:0;">
+                <label>Période</label>
+                <input type="text" value="{% if _prof %}{{ _prof.date_saisie or '—' }} → {{ _prof.date_expiration or '—' }}{% else %}{% endif %}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
+              </div>
             </div>
           </div>
-          <div class="risk-grid">
-            <div class="risk-block">
-              <h5>Profession et exposition personnelle</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Activité</label>
-                  <select name="prof_statut_professionnel_id" style="width:100%; height:36px; min-height:36px;"><option value=""></option>{% for r in ref_statut_professionnel %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_statut_professionnel_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select>
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Secteur d’activité</label>
-                  <select name="prof_secteur_id" style="width:100%; height:36px; min-height:36px;"><option value=""></option>{% for r in ref_profession_secteur %}<option value="{{ r.id }}" {% if lcbft_current and r.id==lcbft_current.prof_secteur_id %}selected{% endif %}>{{ r.libelle }}</option>{% endfor %}</select>
-                </div>
-              </div>
-              <div class="field"><label>Profession</label><input type="text" name="prof_profession" value="{{ lcbft_current.prof_profession if lcbft_current else '' }}" style="height:36px; min-height:36px;"/></div>
-              
-            </div>
-            <div class="risk-block">
-              <h5>Objet de l’opération</h5>
-              <div class="btn-group" data-name="operation_objet"><button type="button" class="btn btn-choice" data-value="Souscription">Souscription</button><button type="button" class="btn btn-choice" data-value="Rachat">Rachat</button><button type="button" class="btn btn-choice" data-value="Versement">Versement complémentaire</button><button type="button" class="btn btn-choice" data-value="Avance">Avance / remboursement</button><button type="button" class="btn btn-choice" data-value="Garantie">Mise en garantie</button><button type="button" class="btn btn-choice" data-value="Autre">Autre</button></div><input type="hidden" name="operation_objet" value="{{ lcbft_current.operation_objet if lcbft_current else '' }}"/></div>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Montant (€)</label>
-                  <input type="text" id="lcbftMontant" name="montant" value="{{ lcbft_current.montant if lcbft_current and lcbft_current.montant is not none else '' }}" style="width:100%; height:36px; min-height:36px;"/>
-                </div>
-                <div class="field step-hidden" style="min-width:0;">
-                  <label>% patrimoine</label>
-                  <input type="text" id="lcbftPatrimoinePct" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}" style="width:100%; height:36px; min-height:36px; text-align:right;" readonly/>
-                </div>
-              </div>
-              
-            </div>
-          </div>
-          <div class="risk-grid">
-            <div class="risk-block">
-              <h5>Raisons de vigilance</h5>
-              <div class="btn-multi-group" data-name="vigilance_ids">
-                {% for v in lcbft_vigilance_options %}
-                  <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>
+          <div class="risk-block">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">11</span>Tranche de revenu</h5>
+            {% if lcbft_revenue_total is not none %}
+              {% set total_label = '{:,.0f}'.format(lcbft_revenue_total).replace(',', ' ') %}
+              <div class="muted-small" style="margin-bottom:6px;">Montant annuel total : <strong>{{ total_label }} €</strong></div>
+              {% if lcbft_revenue_tranches %}
+              <div class="btn-group" style="display:flex; gap:8px; width:100%; flex-wrap:nowrap; justify-content:space-between;">
+                {% for tr in lcbft_revenue_tranches %}
+                  {% set min_val = tr.min_effective %}
+                  {% set max_val = tr.max_effective %}
+                  {% set meets_min = (lcbft_revenue_total is not none) and (min_val is none or lcbft_revenue_total >= min_val) %}
+                  {% set meets_max = (lcbft_revenue_total is not none) and (max_val is none or lcbft_revenue_total <= max_val) %}
+                  {% set is_active = meets_min and meets_max %}
+                  <button type="button" class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}" style="pointer-events:none; display:flex; justify-content:center; align-items:center; width:20%; min-width:20%; text-align:center; font-size:0.85rem;{% if not is_active %} opacity:.65;{% endif %}">
+                    <span style="font-weight:600;">{{ tr.lib }}</span>
+                  </button>
                 {% endfor %}
               </div>
-              <div class="multi-hidden" data-name="vigilance_ids"></div>
-            </div>
-            <div class="risk-block">
-              <h5>Justificatifs</h5>
-              <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
-            </div>
+              {% else %}
+              <div class="muted-small">Aucune tranche de revenu référencée.</div>
+              {% endif %}
+            {% else %}
+              <div class="muted-small">Revenus annuels non renseignés.</div>
+            {% endif %}
           </div>
+          <div class="risk-block">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">12</span>Tranche de patrimoine</h5>
+            {% if lcbft_patrimoine_total is not none %}
+              {% set patr_label = '{:,.0f}'.format(lcbft_patrimoine_total).replace(',', ' ') %}
+              <div class="muted-small" style="margin-bottom:6px;">Patrimoine total : <strong>{{ patr_label }} €</strong></div>
+              {% if lcbft_patrimoine_tranches %}
+              <div class="btn-group" style="display:flex; gap:8px; width:100%; flex-wrap:nowrap; justify-content:space-between;">
+                {% for tr in lcbft_patrimoine_tranches %}
+                  {% set min_val = tr.min_effective %}
+                  {% set max_val = tr.max_effective %}
+                  {% set meets_min = (lcbft_patrimoine_total is not none) and (min_val is none or lcbft_patrimoine_total >= min_val) %}
+                  {% set meets_max = (lcbft_patrimoine_total is not none) and (max_val is none or lcbft_patrimoine_total <= max_val) %}
+                  {% set is_active = meets_min and meets_max %}
+                  <button type="button" class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}" style="pointer-events:none; display:flex; justify-content:center; align-items:center; width:20%; min-width:20%; text-align:center; font-size:0.85rem;{% if not is_active %} opacity:.65;{% endif %}">
+                    <span style="font-weight:600;">{{ tr.lib }}</span>
+                  </button>
+                {% endfor %}
+              </div>
+              {% else %}
+              <div class="muted-small">Aucune tranche de patrimoine référencée.</div>
+              {% endif %}
+            {% else %}
+              <div class="muted-small">Patrimoine non renseigné.</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="risk-grid">
+          <div class="risk-block">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span>Objet de l’opération</h5>
+            <div class="btn-group" data-name="operation_objet"><button type="button" class="btn btn-choice" data-value="Souscription">Souscription</button><button type="button" class="btn btn-choice" data-value="Rachat">Rachat</button><button type="button" class="btn btn-choice" data-value="Versement">Versement complémentaire</button><button type="button" class="btn btn-choice" data-value="Avance">Avance / remboursement</button><button type="button" class="btn btn-choice" data-value="Garantie">Mise en garantie</button><button type="button" class="btn btn-choice" data-value="Autre">Autre</button></div><input type="hidden" name="operation_objet" value="{{ lcbft_current.operation_objet if lcbft_current else '' }}"/></div>
+            <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="field" style="min-width:0;">
+                <label>Montant total à investir (€)</label>
+                <input type="text" id="lcbftMontant" value="{{ '{:,.0f}'.format((lcbft_invest_total or 0.0)|float).replace(',', ' ') }}" readonly style="width:40%; height:36px; min-height:36px; background:#f8fafc;"/>
+              </div>
+              <div class="field step-hidden" style="min-width:0;">
+                <label>% patrimoine</label>
+                <input type="text" id="lcbftPatrimoinePct" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}" style="width:100%; height:36px; min-height:36px; text-align:right;" readonly/>
+              </div>
+            </div>
+            
+            {% if lcbft_objectifs and (lcbft_objectifs|length > 0) %}
+            <div style="margin-top:8px;">
+              <div class="muted-small" style="margin-top:6px;">Détail objectifs pris en compte:</div>
+              <table style="width:100%; border-collapse:collapse; margin-top:4px;">
+                <colgroup>
+                  <col style="width:14%;" />
+                  <col style="width:14%;" />
+                  <col style="width:16%;" />
+                  <col style="width:46%;" />
+                  <col style="width:10%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Date de saisie</th>
+                    <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Date d'expiration</th>
+                    <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Horizon</th>
+                    <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Commentaire</th>
+                    <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Montant (€)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for o in lcbft_objectifs %}
+                  <tr>
+                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.date_saisie or '—' }}</td>
+                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.date_expiration or '—' }}</td>
+                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.horizon_investissement or '—' }}</td>
+                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; color:#4b5563;">{{ o.commentaire or '—' }}</td>
+                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">{{ '{:,.0f}'.format((o.montant or 0)|float).replace(',', ' ') }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="muted-small" style="margin-top:6px;">Aucun objectif trouvé pour ce client.</div>
+            {% endif %}
+          </div>
+          <div class="risk-block">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">13</span>Raison de la vigilance</h5>
+            {% set carto_fields = [
+              ('has_existing_contracts', 'Contrats similaires déjà souscrits ?'),
+              ('ppe_self', 'PPE — Client PPE'),
+              ('ppe_family', 'PPE — Un membre de la famille est PPE ?'),
+              ('flag_1a', 'Comportement client — 1.a'),
+              ('flag_1b', 'Comportement client — 1.b'),
+              ('flag_1c', 'Comportement client — 1.c'),
+              ('flag_1d', 'Comportement client — 1.d'),
+              ('flag_2a', 'Opération souhaitée — 2.a'),
+              ('flag_2b', 'Opération souhaitée — 2.b'),
+              ('flag_3a', 'Modalités de paiement — 3.a')
+            ] %}
+            {% set ns = namespace(items=[], has_risk=false) %}
+            {% for field,label in carto_fields %}
+              {% set raw = lcbft_current[field] if lcbft_current and (field in lcbft_current) else '0' %}
+              {% set value = raw|string %}
+              {% if value == '1' %}
+                {% set ns.has_risk = true %}
+              {% endif %}
+              {% set ns.items = ns.items + [(field, label, value)] %}
+            {% endfor %}
+            {% set has_cart_risk = ns.has_risk %}
+            <div class="muted-small" style="margin-bottom:4px;">Niveau de risque calculé : <strong id="lcbftComputedRisk">{{ lcbft_current.computed_risk_level if lcbft_current else '-' }}</strong></div>
+            <div class="muted-small" id="cartographieSummary" style="margin-bottom:8px; font-weight:600;{% if has_cart_risk %} color:#b91c1c;{% else %} color:#16a34a;{% endif %}">{% if has_cart_risk %}Risque de cartographie{% else %}Pas de risque de cartographie{% endif %}</div>
+            <ul class="muted-small" style="margin:0 0 10px 16px; padding:0; list-style:disc; display:{% if has_cart_risk %}block{% else %}none{% endif %};" id="cartographieDetails">
+              {% for item in ns.items %}
+                {% set fld = item[0] %}{% set label = item[1] %}{% set val = item[2] %}
+                <li><code>{{ fld }}</code> — {{ label }} : <strong id="cartoVal_{{ fld }}">{% if val == '1' %}Oui{% else %}Non{% endif %}</strong></li>
+              {% endfor %}
+            </ul>
+            {% if lcbft_raison_options %}
+            <div class="btn-multi-group" data-name="raison_vigilance_ids" style="display:flex; gap:8px; width:100%; flex-wrap:wrap;">
+              {% for opt in lcbft_raison_options %}
+                {% set is_selected = lcbft_raison_selected_ids and opt.id in lcbft_raison_selected_ids %}
+                {% set is_disabled = lcbft_raison_disabled_ids and opt.id in lcbft_raison_disabled_ids %}
+                <button type="button"
+                        class="btn btn-choice{% if is_selected %} btn-choice-active{% endif %}"
+                        data-id="{{ opt.id }}"
+                        {% if is_selected %}data-active="1"{% endif %}
+                        style="flex:1 1 calc(25% - 8px); min-width:220px; height:72px; display:flex; align-items:center; justify-content:center; text-align:center; white-space:normal;{% if is_disabled %} pointer-events:none; opacity:0.85;{% endif %}">{{ opt.lib }}</button>
+              {% endfor %}
+            </div>
+            <div class="multi-hidden" data-name="raison_vigilance_ids">
+              {% for rid in lcbft_raison_selected_ids %}
+                <input type="hidden" name="raison_vigilance_ids" value="{{ rid }}" />
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="muted-small">Aucune raison référencée.</div>
+            {% endif %}
+          </div>
+          <div class="risk-block">
+            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Justificatifs</h5>
+            <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
+            <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
+            <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
+            <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
+          </div>
+        </div>
           <div class="card" style="display:flex; justify-content:flex-end;">
             <button type="submit" class="btn-primary">Enregistrer</button>
           </div>
@@ -1982,7 +2321,7 @@
         updateSoc();
       }
       if (document.readyState === 'loading'){
-        document.addEventListener('DOMContentLoaded', bindFatca);
+        document.addEventListener('DOMContentLoaded', function(){ bindFatca(); });
       } else {
         bindFatca();
       }
@@ -1993,7 +2332,7 @@
     <div class="accordion card">
       <div class="accordion-header-actions">
         <button class="accordion-toggle collapsed" data-target="objectifsPanel">
-          <span><i class="fa-solid fa-bullseye" style="margin-right:8px;"></i>Objectifs</span>
+          <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span><i class="fa-solid fa-bullseye" style="margin-right:8px;"></i>Objectifs</span>
           <span class="chevron">▾</span>
         </button>
         <button type="button" class="objective-add-btn" id="addObjectiveBtn"><i class="fa-solid fa-plus"></i></button>
@@ -2001,6 +2340,10 @@
       <div class="accordion-panel" id="objectifsPanel">
         <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
           <div class="objectives-list">
+            <div class="objectifs-total-row" style="margin:4px 0 8px 0; display:flex; gap:8px; align-items:center;">
+              <label for="objectifsTotalInput" class="muted" style="min-width:220px;">Montant global des objectifs</label>
+              <input type="text" id="objectifsTotalInput" placeholder="" style="width:180px; height:32px;" readonly />
+            </div>
             <h4>Objectifs principaux</h4>
             <div id="objectifsSelected" class="objectives-grid">
               {% if preselected_objectifs %}
@@ -2026,16 +2369,20 @@
               <input type="hidden" name="form_action" value="objectifs_save" />
               <input type="hidden" name="link_id" id="objectifFormLinkId" />
               <input type="hidden" name="objectif_id" id="objectifFormObjectifId" />
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
+              <div class="row three-cols" style="display:grid; grid-template-columns: 250px 100px 150px; gap:12px; align-items:end;">
+                <div class="field">
+                  <label for="objectifFormMontant">Montant</label>
+                  <input type="text" id="objectifFormMontant" name="montant" placeholder="Montant (€)" style="width:250px; height:36px; min-height:36px;" />
+                </div>
+                <div class="field">
                   <label for="objectifFormNiveau">Niveau de priorité</label>
-                  <select id="objectifFormNiveau" name="niveau_id" required style="width:100%; height:36px; min-height:36px;">
+                  <select id="objectifFormNiveau" name="niveau_id" required style="width:100px; height:36px; min-height:36px;">
                     <option value="">-- Choisir (1..N) --</option>
                   </select>
                 </div>
-                <div class="field" style="min-width:0;">
+                <div class="field">
                   <label for="objectifFormHorizon">Horizon d'investissement</label>
-                  <select id="objectifFormHorizon" name="horizon_investissement" style="width:100%; height:36px; min-height:36px;">
+                  <select id="objectifFormHorizon" name="horizon_investissement" style="width:150px; height:36px; min-height:36px;">
                     <option value="">-- Choisir --</option>
                     <option value="1 à 3 ans">1 à 3 ans</option>
                     <option value="3 à 5 ans">3 à 5 ans</option>
@@ -2062,7 +2409,12 @@
                 <span class="spacer"></span>
                 <button type="button" class="btn-danger" id="objectifDeleteBtn" disabled>Supprimer</button>
                 <button type="submit" class="btn-primary" id="objectifSaveBtn" disabled>Enregistrer</button>
+                <button type="button" class="btn-primary" id="objectifsSaveAllBtn">Enregistrer tous</button>
               </div>
+            </form>
+            <form id="objectifsSaveAllForm" method="post" style="display:none;">
+              <input type="hidden" name="form_action" value="objectifs_save_all" />
+              <input type="hidden" name="objectifs_all" id="objectifsAllInput" />
             </form>
           </div>
         </div>
@@ -2707,10 +3059,26 @@ const objectifDeleteBtn = document.getElementById('objectifDeleteBtn');
 const objectifDeleteForm = document.getElementById('objectifDeleteForm');
 const objectifDeleteIdInput = document.getElementById('objectifDeleteId');
 const objectifDeleteObjectifIdInput = document.getElementById('objectifDeleteObjectifId');
+const objectifsTotalInput = document.getElementById('objectifsTotalInput');
 
 let objectifsRef = [];
 let objectifsSelected = [];
 let currentObjectiveId = null;
+
+// Force fields editable and date default on load
+(function ensureObjectivesEditable(){
+  try{
+    if (objectifFormHorizon) objectifFormHorizon.disabled = false;
+    if (objectifFormNiveau) objectifFormNiveau.disabled = false;
+    if (objectifFormCommentaire) objectifFormCommentaire.disabled = false;
+    if (objectifSaveBtn) objectifSaveBtn.disabled = false;
+    if (objectifDetailCard) objectifDetailCard.classList.remove('empty');
+    if (objectifFormDateSaisie && (!objectifFormDateSaisie.textContent || objectifFormDateSaisie.textContent.trim()==='—')){
+      const today = new Date().toISOString().slice(0,10);
+      objectifFormDateSaisie.textContent = today;
+    }
+  }catch(e){}
+})();
 
 function toNumber(value){
   const num = Number(value);
@@ -2838,6 +3206,7 @@ serverSelectedList.forEach(function(item){
     id: objectifId,
     label: item.libelle || item.label || ('Objectif ' + objectifId),
     linkId: item.link_id ? Number(item.link_id) : null,
+    montant: (item.montant !== undefined && item.montant !== null) ? String(item.montant) : '',
     horizon: item.horizon_investissement || '',
     niveauId: item.niveau_id !== undefined && item.niveau_id !== null ? Number(item.niveau_id) : null,
     commentaire: item.commentaire || '',
@@ -2960,12 +3329,32 @@ function updateObjectiveMeta(obj){
   objectifDetailMeta.style.display = parts.length ? '' : 'none';
 }
 
-function setDetailFormEnabled(enabled){
-  const fields = [objectifFormHorizon, objectifFormNiveau, objectifFormCommentaire, objectifFormDateExpiration];
-  fields.forEach(function(field){
-    if (field){ field.disabled = !enabled; }
+// ----- Helpers pour montants (parse/format) + total -----
+function parseAmountLocal(v){
+  if (v == null) return 0;
+  return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+}
+function formatThousandsLocal(n){
+  const i = Math.round(Number(n) || 0);
+  const d = String(Math.abs(i));
+  const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return (i < 0 ? '-' : '') + g;
+}
+function updateObjectifsTotalComputed(){
+  if (!objectifsTotalInput) return;
+  let sum = 0;
+  (objectifsSelected || []).forEach(function(item){
+    const v = (item && item.montant != null) ? Number(item.montant) : 0;
+    if (Number.isFinite(v)) sum += v;
   });
-  if (objectifSaveBtn){ objectifSaveBtn.disabled = !enabled; }
+  objectifsTotalInput.value = sum ? formatThousandsLocal(sum) : '';
+}
+
+function setDetailFormEnabled(enabled){
+  // Rendre les champs éditables en permanence (demande utilisateur)
+  const fields = [objectifFormHorizon, objectifFormNiveau, objectifFormCommentaire, objectifFormDateExpiration];
+  fields.forEach(function(field){ if (field){ field.disabled = false; }});
+  if (objectifSaveBtn){ objectifSaveBtn.disabled = false; }
   if (objectifDeleteBtn){ objectifDeleteBtn.disabled = !enabled; }
 }
 
@@ -2980,10 +3369,17 @@ function populateDetailForm(obj){
     if (objectifFormLinkId) objectifFormLinkId.value = '';
     if (objectifFormObjectifId) objectifFormObjectifId.value = '';
     if (objectifFormHorizon){ setHorizonOptions(HORIZON_ALL, false); objectifFormHorizon.value = ''; }
+    const mEl2 = document.getElementById('objectifFormMontant'); if (mEl2) mEl2.value = '';
+    const montantEl = document.getElementById('objectifFormMontant'); if (montantEl) montantEl.value = '';
     if (objectifFormNiveau) objectifFormNiveau.value = '';
     if (objectifFormCommentaire) objectifFormCommentaire.value = '';
     if (objectifFormDateExpiration) objectifFormDateExpiration.value = '';
-    if (objectifFormDateSaisie) objectifFormDateSaisie.textContent = '—';
+    // Date de saisie = date du jour par défaut
+    try{
+      const today = new Date();
+      const iso = today.toISOString().slice(0,10);
+      if (objectifFormDateSaisie) objectifFormDateSaisie.textContent = iso;
+    }catch(e){ if (objectifFormDateSaisie) objectifFormDateSaisie.textContent = '—'; }
     updateObjectiveMeta(null);
     if (objectifDeleteBtn) objectifDeleteBtn.textContent = 'Supprimer';
     return;
@@ -3000,7 +3396,10 @@ function populateDetailForm(obj){
     const desired = obj.horizon || '';
     objectifFormHorizon.value = (desired && allowed.indexOf(desired) >= 0) ? desired : '';
   }
+  const montantEl = document.getElementById('objectifFormMontant');
+  if (montantEl) montantEl.value = (obj.montant !== undefined && obj.montant !== null) ? String(obj.montant) : '';
   if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
+  (function(){ const mEl = document.getElementById('objectifFormMontant'); if (mEl) mEl.value = (obj.montant !== undefined && obj.montant !== null) ? formatThousandsLocal(obj.montant) : ''; })();
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
   if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';
   if (objectifFormDateSaisie){
@@ -3059,7 +3458,11 @@ function updateObjectifsUI(){
       btn.className = 'objective-btn';
       btn.dataset.id = item.id;
       btn.textContent = item.label || getObjectifLabel(item.id);
-      btn.addEventListener('click', function(){ selectObjective(item.id); });
+      btn.addEventListener('click', function(){
+        // Sauvegarder l'état du formulaire courant (dont montant) avant de changer d'objectif
+        try { syncCurrentObjectiveFromForm(); } catch(e){}
+        selectObjective(item.id);
+      });
       objectifsSelectedContainer.appendChild(btn);
     });
   }
@@ -3067,6 +3470,7 @@ function updateObjectifsUI(){
   refreshAddObjectiveBtnState();
   updatePriorityOptions(true);
   highlightObjectiveButtons();
+  updateObjectifsTotalComputed();
 }
 
 function selectObjective(id){
@@ -3162,8 +3566,45 @@ function syncCurrentObjectiveFromForm(){
   if (objectifFormNiveau) current.niveauId = toNumber(objectifFormNiveau.value);
   if (objectifFormCommentaire) current.commentaire = objectifFormCommentaire.value || '';
   if (objectifFormDateExpiration) current.dateExpiration = objectifFormDateExpiration.value || '';
+  // Synchroniser le montant saisi sans attendre l'enregistrement
+  try {
+    const mEl = document.getElementById('objectifFormMontant');
+    if (mEl){
+      const raw = (mEl.value || '').replace(/\s+/g,'').replace(',', '.');
+      if (raw === '') current.montant = null;
+      else {
+        const n = Number(raw);
+        if (!isNaN(n)) current.montant = n;
+      }
+    }
+  } catch(e){}
+  updateObjectifsTotalComputed();
   updateObjectiveMeta(current);
 }
+
+// Enregistrer tous les objectifs (batch)
+(function(){
+  const btn = document.getElementById('objectifsSaveAllBtn');
+  const formBatch = document.getElementById('objectifsSaveAllForm');
+  const inputPayload = document.getElementById('objectifsAllInput');
+  if (!btn || !formBatch || !inputPayload) return;
+  btn.addEventListener('click', function(){
+    try{ syncCurrentObjectiveFromForm(); }catch(e){}
+    const payload = (objectifsSelected || []).map(function(item){
+      return {
+        objectif_id: toNumber(item.id),
+        link_id: item.linkId ? toNumber(item.linkId) : null,
+        niveau_id: toNumber(item.niveauId),
+        horizon_investissement: item.horizon || '',
+        commentaire: item.commentaire || '',
+        montant: (item.montant !== undefined && item.montant !== null) ? Number(item.montant) : null,
+        date_expiration: item.dateExpiration || ''
+      };
+    });
+    inputPayload.value = JSON.stringify(payload);
+    formBatch.submit();
+  });
+})();
 
 hydrateInitialObjectifs();
 refreshAddObjectiveBtnState();
@@ -3221,8 +3662,28 @@ if (objectifDetailForm){
     if (!getCurrentObjective()){
       ev.preventDefault();
     }
+    // Normaliser le montant (espaces → rien, virgule → point) pour l'enregistrement backend
+    try {
+      const mEl = document.getElementById('objectifFormMontant');
+      if (mEl && typeof mEl.value === 'string'){
+        const raw = mEl.value.replace(/\s+/g,'').replace(',', '.');
+        // si vide, laisser vide; sinon forcer nombre acceptable par l'API
+        if (raw !== ''){
+          const n = Number(raw);
+          if (!isNaN(n)) mEl.value = String(n);
+        }
+      }
+    } catch(e){}
   });
 }
+
+[function(){
+  // Mémoriser le montant à la volée
+  const mEl = document.getElementById('objectifFormMontant');
+  if (!mEl) return;
+  mEl.addEventListener('input', function(){ try{ syncCurrentObjectiveFromForm(); }catch(e){} });
+  mEl.addEventListener('blur', function(){ try{ syncCurrentObjectiveFromForm(); }catch(e){} });
+}()];
 
 [objectifFormHorizon, objectifFormCommentaire, objectifFormDateExpiration].forEach(function(field){
   if (!field) return;
@@ -3231,6 +3692,50 @@ if (objectifDetailForm){
 if (objectifFormNiveau){
   objectifFormNiveau.addEventListener('change', syncCurrentObjectiveFromForm);
 }
+
+// Mise en forme Montant (séparateur d'espace) sans perturber l'enregistrement
+(function(){
+  const mEl = document.getElementById('objectifFormMontant');
+  if (!mEl) return;
+  function parseAmountLocal(v){
+    if (v == null) return 0;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+  }
+  function formatThousandsLocal(n){
+    const i = Math.round(n);
+    const d = String(Math.abs(i));
+    const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return (i < 0 ? '-' : '') + g;
+  }
+  function pretty(){
+    const n = parseAmountLocal(mEl.value);
+    mEl.value = mEl.value.trim() === '' ? '' : formatThousandsLocal(n);
+  }
+  mEl.addEventListener('blur', pretty);
+  mEl.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); pretty(); }});
+})();
+
+// Formater aussi le "Montant total" (visuel seulement)
+(function(){
+  const tEl = document.getElementById('objectifsTotalInput');
+  if (!tEl) return;
+  function parseAmountLocal(v){
+    if (v == null) return 0;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+  }
+  function formatThousandsLocal(n){
+    const i = Math.round(n);
+    const d = String(Math.abs(i));
+    const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return (i < 0 ? '-' : '') + g;
+  }
+  function pretty(){
+    const n = parseAmountLocal(tEl.value);
+    tEl.value = tEl.value.trim() === '' ? '' : formatThousandsLocal(n);
+  }
+  tEl.addEventListener('blur', pretty);
+  tEl.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); pretty(); }});
+})();
 
       const synthDataEl = document.getElementById('synthData');
       let synthChartsRendered = false;
@@ -3884,33 +4389,13 @@ if (objectifFormNiveau){
   </script>
 
   <script>
-    // Accordéon Conformité toggle
-    (function(){
-      var btn = document.querySelector('[data-target="conformitePanel"]');
-      var panel = document.getElementById('conformitePanel');
-      if(btn && panel){ btn.addEventListener('click', function(){ panel.style.display = (panel.style.display==='none'||!panel.style.display)?'block':'none'; }); }
-    })();
-
-    // Popups Conformité
-    function openConformiteConnaissance(){ var m=document.getElementById('conformiteConnaissanceModal'); if(m) m.style.display='flex'; }
-    function closeConformiteConnaissance(){ var m=document.getElementById('conformiteConnaissanceModal'); if(m) m.style.display='none'; }
-
-    function openConformiteTacfin(){
-      var m=document.getElementById('conformiteTacfinModal'); var body=document.getElementById('conformiteTacfinBody');
-      var src=document.getElementById('lcbftPanel');
-      if(m && body && src){ body.innerHTML = src.innerHTML; m.style.display='flex'; }
-    }
-    function closeConformiteTacfin(){ var m=document.getElementById('conformiteTacfinModal'); if(m) m.style.display='none'; }
-
-    function openConformiteEer(){ var m=document.getElementById('conformiteEerModal'); if(m) m.style.display='flex'; }
-    function closeConformiteEer(){ var m=document.getElementById('conformiteEerModal'); if(m) m.style.display='none'; }
-
-    // Sous-accordéons dans Entrée en relation
-    (function(){
-      document.querySelectorAll('#conformiteEerModal .accordion-toggle').forEach(function(btn){
-        btn.addEventListener('click', function(){ var id=btn.getAttribute('data-target'); var p=document.getElementById(id); if(p){ p.style.display=(p.style.display==='none'||!p.style.display)?'block':'none'; }});
-      });
-    })();
+    // Modales Conformité supprimées et fonctions neutralisées
+    function openConformiteConnaissance(){}
+    function closeConformiteConnaissance(){}
+    function openConformiteTacfin(){}
+    function closeConformiteTacfin(){}
+    function openConformiteEer(){}
+    function closeConformiteEer(){}
   </script>
 {% endif %}
 {% endblock %}

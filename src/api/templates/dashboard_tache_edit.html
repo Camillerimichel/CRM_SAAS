@@ -27,12 +27,36 @@
               <option value="">-- aucun --</option>
               {% for rh in rh_list %}
                 {% set rid = rh.id if rh.id is not none else rh[0] %}
-                {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-                <option value="{{ rid }}" {% if rh_selected and (rid|int) == (rh_selected|int) %}selected{% endif %}>{{ rnom.strip() }}</option>
+                {% set rprenom = rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '') %}
+                {% set rnom = rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '') %}
+                {% set label = (rprenom ~ ' ' ~ rnom).strip() %}
+                {% if not label %}
+                  {% if rh.mail is defined and rh.mail %}
+                    {% set label = rh.mail %}
+                  {% else %}
+                    {% set label = 'RH #' ~ rid %}
+                  {% endif %}
+                {% endif %}
+                <option value="{{ rid }}" {% if rh_selected is not none and (rid|int) == (rh_selected|int) %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
             <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
           </form>
+        </div>
+        <div><strong>Statut réclamation:</strong>
+          {% if ev.type_categorie and ev.type_categorie|lower == 'reclamation' %}
+            <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
+              <select name="statut_reclamation_id" onchange="this.form.submit()">
+                <option value="">-- aucun --</option>
+                {% for st in reclam_statuses %}
+                  <option value="{{ st.id }}" {% if ev.statut_reclamation_id is not none and (st.id|int) == (ev.statut_reclamation_id|int) %}selected{% endif %}>{{ st.libelle }}</option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="redirect" value="/dashboard/taches/{{ evenement_id }}" />
+            </form>
+          {% else %}
+            <span class="muted">Non applicable</span>
+          {% endif %}
         </div>
       </div>
       <div style="margin-top:8px;"><strong>Commentaires:</strong>
@@ -68,7 +92,7 @@
     <div class="card">
       <h3 style="margin:0 0 8px 0;">Ajouter un commentaire</h3>
       <form id="commentForm" method="post" action="/dashboard/taches/{{ evenement_id }}/statut">
-        <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;"></textarea>
+        <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;">{{ prefill_comment or '' }}</textarea>
         <div class="create-btn-container" style="margin-top:.6rem;">
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Mise à jour</button>
         </div>

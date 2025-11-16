@@ -13,6 +13,7 @@
           <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
         {% endif %}
         <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openClientAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
+        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Edition de synthèse</button>
       </span>
     </span>
   {% else %}
@@ -24,11 +25,20 @@
 <style>
   .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin-bottom: 14px; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .muted { color: #666; font-size: 0.9rem; }
+  .card-header {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 10px;
+    background: var(--primary);
+    color:#fff;
+    border-radius:8px;
+    font-size:0.9rem;
+    font-weight:600;
+  }
   table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
   th, td { padding: 6px 8px; border-bottom: 1px solid #eee; }
   th { background: #f8f9fa; text-align: left; font-size: 0.8rem; }
-  .valo { font-weight: 600; color: #28a745; font-family: monospace; font-size: 1.05rem; }
   .kpi { font-size: 0.95rem; font-weight: 700; }
   .kpi-small { font-size: 0.85rem; color:#333; }
   .srri-icon { font-size: 0.7rem; vertical-align: middle; margin-left: 6px; }
@@ -43,8 +53,15 @@
   .srri-red { background:#ef4444; }
   .srri-green { background:#16a34a; }
   .srri-blue { background:#3b82f6; }
+  .valo-dot { display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .valo-up { background:#16a34a; }
+  .valo-down { background:#dc2626; }
+  .valo-neutral { background:#cbd5f5; }
+  .nav-dot { display:inline-block; width:0.55rem; height:0.55rem; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .nav-green { background:#16a34a; }
+  .nav-red { background:#dc2626; }
+  .nav-neutral { background:#cbd5f5; }
   /* Bouton Voir compact */
-  .btn-view { display:inline-block; padding: 2px 6px; font-size: 0.65rem; border-radius: 4px; background: var(--primary); color: #fff; text-decoration: none; }
   /* Réduire la marge haute du bloc contrats */
   #invSection { padding-top: 8px; }
   #invSection h3 { margin: 4px 0 8px; }
@@ -54,7 +71,15 @@
   .kpi-mini { font-size: 0.85rem; color: #333; line-height: 1.2; }
   .kpi-line { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; }
   .kpi-line:first-of-type { margin-top:6px; }
-  .kpi-line .kv { font-weight:600; text-align:right; }
+  .kpi-line .kv {
+    font-weight:600;
+    text-align:right;
+    margin-left:auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    justify-content:flex-end;
+  }
   /* Neutralize big button style from base for table links */
   .card table a, #contractsTable a { 
     display: inline !important; 
@@ -69,16 +94,22 @@
   .card table a:hover, #contractsTable a:hover { text-decoration: underline; }
   /* Supports consolidés table */
   #supportsClient { table-layout: fixed; margin-top: 10px; }
-  #supportsClient th, #supportsClient td { padding: 6px 8px; }
   #supportsClient th:nth-child(1), #supportsClient td:nth-child(1) { width: 14%; }
   #supportsClient th:nth-child(2), #supportsClient td:nth-child(2) { width: 22%; overflow: hidden; text-overflow: ellipsis; }
   #supportsClient th:nth-child(3), #supportsClient td:nth-child(3) { width: 6%; text-align:center; }
   #supportsClient th:nth-child(4), #supportsClient td:nth-child(4) { width: 10%; text-align:right; }
-  #supportsClient th:nth-child(5), #supportsClient td:nth-child(5) { width: 10%; text-align:right; }
-  #supportsClient th:nth-child(6), #supportsClient td:nth-child(6) { width: 12%; text-align:right; }
-  #supportsClient th:nth-child(7), #supportsClient td:nth-child(7) { width: 4%; text-align:center; }
+  #supportsClient th:nth-child(5), #supportsClient td:nth-child(5) { width: 9%; text-align:right; }
+  #supportsClient th:nth-child(6), #supportsClient td:nth-child(6) { width: 11%; text-align:right; }
+  #supportsClient th:nth-child(7), #supportsClient td:nth-child(7) { width: 12%; text-align:right; }
   #supportsClient th:nth-child(8), #supportsClient td:nth-child(8) { width: 4%; text-align:center; }
   #supportsClient th:nth-child(9), #supportsClient td:nth-child(9) { width: 4%; text-align:center; }
+  #supportsClient th:nth-child(10), #supportsClient td:nth-child(10) { width: 4%; text-align:center; }
+  #supportContractsTable th, #supportContractsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+  #supportContractsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
+  #supportContractsTable tr:nth-child(even) td { background:#f8fafc; }
+  #supportMovementsTable th, #supportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+  #supportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
+  #supportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
   /* Charts block (embedded inside a card → keep it light) */
   .pie-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; align-items: stretch; }
   .pie-card { background: transparent; border-radius: 0; padding: 0; box-shadow: none; display:flex; flex-direction:column; }
@@ -86,13 +117,28 @@
   .pie-card .chart-title { margin: 0 0 6px 0; font-size: 0.95rem; }
   .dim-btn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; }
   .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
+  .support-contract-link { color:#000 !important; text-decoration:underline; }
+  .support-contract-link:hover { text-decoration:none; }
+  .support-movement-link { color:#111827; text-decoration:underline; }
+  .support-movement-link:hover { text-decoration:none; }
   /* Boutons de période */
   .rangeBtn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; margin-right:4px; }
   .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
-  
-  /* Contrats table tighter */
+  /* Contrats / Supports – ligne & typo harmonisées */
+  #contractsTable,
+  #supportsClient {
+    font-family: var(--font-sans, "Inter", "Segoe UI", sans-serif);
+    font-size: 0.92rem;
+  }
+  #contractsTable th, #contractsTable td,
+  #supportsClient th, #supportsClient td {
+    padding: 6px 10px;
+    line-height: 1.35;
+    vertical-align: middle;
+    margin: 0;
+  }
+  /* Contrats table */
   #contractsTable { border-collapse: collapse; }
-  #contractsTable th, #contractsTable td { padding: 2px 6px; line-height: 1.1; vertical-align: middle; margin: 0; }
   #contractsTable .badge-closed { padding: 1px 6px; font-size: 10px; }
   /* Alignements d'en-têtes */
   #contractsTable thead th:nth-child(2),
@@ -108,9 +154,43 @@
   #contractsTable thead th:nth-child(5) { width: 14%; }
   #contractsTable thead th:nth-child(6) { width: 14%; }
   /* Accordions */
-  .accordion-toggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; border-left:4px solid var(--primary); cursor:pointer; }
-  .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
+  .accordion-toggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; border-left:4px solid var(--primary); cursor:pointer; background:#f5f7ff; color:#1f2b6c; border:1px solid rgba(36,86,166,0.18); border-radius:10px; padding:10px 14px; transition:background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+  .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
+  .accordion-toggle:not(.collapsed) { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow:0 10px 22px rgba(36,86,166,0.28); }
+  .accordion-toggle:not(.collapsed) .chevron,
+  .accordion-toggle:not(.collapsed) i,
+  .accordion-toggle:not(.collapsed) span { color:#fff; }
+  #confToggleDetail,
+  #clientTasksToggle {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #confToggleDetail .chevron,
+  #clientTasksToggle .chevron {
+    color:var(--muted);
+  }
+  #confToggleDetail:not(.collapsed),
+  #clientTasksToggle:not(.collapsed) {
+    background:#fff;
+    color:var(--text);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow-sm);
+  }
+  #confToggleDetail:not(.collapsed) .chevron,
+  #clientTasksToggle:not(.collapsed) .chevron,
+  #confToggleDetail:not(.collapsed) i,
+  #clientTasksToggle:not(.collapsed) i,
+  #confToggleDetail:not(.collapsed) span,
+  #clientTasksToggle:not(.collapsed) span {
+    color:inherit !important;
+  }
+  #confToggleDetail:not(.collapsed) *,
+  #clientTasksToggle:not(.collapsed) * {
+    color:inherit !important;
+  }
   .badge-closed { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; vertical-align:middle; white-space:nowrap; }
   .highlight-cle { background: #ffe5e5 !important; }
   /* Boutons pilule type KYC */
@@ -118,44 +198,89 @@
   .kyc-main-btn i { font-size:1rem; color:#fff; }
   /* Bouton Conformité identique aux autres (pilule primaire) */
   /* aucun style spécifique: utiliser l'apparence standard des autres accordéons */
+  .tb-markers-enabled [data-tb-marker] {
+    position: relative;
+    outline: 2px dashed rgba(5,121,180,0.35);
+  }
+  .tb-markers-enabled [data-tb-marker]::before {
+    content: attr(data-tb-marker);
+    position: absolute;
+    top: -12px;
+    left: 0;
+    background: rgba(5,121,180,0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 30;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
+  }
 </style>
 
+{% set cl_markers_param = tb_markers_param if tb_markers_param is defined else '' %}
+{% set cl_markers_suffix = ('&' + cl_markers_param) if cl_markers_param else '' %}
+{% set cl_markers_prefix = ('?' + cl_markers_param) if cl_markers_param else '' %}
+<div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="CL_01">
 
 
 {% if client %}
-  <div class="grid">
-    <div class="card">
-      <div class="muted">Synthèse</div>
-      <div class="kpi-small"><strong>Contrats ouverts:</strong> {{ nb_contrats_ouverts }}</div>
-      <div class="kpi-small"><strong>Contrats fermés:</strong> {{ nb_contrats_fermes }}</div>
-      <div class="kpi-small"><strong>Durée historique:</strong> {{ duree_historique_str }}</div>
+  <div class="grid" data-tb-marker="CL_02">
+    <div class="card" data-tb-marker="CL_03">
+      <div class="card-header">Synthèse</div>
+      <div class="kpi-small">Contrats ouverts: {{ nb_contrats_ouverts }}</div>
+      <div class="kpi-small">Contrats fermés: {{ nb_contrats_fermes }}</div>
+      <div class="kpi-small">Durée historique: {{ duree_historique_str }}</div>
+      {% set selected_rh_id = client.commercial_id if client and client.commercial_id is not none else None %}
       <div class="kpi-mini kpi-line">
         <span>Responsable</span>
         <span class="kv">
           <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
-            <select name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
-              <option value="">— Aucun —</option>
-              {% for rh in rh_list %}
-                <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
-              {% endfor %}
-            </select>
+            {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
+            <span style="display:inline-flex; align-items:center; gap:8px;">
+              <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
+                <option value="">— Aucun —</option>
+                {% for rh in rh_list %}
+                  <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
+                {% endfor %}
+              </select>
+            </span>
           </form>
         </span>
       </div>
     </div>
-    <div class="card">
-      <div class="muted">Valorisation</div>
-      <div class="kpi valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</div>
-      <div class="kpi-mini kpi-line"><span>Versements</span><span class="kv">{{ depots_str }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ retraits_str }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Solde</span><span class="kv">{{ solde_str }}</span></div>
+    <div class="card" data-tb-marker="CL_04">
+      <div class="card-header">Investissements</div>
+      <div class="kpi-mini kpi-line"><span>Valorisation</span><span class="kv valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Solde net</span><span class="kv">{{ solde_str }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
+      <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
     </div>
-    <div class="card">
-      <div class="muted">Indicateurs</div>
+    <div class="card" data-tb-marker="CL_05">
+      <div class="card-header">Indicateurs</div>
       <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
       <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
-      <div class="kpi-mini kpi-line"><span>SRRI client / actuel</span><span class="kv">{{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}</span></div>
-  <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
+      {% set srri_icon_class = None %}
+      {% if client_srri is not none and current_srri is not none %}
+        {% if client_srri > current_srri %}
+          {% set srri_icon_class = 'srri-blue' %}
+        {% elif client_srri == current_srri %}
+          {% set srri_icon_class = 'srri-green' %}
+        {% else %}
+          {% set srri_icon_class = 'srri-red' %}
+        {% endif %}
+      {% endif %}
+      <div class="kpi-mini kpi-line">
+        <span>SRRI client / actuel</span>
+        <span class="kv">
+          {% if srri_icon_class %}
+            <span class="srri-dot {{ srri_icon_class }}" aria-hidden="true"></span>
+          {% endif %}
+          {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
+        </span>
+      </div>
+      <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
     </div>
   </div>
 
@@ -202,15 +327,50 @@
     </div>
   </div>
   <script>
-    const CLIENT_ID = {{ client.id if client else 'null' }};
-    let clientGroupDetails = [];
-    let clientGroupLinks = [];
-    function openClientAdminGroups(){
-      const el = document.getElementById('clientAdminGroupsModal');
-      el.style.display = 'flex';
-      console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
-      loadClientGroups();
+const CLIENT_ID = {{ client.id if client else 'null' }};
+const CL_MARKERS_PARAM = "{{ cl_markers_param }}";
+const CL_MARKERS_SUFFIX = "{{ cl_markers_suffix }}";
+function appendMarkers(url){
+  if (!CL_MARKERS_PARAM) return url;
+  if (url.indexOf('markers=') !== -1) return url;
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + CL_MARKERS_PARAM;
+}
+function applyMarkersToParams(params){
+  if (!params) return;
+  if (CL_MARKERS_PARAM) {
+    params.set('markers', '1');
+  } else {
+    params.delete('markers');
+  }
+}
+let clientGroupDetails = [];
+let clientGroupLinks = [];
+function openClientAdminGroups(){
+  const el = document.getElementById('clientAdminGroupsModal');
+  el.style.display = 'flex';
+  console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
+  loadClientGroups();
+}
+
+function generateClientSynthese(){
+  if (!CLIENT_ID){
+    alert('Client introuvable.');
+    return;
+  }
+  if (typeof window.showGlobalLoader === 'function'){
+    window.showGlobalLoader('Génération du PDF…');
+  }
+  const url = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
+  window.open(url, '_blank', 'noopener');
+  const clearLoader = function(){
+    if (typeof window.hideGlobalLoader === 'function'){
+      window.hideGlobalLoader();
     }
+    window.removeEventListener('focus', clearLoader);
+  };
+  window.addEventListener('focus', clearLoader);
+  setTimeout(clearLoader, 4000);
+}
     async function loadClientGroups(){
       const notice = document.getElementById('clientGroupsNotice');
       if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
@@ -311,7 +471,13 @@
 <!-- Modale dédiée: Lettre de Mission -->
 <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal-card" style="width:760px; max-width:96vw;">
-      <div class="modal-header"><h3><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Lettre de Mission</h3><button class="modal-close" onclick="document.getElementById('confMissionDetailModal').style.display='none'">✕</button></div>
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-file-contract" style="margin-right:8px;"></i>Lettre de Mission</h3>
+        <button type="button" class="btn btn-compact" style="margin-right:8px;" onclick="generateMissionPdf()">
+          <i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Génération PDF
+        </button>
+        <button class="modal-close" onclick="document.getElementById('confMissionDetailModal').style.display='none'">✕</button>
+      </div>
       <div class="modal-body">
         <style>
           .lm h2 { font-size: 1.2rem; margin: 0 0 8px; }
@@ -320,9 +486,14 @@
           .lm ul { margin: 6px 0 6px 18px; }
           .lm hr { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
           .lm .muted { color: var(--muted); }
+          .lm-objectifs-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+          .lm-objectifs-table th, .lm-objectifs-table td { border: 1px solid var(--border); padding: 6px 8px; font-size: 0.9rem; }
+          .lm-objectifs-table th { background: var(--primary); color: #fff; text-align: left; }
+          .lm-objectifs-table td.number { text-align: right; white-space: nowrap; }
+          .lm-objectifs-table td.comment { max-width: 280px; }
         </style>
         <div class="lm">
-          <h2><strong>LETTRE DE MISSION ÉLECTRONIQUE – COURTAGE EN ASSURANCE-VIE</strong></h2>
+          <h2><strong>LETTRE DE MISSION</strong></h2>
           <hr />
 
           <h3><strong>Préambule</strong></h3>
@@ -332,10 +503,34 @@
 
           <hr />
           <h3><strong>A. Objectifs de la mission</strong></h3>
-          <p>Lors de notre entretien du <strong>{{ dateEntretien }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
-          <p>Vous avez manifesté le souhait d’investir <strong>{{ montantInvesti }}</strong> euros, avec pour objectif(s) : <strong>{{ objectifsMission }}</strong>.</p>
-          <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.<br/>
-          Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations.</p>
+          <p>Lors de notre entretien du <strong>{{ lm_entretien_date or 'À préciser' }}</strong>, vous avez exprimé les axes de réflexion prioritaires au regard de vos objectifs patrimoniaux.</p>
+          <p>Les objectifs patrimoniaux et financiers exprimés lors du <strong>recueil d’informations client</strong> constituent la base de notre mission de conseil.</p>
+          <p>Vous avez manifesté le souhait d’investir <strong>{{ lm_total_invest_str }}</strong> euros, avec pour objectif(s) :</p>
+          {% if lm_objectifs %}
+          <table class="lm-objectifs-table">
+            <thead>
+              <tr>
+                <th>Objectif</th>
+                <th>Montant</th>
+                <th>Horizon</th>
+                <th>Commentaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for obj in lm_objectifs %}
+              <tr>
+                <td>{{ obj.libelle or '—' }}</td>
+                <td class="number">{{ obj.montant_str }} €</td>
+                <td>{{ obj.horizon or '—' }}</td>
+                <td class="comment">{{ obj.commentaire or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p><em>Aucun objectif déclaré à ce jour.</em></p>
+          {% endif %}
+          <p>Toute modification ultérieure devra nous être communiquée afin d’ajuster nos recommandations.</p>
 
           <hr />
           <h3><strong>B. Missions confiées</strong></h3>
@@ -410,8 +605,14 @@
           {% if lm_remunerations and (lm_remunerations|length > 0) %}
             <ul>
               {% for r in lm_remunerations %}
+                {% set mode_label = r.mode or r.type or 'Mode' %}
+                {% if mode_label == 'FRAIS_ENTREE' %}
+                  {% set mode_label = "Frais d'entrée" %}
+                {% elif mode_label == 'FRAIS_GESTION' %}
+                  {% set mode_label = "Frais de gestion" %}
+                {% endif %}
                 <li>
-                  <strong>{{ r.mode or r.type or 'Mode' }} :</strong>
+                  <strong>{{ mode_label }} :</strong>
                   {% set has_val = false %}
                   {% if r.montant is not none %}
                     {% set has_val = true %} {{ r.montant }} €
@@ -492,21 +693,21 @@
     </div>
   </div>
   <!-- Modale Conformité: 3 boutons pilule -->
-  <div class="modal-overlay" id="confMainModal" onclick="if(event.target===this) this.style.display='none'">
-    <div class="modal-card" style="width:720px; max-width:95vw;">
-      <div class="modal-header"><h3>Conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
+  <div class="modal-overlay" id="confMainModal" data-tb-marker="CL_11" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal-card" data-tb-marker="CL_12" style="width:720px; max-width:95vw;">
+    <div class="modal-header"><h3>Relation client et conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
       <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfEerDetail()"><i class="fa-solid fa-file-signature"></i>DER</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
         <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfMissionDetail()"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfAdequationDetail()"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfTacfinDetail()"><i class="fa-solid fa-shield-halved"></i>TRACFIN / FATCA</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateMissionPdf();"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateAdequationPdf();"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
+        <button type="button" class="kyc-main-btn" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf"></i>Edition de synthèse</button>
       </div>
     </div>
   </div>
   <!-- Accordéon Conformité (détail client) -->
-  <div id="confToggleDetail" class="card accordion-toggle" onclick="openConfMain()" style="margin-top:10px;">
-      <h3 style="margin:0;">Conformité</h3>
+  <div id="confToggleDetail" class="card accordion-toggle" data-tb-marker="CL_13" onclick="openConfMain()" style="margin-top:10px;">
+    <h3 style="margin:0;">Relation client et conformité</h3>
       <span class="chevron">▸</span>
     </div>
   
@@ -531,8 +732,8 @@
     #clientMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #clientMsgsTable td:nth-child(6) { white-space: normal; word-break: break-word; }
   </style>
-  <div id="clientMsgsModal" class="modal-overlay" onclick="if(event.target===this) closeClientMsgs()">
-    <div class="modal-card">
+  <div id="clientMsgsModal" class="modal-overlay" data-tb-marker="CL_09" onclick="if(event.target===this) closeClientMsgs()">
+    <div class="modal-card" data-tb-marker="CL_10">
       <div class="modal-header">
         <h3 id="clientMsgsTitle"><i class="fa-solid fa-envelope" style="margin-right:8px;"></i>Messages</h3>
         <button class="modal-close" onclick="closeClientMsgs()">✕</button>
@@ -556,10 +757,58 @@
     </div>
   </div>
 
+  <div id="supportContractsModal" class="modal-overlay" onclick="if(event.target===this) closeSupportContractsModal()">
+    <div class="modal-card" style="width:980px; max-width:98vw;">
+      <div class="modal-header">
+        <h3 id="supportContractsTitle"><i class="fa-solid fa-layer-group" style="margin-right:8px;"></i><span id="supportContractsLabel">Supports par contrat</span></h3>
+        <button class="modal-close" onclick="closeSupportContractsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <table id="supportContractsTable" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;">Contrat</th>
+              <th style="text-align:left;">ISIN</th>
+              <th style="text-align:left;">Support</th>
+              <th style="text-align:right;">Nb parts</th>
+              <th style="text-align:right;">Prix de revient</th>
+              <th style="text-align:right;">VL</th>
+              <th style="text-align:right;">Valorisation</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="supportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeSupportMovementsModal()">
+    <div class="modal-card" style="width:820px; max-width:97vw;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-right-left" style="margin-right:8px;"></i><span id="supportMovementsLabel">Mouvements du support</span></h3>
+        <button class="modal-close" onclick="closeSupportMovementsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <table id="supportMovementsTable" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;">Date</th>
+              <th style="text-align:left;">Règle</th>
+              <th style="text-align:right;">Montant</th>
+              <th style="text-align:right;">VL</th>
+              <th style="text-align:right;">Nb parts</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Actions rapides -->
   
   <!-- Tâches: accordéon local -->
-  <div id="clientTasksToggle" class="card accordion-toggle" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
+  <div id="clientTasksToggle" class="card accordion-toggle" data-tb-marker="CL_06" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
   
   <!-- Popup temporaire de création de tâche -->
   <style>
@@ -570,8 +819,8 @@
     .modal-body { padding: 12px 14px; }
     .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
   </style>
-  <div id="taskModal" class="modal-overlay" onclick="if(event.target===this) closeTaskPopup()">
-    <div class="modal-card">
+  <div id="taskModal" class="modal-overlay" data-tb-marker="CL_07" onclick="if(event.target===this) closeTaskPopup()">
+    <div class="modal-card" data-tb-marker="CL_08">
       <div class="modal-header">
         <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
         <button class="modal-close" onclick="closeTaskPopup()">✕</button>
@@ -582,6 +831,7 @@
         </style>
         <div id="taskToast" class="badge success" style="display:none; margin-bottom:8px;">Tâche enregistrée.</div>
         <form method="post" action="/dashboard/clients/{{ client.id }}/taches" id="taskCreateForm">
+          {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
           <div class="form-row" style="margin-bottom:.6rem;">
             <div class="field">
               <label>Client (Nom Prénom)</label>
@@ -622,6 +872,18 @@
               <label>&nbsp;</label>
               <button type="button" id="client_comm_btn_modal" class="btn btn-choice" onclick="toggleClientCommModal()">Préparer une communication</button>
               <input type="hidden" id="client_comm_toggle_modal" name="comm_toggle" value="0" />
+            </div>
+          </div>
+
+          <div class="form-row" id="client_reclam_status_row_modal" style="margin-bottom:.6rem; display:none;">
+            <div class="field">
+              <label>Statut réclamation</label>
+              <select class="select-choice" name="statut_reclamation_id" id="client_reclam_status_select_modal">
+                <option value="">-- choisir --</option>
+                {% for st in reclam_statuses %}
+                  <option value="{{ st.id }}">{{ st.libelle }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
 
@@ -739,6 +1001,14 @@
         const statTd = document.createElement('td'); statTd.appendChild(sb);
         var rh = ev.rh_nom || ev.rh || ev.rhnom;
         if (rh){ const b=document.createElement('span'); b.className='badge'; b.textContent='RH: '+rh; b.style.marginLeft='6px'; statTd.appendChild(b); }
+        if (ev.statut_reclamation_label){
+          const rec = document.createElement('div');
+          rec.className = 'muted';
+          rec.style.fontSize = '0.75rem';
+          rec.style.marginTop = '2px';
+          rec.textContent = 'Réclamation : ' + ev.statut_reclamation_label;
+          statTd.appendChild(rec);
+        }
         tr.appendChild(statTd);
         // contrat (ref)
         tr.appendChild(td(ev.affaire_ref||''));
@@ -795,6 +1065,136 @@
     }
     function closeClientMsgs(){ document.getElementById('clientMsgsModal').style.display = 'none'; }
 
+    function openSupportMovementsModal(code, name, contractLabel, movements){
+      const modal = document.getElementById('supportMovementsModal');
+      if (!modal) return;
+      const tbody = modal.querySelector('#supportMovementsTable tbody');
+      const labelEl = document.getElementById('supportMovementsLabel');
+      if (labelEl){
+        const parts = ['Mouvements du support'];
+        const detail = [contractLabel, name, code].filter(Boolean).join(' • ');
+        if (detail) parts.push(detail);
+        labelEl.textContent = parts.join(' — ');
+      }
+      if (tbody){
+        tbody.innerHTML = '';
+        const rows = Array.isArray(movements) ? movements : [];
+        rows.forEach(function(mv){
+          const tr = document.createElement('tr');
+          const cols = [
+            { value: mv.date || '-' },
+            { value: mv.regle || '-' },
+            { value: mv.montant || '-', align: 'right' },
+            { value: mv.vl || '-', align: 'right' },
+            { value: mv.nb_uc || '-', align: 'right' },
+          ];
+          cols.forEach(function(col){
+            const td = document.createElement('td');
+            td.textContent = col.value;
+            if (col.align === 'right') td.style.textAlign = 'right';
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        if (!rows.length){
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 5;
+          td.className = 'muted';
+          td.textContent = 'Aucun mouvement trouvé pour ce support.';
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        }
+      }
+      modal.style.display = 'flex';
+    }
+    function closeSupportMovementsModal(){ const modal = document.getElementById('supportMovementsModal'); if (modal) modal.style.display = 'none'; }
+
+    function openSupportContractsModal(code, name, contracts){
+      const modal = document.getElementById('supportContractsModal');
+      if (!modal) return;
+      const tbody = modal.querySelector('#supportContractsTable tbody');
+      const labelEl = document.getElementById('supportContractsLabel');
+      if (labelEl){
+        const parts = ['Supports par contrat'];
+        const detail = [name, code].filter(Boolean).join(' – ');
+        if (detail) parts.push(detail);
+        labelEl.textContent = parts.join(' • ');
+      }
+      if (tbody){
+        tbody.innerHTML = '';
+        let rows = Array.isArray(contracts) ? contracts : [];
+        rows.forEach(function(item){
+          const tr = document.createElement('tr');
+          const cols = [
+            { key: 'contrat', value: item.affaire_ref || '' },
+            { key: 'isin', value: item.code_isin || code || '' },
+            { key: 'support', value: item.support_nom || name || '' },
+            { key: 'nb_parts', value: item.nb_parts_str || '-', align: 'right' },
+            { key: 'prix', value: item.prix_revient_str || '-', align: 'right' },
+            { key: 'vl', value: item.vl_str || '-', align: 'right' },
+            { key: 'valo', value: item.valorisation_str || '-', align: 'right' },
+          ];
+          cols.forEach(function(col){
+            const td = document.createElement('td');
+            if (col.key === 'isin' && col.value){
+              const link = document.createElement('a');
+              link.href = '#';
+              link.textContent = col.value;
+              link.className = 'support-movement-link';
+              link.style.color = '#111827';
+              link.dataset.supportCode = col.value;
+              link.dataset.supportName = item.support_nom || name || '';
+              link.dataset.affaireRef = item.affaire_ref || '';
+              link.__movements = Array.isArray(item.movements) ? item.movements : [];
+              link.addEventListener('click', function(e){
+                e.preventDefault();
+                openSupportMovementsModal(
+                  this.dataset.supportCode || '',
+                  this.dataset.supportName || '',
+                  this.dataset.affaireRef || '',
+                  this.__movements || []
+                );
+              });
+              td.appendChild(link);
+            } else {
+              td.textContent = col.value == null ? '' : col.value;
+            }
+            if (col.align === 'right') {
+              td.style.textAlign = 'right';
+            }
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        if (!rows.length){
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 7; td.className = 'muted';
+          td.textContent = 'Aucun contrat trouvé pour ce support.';
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        }
+      }
+      modal.style.display = 'flex';
+    }
+    function closeSupportContractsModal(){ const modal = document.getElementById('supportContractsModal'); if(modal) modal.style.display = 'none'; }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('.support-contract-link').forEach(function(link){
+        link.addEventListener('click', function(ev){
+          ev.preventDefault();
+          let contracts = [];
+          try {
+            contracts = this.dataset.contracts ? JSON.parse(this.dataset.contracts) : [];
+          } catch (e) {
+            console.warn('support-contract-link parse error', e);
+          }
+          openSupportContractsModal(this.dataset.supportCode || '', this.dataset.supportName || '', contracts);
+        });
+      });
+    });
+
     function openTaskPopup(){ document.getElementById('taskModal').style.display='flex'; }
     function closeTaskPopup(){ document.getElementById('taskModal').style.display='none'; }
     function toggleClientCommModal(){ const h=document.getElementById('client_comm_toggle_modal'); const on=h.value==='1'?false:true; h.value=on?'1':'0'; document.getElementById('client_comm_block_modal').style.display=on?'block':'none'; document.getElementById('client_comm_btn_modal').classList.toggle('btn-choice-active', on); }
@@ -813,8 +1213,36 @@
         {% endfor %}
       ];
       const cat=document.getElementById('client_cat_select_modal'); const typ=document.getElementById('client_type_select_modal');
-      function sync(){ typ.innerHTML=''; if(!cat.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o); return; } const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle); list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); }); if(list.length>0) typ.value=list[0]; }
-      if (cat){ cat.addEventListener('change', sync); if(cat.value) sync(); }
+      const reclamRow = document.getElementById('client_reclam_status_row_modal');
+      const reclamSelect = document.getElementById('client_reclam_status_select_modal');
+      function updateReclamVisibility(){
+        if(!reclamRow) return;
+        const catVal = (cat && cat.value ? cat.value : '').trim().toLowerCase();
+        if(catVal === 'reclamation'){
+          reclamRow.style.display = 'flex';
+        } else {
+          reclamRow.style.display = 'none';
+          if(reclamSelect){ reclamSelect.value = ''; }
+        }
+      }
+      function sync(){
+        typ.innerHTML='';
+        if(!cat.value){
+          const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o);
+          updateReclamVisibility();
+          return;
+        }
+        const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle);
+        list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); });
+        if(list.length>0) typ.value=list[0];
+        updateReclamVisibility();
+      }
+      if (cat){
+        cat.addEventListener('change', function(){ sync(); });
+        if(cat.value) sync(); else updateReclamVisibility();
+      } else {
+        updateReclamVisibility();
+      }
     })();
     // Interception envoi tâche pour rester dans la modale
     (function(){
@@ -842,8 +1270,8 @@
     #clientMsgsTable tbody tr.row-selected { background: #e9f0ff; border-left: 3px solid var(--primary); }
   </style>
   <!-- Accordéons vides pour structurer la page (à compléter comme pour Affaires) -->
-  <div id="invToggle" class="card accordion-toggle"><h3 style="margin:0;">Investissements</h3><span class="chevron">▾</span></div>
-  <div id="invSection" class="card" style="display:none;">
+  <div id="invToggle" class="card accordion-toggle" data-tb-marker="CL_14"><h3 style="margin:0;">Investissements</h3><span class="chevron">▾</span></div>
+  <div id="invSection" class="card" data-tb-marker="CL_15" style="display:none;">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <h3 style="margin:4px 8px 8px 0;">Contrats du client</h3>
       {% if available_dates %}
@@ -855,7 +1283,7 @@
         </select>
       {% endif %}
     </div>
-    <table id="contractsTable">
+    <table id="contractsTable" data-tb-marker="CL_16">
       <thead>
         <tr>
           <th>Contrat</th>
@@ -887,7 +1315,26 @@
             {% endif %}
           </td>
           <td class="center">{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
-          <td style="text-align:right;">{{ a.last_valo_str }}</td>
+          {% set dot_class = 'valo-neutral' %}
+          {% set dot_title = 'Valorisation stable' %}
+          {% set ecart = a.ecart_valo_mvt if a.ecart_valo_mvt is defined else None %}
+          {% set last_valo_raw = a.last_valo_numeric if a.last_valo_numeric is defined else 0 %}
+          {% if last_valo_raw > 0 and ecart is not none %}
+            {% if ecart >= 0 %}
+              {% set dot_class = 'valo-up' %}
+              {% set dot_title = 'Contrat en plus-value' %}
+            {% else %}
+              {% set dot_class = 'valo-down' %}
+              {% set dot_title = 'Contrat en moins-value' %}
+            {% endif %}
+          {% elif ecart is none %}
+            {% set dot_title = 'Historique mouvements indisponible' %}
+          {% else %}
+            {% set dot_title = 'Valorisation nulle ou négative' %}
+          {% endif %}
+          <td style="text-align:right;">
+            <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
+          </td>
           <td style="text-align:right;">{% if a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% endif %}</td>
           <td style="text-align:right;">{% if a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% endif %}</td>
         </tr>
@@ -902,8 +1349,9 @@
           <th>ISIN</th>
           <th>Support</th>
           <th>SRRI</th>
-          <th>Nb UC</th>
-          <th>PRMP</th>
+          <th>Nb Parts</th>
+          <th>Prix de revient</th>
+          <th>VL</th>
           <th>Valorisation</th>
           <th>E</th>
           <th>S</th>
@@ -913,11 +1361,38 @@
       <tbody>
         {% for s in client_supports %}
         <tr>
-          <td>{{ s.code_isin or '' }}</td>
+          <td>
+            {% if s.code_isin %}
+              <a href="#" class="support-contract-link" data-support-code="{{ s.code_isin }}" data-support-name="{{ s.nom or '' }}" data-contracts='{{ s.contracts | tojson | safe }}'>{{ s.code_isin }}</a>
+            {% else %}
+              {{ s.code_isin or '' }}
+            {% endif %}
+          </td>
           <td>{{ s.nom or '' }}</td>
           <td class="center">{{ s.srri_support or '' }}</td>
           <td style="text-align:right;">{{ s.nbuc_str }}</td>
           <td style="text-align:right;">{{ s.prmp_str }}</td>
+          {% set nav_class = 'nav-dot nav-neutral' %}
+          {% set nav_title = 'VL indisponible' %}
+          {% if s.prmp is not none and s.vl is not none %}
+            {% if s.prmp > s.vl %}
+              {% set nav_class = 'nav-dot nav-red' %}
+              {% set nav_title = 'Prix de revient supérieur à la VL' %}
+            {% else %}
+              {% set nav_class = 'nav-dot nav-green' %}
+              {% set nav_title = 'Prix de revient inférieur ou égal à la VL' %}
+            {% endif %}
+          {% elif s.vl is not none %}
+            {% set nav_class = 'nav-dot nav-green' %}
+            {% set nav_title = 'VL disponible' %}
+          {% endif %}
+          <td style="text-align:right;">
+            {% if s.vl is not none %}
+              <span class="{{ nav_class }}" aria-hidden="true" title="{{ nav_title }}"></span>{{ s.vl_str }}
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </td>
           <td style="text-align:right;">{{ s.valo_str }}</td>
           <td class="center">{{ s.noteE or '' }}</td>
           <td class="center">{{ s.noteS or '' }}</td>
@@ -987,7 +1462,8 @@
         </div>
       </div>
       <div id="esgChartClient" style="height:320px; width:100%;"></div>
-      <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Client = valeur relative (Client / Indice × 100).</div>
+      <div id="esgUnmatchedNotice" class="muted" style="margin-top:6px; font-size:12px;{% if not esg_unmatched_fields %} display:none;{% endif %}">{% if esg_unmatched_fields %}Indicateurs introuvables : {{ esg_unmatched_fields|join(', ') }}.{% endif %}</div>
+      <div class="muted" style="margin-top:4px; font-size:12px;">Indice normalisé à 100. Client = valeur relative (Client / Indice × 100).</div>
     </div>
   </div>
 
@@ -998,8 +1474,8 @@
       <canvas id="valoChart" height="120"></canvas>
     </div>
     <div class="card" style="margin-top:12px;">
-      <h3>Performances et volatilité annuelles</h3>
-      <canvas id="clientAnnuelChart" height="120"></canvas>
+      <h3>Evolutions performances annuelle et SRRI moyen</h3>
+      <canvas id="clientSrriChart" height="120"></canvas>
     </div>
     <div class="card" style="margin-top:12px;">
       <h3>Évolution des allocations (SICAV)</h3>
@@ -1074,10 +1550,11 @@
   <!-- (section Graphiques fusionnée ci-dessus) -->
 
   <!-- Documents accordion -->
-  <div id="docsToggle" class="card accordion-toggle"><h3 style="margin:0;">Documents</h3><span class="chevron">▾</span></div>
-  <div id="docsSection" class="card" style="display:none;">
+  <div id="docsToggle" class="card accordion-toggle" data-tb-marker="CL_16"><h3 style="margin:0;">Documents</h3><span class="chevron">▾</span></div>
+  <div id="docsSection" class="card" data-tb-marker="CL_17" style="display:none;">
     <h3>Documents du client</h3>
     <form id="addDocForm" style="margin-bottom:12px; display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;">
+      {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
       <div>
         <label>Type de document</label>
         <div>
@@ -1138,6 +1615,8 @@
 {% else %}
   <div class="card">Client introuvable.</div>
 {% endif %}
+
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
@@ -1310,7 +1789,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   new Chart(ctx, {
     type: 'line',
     data: { labels: normLabels, datasets: [
-      { label: 'Valorisation', data, borderColor: 'var(--primary)', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+      { label: 'Valorisation', data, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8', fill: false, pointRadius: 0, pointHoverRadius: 0 },
       { label: 'Cumul mouvements', data: movs, borderColor: '#ff6b6b', fill: false, pointRadius: 0, pointHoverRadius: 0 },
     ] },
     options: {
@@ -1336,24 +1815,145 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       }
     }
   });
-
-  // Graphique annuel: performances et volatilité (barres)
+  // Graphique SRRI + performance (double courbe)
   (function(){
     const yearsClient = {{ years_client | tojson }};
-    const annPerfClient = {{ ann_perf_client | tojson }};
     const annVolClient = {{ ann_vol_client | tojson }};
-    const el = document.getElementById('clientAnnuelChart');
+    const annPerfClient = {{ ann_perf_client | tojson }};
+    const el = document.getElementById('clientSrriChart');
     if (!el) return;
-    const ctxA = el.getContext('2d');
-    const perfPct = (annPerfClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-    const volPct = (annVolClient||[]).map(v=>{ let n=parseFloat(v); if (!isFinite(n)) n=0; if (Math.abs(n)<=1) n*=100; return +n.toFixed(2); });
-    new Chart(ctxA, {
-      type: 'bar',
-      data: { labels: (yearsClient||[]).map(String), datasets: [
-        { label: 'Perf 52s (%)', data: perfPct, backgroundColor: 'var(--primary)' },
-        { label: 'Volatilité (%)', data: volPct, backgroundColor: '#ff6b6b' },
-      ]},
-      options: { responsive:true, scales:{ y:{ ticks:{ callback:v=> v+' %' } } }, plugins:{ legend:{ display:true } } }
+    const srriColor = '#ff6b6b';
+    const srriBandColor = 'rgba(255, 107, 107, 0.12)';
+    function normalizeVol(value){
+      if (value === null || typeof value === 'undefined') return null;
+      const str = typeof value === 'string' ? value.replace(',', '.') : value;
+      let n = Number(str);
+      if (!isFinite(n)) return null;
+      if (Math.abs(n) > 1) n = n / 100;
+      return n;
+    }
+    function srriFromVol(vol){
+      if (vol === null) return null;
+      const v = Math.abs(vol);
+      const buckets = [
+        { min: 0.0000, max: 0.0050, base: 1 },
+        { min: 0.0050, max: 0.0200, base: 2 },
+        { min: 0.0200, max: 0.0500, base: 3 },
+        { min: 0.0500, max: 0.1000, base: 4 },
+        { min: 0.1000, max: 0.1500, base: 5 },
+        { min: 0.1500, max: 0.2500, base: 6 },
+        { min: 0.2500, max: Infinity, base: 7 }
+      ];
+      for (const bucket of buckets){
+        if (v < bucket.max || bucket.max === Infinity){
+          if (bucket.max === Infinity || bucket.max <= bucket.min) return bucket.base;
+          const span = bucket.max - bucket.min;
+          if (span <= 0) return bucket.base;
+          const ratio = Math.min(Math.max((v - bucket.min) / span, 0), 0.99);
+          if (!isFinite(ratio)) return bucket.base;
+          const value = bucket.base + ratio;
+          if (!isFinite(value)) return bucket.base;
+          if (bucket.base === 7) return 7;
+          return +value.toFixed(2);
+        }
+      }
+      return null;
+    }
+    const srriSeries = (annVolClient||[]).map(v=> srriFromVol(normalizeVol(v)));
+    const perfSeries = (annPerfClient||[]).map(v=>{
+      let n = Number(v);
+      if (!isFinite(n)) return null;
+      if (Math.abs(n) <= 1) n *= 100;
+      return +n.toFixed(2);
+    });
+    if (!srriSeries.some(v=> v !== null) && !perfSeries.some(v=> v !== null)) return;
+    const ctx = el.getContext('2d');
+    const srriBandsPlugin = {
+      id: 'srriBands',
+      beforeDraw(chart){
+        const yAxis = chart.scales.y2;
+        const chartArea = chart.chartArea;
+        if (!yAxis || !chartArea) return;
+        const ctxPlugin = chart.ctx;
+        const ranges = [
+          { from: 1, to: 2 },
+          { from: 3, to: 4 },
+          { from: 5, to: 6 }
+        ];
+        ctxPlugin.save();
+        ctxPlugin.fillStyle = srriBandColor;
+        ranges.forEach(range => {
+          const yTop = yAxis.getPixelForValue(range.to);
+          const yBottom = yAxis.getPixelForValue(range.from);
+          if (Number.isFinite(yTop) && Number.isFinite(yBottom)) {
+            ctxPlugin.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBottom - yTop);
+          }
+        });
+        {% if client_srri is not none %}
+        const clientSrri = {{ client_srri | int }};
+        const srriLevels = [clientSrri, clientSrri + 1];
+        srriLevels.forEach(level => {
+          if (level < 1 || level > 7) return;
+          const yLine = yAxis.getPixelForValue(level);
+          if (Number.isFinite(yLine)) {
+            ctxPlugin.strokeStyle = srriColor;
+            ctxPlugin.lineWidth = 2;
+            ctxPlugin.setLineDash(level === clientSrri ? [6,4] : [4,6]);
+            ctxPlugin.beginPath();
+            ctxPlugin.moveTo(chartArea.left, yLine);
+            ctxPlugin.lineTo(chartArea.right, yLine);
+            ctxPlugin.stroke();
+          }
+        });
+        ctxPlugin.setLineDash([]);
+        {% endif %}
+        ctxPlugin.restore();
+      }
+    };
+    const perfColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8';
+    const chart = new Chart(ctx, {
+      plugins: [srriBandsPlugin],
+      data: {
+        labels: (yearsClient||[]).map(String),
+        datasets: [
+          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
+          { type:'line', label: 'Perf 52s (%)', data: perfSeries, borderColor: perfColor, backgroundColor: perfColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y', order: 3 }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            position: 'left',
+            ticks: { callback: v => v + ' %' }
+          },
+          y2: {
+            position: 'right',
+            min: 1,
+            max: 7,
+            ticks: { stepSize: 1, callback: v => v, color: srriColor },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'SRRI', color: srriColor },
+            border: { color: srriColor }
+          }
+        },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const value = Number(ctx.parsed.y);
+                if (ctx.dataset.yAxisID === 'y2') {
+                  if (!isFinite(value)) return 'SRRI: n/a';
+                  return 'SRRI: ' + value.toFixed(2);
+                }
+                if (!isFinite(value)) return 'Perf: n/a';
+                return 'Perf: ' + value.toFixed(2) + ' %';
+              }
+            }
+          }
+        }
+      }
     });
   })();
 
@@ -1452,7 +2052,25 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     var fieldsWrap = document.getElementById('esgFieldsClient');
     var refreshBtn = document.getElementById('esgRefreshBtnClient');
     var asOfSel = document.getElementById('asOfSelect');
+    var unmatchedNotice = document.getElementById('esgUnmatchedNotice');
+    var serverDefaultAlloc = {{ esg_comparison_alloc|tojson }};
+    var serverDefaultFields = {{ esg_default_fields|tojson }};
+    var serverUnmatched = {{ esg_unmatched_fields|tojson }};
+    var fieldLabels = {{ esg_field_labels|tojson }};
+
+    function setUnmatched(list){
+      if (!unmatchedNotice) return;
+      if (list && list.length){
+        unmatchedNotice.textContent = 'Indicateurs introuvables : ' + list.join(', ');
+        unmatchedNotice.style.display = '';
+      } else {
+        unmatchedNotice.textContent = '';
+        unmatchedNotice.style.display = 'none';
+      }
+    }
     if (!allocSel || !fieldsWrap) return;
+
+    setUnmatched(serverUnmatched);
 
     // Persist keys per client
     var keyAlloc = 'client_esg_alloc_{{ client.id }}';
@@ -1484,13 +2102,17 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
       var asOf = asOfSel && asOfSel.value ? asOfSel.value : '';
       if (!fields.length || !alloc){ return; }
+      setUnmatched([]);
       ensurePlotly(function(){
-        var url = `/dashboard/clients/{{ client.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'');
+        var url = `/dashboard/clients/{{ client.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'') + (CL_MARKERS_SUFFIX || '');
         fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
           var rows = (data && data.results) || [];
-          var cats = rows.map(r=> r.field);
-          var idx = rows.map(r=> (r.index==null? null : Number(r.index)));
-          var cli = rows.map(r=> (r.client==null? null : Number(r.client)));
+          setUnmatched((data && data.unmatched_fields) || []);
+          var filtered = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+          var displayRows = filtered.length ? filtered : rows;
+          var cats = displayRows.map(function(r){ return (fieldLabels && fieldLabels[r.field]) || r.field_original || r.field; });
+          var idx = displayRows.map(r=> (r.index==null? null : Number(r.index)));
+          var cli = displayRows.map(r=> (r.client==null? null : Number(r.client)));
           var traces = [
             { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
             { x: cli, y: cats, type:'bar', orientation:'h', name:'Client', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
@@ -1498,7 +2120,10 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
           var cfg = { displayModeBar: false, responsive: true };
           Plotly.react('esgChartClient', traces, layout, cfg);
-        }).catch(function(err){ try{ console.error('Client ESG fetch error', err); }catch(_){} });
+        }).catch(function(err){
+          setUnmatched(serverUnmatched);
+          try{ console.error('Client ESG fetch error', err); }catch(_){}
+        });
       });
     }
 
@@ -1535,21 +2160,55 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     (function init(){
       // Allocation
       try{
-        var savedAlloc = localStorage.getItem(keyAlloc) || '';
-        if (savedAlloc){
-          var found = false; for (var i=0;i<allocSel.options.length;i++){ if (allocSel.options[i].value===savedAlloc){ allocSel.selectedIndex=i; found=true; break; } }
-          if (!found) savedAlloc = '';
+        var savedAlloc = '';
+        try { savedAlloc = localStorage.getItem(keyAlloc) || ''; } catch(_e) {}
+        var targetAlloc = savedAlloc || serverDefaultAlloc || '';
+        if (targetAlloc){
+          var found = false;
+          for (var i=0;i<allocSel.options.length;i++){
+            if (allocSel.options[i].value === targetAlloc){
+              allocSel.selectedIndex = i;
+              found = true;
+              break;
+            }
+          }
+          if (!found) { targetAlloc = ''; }
         }
-        if (!savedAlloc){ for (var j=0;j<allocSel.options.length;j++){ if (allocSel.options[j].value){ allocSel.selectedIndex=j; savedAlloc=allocSel.options[j].value; break; } } if(savedAlloc){ try{ localStorage.setItem(keyAlloc, savedAlloc); }catch(_e){} }
+        if (!targetAlloc){
+          for (var j=0;j<allocSel.options.length;j++){
+            if (allocSel.options[j].value){
+              allocSel.selectedIndex = j;
+              targetAlloc = allocSel.options[j].value;
+              break;
+            }
+          }
+        }
+        if (targetAlloc){
+          try{ localStorage.setItem(keyAlloc, targetAlloc); }catch(_e){}
         }
       }catch(_e){}
       // Fields
       try{
-        var raw = localStorage.getItem(keyFields); var saved = []; if (raw){ try{ saved=JSON.parse(raw)||[]; }catch(_ee){ saved=[]; } }
+        var raw = localStorage.getItem(keyFields);
+        var saved = [];
+        if (raw){ try{ saved = JSON.parse(raw)||[]; }catch(_ee){ saved = []; } }
         var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field-client'));
+        var buttonMap = new Map();
+        buttons.forEach(b=> buttonMap.set(b.getAttribute('data-field'), b));
         buttons.forEach(b=> b.classList.remove('active'));
-        if (saved && saved.length){ buttons.forEach(b=> { var v=b.getAttribute('data-field'); if (saved.indexOf(v)>=0) b.classList.add('active'); }); }
-        else { buttons.slice(0,3).forEach(b=> b.classList.add('active')); try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(b=> b.getAttribute('data-field')))); }catch(_e){} }
+        var activeFields = (saved || []).filter(v=> buttonMap.has(v));
+        if (!activeFields.length && Array.isArray(serverDefaultFields) && serverDefaultFields.length){
+          activeFields = serverDefaultFields.filter(v=> buttonMap.has(v));
+        }
+        if (!activeFields.length){
+          activeFields = buttons.slice(0,3).map(b=> b.getAttribute('data-field')).filter(Boolean);
+        }
+        activeFields = activeFields.slice(0,4);
+        activeFields.forEach(f=> {
+          var btn = buttonMap.get(f);
+          if (btn) btn.classList.add('active');
+        });
+        try{ localStorage.setItem(keyFields, JSON.stringify(activeFields)); }catch(_e){}
       }catch(_e){}
       // Dates alloc: try restore
       var preferDate = ''; try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
@@ -1563,240 +2222,19 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
       <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="closeConfConnaissanceDetail()">✕</button></div>
       <div class="modal-body" style="padding:0; flex:1 1 auto;">
-        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1" style="width:100%; height:100%; border:0;"></iframe>
-      </div>
-    </div>
-  </div>
-  <div class="modal-overlay" id="confTacfinDetailModal" onclick="if(event.target===this) closeConfTacfinDetail()">
-    <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
-      <div class="modal-header"><h3><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>TRACFIN / FATCA</h3><button class="modal-close" onclick="closeConfTacfinDetail()">✕</button></div>
-      <div class="modal-body" style="flex:1 1 auto; overflow:auto;">
-        <div id="lcbftDetailToast" class="badge success" style="display:none; margin-bottom:8px;">Questionnaire LCB-FT enregistré.</div>
-        <style>
-          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
-          .risk-block { border:1px solid var(--border); border-radius:8px; padding:10px; }
-          .btn-group .btn-choice { margin-right:6px; }
-          .btn-choice-active { background: var(--primary); color:#fff; }
-          .step-hidden { display:none; }
-        </style>
-        <form method="post" action="/dashboard/clients/kyc/{{ client.id }}" id="lcbftFormDetail" style="display:flex; flex-direction:column; gap:12px;">
-          <input type="hidden" name="form_action" value="lcbft_save" />
-          <div class="risk-grid">
-            <div class="risk-block">
-              <h5>FATCA</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Nom du produit</label>
-                  <select name="fatca_contrat_id" id="fatcaContractSelectDetail" style="width:100%; height:36px; min-height:36px;">
-                    <option value="">Sélectionner…</option>
-                    {% for c in fatca_contracts %}
-                      <option value="{{ c.id }}" data-societe="{{ c.societe_nom }}" {% if fatca_saved and fatca_saved.contrat_id and c.id == fatca_saved.contrat_id %}selected{% endif %}>{{ c.nom_contrat }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Compagnie d’assurance</label>
-                  <input type="text" id="fatcaSocieteDetail" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" />
-                </div>
-              </div>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Date de l’opération</label>
-                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Pays de résidence fiscale</label>
-                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>NIF</label>
-                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
-                </div>
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>Cartographie client</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Depuis quand connaissez-vous le client</label>
-                  <input type="date" name="relation_since" value="{{ lcbft_current.relation_since if lcbft_current and lcbft_current.relation_since else '' }}"/>
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Entrée en relation</label>
-                  <textarea name="relation_mode" rows="2" placeholder="Comment êtes-vous rentré en relation ?" style="width:100%;">{{ lcbft_current.relation_mode if lcbft_current else '' }}</textarea>
-                </div>
-              </div>
-              <div class="field"><label>Contrats similaires déjà souscrits ?</label>
-                <div class="btn-group" data-name="has_existing_contracts">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="has_existing_contracts" value="{{ lcbft_current.has_existing_contracts if lcbft_current and lcbft_current.has_existing_contracts is not none else '0' }}" />
-              </div>
-              <div id="lcbftExistingBlockDetail" class="step-hidden">
-                <div class="field"><label>Auprès de notre société d'assurance ?</label>
-                  <div class="btn-group" data-name="existing_with_our_insurer">
-                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                  </div>
-                  <input type="hidden" name="existing_with_our_insurer" value="{{ lcbft_current.existing_with_our_insurer if lcbft_current and lcbft_current.existing_with_our_insurer is not none else '0' }}" />
-                </div>
-                <div class="field"><label>Référence du contrat</label><input type="text" name="existing_contract_ref" placeholder="REF-..." value="{{ lcbft_current.existing_contract_ref if lcbft_current else '' }}"/></div>
-                <div class="field"><label>Raison de l’ouverture d’un nouveau contrat</label><textarea name="reason_new_contract" rows="3">{{ lcbft_current.reason_new_contract if lcbft_current else '' }}</textarea></div>
-              </div>
-            </div>
-            {# Bloc Synthèse financière retiré (revenu/charges/patrimoine/montant) — rebasculé à l'état antérieur #}
-            <div class="risk-block">
-              <h5>PPE</h5>
-              <div class="muted-small" style="margin-bottom:6px;">Reportez-vous aux fonctions PPE (chef d’État, parlement, haute juridiction, ambassadeur, etc.).</div>
-              <div class="field"><label>Client PPE ?</label>
-                <div class="btn-group" data-name="ppe_self">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="ppe_self" value="{{ lcbft_current.ppe_self if lcbft_current and lcbft_current.ppe_self is not none else '0' }}" />
-              </div>
-              <div id="ppeSelfBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction exercée</label>
-                  {% set _cur_self_fn_raw = (lcbft_current.ppe_self_fonction if lcbft_current else none) %}
-                  {% set _cur_self_fn_l = (_cur_self_fn_raw if _cur_self_fn_raw is not none else '') | string | trim %}
-                  {% set _libs = lcbft_ppe_options | map(attribute='lib') | list %}
-                  {% set _illegal = ['non','oui','0','1','false','true','—','-','none'] %}
-                  <select name="ppe_self_fonction">
-                    <option value="">—</option>
-                    {% if (_cur_self_fn_raw is not none) and _cur_self_fn_l and (_cur_self_fn_l|lower not in _illegal) and (_cur_self_fn_l not in _libs) %}
-                      <option value="{{ _cur_self_fn_l }}" selected>{{ _cur_self_fn_l }}</option>
-                    {% endif %}
-                    {% for opt in lcbft_ppe_options %}
-                      <option value="{{ opt.lib }}" {% if _cur_self_fn_l and (_cur_self_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_self_pays" value="{{ lcbft_current.ppe_self_pays if lcbft_current else '' }}"/></div>
-              </div>
-              <div class="field"><label>Membre de la famille PPE ?</label>
-                <div class="btn-group" data-name="ppe_family">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="ppe_family" value="{{ lcbft_current.ppe_family if lcbft_current and lcbft_current.ppe_family is not none else '0' }}" />
-              </div>
-              <div id="ppeFamilyBlockDetail" class="step-hidden" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <div class="field"><label>Fonction du membre</label>
-                  {% set _cur_fam_fn_raw = (lcbft_current.ppe_family_fonction if lcbft_current else none) %}
-                  {% set _cur_fam_fn_l = (_cur_fam_fn_raw if _cur_fam_fn_raw is not none else '') | string | trim %}
-                  {% set _libs2 = lcbft_ppe_options | map(attribute='lib') | list %}
-                  {% set _illegal2 = ['non','oui','0','1','false','true','—','-','none'] %}
-                  <select name="ppe_family_fonction">
-                    <option value="">—</option>
-                    {% if (_cur_fam_fn_raw is not none) and _cur_fam_fn_l and (_cur_fam_fn_l|lower not in _illegal2) and (_cur_fam_fn_l not in _libs2) %}
-                      <option value="{{ _cur_fam_fn_l }}" selected>{{ _cur_fam_fn_l }}</option>
-                    {% endif %}
-                    {% for opt in lcbft_ppe_options %}
-                      <option value="{{ opt.lib }}" {% if _cur_fam_fn_l and (_cur_fam_fn_l == opt.lib) %}selected{% endif %}>{{ opt.lib }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="field"><label>Pays d’exercice</label><input type="text" name="ppe_family_pays" value="{{ lcbft_current.ppe_family_pays if lcbft_current else '' }}"/></div>
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>US Person</h5>
-              <div class="field"><label>US Person ?</label>
-                <div class="btn-group" data-name="us_person">
-                  <button type="button" class="btn btn-choice" data-value="1">Oui</button>
-                  <button type="button" class="btn btn-choice" data-value="0">Non</button>
-                </div>
-                <input type="hidden" name="us_person" value="{{ lcbft_current.us_person if lcbft_current and lcbft_current.us_person is not none else '0' }}" />
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5>Vigilance</h5>
-              <div class="btn-multi-group" data-name="vigilance_ids">
-                {% for v in lcbft_vigilance_options %}
-                  <button type="button" class="btn btn-choice" data-id="{{ v.id }}" {% if lcbft_vigilance_ids and v.id in lcbft_vigilance_ids %}data-active="1"{% endif %}>{{ v.label }}</button>
-                {% endfor %}
-              </div>
-              <div class="multi-hidden" data-name="vigilance_ids"></div>
-            </div>
-            <div class="risk-block">
-              <h5>Justificatifs</h5>
-              <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
-              <div class="field"><label>Justificatifs produits</label><textarea name="just_produits" rows="2">{{ lcbft_current.just_produits if lcbft_current else '' }}</textarea></div>
-            </div>
-          </div>
-          <div class="card" style="display:flex; justify-content:flex-end; border:none;">
-            <button type="submit" class="btn-primary">Enregistrer</button>
-          </div>
-        </form>
-        <script>
-          (function(){
-            const sel = document.getElementById('fatcaContractSelectDetail');
-            const soc = document.getElementById('fatcaSocieteDetail');
-            if (sel && soc){
-              function updateSoc(){ const opt = sel.options[sel.selectedIndex]; soc.value = opt ? (opt.getAttribute('data-societe') || '') : ''; }
-              sel.addEventListener('change', updateSoc); updateSoc();
-            }
-            const form = document.getElementById('lcbftFormDetail');
-            if (!form) return;
-            function updatePPERequired(){
-              try {
-                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
-                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
-                const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
-                const famSel = form.querySelector('select[name="ppe_family_fonction"]');
-                if (selfSel) selfSel.required = (selfVal === '1');
-                if (famSel) famSel.required = (famVal === '1');
-              } catch(e) {}
-            }
-            function initSingle(group){
-              const name = group.getAttribute('data-name'); const input = form.querySelector('input[name="'+name+'"]'); const current = input? String(input.value||'') : '';
-              group.querySelectorAll('button[data-value]').forEach(function(btn){ const v=String(btn.getAttribute('data-value')||''); if(current===v&&v!==''){ btn.classList.add('btn-choice-active'); }
-                btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(input){ input.value=v; } group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active')); btn.classList.add('btn-choice-active');
-                  if (name==='has_existing_contracts'){ const blk=document.getElementById('lcbftExistingBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  if (name==='ppe_self'){ const blk=document.getElementById('ppeSelfBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  if (name==='ppe_family'){ const blk=document.getElementById('ppeFamilyBlockDetail'); if(blk){ blk.classList.toggle('step-hidden', v!=='1'); } }
-                  updatePPERequired();
-                });
-              });
-            }
-            function ensureHiddenContainer(name){ let c=form.querySelector('.multi-hidden[data-name="'+name+'"]'); if(!c){ c=document.createElement('div'); c.className='multi-hidden'; c.setAttribute('data-name', name); form.appendChild(c);} return c; }
-            function initMulti(group){ const name=group.getAttribute('data-name'); const container=ensureHiddenContainer(name); const selected=new Set(); group.querySelectorAll('button.btn-choice[data-id]').forEach(function(btn){ const id=btn.getAttribute('data-id'); if(btn.getAttribute('data-active')==='1'){ btn.classList.add('btn-choice-active'); selected.add(id);} btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); if(btn.classList.contains('btn-choice-active')){ btn.classList.remove('btn-choice-active'); selected.delete(id);} else { btn.classList.add('btn-choice-active'); selected.add(id);} container.innerHTML=''; Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); }); }); }); }
-            Array.from(form.querySelectorAll('.btn-group')).forEach(function(g){ if(g.querySelector('[data-value]')) initSingle(g); });
-            Array.from(form.querySelectorAll('.btn-multi-group')).forEach(function(g){ initMulti(g); });
-            // initial visibility
-            (function(){
-              function val(n){ const i=form.querySelector('[name="'+n+'"]'); return i? i.value:''; }
-              document.getElementById('lcbftExistingBlockDetail')?.classList.toggle('step-hidden', val('has_existing_contracts')!=='1');
-              document.getElementById('ppeSelfBlockDetail')?.classList.toggle('step-hidden', val('ppe_self')!=='1');
-              document.getElementById('ppeFamilyBlockDetail')?.classList.toggle('step-hidden', val('ppe_family')!=='1');
-              updatePPERequired();
-            })();
-            // Simple client-side validation: if PPE=Oui, fonction must be selected
-            form.addEventListener('submit', function(e){
-              try {
-                const selfVal = String((form.querySelector('input[name="ppe_self"]').value||'')).trim();
-                const famVal = String((form.querySelector('input[name="ppe_family"]').value||'')).trim();
-                if (selfVal === '1'){
-                  const selfSel = form.querySelector('select[name="ppe_self_fonction"]');
-                  if (selfSel && !selfSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le client.'); selfSel.focus(); return false; }
-                }
-                if (famVal === '1'){
-                  const famSel = form.querySelector('select[name="ppe_family_fonction"]');
-                  if (famSel && !famSel.value){ e.preventDefault(); alert('Veuillez sélectionner la fonction PPE exercée par le membre de la famille.'); famSel.focus(); return false; }
-                }
-              } catch(err) {}
-            });
-          })();
-        </script>
+        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}" style="width:100%; height:100%; border:0;"></iframe>
       </div>
     </div>
   </div>
   <div class="modal-overlay" id="confEerDetailModal" onclick="if(event.target===this) this.style.display='none'">
   <div class="modal-card" style="width:760px; max-width:96vw;">
-    <div class="modal-header"><h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3><button class="modal-close" onclick="document.getElementById('confEerDetailModal').style.display='none'">✕</button></div>
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-file-signature" style="margin-right:8px;"></i>Entrée en relation</h3>
+      <button type="button" class="btn btn-compact" style="margin-right:8px;" onclick="generateDerPdf()">
+        <i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Génération PDF
+      </button>
+      <button class="modal-close" onclick="document.getElementById('confEerDetailModal').style.display='none'">✕</button>
+    </div>
     <div class="modal-body">
       <style>
         .der-section { margin-bottom: 14px; }
@@ -2123,7 +2561,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
               min-height:96px;
             }
             .la-card .label { color:#6b7280; font-size:.9rem; line-height:1.2; margin:0; }
-            .la-card .value { color:#1d4ed8; font-weight:700; font-size:1.05rem; line-height:1.2; margin:4px 0 0 0; }
+            .la-card .value { color:#2456a6; font-weight:700; font-size:1.05rem; line-height:1.2; margin:4px 0 0 0; }
             /* indicateurs cohérence objectifs vs durée KYC */
             .dot { display:inline-block; width:1em; height:1em; border-radius:50%; vertical-align:middle; }
             .dot-ok { background:#16a34a; }
@@ -2247,26 +2685,23 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 
 
   </div>
+</div>
 
 <script>
   // Toggle Conformité panel
     // Ouvrir/fermer la modale Conformité
-    function openConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='flex'; }
+    function openConfMain(){
+      var m = document.getElementById('confMainModal');
+      if (m) {
+        m.style.display = 'flex';
+      }
+    }
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
     function openConfConnaissanceDetail(){ __showOverlay('confConnaissanceDetailModal'); }
     function closeConfConnaissanceDetail(){
       var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
-      var la = document.getElementById('confAdequationDetailModal');
-      if (la && la.style.display === 'flex'){
-        var btn = document.getElementById('laRefreshBtn');
-        if (btn){ btn.click(); }
-      }
-    }
-    function openConfTacfinDetail(){ __showOverlay('confTacfinDetailModal'); }
-    function closeConfTacfinDetail(){
-      var m=document.getElementById('confTacfinDetailModal'); if(m) m.style.display='none';
       var la = document.getElementById('confAdequationDetailModal');
       if (la && la.style.display === 'flex'){
         var btn = document.getElementById('laRefreshBtn');
@@ -2285,6 +2720,119 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       var main = document.getElementById('confMainModal');
       if (main) main.style.display='none';
     }
+    function triggerPdfDownload(url){
+      if(!url) return;
+      var link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(function(){ try{ document.body.removeChild(link); }catch(e){} }, 1000);
+    }
+
+    function generateDerPdf(options){
+      try{
+        var opts = {};
+        if(typeof options === 'string'){
+          opts.sourceId = options;
+        }else if(options){
+          opts = options;
+        }
+        var clientId = opts.clientId || CLIENT_ID;
+        if(!clientId){
+          alert('Client introuvable.');
+          return;
+        }
+        if (typeof window.showGlobalLoader === 'function'){
+          window.showGlobalLoader('Génération du PDF…');
+        }
+        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/der/pdf';
+        url = appendMarkers(url);
+        triggerPdfDownload(url);
+        var clearLoader = function(){
+          if (typeof window.hideGlobalLoader === 'function'){
+            window.hideGlobalLoader();
+          }
+          window.removeEventListener('focus', clearLoader);
+        };
+        window.addEventListener('focus', clearLoader);
+        setTimeout(clearLoader, 4000);
+      }catch(err){
+        console.warn('DER PDF generation failed', err);
+        if (typeof window.hideGlobalLoader === 'function'){
+          window.hideGlobalLoader();
+        }
+      }
+    }
+    window.generateDerPdf = generateDerPdf;
+    function generateMissionPdf(options){
+      try{
+        var opts = {};
+        if(options){
+          opts = typeof options === 'object' ? options : {};
+        }
+        var clientId = opts.clientId || CLIENT_ID;
+        if(!clientId){
+          alert('Client introuvable.');
+          return;
+        }
+        if (typeof window.showGlobalLoader === 'function'){
+          window.showGlobalLoader('Génération du PDF…');
+        }
+        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/mission/pdf';
+        url = appendMarkers(url);
+        triggerPdfDownload(url);
+        var clearLoader = function(){
+          if (typeof window.hideGlobalLoader === 'function'){
+            window.hideGlobalLoader();
+          }
+          window.removeEventListener('focus', clearLoader);
+        };
+        window.addEventListener('focus', clearLoader);
+        setTimeout(clearLoader, 4000);
+      }catch(err){
+        console.warn('Mission PDF generation failed', err);
+        if (typeof window.hideGlobalLoader === 'function'){
+          window.hideGlobalLoader();
+        }
+      }
+    }
+    window.generateMissionPdf = generateMissionPdf;
+    function generateAdequationPdf(options){
+      try{
+        var opts = {};
+        if(options){
+          opts = typeof options === 'object' ? options : {};
+        }
+        var clientId = opts.clientId || CLIENT_ID;
+        if(!clientId){
+          alert('Client introuvable.');
+          return;
+        }
+        if (typeof window.showGlobalLoader === 'function'){
+          window.showGlobalLoader('Génération du PDF…');
+        }
+        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/adequation/pdf';
+        url = appendMarkers(url);
+        triggerPdfDownload(url);
+        var clearLoader = function(){
+          if (typeof window.hideGlobalLoader === 'function'){
+            window.hideGlobalLoader();
+          }
+          window.removeEventListener('focus', clearLoader);
+        };
+        window.addEventListener('focus', clearLoader);
+        setTimeout(clearLoader, 4000);
+      }catch(err){
+        console.warn('Adequation PDF generation failed', err);
+        if (typeof window.hideGlobalLoader === 'function'){
+          window.hideGlobalLoader();
+        }
+      }
+    }
+    window.generateAdequationPdf = generateAdequationPdf;
     // removed: mission2, tempo
   </script>
 <script>
@@ -2295,7 +2843,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   (function(){
     // Interception de l'envoi LCBFT pour rester dans la modale
     try{
-      var lcbftForm = document.getElementById('lcbftFormDetail');
+      var lcbftForm = document.getElementById('lcbftForm');
       if (lcbftForm){
         lcbftForm.addEventListener('submit', function(ev){
           try{ ev.preventDefault(); }catch(e){}
