@@ -710,7 +710,6 @@ function generateClientSynthese(){
     <h3 style="margin:0;">Relation client et conformité</h3>
       <span class="chevron">▸</span>
     </div>
-  
 
   <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
   <style>
@@ -1641,6 +1640,9 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
       { key:'docs', toggleId:'docsToggle', sectionId:'docsSection' },
+      { key:'conf', toggleId:'confToggleDetail', sectionId:'confSection' },
+      { key:'tasks', toggleId:'clientTasksToggle', sectionId:'taskSection' },
+      { key:'invest', toggleId:'investToggle', sectionId:'investSection' },
     ];
     function byId(id){ return document.getElementById(id); }
     function setOpen(key){
@@ -1916,8 +1918,8 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       data: {
         labels: (yearsClient||[]).map(String),
         datasets: [
-          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
-          { type:'line', label: 'Perf 52s (%)', data: perfSeries, borderColor: perfColor, backgroundColor: perfColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y', order: 3 }
+          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriBandColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
+          { type:'line', label: 'Perf 52s (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y', order: 2 }
         ]
       },
       options: {

@@ -6,55 +6,28 @@
 {% block content %}
 <style>
   .main-container { background: white; border-radius: 12px; box-shadow: var(--shadow-sm); padding: 1rem; }
-  .filters { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; margin: .5rem 0 1rem; }
-  .filters input, .filters select { height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background:#fff; }
+  .filters { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: .6rem; margin: .5rem 0 1rem; }
+  .filters input, .filters select { height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background:#fff; width: 100%; }
   table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
   thead th { background: var(--primary); color: #fff; font-weight: 600; text-transform: uppercase; font-size: .8rem; letter-spacing: .02em; padding: .65rem .6rem; }
   tbody td { border-top: 1px solid var(--border); padding: .6rem .6rem; font-size: .92rem; }
   tbody tr:nth-child(odd) td { background: #fcfdff; }
   tbody tr:hover td { background: #f8fbff; }
-  .right { text-align: right; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace); }
+  .right { text-align: right; }
   .muted { color: var(--muted); }
-  .toolbar { display:flex; justify-content: space-between; align-items:center; margin:.4rem 0 .6rem; }
-  .btn { border:1px solid var(--border); border-radius:8px; padding:.4rem .7rem; background:#fff; cursor:pointer; }
-  /* en-tête supprimé */
-  .center { text-align:center; }
-  /* Centrer SRRI calculé (col 4) */
-  #clientsTbl thead th:nth-child(4),
-  #clientsTbl tbody td:nth-child(4) { text-align: center; }
-  /* Pastilles SRRI */
-  .srri-dot { display:inline-block; width: 1em; height: 1em; border-radius: 50%; vertical-align: middle; }
-  .srri-red { background:#ef4444; }
-  .srri-green { background:#16a34a; }
-  .srri-blue { background:#3b82f6; }
   .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
   .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
   .badge-filter .x:hover { opacity:1; }
   .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
-  .tb-markers-enabled [data-tb-marker] {
-    position: relative;
-    outline: 2px dashed rgba(37,99,235,0.35);
-  }
-  .tb-markers-enabled [data-tb-marker]::before {
-    content: attr(data-tb-marker);
-    position: absolute;
-    top: -12px;
-    left: 0;
-    background: rgba(37,99,235,0.9);
-    color: #fff;
-    font-size: 0.65rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
-    z-index: 20;
-    pointer-events: none;
-    box-shadow: 0 2px 6px rgba(15,23,42,0.2);
-  }
+  .pager { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; flex-wrap:wrap; }
+  .pager button { border:1px solid var(--border); border-radius:8px; padding:6px 10px; background:#fff; cursor:pointer; box-shadow: 0 6px 14px rgba(15,23,42,0.06); }
+  .pager button.active { background: linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; border-color: transparent; box-shadow: 0 12px 26px rgba(37,99,235,0.22); }
+  .pager button:disabled { opacity:0.45; cursor: default; }
 </style>
 
 {% set tb_markers_param = tb_markers_param or '' %}
-{% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
-{% set tb_markers_prefix = ('?' + tb_markers_param) if tb_markers_param else '' %}
+{% set tb_markers_visible = tb_markers_visible or false %}
+
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
 <div class="main-container" data-tb-marker="TB_202">
   <h2 data-tb-marker="TB_203">Liste des clients</h2>
@@ -71,10 +44,52 @@
       </div>
     {% endif %}
   </div>
-  <div style="display:flex; gap:.5rem; justify-content:flex-end; align-items:center; margin:.3rem 0 .4rem; flex-wrap:wrap;" data-tb-marker="TB_206">
-    <button class="btn" id="cf_reset_btn" data-tb-marker="TB_207">Réinitialiser les filtres</button>
-  </div>
-  <!-- Filtres intégrés dans l'en-tête du tableau -->
+
+  <form method="get" class="filters">
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Nom</label>
+      <input name="nom" type="text" value="{{ filters.nom }}" placeholder="Nom" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Prénom</label>
+      <input name="prenom" type="text" value="{{ filters.prenom }}" placeholder="Prénom" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Responsable</label>
+      <select name="resp_id">
+        <option value="">Tous</option>
+        {% for rh in responsables or [] %}
+          <option value="{{ rh.id }}" {% if filters.resp_id and filters.resp_id|int == rh.id %}selected{% endif %}>{{ rh.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">SRRI calculé</label>
+      <select name="srri_calc">
+        <option value="">Tous</option>
+        {% for s in srri_options %}
+          <option value="{{ s }}" {% if filters.srri_calc and filters.srri_calc|int == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Valorisation</label>
+      <input name="valo" type="text" value="{{ filters.valo }}" placeholder="Ex: >100k, 100k-500k" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Perf 52 sem.</label>
+      <input name="perf" type="text" value="{{ filters.perf }}" placeholder="Ex: >5, 3-7" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.85rem;">Volatilité</label>
+      <input name="vol" type="text" value="{{ filters.vol }}" placeholder="Ex: <10, 2-6" />
+    </div>
+    <div style="display:flex; gap:8px; align-items:flex-end;">
+      {% if tb_markers_visible %}<input type="hidden" name="markers" value="1" />{% endif %}
+      <button class="btn" type="submit">Filtrer</button>
+      <a class="btn" href="/dashboard/clients{% if tb_markers_visible %}?markers=1{% endif %}">Réinitialiser</a>
+    </div>
+  </form>
 
   <table id="clientsTbl" data-tb-marker="TB_208">
     <thead>
@@ -87,15 +102,6 @@
         <th class="right" style="width:100px;">Perf 52 sem.</th>
         <th class="right" style="width:100px;">Volatilité</th>
       </tr>
-      <tr>
-        <th><input id="cf_nom" type="text" placeholder="Filtrer" /></th>
-        <th><input id="cf_prenom" type="text" placeholder="Filtrer" /></th>
-        <th><select id="cf_resp"><option value="">Tous</option></select></th>
-        <th><select id="cf_srri_calc"><option value="">Tous</option></select></th>
-        <th><input id="cf_valo" type="text" placeholder="Ex: >100k, 100k-500k" /></th>
-        <th><input id="cf_perf" type="text" placeholder="Ex: >5, 3-7" /></th>
-        <th><input id="cf_vol" type="text" placeholder="Ex: <10, 2-6" /></th>
-      </tr>
     </thead>
     <tbody>
       {% for c in clients %}
@@ -104,325 +110,41 @@
         <td>{{ c.prenom }}</td>
         <td>{{ c.responsable or '—' }}</td>
         <td>{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
-        <td class="right">{{ c.total_valo }}</td>
-        <td class="right">{{ c.perf_52_sem }}</td>
-        <td class="right">{{ c.volatilite }}</td>
+        <td class="right">{{ c.total_valo_str }}</td>
+        <td class="right">{{ c.perf_52_sem_str }}</td>
+        <td class="right">{{ c.volatilite_str }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% if total_pages > 1 %}
+    <div id="clientsPager" class="pager" aria-label="Pagination clients">
+      {% set base_params = filters.copy() %}
+      {% if tb_markers_visible %}{% set _ = base_params.update({'markers':'1'}) %}{% endif %}
+      {% set prev_page = page - 1 %}
+      {% set next_page = page + 1 %}
+      <form method="get" style="display:inline;">
+        {% for k,v in base_params.items() if v %}
+          <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endfor %}
+        <button type="submit" name="page" value="{{ prev_page }}" {% if page == 1 %}disabled{% endif %}>‹</button>
+      </form>
+      {% for p in range(1, total_pages + 1) %}
+        <form method="get" style="display:inline;">
+          {% for k,v in base_params.items() if v %}
+            <input type="hidden" name="{{ k }}" value="{{ v }}">
+          {% endfor %}
+          <button type="submit" name="page" value="{{ p }}" class="{% if p == page %}active{% endif %}">{{ p }}</button>
+        </form>
+      {% endfor %}
+      <form method="get" style="display:inline;">
+        {% for k,v in base_params.items() if v %}
+          <input type="hidden" name="{{ k }}" value="{{ v }}">
+        {% endfor %}
+        <button type="submit" name="page" value="{{ next_page }}" {% if page == total_pages %}disabled{% endif %}>›</button>
+      </form>
+    </div>
+  {% endif %}
   </div>
 </div>
-
-<script>
-(function(){
-  function fmtMoney(val){
-    var n = Number(val);
-    if (!isFinite(n)) return '';
-    var s = n.toFixed(2);
-    var parts = s.split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-    return parts.join('.');
-  }
-  function fmtPct(frac){
-    var n = Number(frac);
-    if (!isFinite(n)) return '';
-    return (n*100).toFixed(2) + ' %';
-  }
-  function text(el){ return (el?.textContent || '').trim(); }
-  function setText(el, v){ if (el) el.textContent = v; }
-
-  // Helpers: numeric parsing and conditional filter for Valorisation
-  function _toNumberToken(raw){
-    var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
-    s = s.replace(',', '.');
-    var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
-    if (!m) return NaN;
-    var n = parseFloat(m[1]);
-    if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
-    return n;
-  }
-  function _numFromCell(txt){
-    var s = String(txt||'').replace(/\s+/g,'').replace(',', '.');
-    var m = s.match(/-?\d*\.?\d+/);
-    return m ? parseFloat(m[0]) : NaN;
-  }
-  function buildValoPredicate(expr){
-    var q = String(expr||'').trim();
-    if (!q) return function(){ return true; };
-    // Range: a-b
-    var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
-    if (range){
-      var a = _toNumberToken(range[1]);
-      var b = _toNumberToken(range[2]);
-      if (isFinite(a) && isFinite(b)){
-        var lo = Math.min(a,b), hi = Math.max(a,b);
-        return function(x){ return isFinite(x) && x >= lo && x <= hi; };
-      }
-    }
-    // Multiple comparators: e.g. ">=100k <=500k"
-    var tokens = [];
-    q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)/gi, function(_,op,num,suf){
-      var n = _toNumberToken(num + (suf||''));
-      if (isFinite(n)) tokens.push({op: op, n: n});
-      return '';
-    });
-    if (tokens.length){
-      return function(x){
-        if (!isFinite(x)) return false;
-        for (var i=0;i<tokens.length;i++){
-          var t = tokens[i];
-          if (t.op === '>' && !(x > t.n)) return false;
-          if (t.op === '>=' && !(x >= t.n)) return false;
-          if (t.op === '<' && !(x < t.n)) return false;
-          if (t.op === '<=' && !(x <= t.n)) return false;
-          if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
-          if (t.op === '!=' && !(x !== t.n)) return false;
-        }
-        return true;
-      };
-    }
-    // Fallback: bare number means contains
-    var single = _toNumberToken(q);
-    if (isFinite(single)){
-      return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
-    }
-    // Unknown pattern → match all
-    return function(){ return true; };
-  }
-
-  // Generic numeric predicate builder for percentage-like columns (Perf/Vol)
-  function buildNumericPredicate(expr){
-    var q = String(expr||'').trim();
-    if (!q) return function(){ return true; };
-    // Range: a-b (optionally with %)
-    var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
-    if (range){
-      var a = parseFloat(String(range[1]).replace('%','').replace(',','.'));
-      var b = parseFloat(String(range[2]).replace('%','').replace(',','.'));
-      if (isFinite(a) && isFinite(b)){
-        var lo = Math.min(a,b), hi = Math.max(a,b);
-        return function(x){ return isFinite(x) && x >= lo && x <= hi; };
-      }
-    }
-    // Comparators: >, >=, <, <=, =, != (optional %)
-    var tokens = [];
-    q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
-      var n = parseFloat(String(num).replace(',','.'));
-      if (isFinite(n)) tokens.push({op: op, n: n});
-      return '';
-    });
-    if (tokens.length){
-      return function(x){
-        if (!isFinite(x)) return false;
-        for (var i=0;i<tokens.length;i++){
-          var t = tokens[i];
-          if (t.op === '>' && !(x > t.n)) return false;
-          if (t.op === '>=' && !(x >= t.n)) return false;
-          if (t.op === '<' && !(x < t.n)) return false;
-          if (t.op === '<=' && !(x <= t.n)) return false;
-          if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
-          if (t.op === '!=' && !(x !== t.n)) return false;
-        }
-        return true;
-      };
-    }
-    // Fallback: bare number → contains
-    var single = parseFloat(q.replace('%','').replace(',','.'));
-    if (isFinite(single)){
-      return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
-    }
-    return function(){ return true; };
-  }
-
-  var tbl = document.getElementById('clientsTbl');
-  var rows = Array.prototype.slice.call(tbl.querySelectorAll('tbody tr'));
-
-  // Format numeric columns once
-  rows.forEach(function(tr){
-    var tds = tr.querySelectorAll('td');
-    // Valorisation (index 4)
-    var v = text(tds[4]);
-    setText(tds[4], fmtMoney(v));
-    // Perf (index 5)
-    var p = text(tds[5]);
-    setText(tds[5], fmtPct(p));
-    // Volatilité (index 6)
-    var vol = text(tds[6]);
-    setText(tds[6], fmtPct(vol));
-  });
-
-  // Build filter options (Responsable + SRRI calculé)
-  var respSet = new Set();
-  var srriCalcSet = new Set();
-  rows.forEach(function(tr){
-    var tds = tr.querySelectorAll('td');
-    var resp = text(tds[2]);
-    var srriCalc = text(tds[3]);
-    if (resp) respSet.add(resp);
-    if (srriCalc) srriCalcSet.add(srriCalc);
-  });
-  var fResp = document.getElementById('cf_resp');
-  Array.from(respSet).sort(function(a,b){ return a.localeCompare(b, 'fr', {sensitivity:'base'}); }).forEach(function(v){
-    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fResp.appendChild(opt);
-  });
-  var fSrriCalc = document.getElementById('cf_srri_calc');
-  Array.from(srriCalcSet).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(v){
-    var opt = document.createElement('option'); opt.value = v; opt.textContent = v; fSrriCalc.appendChild(opt);
-  });
-
-  var fNom = document.getElementById('cf_nom');
-  var fPrenom = document.getElementById('cf_prenom');
-  var fValo = document.getElementById('cf_valo');
-  var fPerf = document.getElementById('cf_perf');
-  var fVol = document.getElementById('cf_vol');
-
-  // Paramètre URL: risk=above|equal|below (filtre côté front)
-  var urlParams = new URLSearchParams(window.location.search || '');
-  var riskParam = String(urlParams.get('risk') || '').toLowerCase();
-  if (["above","equal","below"].indexOf(riskParam) === -1) {
-    riskParam = '';
-  }
-
-  // Pastille de comparaison (SRRI calculé vs SRRI du client)
-  rows.forEach(function(tr){
-    var tds = tr.querySelectorAll('td');
-    var srriBase = Number(tr.getAttribute('data-srri'));
-    var srriCalc = Number(text(tds[3]));
-    if (!isNaN(srriBase) && !isNaN(srriCalc)){
-      var dot = document.createElement('span');
-      dot.className = 'srri-dot ' + (srriCalc>srriBase ? 'srri-red' : (srriCalc===srriBase ? 'srri-green' : 'srri-blue'));
-      dot.title = (srriCalc>srriBase ? 'Au‑dessus' : (srriCalc===srriBase ? 'Identique' : 'En‑dessous'));
-      dot.style.marginLeft = '6px';
-      tds[3].appendChild(dot);
-    }
-  });
-
-  function applyFilters(){
-    var qNom = (fNom.value||'').toLowerCase();
-    var qPre = (fPrenom.value||'').toLowerCase();
-    var qSrriCalc = fSrriCalc.value||'';
-    var qResp = (fResp.value||'').toLowerCase();
-    var qValo = (fValo.value||'').toLowerCase();
-    var qPerf = (fPerf.value||'').toLowerCase();
-    var qVol = (fVol.value||'').toLowerCase();
-    var predValo = buildValoPredicate(qValo);
-    var predPerf = buildNumericPredicate(qPerf);
-    var predVol = buildNumericPredicate(qVol);
-    rows.forEach(function(tr){
-      var tds = tr.querySelectorAll('td');
-      var nom = text(tds[0]).toLowerCase();
-      var prenom = text(tds[1]).toLowerCase();
-      var resp = text(tds[2]).toLowerCase();
-      var srriCalc = text(tds[3]);
-      var srriCalcNum = Number(srriCalc);
-      var srriBaseNum = Number(tr.getAttribute('data-srri'));
-      var valoTxt = text(tds[4]);
-      var valoNum = _numFromCell(valoTxt);
-      var perfTxt = text(tds[5]);
-      var perfNum = _numFromCell(perfTxt);
-      var volTxt = text(tds[6]);
-      var volNum = _numFromCell(volTxt);
-      var ok = true;
-      if (qNom && nom.indexOf(qNom) === -1) ok = false;
-      if (ok && qPre && prenom.indexOf(qPre) === -1) ok = false;
-      if (ok && qResp && resp !== qResp) ok = false;
-      if (ok && qSrriCalc && srriCalc !== qSrriCalc) ok = false;
-      // Filtre RISK (URL) basé sur comparaison SRRI calculé vs SRRI contrat (data-srri)
-      if (ok && riskParam) {
-        if (!isFinite(srriBaseNum) || !isFinite(srriCalcNum)) {
-          ok = false; // si valeurs manquantes, exclure de la vue filtrée
-        } else if (riskParam === 'above' && !(srriCalcNum > srriBaseNum)) {
-          ok = false;
-        } else if (riskParam === 'equal' && !(srriCalcNum === srriBaseNum)) {
-          ok = false;
-        } else if (riskParam === 'below' && !(srriCalcNum < srriBaseNum)) {
-          ok = false;
-        }
-      }
-      if (ok && qValo && !predValo(valoNum)) ok = false;
-      if (ok && qPerf && !predPerf(perfNum)) ok = false;
-      if (ok && qVol && !predVol(volNum)) ok = false;
-      tr.style.display = ok ? '' : 'none';
-    });
-  }
-
-  ['input','change'].forEach(function(ev){
-    [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.addEventListener(ev, function(){ applyFilters(); renderBadges(); }); });
-  });
-
-  // Bouton réinitialiser les filtres
-  var resetBtn = document.getElementById('cf_reset_btn');
-  if (resetBtn){
-    resetBtn.addEventListener('click', function(){
-      [fNom,fPrenom,fResp,fSrriCalc,fValo,fPerf,fVol].forEach(function(el){ if (el) el.value = ''; });
-      // Réinitialise aussi le filtre RISK et nettoie l'URL
-      if (riskParam) {
-        riskParam = '';
-        var p = new URLSearchParams(window.location.search || '');
-        p.delete('risk');
-        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
-        try { history.replaceState(null, '', newUrl); } catch(e) {}
-      }
-      applyFilters();
-      renderBadges();
-    });
-  }
-
-  // Initial state
-  function renderBadges(){
-    var host = document.getElementById('cf_active_badges');
-    if (!host) return;
-    host.innerHTML = '';
-    // Badge RISK (depuis URL)
-    if (riskParam) {
-      var riskMap = { above: 'Au‑dessus du risque', equal: 'Dans le risque', below: 'Sous le risque' };
-      var spanR = document.createElement('span');
-      spanR.className = 'badge-filter';
-      spanR.appendChild(document.createTextNode('Filtre: ' + (riskMap[riskParam] || riskParam) + ' '));
-      var aR = document.createElement('a'); aR.href = '#'; aR.className = 'x'; aR.title = 'Effacer le filtre'; aR.textContent = '✕';
-      aR.addEventListener('click', function(e){
-        e.preventDefault();
-        riskParam = '';
-        var p = new URLSearchParams(window.location.search || '');
-        p.delete('risk');
-        var newUrl = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '');
-        try { history.replaceState(null, '', newUrl); } catch(err) {}
-        applyFilters();
-        renderBadges();
-      });
-      spanR.appendChild(aR);
-      host.appendChild(spanR);
-    }
-    // Responsable badge
-    var respSel = document.getElementById('cf_resp');
-    if (respSel && respSel.value){
-      var label = 'Responsable: ' + (respSel.options[respSel.selectedIndex]?.textContent || respSel.value);
-      var span = document.createElement('span');
-      span.className = 'badge-filter';
-      span.appendChild(document.createTextNode(label + ' '));
-      var a = document.createElement('a'); a.href = '#'; a.className = 'x'; a.title = 'Effacer le filtre'; a.textContent = '✕';
-      a.addEventListener('click', function(e){ e.preventDefault(); respSel.value = ''; applyFilters(); renderBadges(); });
-      span.appendChild(a);
-      host.appendChild(span);
-    }
-    // SRRI calculé badge
-    var srriSel = document.getElementById('cf_srri_calc');
-    if (srriSel && srriSel.value){
-      var label2 = 'SRRI calculé: ' + (srriSel.options[srriSel.selectedIndex]?.textContent || srriSel.value);
-      var span2 = document.createElement('span');
-      span2.className = 'badge-filter';
-      span2.appendChild(document.createTextNode(label2 + ' '));
-      var a2 = document.createElement('a'); a2.href = '#'; a2.className = 'x'; a2.title = 'Effacer le filtre'; a2.textContent = '✕';
-      a2.addEventListener('click', function(e){ e.preventDefault(); srriSel.value = ''; applyFilters(); renderBadges(); });
-      span2.appendChild(a2);
-      host.appendChild(span2);
-    }
-  }
-
-  applyFilters();
-  renderBadges();
-})();
-</script>
-
 {% endblock %}
