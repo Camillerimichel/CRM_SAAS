@@ -2,6 +2,7 @@ import logging
 import base64
 import re
 import secrets
+import math
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
@@ -13575,7 +13576,149 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             return "hands-praying" # identique → 🙏
         return "snowflake"         # inférieur → ❄️
 
-    clients = []
+    # Helpers pour parsing des filtres numériques (valeurs et pourcentages)
+    def _num_token(raw: str | None) -> float | None:
+        if raw is None:
+            return None
+        s = str(raw).strip().lower().replace(" ", "").replace(",", ".")
+        m = func_re_num.match(s)  # type: ignore[name-defined]
+        if not m:
+            return None
+        n = float(m.group(1))
+        suf = m.group(2) or ""
+        if suf == "k":
+            n *= 1_000
+        elif suf == "m":
+            n *= 1_000_000
+        return n
+
+    def _as_float(raw):
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    func_re_num = re.compile(r"^([-+]?\d*\.?\d+)([km])?$")
+
+    def build_val_pred(expr: str | None):
+        if not expr:
+            return lambda _x: True
+        expr = expr.strip()
+        range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
+        if range_match:
+            a = _num_token(range_match.group(1))
+            b = _num_token(range_match.group(2))
+            if a is not None and b is not None:
+                lo, hi = (a, b) if a <= b else (b, a)
+                return lambda x: x is not None and lo <= x <= hi
+        tokens = []
+        for op, num, suf in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*\.?\d+)\s*([km]?)", expr, flags=re.I):
+            n = _num_token(num + suf)
+            if n is not None:
+                tokens.append((op, n))
+        if tokens:
+            def _pred(x):
+                if x is None:
+                    return False
+                for op, n in tokens:
+                    if op == ">" and not (x > n):
+                        return False
+                    if op == ">=" and not (x >= n):
+                        return False
+                    if op == "<" and not (x < n):
+                        return False
+                    if op == "<=" and not (x <= n):
+                        return False
+                    if op in ("=", "==") and not (x == n):
+                        return False
+                    if op == "!=" and not (x != n):
+                        return False
+                return True
+            return _pred
+        single = _num_token(expr)
+        if single is not None:
+            return lambda x: x is not None and str(single) in str(x)
+        return lambda _x: True
+
+    def build_pct_pred(expr: str | None):
+        if not expr:
+            return lambda _x: True
+        expr = expr.replace("%", "").strip()
+        range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
+        if range_match:
+            try:
+                a = float(str(range_match.group(1)).replace(",", "."))
+                b = float(str(range_match.group(2)).replace(",", "."))
+                lo, hi = (a, b) if a <= b else (b, a)
+                return lambda x: x is not None and lo <= x <= hi
+            except Exception:
+                pass
+        tokens = []
+        for op, num in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)", expr):
+            try:
+                n = float(num.replace(",", "."))
+                tokens.append((op, n))
+            except Exception:
+                continue
+        if tokens:
+            def _pred(x):
+                if x is None:
+                    return False
+                for op, n in tokens:
+                    if op == ">" and not (x > n):
+                        return False
+                    if op == ">=" and not (x >= n):
+                        return False
+                    if op == "<" and not (x < n):
+                        return False
+                    if op == "<=" and not (x <= n):
+                        return False
+                    if op in ("=", "==") and not (x == n):
+                        return False
+                    if op == "!=" and not (x != n):
+                        return False
+                return True
+            return _pred
+        try:
+            single = float(expr.replace(",", "."))
+            return lambda x: x is not None and str(single) in str(x)
+        except Exception:
+            return lambda _x: True
+
+    # Params filtres
+    params = request.query_params
+    q_nom = params.get("nom", "").strip()
+    q_prenom = params.get("prenom", "").strip()
+    q_resp = params.get("resp_id", "").strip()
+    q_srri_calc = params.get("srri_calc", "").strip()
+    q_valo = params.get("valo", "").strip()
+    q_perf = params.get("perf", "").strip()
+    q_vol = params.get("vol", "").strip()
+    page_size = 25
+    try:
+        page = max(1, int(params.get("page", "1")))
+    except Exception:
+        page = 1
+
+    pred_valo = build_val_pred(q_valo)
+    pred_perf = build_pct_pred(q_perf)
+    pred_vol = build_pct_pred(q_vol)
+
+    def fmt_money(val):
+        try:
+            n = float(val)
+        except Exception:
+            return ""
+        return f"{n:,.2f}".replace(",", " ").replace(".", ",")
+
+    def fmt_pct(frac):
+        try:
+            n = float(frac)
+        except Exception:
+            return ""
+        return f"{n*100:.2f} %"
+
+    clients_all = []
     for r in rows:
         comm_id = getattr(r, "commercial_id", None)
         responsable_label = None
@@ -13584,19 +13727,63 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
                 responsable_label = rh_label_map.get(int(comm_id))
             except Exception:
                 responsable_label = None
-        clients.append({
+        total_valo_num = _as_float(getattr(r, "total_valo", None))
+        perf_num = _as_float(getattr(r, "perf_52_sem", None))
+        vol_num = _as_float(getattr(r, "volatilite", None))
+        clients_all.append({
             "id": getattr(r, "id", None),
-            "nom": getattr(r, "nom", None),
-            "prenom": getattr(r, "prenom", None),
+            "nom": getattr(r, "nom", None) or "",
+            "prenom": getattr(r, "prenom", None) or "",
             "SRRI": getattr(r, "SRRI", None),
             "srri_hist": getattr(r, "srri_hist", None),
             "srri_icon": icon_for_compare(getattr(r, "SRRI", None), getattr(r, "srri_hist", None)),
-            "total_valo": getattr(r, "total_valo", None),
-            "perf_52_sem": getattr(r, "perf_52_sem", None),
-            "volatilite": getattr(r, "volatilite", None),
+            "total_valo": total_valo_num,
+            "perf_52_sem": perf_num,
+            "volatilite": vol_num,
+            "total_valo_str": fmt_money(total_valo_num),
+            "perf_52_sem_str": fmt_pct(perf_num if perf_num is not None else None),
+            "volatilite_str": fmt_pct(vol_num if vol_num is not None else None),
             "commercial_id": comm_id,
             "responsable": responsable_label,
         })
+
+    # Options de filtrage SRRI calculé (srri_hist) et responsables
+    srri_options = sorted({c["srri_hist"] for c in clients_all if c["srri_hist"] is not None})
+
+    filtered = []
+    for c in clients_all:
+        if q_nom and q_nom.lower() not in c["nom"].lower():
+            continue
+        if q_prenom and q_prenom.lower() not in c["prenom"].lower():
+            continue
+        if q_resp:
+            try:
+                if int(q_resp) != (c["commercial_id"] or 0):
+                    continue
+            except Exception:
+                pass
+        if q_srri_calc:
+            try:
+                if int(q_srri_calc) != int(c["srri_hist"] or -1):
+                    continue
+            except Exception:
+                continue
+        # riskParam not re-applied (optionnel)
+        if q_valo and not pred_valo(c["total_valo"]):
+            continue
+        if q_perf and not pred_perf(c["perf_52_sem"]):
+            continue
+        if q_vol and not pred_vol(c["volatilite"]):
+            continue
+        filtered.append(c)
+
+    total_filtered = len(filtered)
+    total_pages = max(1, math.ceil(total_filtered / page_size))
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * page_size
+    end = start + page_size
+    clients = filtered[start:end]
 
     # ---------------- Analyse financière (supports) ----------------
     finance_rh_param = request.query_params.get("finance_rh")
@@ -13631,6 +13818,18 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "total_clients": total_clients,
             "srri_chart": srri_chart,
             "clients": clients,
+            "page": page,
+            "total_pages": total_pages,
+            "filters": {
+                "nom": q_nom,
+                "prenom": q_prenom,
+                "resp_id": q_resp,
+                "srri_calc": q_srri_calc,
+                "valo": q_valo,
+                "perf": q_perf,
+                "vol": q_vol,
+            },
+            "srri_options": srri_options,
             # Analyse financière
             "finance_supports": finance_supports,
             "finance_total_valo": finance_total_valo,
@@ -13644,6 +13843,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "group_filter_label": group_filter_label if group_filter_ids is not None else None,
+            "responsables": rh_options,
         }
     )
 

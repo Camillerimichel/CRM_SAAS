@@ -5,95 +5,132 @@
     <title>{% block title %}Dashboard{% endblock %}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        /* ===== Thème institutionnel (sobre, accessible) ===== */
         :root {
-            --bg: #f5f7fb;
+            --bg: #eef2f7;
             --surface: #ffffff;
-            --text: #1f2937;           /* gris anthracite */
-            --muted: #6b7280;          /* gris moyen */
-            --primary: #2456a6;        /* bleu corporate */
-            --primary-600: #1e4b93;
-            --primary-100: #e7eefb;
-            --accent: #0ea5e9;         /* accent discret */
-            --success: #1b8f3b;
-            --danger: #c0392b;
-            --warning: #b45309;
-            --border: #e5e7eb;         /* gris clair */
-            --radius: 12px;
-            --shadow: 0 6px 16px rgba(0,0,0,0.08);
-            --shadow-sm: 0 3px 10px rgba(0,0,0,0.06);
+            --text: #0f172a;
+            --muted: #64748b;
+            --primary: #2563eb;
+            --primary-600: #1d4ed8;
+            --primary-100: #e8f0ff;
+            --accent: #0ea5e9;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #ea580c;
+            --border: #e5e7eb;
+            --radius: 14px;
+            --shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+            --shadow-sm: 0 8px 20px rgba(15, 23, 42, 0.08);
         }
-
-        html, body {
-            height: 100%;
-        }
+        html, body { height: 100%; }
         body {
             margin: 0;
             padding: 0;
-            background: var(--bg);
+            background: radial-gradient(circle at 20% 20%, #f4f7ff 0, #eef2f7 45%, #eef2f7 100%);
             color: var(--text);
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: "Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
             font-size: 16px;
             line-height: 1.45;
         }
-        h1, h2, h3 { margin: 0; font-weight: 600; color: var(--text); }
-        h1 { font-size: 1.8rem; }
+        h1, h2, h3 { margin: 0; font-weight: 700; color: var(--text); }
+        h1 { font-size: 1.9rem; }
         h2 { font-size: 1.35rem; letter-spacing: .01em; }
         h3 { font-size: 1.12rem; font-weight: 650; }
         .muted { color: var(--muted); }
 
-        /* ===== En-tête ===== */
-        .header { 
-            background: linear-gradient(180deg, var(--primary) 0%, var(--primary-600) 100%);
-            color: #fff;
-            padding: 1.2rem 2rem;
-            text-align: center;
-        }
-        .header h1 { font-size: 1.6rem; color: #fff; }
-        .header p { margin-top: .25rem; font-size: .95rem; opacity: .95; color: #fff; }
-
-        /* ===== Navigation ===== */
-        nav {
-            background: var(--surface);
+        /* En-tête / Brand */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            backdrop-filter: blur(10px);
+            background: rgba(255,255,255,0.9);
             border-bottom: 1px solid var(--border);
-            padding: .75rem 1.25rem;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+        }
+        .topbar-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 14px 18px 10px;
             display: flex;
-            justify-content: center;
-            gap: 1.25rem;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .brand-mark {
+            width: 46px;
+            height: 46px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            color: #fff;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+        }
+        .brand-text h1 { font-size: 18px; }
+        .brand-text p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.3;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--primary-100);
+            color: var(--primary-600);
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        /* Navigation */
+        nav {
+            padding: 0 18px 16px;
+        }
+        .nav-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
         nav a {
             text-decoration: none;
-            color: var(--primary);
-            font-weight: 600;
-            padding: .35rem .6rem;
-            border-radius: 8px;
-            transition: background-color .2s ease, color .2s ease;
-            position: relative;
+            color: var(--text);
+            font-weight: 700;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: #fff;
+            border: 1px solid var(--border);
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all .15s ease;
         }
-        nav a:hover { background: var(--primary-100); color: var(--primary-600); }
+        nav a i { color: var(--primary-600); }
+        nav a:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
         nav a.active {
-            background: var(--primary);
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
             color: #fff;
-            box-shadow: 0 4px 12px rgba(36, 86, 166, 0.35);
-            outline: 2px solid rgba(255,255,255,0.35);
+            border-color: transparent;
+            box-shadow: 0 14px 32px rgba(37, 99, 235, 0.25);
         }
-        nav a.active:hover {
-            background: var(--primary-600);
-            color: #fff;
-        }
-        nav a.active::after {
-            content: "";
-            position: absolute;
-            inset: -3px;
-            border-radius: 10px;
-            border: 2px solid rgba(255,255,255,0.2);
-            pointer-events: none;
-        }
+        nav a.active i { color: #fff; }
 
-        /* ===== Mise en page ===== */
-        .container { max-width: 1200px; margin: 1.5rem auto 2rem; padding: 0 1rem; }
+        /* Mise en page */
+        .container { max-width: 1200px; margin: 1.2rem auto 2rem; padding: 0 1rem; }
 
-        /* ===== Cartes ===== */
+        /* Cartes */
         .card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -281,23 +318,33 @@
 </head>
 <body>
     <!-- Header global -->
-    <div class="header">
-        <h1>{% block header_title %}📊 CRM Dashboard{% endblock %}</h1>
-        <p>{% block header_subtitle %}Application de suivi et de gestion{% endblock %}</p>
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-mark">CRM</div>
+          <div class="brand-text">
+            <p class="muted" style="font-weight:700; text-transform:uppercase; letter-spacing:.06em;">Pilotage portefeuille</p>
+            <h1>{% block header_title %}CRM SAAS{% endblock %}</h1>
+            <p>{% block header_subtitle %}Interface locale · FastAPI + React{% endblock %}</p>
+          </div>
+        </div>
+        <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
+      </div>
+      <!-- Navigation unifiée -->
+      <nav>
+        <div class="nav-inner">
+            {% set path = request.url.path if request and request.url else '' %}
+            <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Accueil</a>
+            <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
+            <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
+            <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
+            <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres financières</a>
+            <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
+            <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
+            <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Paramètres</a>
+        </div>
+      </nav>
     </div>
-
-    <!-- Navigation unifiée -->
-    <nav>
-        {% set path = request.url.path if request and request.url else '' %}
-        <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house" style="margin-right:6px;"></i>Accueil</a>
-        <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users" style="margin-right:6px;"></i>Clients</a>
-        <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i>Affaires</a>
-        <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie" style="margin-right:6px;"></i>Supports</a>
-        <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins" style="margin-right:6px;"></i>Offres financières</a>
-        <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file" style="margin-right:6px;"></i>Documents</a>
-        <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check" style="margin-right:6px;"></i>Tâches</a>
-        <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Paramètres</a>
-    </nav>
 
     <!-- Contenu spécifique -->
     <div class="container">

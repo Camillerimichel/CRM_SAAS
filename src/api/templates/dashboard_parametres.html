@@ -10,6 +10,46 @@
     padding: 0.75rem 0 1.25rem;
     background: var(--surface);
   }
+  /* Onglets principaux (remplace les accordéons racine) */
+  .param-tabs {
+    display: flex;
+    gap: 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: center;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafe;
+  }
+  .param-tab {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+    transition: all .15s ease;
+    flex: 0 0 auto;
+    min-width: 150px;
+    min-height: 46px;
+    text-align: center;
+  }
+  .param-tab i { color: var(--primary-600); }
+  .param-tab:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+  .param-tab.active {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+  }
+  .param-tab.active i { color: #fff; }
   #paramContainer #assureursPanel > .accordion-subtoggle,
   #paramContainer #contratsPanel > .accordion-subtoggle,
   #paramContainer #courtierPanel > .accordion-subtoggle,
@@ -330,6 +370,14 @@
   </div>
 
   <div class="card" style="padding:0; overflow:hidden;">
+    <div class="param-tabs" id="paramTabs">
+      <button class="param-tab active" data-target="courtierPanel"><i class="fa-solid fa-user-tie"></i> Courtier</button>
+      <button class="param-tab" data-target="contratsPanel"><i class="fa-solid fa-file-contract"></i> Contrats génériques</button>
+      <button class="param-tab" data-target="assureursPanel"><i class="fa-solid fa-building"></i> Assureurs / Sociétés</button>
+      <button class="param-tab" data-target="supportPanel"><i class="fa-solid fa-chart-line"></i> Supports</button>
+      <button class="param-tab" data-target="groupesPanel"><i class="fa-solid fa-layer-group"></i> Groupes</button>
+      <button class="param-tab" data-target="administrationPanel"><i class="fa-solid fa-sitemap"></i> Administration</button>
+    </div>
     <div class="accordion" id="accordionWrapper">
       <div class="accordion-toggle" data-target="courtierPanel" data-level="root">
         <span><i class="fa-solid fa-user-tie" style="margin-right:6px;"></i> Courtier</span>
@@ -2173,6 +2221,33 @@ document.addEventListener('DOMContentLoaded', function(){
       }
     }
   } catch(e) { /* noop */ }
+
+  // Tabs principaux pour remplacer les accordéons racine
+  const rootPanels = ["courtierPanel","contratsPanel","assureursPanel","supportPanel","groupesPanel","administrationPanel"];
+  const tabs = Array.from(document.querySelectorAll('#paramTabs .param-tab'));
+  const rootToggles = rootPanels
+    .map(id => document.querySelector(`.accordion-toggle[data-target="${id}"][data-level="root"]`))
+    .filter(Boolean);
+
+  function showPanel(id){
+    rootPanels.forEach(pid => {
+      const panel = document.getElementById(pid);
+      if (panel){ panel.style.display = pid === id ? '' : 'none'; }
+    });
+    tabs.forEach(t => t.classList.toggle('active', t.getAttribute('data-target') === id));
+  }
+
+  // Les toggles racine deviennent invisibles (les tabs prennent le relais)
+  rootToggles.forEach(t => { t.style.display = 'none'; });
+  tabs.forEach(tab => {
+    tab.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      showPanel(tab.getAttribute('data-target'));
+    });
+  });
+  // Valeur par défaut
+  showPanel("courtierPanel");
+
   function setPanelState(panel, btn, expanded){
     panel.style.display = expanded ? '' : 'none';
     const chevron = btn.querySelector('.chevron');
@@ -2246,6 +2321,7 @@ document.addEventListener('DOMContentLoaded', function(){
     };
     const panels = mapping[open];
     if (panels){
+      showPanel(panels[0]);
       panels.forEach(id => {
         const btn = document.querySelector(`.accordion-toggle[data-target="${id}"]`);
         const panel = document.getElementById(id);

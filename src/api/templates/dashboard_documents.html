@@ -95,7 +95,7 @@
         <tr>
           <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
           <th><input type="text" id="prenom-filter" placeholder="Filtrer..."></th>
-          <th><input type="text" id="doc-filter" placeholder="Filtrer..."></th>
+          <th><select id="doc-filter"><option value="">Tous</option></select></th>
           <th><select id="niveau-filter"><option value="">Tous</option></select></th>
           <th><select id="risque-filter"><option value="">Tous</option></select></th>
           <th><input type="text" id="obs-filter" placeholder="Oui / Non"></th>
@@ -154,8 +154,8 @@ $(document).ready(function () {
     ],
     initComplete: function () {
       var api = this.api();
-      // Remplir selects à partir des colonnes Niveau (3), Risque (4)
-      [3,4].forEach(function(idx){
+      // Remplir selects à partir des colonnes Document (2), Niveau (3), Risque (4)
+      [2,3,4].forEach(function(idx){
         var select = $('#docsTable thead tr:eq(1) th').eq(idx).find('select');
         api.column(idx).data().unique().sort().each(function (d) {
           if (!d) return;
@@ -171,7 +171,7 @@ $(document).ready(function () {
           // Màj URL
           try {
             var params = new URLSearchParams(window.location.search);
-            var key = (idx===3?'niveau':(idx===4?'risque':'obsolescence'));
+            var key = (idx===2?'document':(idx===3?'niveau':(idx===4?'risque':'obsolescence')));
             if (val) params.set(key, val); else params.delete(key);
             var newUrl = window.location.pathname + '?' + params.toString();
             window.history.replaceState({}, '', newUrl);
@@ -207,10 +207,10 @@ $(document).ready(function () {
   // Filtres texte
   $('#nom-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); });
   $('#prenom-filter').on('keyup change', function () { table.column(1).search(this.value).draw(); });
-  $('#doc-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
+  $('#doc-filter').on('change', function () { table.column(2).search(this.value).draw(); });
   $('#doc-quick-search').on('keyup change', function(){
     var val = $(this).val();
-    $('#doc-filter').val(val);
+    $('#doc-filter').val(''); // quick search passe par saisie libre
     table.column(2).search(val).draw();
   });
 
@@ -229,14 +229,14 @@ $(document).ready(function () {
   // Bouton effacer
   window.clearDocsFilters = function() {
     try {
-      $('#nom-filter, #prenom-filter, #doc-filter, #doc-quick-search').val('');
-      $('#niveau-filter, #risque-filter, #obs-filter').val('').trigger('change');
+      $('#nom-filter, #prenom-filter, #doc-quick-search').val('');
+      $('#doc-filter, #niveau-filter, #risque-filter, #obs-filter').val('').trigger('change');
       table.search('');
       for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
       table.draw();
       try {
         var params = new URLSearchParams(window.location.search);
-        ['niveau','risque','obsolescence'].forEach(k=>params.delete(k));
+        ['document','niveau','risque','obsolescence'].forEach(k=>params.delete(k));
         var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
         window.history.replaceState({}, '', newUrl);
       } catch(e) {}

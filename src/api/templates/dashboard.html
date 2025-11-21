@@ -96,6 +96,96 @@
   .risk-dot.red { background: #ef4444; }
   .risk-dot.green { background: #16a34a; }
   .risk-dot.blue { background: #3b82f6; }
+  /* Tâches */
+  .tasks-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+  }
+  .tasks-label { color: var(--muted); font-weight: 700; letter-spacing: .02em; }
+  .tasks-range {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .tasks-range a.btn-choice {
+    min-width: 70px;
+    height: 54px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    border-radius: 14px;
+    background: #fff;
+    border: 1px solid var(--border);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+  .tasks-range a.btn-choice-active {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+  }
+  .tasks-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .tasks-kpi-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+  .tasks-kpi-label { color: var(--muted); font-weight: 700; font-size: 13px; }
+  .tasks-kpi-value { font-size: 20px; font-weight: 800; margin-top: 4px; }
+  /* Tabs principaux (Dashboard) */
+  .dash-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: center;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafe;
+    margin: 0 auto 12px auto;
+    max-width: 1100px;
+    scrollbar-width: thin;
+  }
+  .dash-tab {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+    transition: all .15s ease;
+    flex: 0 0 auto;
+    min-width: 140px;
+    min-height: 44px;
+    text-align: center;
+  }
+  .dash-tab i { color: var(--primary-600); }
+  .dash-tab:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+  .dash-tab.active {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+  }
+  .dash-tab.active i { color: #fff; }
 </style>
 <div class="dashboard-kpi-bar" data-tb-marker="TB_05">
   <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_06">
@@ -112,48 +202,58 @@
   </button>
 </div>
 
+<!-- Tabs principaux -->
+<div class="dash-tabs" id="dashTabs">
+  <button class="dash-tab active" data-key="tasks" data-target="tasksSection"><i class="fa-solid fa-list-check"></i> Tâches</button>
+  <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
+  <button class="dash-tab" data-key="analysis" data-target="analysisSection"><i class="fa-solid fa-chart-line"></i> Analyse</button>
+  <button class="dash-tab" data-key="esg" data-target="esgSection"><i class="fa-solid fa-leaf"></i> ESG</button>
+  <button class="dash-tab" data-key="groups" data-target="groupsSection"><i class="fa-solid fa-layer-group"></i> Groupes</button>
+  <button class="dash-tab" data-key="commissions" data-target="remSection"><i class="fa-solid fa-coins"></i> Commissions</button>
+</div>
+
   <!-- Accordéon Tâches en cours (remonté avant Risques) -->
   <div id="tasksToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_09" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
     <span class="chevron">▾</span>
   </div>
   <div id="tasksSection" data-tb-marker="TB_10" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div data-tb-marker="TB_11" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-    <div class="muted">Période:</div>
-    {% set r = tasks_range or 14 %}
-    {% for n in [7,14,30] %}
-      {% if n == r %}
-        <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} j</a>
-      {% else %}
-        <a class="btn btn-choice" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} j</a>
-      {% endif %}
-    {% endfor %}
+  <div data-tb-marker="TB_11" class="tasks-toolbar">
+    <div class="tasks-label">Période</div>
+    <div class="tasks-range">
+      {% set r = tasks_range or 14 %}
+      {% for n in [7,14,30] %}
+        {% if n == r %}
+          <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} J</a>
+        {% else %}
+          <a class="btn btn-choice" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} J</a>
+        {% endif %}
+      {% endfor %}
+    </div>
   </div>
-  <div class="kpis" data-tb-marker="TB_12" style="grid-template-columns: repeat(4, 1fr);">
-    <div class="kpi-card" data-tb-marker="TB_13">
-      <div>Tâches totales</div>
-      <div class="kpi-value">{{ tasks_total }}</div>
+  <div class="tasks-kpis" data-tb-marker="TB_12">
+    <div class="tasks-kpi-card" data-tb-marker="TB_13">
+      <div class="tasks-kpi-label">Tâches totales</div>
+      <div class="tasks-kpi-value">{{ tasks_total }}</div>
     </div>
-    <div class="kpi-card" data-tb-marker="TB_14">
-      <div>Ouvertes</div>
-      <div class="kpi-value">{{ tasks_open }}</div>
+    <div class="tasks-kpi-card" data-tb-marker="TB_14">
+      <div class="tasks-kpi-label">Ouvertes</div>
+      <div class="tasks-kpi-value">{{ tasks_open }}</div>
     </div>
-    <div class="kpi-card" data-tb-marker="TB_15">
-      <div>Clôturées</div>
-      <div class="kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
+    <div class="tasks-kpi-card" data-tb-marker="TB_15">
+      <div class="tasks-kpi-label">Clôturées</div>
+      <div class="tasks-kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
     </div>
-    <div class="kpi-card" data-tb-marker="TB_16">
-      <div>Aujourd'hui</div>
-      <div class="kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
+    <div class="tasks-kpi-card" data-tb-marker="TB_16">
+      <div class="tasks-kpi-label">Aujourd'hui</div>
+      <div class="tasks-kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
     </div>
-    <div class="kpi-card" data-tb-marker="TB_17" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
-      {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
-      {% if total_tasks_days and total_tasks_days > 0 %}
+    {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
+    {% if total_tasks_days and total_tasks_days > 0 %}
+      <div class="tasks-kpi-card" data-tb-marker="TB_17" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
         <canvas id="chartTasksDays" height="120"></canvas>
-      {% else %}
-        <div class="muted">Aucune tâche sur la période sélectionnée</div>
-      {% endif %}
-    </div>
+      </div>
+    {% endif %}
   </div>
   <div class="card" data-tb-marker="TB_18" style="margin-top:8px;">
     <div data-tb-marker="TB_19" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
@@ -1818,84 +1918,100 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     retEnd.addEventListener('change', copyRetroToRem);
   })();
 
-  // Accordéons (un seul ouvert à la fois, possibilité de tout fermer)
+  // Tabs principaux (remplacent les accordéons racine)
   (function(){
     const groups = [
+      { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
       { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
-      { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
-      { key:'rem', toggle:'remToggle', section:'remSection' },
+      { key:'commissions', toggle:'remToggle', section:'remSection', extraToggle:'retroToggle', extraSection:'retroSection' },
     ];
     const $ = (id)=> document.getElementById(id);
-    const getGroup = (key)=> groups.find(g => g.key === key);
-    function setOpen(key){
-      groups.forEach(g => {
-        const t = $(g.toggle), s = $(g.section);
-        if (!t || !s) return;
-        if (g.key === key){ s.style.display = ''; t.classList.remove('collapsed'); }
-        else { s.style.display = 'none'; t.classList.add('collapsed'); }
+    const tabs = Array.from(document.querySelectorAll('#dashTabs .dash-tab'));
+    const getGroupByKey = (key)=> groups.find(g => g.key === key);
+    const getGroupByTarget = (target)=> groups.find(g => g.section === target || g.toggle === target);
+
+    // Masquer les toggles racine (les tabs prennent le relais)
+    groups.forEach(g => {
+      const t = $(g.toggle);
+      if (t){ t.style.display = 'none'; }
+    });
+
+    function show(key, doScroll){
+      const g = getGroupByKey(key);
+      if (!g) return;
+      const remFraisToggle = document.getElementById('remFraisToggle');
+      const remFraisSection = document.getElementById('remFraisSection');
+      groups.forEach(item => {
+        const s = $(item.section);
+        const t = $(item.toggle);
+        if (s){ s.style.display = item.key === key ? '' : 'none'; }
+        if (t){ t.classList.toggle('collapsed', item.key !== key); }
+        if (item.extraSection){
+          const extra = $(item.extraSection);
+          if (extra){ extra.style.display = item.key === key ? '' : 'none'; }
+        }
+        if (item.extraToggle){
+          const extraT = $(item.extraToggle);
+          if (extraT){ extraT.style.display = 'none'; }
+        }
+        // Cas spécifique Commissions : forcer l'ouverture du sous-bloc frais de gestion
+        if (item.key === 'commissions' && item.key === key && remFraisSection){
+          remFraisSection.style.display = '';
+          if (remFraisToggle){
+            remFraisToggle.classList.remove('collapsed');
+            remFraisToggle.style.display = 'none'; // masqué, géré par l'onglet
+          }
+        }
       });
+      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
+      if (doScroll){
+        const target = $(g.section);
+        const scrollTarget = g.extraSection ? $(g.extraSection) : target;
+        if (scrollTarget){
+          try { scrollTarget.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
+        }
+      }
     }
+
     function detectInitialKey(){
       const hash = (window.location.hash || '').replace('#','');
-      const isRetroHash = hash === 'retroToggle' || hash === 'retroSection';
       if (hash){
-        const match = groups.find(g => g.toggle === hash || g.section === hash || g.key === hash);
+        const match = getGroupByTarget(hash) || getGroupByKey(hash);
         if (match) return match.key;
-        if (isRetroHash) return 'rem';
-        if (hash === 'groupsToggle' || hash === 'groupsSection') return 'groups';
-        if (hash === 'remFraisToggle' || hash === 'remFraisSection') return 'rem';
+        if (hash === 'remFraisToggle' || hash === 'remFraisSection') return 'commissions';
       }
-      const search = window.location.search || '';
-      const params = new URLSearchParams(search);
+      const params = new URLSearchParams(window.location.search || '');
       const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
-      const hasRetroParams = retroParamKeys.some(key => params.has(key));
-      if (hasRetroParams) return 'rem';
+      if (retroParamKeys.some(key => params.has(key))) return 'commissions';
       if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
         return 'analysis';
       }
       const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
-      const hasRemParams = remParamKeys.some(key => params.has(key));
-      if (hasRemParams){
-        return 'rem';
+      if (remParamKeys.some(key => params.has(key))){
+        return 'commissions';
       }
-      return '';
+      return 'tasks';
     }
-    const initialKey = detectInitialKey();
-    // Ensure all closed by default, unless we detect one that should stay open
-    setOpen(initialKey);
-    if (initialKey){
-      const group = getGroup(initialKey);
-      if (group){
-        setTimeout(() => {
-          const toggle = $(group.toggle);
-          if (!toggle) return;
-          try { toggle.scrollIntoView({ behavior:'auto', block:'start' }); }
-          catch(e) {}
-        }, 0);
-      }
-    }
-    // Wire clicks
-    groups.forEach(g => {
-      const t = $(g.toggle), s = $(g.section);
-      if (!t || !s) return;
-      t.addEventListener('click', function(){
-        const isOpen = s.style.display !== 'none';
-        if (isOpen){
-          // Close all (allow collapsing)
-          setOpen('');
-        } else {
-          setOpen(g.key);
-          try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
-        }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        show(tab.dataset.key, true);
+        try { tab.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
       });
     });
+
+    // Initialisation
+    const initialKey = detectInitialKey();
+    show(initialKey, false);
   })();
 
-  // Bloc Rétrocession (accordéon indépendant)
+  // Bloc Rétrocession (accordéon indépendant - désactivé car géré par l'onglet Commissions)
   (function(){
+    if (document.getElementById('dashTabs')) return; // géré par tabs
     const toggle = document.getElementById('retroToggle');
     const section = document.getElementById('retroSection');
     const remFraisToggle = document.getElementById('remFraisToggle');

@@ -5,7 +5,17 @@ import Affaires from "./pages/Affaires";
 import Allocations from "./pages/Allocations";
 import Tasks from "./pages/Tasks";
 import Supports from "./pages/Supports";
-import QuestionnaireRisque from "./pages/QuestionnaireRisque"; // ✅ ajout
+import QuestionnaireRisque from "./pages/QuestionnaireRisque";
+
+const tabs = [
+  { key: "dashboard", label: "Tableau de bord" },
+  { key: "clients", label: "Clients" },
+  { key: "affaires", label: "Affaires" },
+  { key: "allocations", label: "Allocations" },
+  { key: "supports", label: "Supports" },
+  { key: "tasks", label: "Tâches" },
+  { key: "risque", label: "Questionnaire Risque" },
+];
 
 function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -23,24 +33,41 @@ function App() {
       case "tasks":
         return <Tasks />;
       case "risque":
-        return <QuestionnaireRisque />; // ✅ affichage questionnaire
+        return <QuestionnaireRisque />;
       default:
         return <Dashboard />;
     }
   };
 
   return (
-    <div>
-      <nav style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-        <button onClick={() => setActiveTab("dashboard")}>Dashboard</button>
-        <button onClick={() => setActiveTab("clients")}>Clients</button>
-        <button onClick={() => setActiveTab("affaires")}>Affaires</button>
-        <button onClick={() => setActiveTab("allocations")}>Allocations</button>
-        <button onClick={() => setActiveTab("supports")}>Supports</button>
-        <button onClick={() => setActiveTab("tasks")}>Tâches</button>
-        <button onClick={() => setActiveTab("risque")}>📊 Questionnaire Risque</button> {/* ✅ nouvel onglet */}
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">CRM</div>
+          <div>
+            <p className="eyebrow">Pilotage portefeuille</p>
+            <p className="brand-title">CRM SAAS</p>
+            <p className="brand-subtitle">Interface locale · FastAPI + React</p>
+          </div>
+        </div>
+        <div className="topbar-meta">
+          <span className="pill">En ligne</span>
+        </div>
+      </header>
+
+      <nav className="tabbar">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={`tab ${activeTab === tab.key ? "active" : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </nav>
-      {renderTab()}
+
+      <main className="content">{renderTab()}</main>
     </div>
   );
 }
