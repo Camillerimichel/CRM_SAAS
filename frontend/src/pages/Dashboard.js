@@ -13,7 +13,13 @@ import {
 } from "recharts";
 
 function Dashboard() {
-  const [stats, setStats] = useState({ clients: 0, affaires: 0, allocations: 0, supports: 0 });
+  const [stats, setStats] = useState({
+    clients: 0,
+    placements: 0,
+    allocations: 0,
+    supports: 0,
+    totalValo: 0,
+  });
 
   useEffect(() => {
     Promise.all([
@@ -22,13 +28,26 @@ function Dashboard() {
       fetch("http://127.0.0.1:8000/reporting/allocations").then((res) => res.json()),
       fetch("http://127.0.0.1:8000/reporting/supports").then((res) => res.json()),
     ]).then(([c, a, al, s]) => {
-      setStats({ clients: c.length, affaires: a.length, allocations: al.length, supports: s.length });
+      const totalValo = al.reduce((sum, row) => {
+        const valo = parseFloat(row?.valo ?? 0);
+        return sum + (Number.isFinite(valo) ? valo : 0);
+      }, 0);
+
+      setStats({
+        clients: c.length,
+        placements: a.length,
+        allocations: al.length,
+        supports: s.length,
+        totalValo,
+      });
     });
   }, []);
 
+  const formatNumber = (value) => new Intl.NumberFormat("fr-FR").format(Math.round(value || 0));
+
   const data = [
     { name: "Clients", value: stats.clients },
-    { name: "Affaires", value: stats.affaires },
+    { name: "Placements", value: stats.placements },
     { name: "Allocations", value: stats.allocations },
     { name: "Supports", value: stats.supports },
   ];
@@ -42,6 +61,20 @@ function Dashboard() {
           <h1>Tableau de bord</h1>
           <p className="muted">Suivi instantané des volumes clés exposés côté API.</p>
         </div>
+        <div className="page-kpis">
+          <div className="page-kpi">
+            <div className="page-kpi-label">Placements</div>
+            <div className="page-kpi-value">{formatNumber(stats.placements)}</div>
+          </div>
+          <div className="page-kpi">
+            <div className="page-kpi-label">Valorisation totale</div>
+            <div className="page-kpi-value">{formatNumber(stats.totalValo)} €</div>
+          </div>
+          <div className="page-kpi">
+            <div className="page-kpi-label">Clients</div>
+            <div className="page-kpi-value">{formatNumber(stats.clients)}</div>
+          </div>
+        </div>
       </div>
 
       <div className="stats-grid">
@@ -51,9 +84,14 @@ function Dashboard() {
           <span className="muted">Base clients suivie</span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">Affaires</span>
-          <span className="stat-value">{stats.affaires}</span>
+          <span className="stat-label">Placements</span>
+          <span className="stat-value">{stats.placements}</span>
           <span className="muted">Dossiers actifs</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Valorisation totale</span>
+          <span className="stat-value">{formatNumber(stats.totalValo)} €</span>
+          <span className="muted">Somme des valorisations</span>
         </div>
         <div className="stat-card">
           <span className="stat-label">Allocations</span>

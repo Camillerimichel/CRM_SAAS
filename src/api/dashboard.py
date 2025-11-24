@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam
 from sqlalchemy import text
@@ -13694,11 +13694,9 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     q_valo = params.get("valo", "").strip()
     q_perf = params.get("perf", "").strip()
     q_vol = params.get("vol", "").strip()
-    page_size = 25
-    try:
-        page = max(1, int(params.get("page", "1")))
-    except Exception:
-        page = 1
+    # Ancien pagination côté serveur retirée : on renvoie la liste complète pour filtrage DataTables côté client
+    page = 1
+    page_size = None
 
     pred_valo = build_val_pred(q_valo)
     pred_perf = build_pct_pred(q_perf)
@@ -13778,12 +13776,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         filtered.append(c)
 
     total_filtered = len(filtered)
-    total_pages = max(1, math.ceil(total_filtered / page_size))
-    if page > total_pages:
-        page = total_pages
-    start = (page - 1) * page_size
-    end = start + page_size
-    clients = filtered[start:end]
+    total_pages = 1
+    clients = filtered
 
     # ---------------- Analyse financière (supports) ----------------
     finance_rh_param = request.query_params.get("finance_rh")
@@ -18925,3 +18919,185 @@ def list_allocation_dates(name: str | None = None, isin: str | None = None, db: 
         )
     except Exception:
         admin_intervenants = []
+
+
+def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie: str | None = None, rh_id: int | None = None, range_days: int | None = None) -> list[dict]:
+    """Retourne les tâches avec enrichissements (client, affaire, rh) pour calendrier/export."""
+    from sqlalchemy import text
+    conds: list[str] = []
+    params: dict = {}
+    if statut:
+        conds.append("statut = :statut"); params["statut"] = statut
+    if categorie:
+        conds.append("categorie = :categorie"); params["categorie"] = categorie
+    if rh_id is not None:
+        conds.append("rh_id = :rh_id"); params["rh_id"] = rh_id
+    if range_days is not None:
+        try:
+            rd = max(0, int(range_days))
+        except Exception:
+            rd = 0
+        if rd > 0:
+            today = datetime.utcnow().date()
+            start_date = today - timedelta(days=rd)
+            end_date = today + timedelta(days=rd)
+            conds.append("date(date_evenement) BETWEEN :start_date AND :end_date")
+            params["start_date"] = start_date.isoformat()
+            params["end_date"] = end_date.isoformat()
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
+    sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC"
+    rows = db.execute(text(sql), params).fetchall()
+    # Prépare les libellés RH / clients / affaires pour l'affichage du calendrier
+    rh_lookup: dict[int, str] = {}
+    try:
+        for rh in fetch_rh_list(db):
+            rid = rh.get("id")
+            try:
+                rid_int = int(rid)
+            except Exception:
+                continue
+            label_parts = [(rh.get("prenom") or "").strip(), (rh.get("nom") or "").strip()]
+            label = " ".join([p for p in label_parts if p]) or (rh.get("mail") or "").strip() or f"RH #{rid_int}"
+            rh_lookup[rid_int] = label
+    except Exception:
+        rh_lookup = {}
+    client_ids = {getattr(r, "client_id", None) for r in rows if getattr(r, "client_id", None) is not None}
+    affaire_ids = {getattr(r, "affaire_id", None) for r in rows if getattr(r, "affaire_id", None) is not None}
+    clients_map_full: dict[int, str] = {}
+    affaires_map_ref: dict[int, str] = {}
+    if client_ids:
+        try:
+            cli_rows = db.query(Client.id, Client.nom, Client.prenom).filter(Client.id.in_(list(client_ids))).all()
+            for cid, nom, prenom in cli_rows:
+                full = f"{nom or ''} {prenom or ''}".strip()
+                clients_map_full[cid] = full or nom or prenom or str(cid)
+        except Exception:
+            pass
+    if affaire_ids:
+        try:
+            aff_rows = db.query(Affaire.id, Affaire.ref).filter(Affaire.id.in_(list(affaire_ids))).all()
+            for aid, ref in aff_rows:
+                affaires_map_ref[aid] = ref or str(aid)
+        except Exception:
+            pass
+    def _to_iso_date(val):
+        if val is None:
+            return None
+        try:
+            return val.isoformat()
+        except Exception:
+            try:
+                return str(val)[:10]
+            except Exception:
+                return None
+    items: list[dict] = []
+    for row in rows:
+        rh_raw = getattr(row, "rh_id", None)
+        try:
+            rh_int = int(rh_raw) if rh_raw is not None else None
+        except Exception:
+            rh_int = None
+        client_id_val = getattr(row, "client_id", None)
+        affaire_id_val = getattr(row, "affaire_id", None)
+        client_nom = clients_map_full.get(client_id_val) or getattr(row, "nom_client", None)
+        affaire_ref = affaires_map_ref.get(affaire_id_val) or getattr(row, "ref_affaire", None)
+        items.append({
+            "id": row.evenement_id if hasattr(row, "evenement_id") else row.id,
+            "title": row.type_evenement or row.commentaire or "Tâche",
+            "start": _to_iso_date(getattr(row, "date_evenement", None)),
+            "end": _to_iso_date(getattr(row, "date_evenement", None)),
+            "statut": getattr(row, "statut", None),
+            "categorie": getattr(row, "categorie", None),
+            "type_evenement": getattr(row, "type_evenement", None),
+            "responsable": getattr(row, "utilisateur_responsable", None),
+            "rh_id": rh_int,
+            "rh_label": rh_lookup.get(rh_int),
+            "client_id": client_id_val,
+            "client_nom": client_nom,
+            "affaire_id": affaire_id_val,
+            "affaire_ref": affaire_ref,
+            "commentaire": getattr(row, "commentaire", None),
+        })
+    return items
+
+
+@router.get("/api/taches", response_class=JSONResponse)
+def api_taches(db: Session = Depends(get_db), statut: str | None = None, categorie: str | None = None, rh_id: int | None = None):
+    """Retourne les tâches (vue_suivi_evenement) au format JSON pour le calendrier."""
+    items = _list_taches_for_calendar(db, statut=statut, categorie=categorie, rh_id=rh_id)
+    return {"items": items}
+
+
+@router.get("/api/taches.ics", response_class=PlainTextResponse)
+def api_taches_ics(
+    db: Session = Depends(get_db),
+    statut: str | None = None,
+    categorie: str | None = None,
+    rh_id: int | None = None,
+    range_days: int | None = Query(90, ge=1, le=365*3, description="Nombre de jours autour d'aujourd'hui"),
+):
+    """Export ICS des tâches visibles dans le calendrier."""
+    items = _list_taches_for_calendar(db, statut=statut, categorie=categorie, rh_id=rh_id, range_days=range_days)
+    def _ics_escape(val: str | None) -> str:
+        if val is None:
+            return ""
+        return (
+            str(val)
+            .replace("\\", "\\\\")
+            .replace(";", "\\;")
+            .replace(",", "\\,")
+            .replace("\n", "\\n")
+        )
+    def _parse_date(val: str | None):
+        if not val:
+            return None
+        try:
+            return datetime.fromisoformat(val).date()
+        except Exception:
+            try:
+                return datetime.fromisoformat(val[:10]).date()
+            except Exception:
+                return None
+    dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//CRM//Taches//FR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"]
+    for it in items:
+        d_start = _parse_date(it.get("start"))
+        if not d_start:
+            continue
+        d_end = d_start + timedelta(days=1)
+        uid = f"{it.get('id')}@crm"
+        summary = _ics_escape(it.get("title") or "Tâche")
+        parts_desc = []
+        if it.get("statut"):
+            parts_desc.append(f"Statut: {it.get('statut')}")
+        if it.get("rh_label"):
+            parts_desc.append(f"Responsable: {it.get('rh_label')}")
+        elif it.get("responsable"):
+            parts_desc.append(f"Responsable: {it.get('responsable')}")
+        if it.get("client_nom"):
+            parts_desc.append(f"Client: {it.get('client_nom')}")
+        if it.get("affaire_ref"):
+            parts_desc.append(f"Affaire: {it.get('affaire_ref')}")
+        if it.get("commentaire"):
+            parts_desc.append(f"Commentaire: {it.get('commentaire')}")
+        description = _ics_escape("\\n".join(parts_desc)) if parts_desc else ""
+        categories = []
+        if it.get("categorie"):
+            categories.append(it.get("categorie"))
+        if it.get("statut"):
+            categories.append(it.get("statut"))
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;VALUE=DATE:{d_start.strftime('%Y%m%d')}",
+            f"DTEND;VALUE=DATE:{d_end.strftime('%Y%m%d')}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:{description}",
+            f"CATEGORIES:{_ics_escape(','.join(categories))}" if categories else "",
+            "END:VEVENT",
+        ])
+    lines.append("END:VCALENDAR")
+    # Retire les éventuelles lignes vides dues aux catégories absentes
+    ics = "\r\n".join([ln for ln in lines if ln != ""])
+    return PlainTextResponse(content=ics, media_type="text/calendar; charset=utf-8")

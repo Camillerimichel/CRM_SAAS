@@ -1,24 +1,28 @@
 {% extends "base.html" %}
 {% block title %}Supports{% endblock %}
-{% block header_title %}<i class="fa-solid fa-chart-pie" style="margin-right:8px;"></i>Supports{% endblock %}
+{% block header_title %}
+<span class="header-title-line">
+  <span class="header-title-text"><i class="fa-solid fa-chart-pie" style="margin-right:8px;"></i>Supports</span>
+  <span class="header-title-meta">
+    <span class="meta-item">Total : {{ total_supports }}</span>
+    <span class="meta-sep">•</span>
+    <span class="meta-item">Date : <span class="js-local-dt" data-iso="{{ last_date }}">{{ last_date }}</span></span>
+  </span>
+</span>
+{% endblock %}
 {% block content %}
 
 <style>
+    .header-title-line { display: inline-flex; align-items: center; gap: 10px; color: #0f172a; }
+    .header-title-text { font-weight: 800; font-size: 1.1rem; display:inline-flex; align-items:center; gap:8px; }
+    .header-title-meta { display:inline-flex; align-items:center; gap:8px; font-weight:600; font-size:0.95rem; color:#0f172a; }
+    .header-title-meta .meta-sep { color:#94a3b8; }
     .main-container {
         background: white;
         border-radius: 15px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         padding: 2rem;
         margin: 2rem auto;
-    }
-    .header-section {
-        background: var(--primary);
-        color: #fff;
-        padding: 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1.2rem;
-        text-align: center;
-        box-shadow: var(--shadow-sm);
     }
     table {
         width: 100%;
@@ -164,10 +168,6 @@
 </style>
 
 <div class="main-container">
-    <div class="header-section">
-        <p><strong>Date:</strong> <span class="js-local-dt" data-iso="{{ last_date }}">{{ last_date }}</span> | <strong>Total:</strong> {{ total_supports }} supports</p>
-    </div>
-
     <div id="sup_active_badges" class="badge-row"></div>
 
     <div class="table-container">

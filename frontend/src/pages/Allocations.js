@@ -53,18 +53,22 @@ function Allocations() {
     const distinctNoms = [...new Set(filtered.map((a) => a.nom))];
     setNoms(distinctNoms);
 
-    if (selectedNoms.length === 0) {
-      setSelectedNoms(distinctNoms);
+    const validSelected = selectedNoms.filter((n) => distinctNoms.includes(n));
+    const fallback = distinctNoms.length > 0 ? [distinctNoms[0]] : [];
+    const nextSelected = validSelected.length > 0 ? validSelected : fallback;
+    if (nextSelected.length !== selectedNoms.length || nextSelected.some((n, i) => n !== selectedNoms[i])) {
+      setSelectedNoms(nextSelected);
     }
 
-    const allValues = sorted.flatMap((d) => distinctNoms.map((nom) => d[nom]).filter((v) => v != null));
+    const activeNoms = nextSelected;
+    const allValues = sorted.flatMap((d) => activeNoms.map((nom) => d[nom]).filter((v) => v != null));
     if (allValues.length > 0) {
       const minVal = Math.min(...allValues);
       const maxVal = Math.max(...allValues);
       const margin = (maxVal - minVal) * 0.1;
       setYDomain([minVal - margin, maxVal + margin]);
     }
-  }, [year, allocations]);
+  }, [year, allocations, selectedNoms]);
 
   const years = [...new Set(allocations.map((a) => a.annee))].filter(Boolean).sort();
 
