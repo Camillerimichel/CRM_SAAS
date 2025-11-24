@@ -119,7 +119,7 @@
   <div class="card hero-card">
     {% if client %}
       <div>
-        <strong>Client :</strong> {{ client.prenom }} {{ client.nom }}
+        <strong>Client :</strong> <a href="/dashboard/clients/{{ client.id }}" style="text-decoration:underline; color:inherit;">{{ client.prenom }} {{ client.nom }}</a>
         {% if client_id %}<span class="badge">ID&nbsp;{{ client_id }}</span>{% endif %}
       </div>
     {% endif %}
@@ -757,9 +757,11 @@
           .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
           .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
           .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
-          #knowledgePanel #risqueSnapshotCard .summary-balance .label { background:#1d4ed8; color:#fff; padding:4px 8px; border-radius:6px; display:inline-block; }
+          #knowledgePanel #risqueSnapshotCard .summary-balance .label { background:#16a34a; color:#fff; padding:4px 8px; border-radius:6px; display:inline-block; }
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
+          #knowledgePanel .btn-choice.btn-choice-active { background:#16a34a; color:#fff; border-color:#16a34a; }
+          #risqueSnapshotCard .kyc-alloc-range.active { background:#16a34a !important; color:#fff !important; border-color:#16a34a !important; }
           .muted-small { color:#6b7280; font-size:0.85rem; }
           .offer-pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
           .step-hidden { display:none !important; }
@@ -1094,7 +1096,7 @@
               const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
               const fullLabels = (data.labels || []).slice();
               const fullSicav = (data.sicav || []).slice();
-              const fullVol = (data.vol || []).map(function(v){ var n=parseFloat(v); if(!isFinite(n)) return null; if (Math.abs(n) <= 1) n = n * 100; return parseFloat(n.toFixed(2)); });
+              const fullVol = (data.vol || []).map(function(v){ var n=parseFloat(v); if(!isFinite(n)) return null; if (Math.abs(n) <= 1) n = n * 100; n = parseFloat(n.toFixed(2)); return n === 0 ? null : n; });
               let chart;
               function draw(labels, s, v){
                 if (chart) chart.destroy();
@@ -1102,6 +1104,63 @@
                 const vmin = Math.min.apply(null, v), vmax = Math.max.apply(null, v);
                 const sm = (smax - smin) * 0.1 || 1;
                 const vm = (vmax - vmin) * 0.1 || 1;
+                const yearLinesPlugin = {
+                  id:'kycAllocYearLines',
+                  afterDraw(chartInstance){
+                    const xScale = chartInstance.scales.x;
+                    const area = chartInstance.chartArea;
+                    if (!xScale || !area) return;
+                    const lbls = chartInstance.data.labels || [];
+                    const ctxp = chartInstance.ctx;
+                    let lastYear = null;
+                    // Ligne au début
+                    if (lbls.length > 0){
+                      const x0 = xScale.getPixelForValue(0);
+                      if (isFinite(x0)){
+                        ctxp.save();
+                        ctxp.strokeStyle = 'rgba(0,0,0,0.12)';
+                        ctxp.lineWidth = 1;
+                        ctxp.beginPath();
+                        ctxp.moveTo(x0, area.top);
+                        ctxp.lineTo(x0, area.bottom);
+                        ctxp.stroke();
+                        ctxp.restore();
+                      }
+                    }
+                    lbls.forEach(function(lbl, idx){
+                      const year = (lbl || '').toString().slice(0,4);
+                      if (lastYear === null){ lastYear = year; return; }
+                      if (year !== lastYear){
+                        const x = xScale.getPixelForValue(idx);
+                        if (isFinite(x)){
+                          ctxp.save();
+                          ctxp.strokeStyle = 'rgba(0,0,0,0.12)';
+                          ctxp.lineWidth = 1;
+                          ctxp.beginPath();
+                          ctxp.moveTo(x, area.top);
+                          ctxp.lineTo(x, area.bottom);
+                          ctxp.stroke();
+                          ctxp.restore();
+                        }
+                        lastYear = year;
+                      }
+                    });
+                    const lastIdx = lbls.length - 1;
+                    if (lastIdx >= 0){
+                      const xLast = xScale.getPixelForValue(lastIdx);
+                      if (isFinite(xLast)){
+                        ctxp.save();
+                        ctxp.strokeStyle = 'rgba(0,0,0,0.12)';
+                        ctxp.lineWidth = 1;
+                        ctxp.beginPath();
+                        ctxp.moveTo(xLast, area.top);
+                        ctxp.lineTo(xLast, area.bottom);
+                        ctxp.stroke();
+                        ctxp.restore();
+                      }
+                    }
+                  }
+                };
                 chart = new Chart(ctx, {
                   type: 'line',
                   data: { labels: labels, datasets: [
@@ -1113,14 +1172,38 @@
                     interaction:{ mode:'index', intersect:false },
                     stacked:false,
                     scales:{
+                      x:{
+                        offset:true,
+                        ticks:{
+                          autoSkip:false,
+                          maxRotation:0,
+                          callback:function(value, index, ticks){
+                            const raw = this.getLabelForValue ? this.getLabelForValue(value) : (labels[index] || '');
+                            const year = (raw || '').toString().slice(0,4);
+                            const prevTick = index > 0 ? ticks[index-1] : null;
+                            const prevRaw = prevTick ? (this.getLabelForValue ? this.getLabelForValue(prevTick.value) : (labels[prevTick.value] || '')) : '';
+                            const prevYear = (prevRaw || '').toString().slice(0,4);
+                            return (!prevYear || year !== prevYear) ? year : '';
+                          }
+                        }
+                      },
                       y1:{ type:'linear', position:'left', ticks:{ callback: v=> Number(v).toLocaleString('fr-FR'), color: primaryColor }, border:{ color: primaryColor }, title:{ display:true, text: allocName, color: primaryColor }, suggestedMin:smin - sm, suggestedMax:smax + sm },
                       y2:{ type:'linear', position:'right', ticks:{ callback: v=> v + ' %', color:'#ff6b6b' }, border:{ color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, title:{ display:true, text:'Volatilité (%)', color:'#ff6b6b' }, suggestedMin:vmin - vm, suggestedMax:vmax + vm },
                     },
                     plugins:{ legend:{ display:true } }
-                  }
+                  },
+                  plugins:[yearLinesPlugin]
+                });
+              }
+              const rangeBtns = Array.from(document.querySelectorAll('.kyc-alloc-range'));
+              function setActiveRange(range){
+                rangeBtns.forEach(function(b){
+                  const r = b.getAttribute('data-range') || 'all';
+                  b.classList.toggle('active', r === range);
                 });
               }
               function applyRange(range){
+                setActiveRange(range);
                 if (range === 'all') { draw(fullLabels, fullSicav, fullVol); return; }
                 const n = parseInt(range, 10);
                 const len = fullLabels.length;
@@ -1128,7 +1211,7 @@
                 draw(fullLabels.slice(start), fullSicav.slice(start), fullVol.slice(start));
               }
               // Bind chips
-              document.querySelectorAll('.kyc-alloc-range').forEach(function(btn){
+              rangeBtns.forEach(function(btn){
                 btn.addEventListener('click', function(){ applyRange(btn.getAttribute('data-range') || 'all'); });
               });
               // Initial draw

@@ -5,146 +5,246 @@
 
 {% block content %}
 <style>
-  .main-container { background: white; border-radius: 12px; box-shadow: var(--shadow-sm); padding: 1rem; }
-  .filters { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: .6rem; margin: .5rem 0 1rem; }
-  .filters input, .filters select { height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background:#fff; width: 100%; }
-  table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
-  thead th { background: var(--primary); color: #fff; font-weight: 600; text-transform: uppercase; font-size: .8rem; letter-spacing: .02em; padding: .65rem .6rem; }
-  tbody td { border-top: 1px solid var(--border); padding: .6rem .6rem; font-size: .92rem; }
-  tbody tr:nth-child(odd) td { background: #fcfdff; }
-  tbody tr:hover td { background: #f8fbff; }
-  .right { text-align: right; }
-  .muted { color: var(--muted); }
-  .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
-  .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
-  .badge-filter .x:hover { opacity:1; }
-  .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
-  .pager { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; flex-wrap:wrap; }
-  .pager button { border:1px solid var(--border); border-radius:8px; padding:6px 10px; background:#fff; cursor:pointer; box-shadow: 0 6px 14px rgba(15,23,42,0.06); }
-  .pager button.active { background: linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; border-color: transparent; box-shadow: 0 12px 26px rgba(37,99,235,0.22); }
-  .pager button:disabled { opacity:0.45; cursor: default; }
+    .main-container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        padding: 1.5rem;
+        margin: 1.2rem auto;
+    }
+    .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
+    .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
+    .badge-filter .x:hover { opacity:1; }
+    .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; box-sizing:border-box; }
+    tbody td { padding: 10px 8px; }
+    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
+    .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+    .btn-danger:hover { background:#dc2626; }
 </style>
 
 {% set tb_markers_param = tb_markers_param or '' %}
 {% set tb_markers_visible = tb_markers_visible or false %}
 
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
-<div class="main-container" data-tb-marker="TB_202">
-  <h2 data-tb-marker="TB_203">Liste des clients</h2>
-  <div data-tb-marker="TB_204"></div>
-  <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
-    {% if group_filter_label %}
-      <div class="badge-filter">
-        Groupe : {{ group_filter_label }}
-        {% if tb_markers_visible %}
-          <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
-        {% else %}
-          <a class="x" href="/dashboard/clients">×</a>
-        {% endif %}
-      </div>
-    {% endif %}
-  </div>
+  <div class="main-container" data-tb-marker="TB_202">
+    <h2 data-tb-marker="TB_203">Liste des clients</h2>
+    <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
+      {% if group_filter_label %}
+        <div class="badge-filter">
+          Groupe : {{ group_filter_label }}
+          {% if tb_markers_visible %}
+            <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
+          {% else %}
+            <a class="x" href="/dashboard/clients">×</a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
 
-  <form method="get" class="filters">
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Nom</label>
-      <input name="nom" type="text" value="{{ filters.nom }}" placeholder="Nom" />
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Prénom</label>
-      <input name="prenom" type="text" value="{{ filters.prenom }}" placeholder="Prénom" />
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Responsable</label>
-      <select name="resp_id">
-        <option value="">Tous</option>
-        {% for rh in responsables or [] %}
-          <option value="{{ rh.id }}" {% if filters.resp_id and filters.resp_id|int == rh.id %}selected{% endif %}>{{ rh.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">SRRI calculé</label>
-      <select name="srri_calc">
-        <option value="">Tous</option>
-        {% for s in srri_options %}
-          <option value="{{ s }}" {% if filters.srri_calc and filters.srri_calc|int == s %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Valorisation</label>
-      <input name="valo" type="text" value="{{ filters.valo }}" placeholder="Ex: >100k, 100k-500k" />
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Perf 52 sem.</label>
-      <input name="perf" type="text" value="{{ filters.perf }}" placeholder="Ex: >5, 3-7" />
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Volatilité</label>
-      <input name="vol" type="text" value="{{ filters.vol }}" placeholder="Ex: <10, 2-6" />
-    </div>
-    <div style="display:flex; gap:8px; align-items:flex-end;">
-      {% if tb_markers_visible %}<input type="hidden" name="markers" value="1" />{% endif %}
-      <button class="btn" type="submit">Filtrer</button>
-      <a class="btn" href="/dashboard/clients{% if tb_markers_visible %}?markers=1{% endif %}">Réinitialiser</a>
-    </div>
-  </form>
-
-  <table id="clientsTbl" data-tb-marker="TB_208">
-    <thead>
-      <tr>
-        <th>Nom</th>
-        <th>Prénom</th>
-        <th>Responsable</th>
-        <th>SRRI calculé</th>
-        <th class="right" style="width:120px;">Valorisation</th>
-        <th class="right" style="width:100px;">Perf 52 sem.</th>
-        <th class="right" style="width:100px;">Volatilité</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in clients %}
-      <tr data-client-id="{{ c.id }}" data-srri="{{ c.SRRI if c.SRRI is not none else '' }}">
-        <td><a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ c.nom }}</a></td>
-        <td>{{ c.prenom }}</td>
-        <td>{{ c.responsable or '—' }}</td>
-        <td>{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
-        <td class="right">{{ c.total_valo_str }}</td>
-        <td class="right">{{ c.perf_52_sem_str }}</td>
-        <td class="right">{{ c.volatilite_str }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% if total_pages > 1 %}
-    <div id="clientsPager" class="pager" aria-label="Pagination clients">
-      {% set base_params = filters.copy() %}
-      {% if tb_markers_visible %}{% set _ = base_params.update({'markers':'1'}) %}{% endif %}
-      {% set prev_page = page - 1 %}
-      {% set next_page = page + 1 %}
-      <form method="get" style="display:inline;">
-        {% for k,v in base_params.items() if v %}
-          <input type="hidden" name="{{ k }}" value="{{ v }}">
-        {% endfor %}
-        <button type="submit" name="page" value="{{ prev_page }}" {% if page == 1 %}disabled{% endif %}>‹</button>
-      </form>
-      {% for p in range(1, total_pages + 1) %}
-        <form method="get" style="display:inline;">
-          {% for k,v in base_params.items() if v %}
-            <input type="hidden" name="{{ k }}" value="{{ v }}">
+    <div class="table-container">
+      <table id="clientsTable" class="display nowrap" style="width:100%">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Prénom</th>
+            <th>Responsable</th>
+            <th>SRRI calculé</th>
+            <th>Valorisation</th>
+            <th>Perf 52 sem. (%)</th>
+            <th>Volatilité (%)</th>
+          </tr>
+          <tr>
+            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..."></th>
+            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..."></th>
+            <th><input type="text" id="client-resp-filter" placeholder="Filtrer..."></th>
+            <th>
+              <select id="client-srri-filter">
+                <option value=""></option>
+                {% for s in srri_options %}
+                  <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+              </select>
+            </th>
+            <th><input type="text" id="client-valo-filter" placeholder="Ex: >100k, 100k-500k"></th>
+            <th><input type="text" id="client-perf-filter" placeholder="Ex: >5, 3-7"></th>
+            <th><input type="text" id="client-vol-filter" placeholder="Ex: <10, 2-6"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in clients %}
+          <tr data-client-id="{{ c.id }}">
+            <td>
+              <a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
+                {{ c.nom }}
+              </a>
+            </td>
+            <td>{{ c.prenom }}</td>
+            <td>{{ c.responsable or '—' }}</td>
+            <td style="text-align:center;">{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
+            <td data-valo="{{ c.total_valo if c.total_valo is not none else '' }}" style="text-align:right;">{{ c.total_valo_str }}</td>
+            <td data-perf="{{ c.perf_52_sem if c.perf_52_sem is not none else '' }}" style="text-align:right;">{{ c.perf_52_sem_str }}</td>
+            <td data-vol="{{ c.volatilite if c.volatilite is not none else '' }}" style="text-align:right;">{{ c.volatilite_str }}</td>
+          </tr>
           {% endfor %}
-          <button type="submit" name="page" value="{{ p }}" class="{% if p == page %}active{% endif %}">{{ p }}</button>
-        </form>
-      {% endfor %}
-      <form method="get" style="display:inline;">
-        {% for k,v in base_params.items() if v %}
-          <input type="hidden" name="{{ k }}" value="{{ v }}">
-        {% endfor %}
-        <button type="submit" name="page" value="{{ next_page }}" {% if page == total_pages %}disabled{% endif %}>›</button>
-      </form>
+        </tbody>
+      </table>
     </div>
-  {% endif %}
+
+    <div class="pagination-container">
+      <div id="clients-results-info"></div>
+      <button class="btn btn-danger" onclick="clearClientFilters()">🗑️ Effacer</button>
+    </div>
   </div>
 </div>
+
+<!-- jQuery + DataTables -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.dataTables.min.css">
+<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
+
+<script>
+$(document).ready(function () {
+    var table = $('#clientsTable').DataTable({
+        dom: 'rtip',
+        order: [[4, "desc"]],
+        pageLength: 25,
+        fixedHeader: true,
+        columnDefs: [
+          { targets: 0, width: '200px' },
+          { targets: 1, width: '160px' },
+          { targets: 2, width: '180px' },
+          { targets: 3, width: '110px', className: 'dt-center' },
+          { targets: 4, width: '140px' },
+          { targets: 5, width: '120px' },
+          { targets: 6, width: '120px' }
+        ]
+    });
+
+    function updateInfo(){
+      var info = table.page.info();
+      var el = document.getElementById('clients-results-info');
+      if (el) el.textContent = info ? `Résultats : ${info.recordsDisplay} (page ${info.page+1}/${info.pages || 1})` : '';
+    }
+    table.on('draw', updateInfo);
+    updateInfo();
+
+    // Filtres texte
+    $('#client-nom-filter').on('keyup change', function(){ table.column(0).search(this.value).draw(); });
+    $('#client-prenom-filter').on('keyup change', function(){ table.column(1).search(this.value).draw(); });
+    $('#client-resp-filter').on('keyup change', function(){ table.column(2).search(this.value).draw(); });
+    $('#client-srri-filter').on('change', function(){ table.column(3).search(this.value).draw(); });
+
+    // Filtres numériques avancés (valo/perf/vol)
+    function parseNumToken(raw){
+      var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
+      s = s.replace(',', '.');
+      var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
+      if (!m) return NaN;
+      var n = parseFloat(m[1]);
+      if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
+      return n;
+    }
+    function toNum(raw){
+      if (raw === undefined || raw === null) return null;
+      var s = String(raw).replace(/[^0-9,.\-]/g, '').replace(',', '.');
+      if (!s) return null;
+      var n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    }
+    function normalizePct(n){
+      if (!Number.isFinite(n)) return null;
+      return Math.abs(n) <= 1 ? n * 100 : n;
+    }
+    function buildNumPredicate(expr, isPercent){
+      var q = String(expr||'').trim();
+      if (!q) return function(){ return true; };
+      var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
+      if (range){
+        var a = isPercent ? parseFloat(String(range[1]).replace('%','').replace(',','.')) : parseNumToken(range[1]);
+        var b = isPercent ? parseFloat(String(range[2]).replace('%','').replace(',','.')) : parseNumToken(range[2]);
+        if (isFinite(a) && isFinite(b)){
+          var lo = Math.min(a,b), hi = Math.max(a,b);
+          return function(x){ return isFinite(x) && x >= lo && x <= hi; };
+        }
+      }
+      var tokens = [];
+      q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
+        var n = parseFloat(String(num).replace(',','.'));
+        if (isFinite(n)) tokens.push({op: op, n: n});
+        return '';
+      });
+      if (tokens.length){
+        return function(x){
+          if (!isFinite(x)) return false;
+          for (var i=0;i<tokens.length;i++){
+            var t = tokens[i];
+            if (t.op === '>' && !(x > t.n)) return false;
+            if (t.op === '>=' && !(x >= t.n)) return false;
+            if (t.op === '<' && !(x < t.n)) return false;
+            if (t.op === '<=' && !(x <= t.n)) return false;
+            if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
+            if (t.op === '!=' && !(x !== t.n)) return false;
+          }
+          return true;
+        };
+      }
+      var single = isPercent ? parseFloat(q.replace('%','').replace(',','.')) : parseNumToken(q);
+      if (isFinite(single)){
+        return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
+      }
+      return function(){ return true; };
+    }
+
+    function applyAdvancedFilters(){
+      var qValo = $('#client-valo-filter').val() || '';
+      var qPerf = $('#client-perf-filter').val() || '';
+      var qVol = $('#client-vol-filter').val() || '';
+      var predValo = buildNumPredicate(qValo, false);
+      var predPerf = buildNumPredicate(qPerf, true);
+      var predVol = buildNumPredicate(qVol, true);
+      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
+      $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
+        if (settings.nTable !== document.getElementById('clientsTable')) return true;
+        var rowNode = table.row(dataIndex).node();
+        var valoRaw = rowNode?.querySelector('[data-valo]')?.dataset?.valo;
+        var perfRaw = rowNode?.querySelector('[data-perf]')?.dataset?.perf;
+        var volRaw = rowNode?.querySelector('[data-vol]')?.dataset?.vol;
+        var valoNum = toNum(valoRaw ?? data[4]);
+        var perfNum = normalizePct(toNum(perfRaw ?? data[5]));
+        var volNum = normalizePct(toNum(volRaw ?? data[6]));
+        var ok = true;
+        if (qValo){
+          if (!Number.isFinite(valoNum)) return false;
+          if (!predValo(valoNum)) ok = false;
+        }
+        if (ok && qPerf){
+          if (!Number.isFinite(perfNum)) return false;
+          if (!predPerf(perfNum)) ok = false;
+        }
+        if (ok && qVol){
+          if (!Number.isFinite(volNum)) return false;
+          if (!predVol(volNum)) ok = false;
+        }
+        return ok;
+      });
+      var last = $.fn.dataTable.ext.search[$.fn.dataTable.ext.search.length-1];
+      if (last) last.__cli_advanced = true;
+      table.draw();
+    }
+    $('#client-valo-filter, #client-perf-filter, #client-vol-filter').on('keyup change', applyAdvancedFilters);
+
+    window.clearClientFilters = function(){
+      $('#client-nom-filter, #client-prenom-filter, #client-resp-filter, #client-srri-filter, #client-valo-filter, #client-perf-filter, #client-vol-filter').val('');
+      table.search('');
+      for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
+      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
+      table.draw();
+    };
+});
+</script>
 {% endblock %}

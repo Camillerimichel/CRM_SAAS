@@ -161,6 +161,35 @@
   .accordion-toggle:not(.collapsed) .chevron,
   .accordion-toggle:not(.collapsed) i,
   .accordion-toggle:not(.collapsed) span { color:#fff; }
+  /* Barre horizontale des boutons d'accordéon */
+  .section-toggle-row {
+    display:flex;
+    gap:8px;
+    align-items:stretch;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    padding:8px 0 10px;
+    margin:10px 0 6px;
+    width:100%;
+    box-sizing:border-box;
+  }
+  .section-toggle-row .accordion-toggle {
+    flex:1 1 0;
+    margin:0;
+    min-width:140px;
+    max-width:180px;
+    white-space:normal;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+  }
+  .section-toggle-row .accordion-toggle h3 {
+    font-size:0.85rem;
+    line-height:1.2;
+    margin:0;
+  }
+  .section-toggle-row .chevron { display:none; }
   #confToggleDetail,
   #clientTasksToggle {
     background:#fff;
@@ -696,21 +725,25 @@ function generateClientSynthese(){
   <div class="modal-overlay" id="confMainModal" data-tb-marker="CL_11" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal-card" data-tb-marker="CL_12" style="width:720px; max-width:95vw;">
     <div class="modal-header"><h3>Relation client et conformité</h3><button class="modal-close" onclick="document.getElementById('confMainModal').style.display='none'">✕</button></div>
-      <div class="modal-body" style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateMissionPdf();"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
-        <button type="button" class="kyc-main-btn" onclick="closeConfMain(); generateAdequationPdf();"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-        <button type="button" class="kyc-main-btn" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf"></i>Edition de synthèse</button>
+      <div class="modal-body" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; align-items:start;">
+        <div>
+          <h4 style="margin:0 0 8px 0; text-align:center;">Gestion</h4>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
+          </div>
+        </div>
+        <div>
+          <h4 style="margin:0 0 8px 0; text-align:center;">Éditions</h4>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf"></i>Edition de synthèse</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-  <!-- Accordéon Conformité (détail client) -->
-  <div id="confToggleDetail" class="card accordion-toggle" data-tb-marker="CL_13" onclick="openConfMain()" style="margin-top:10px;">
-    <h3 style="margin:0;">Relation client et conformité</h3>
-      <span class="chevron">▸</span>
-    </div>
-
   <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
   <style>
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
@@ -805,16 +838,36 @@ function generateClientSynthese(){
   </div>
 
   <!-- Actions rapides -->
-  
-  <!-- Tâches: accordéon local -->
-  <div id="clientTasksToggle" class="card accordion-toggle" data-tb-marker="CL_06" onclick="openTaskPopup()"><h3 style="margin:0;">Définir une tâche</h3><span class="chevron">▾</span></div>
+  <div class="section-toggle-row">
+    <div id="confToggleDetail" class="card accordion-toggle" data-tb-marker="CL_13" onclick="openConfMain()">
+      <h3>Relation client et conformité</h3>
+    </div>
+    <div id="clientTasksToggle" class="card accordion-toggle" data-tb-marker="CL_06" onclick="openTaskPopup()">
+      <h3>Définir une tâche</h3>
+    </div>
+    <div id="invToggle" class="card accordion-toggle" data-tb-marker="CL_14">
+      <h3>Investissements</h3>
+    </div>
+    <div id="esgToggleClient" class="card accordion-toggle">
+      <h3>ESG</h3>
+    </div>
+    <div id="graphsToggle" class="card accordion-toggle">
+      <h3>Graphiques</h3>
+    </div>
+    <div id="reportToggle" class="card accordion-toggle">
+      <h3>Reportings pluriannuels</h3>
+    </div>
+    <div id="docsToggle" class="card accordion-toggle" data-tb-marker="CL_16">
+      <h3>Documents</h3>
+    </div>
+  </div>
   
   <!-- Popup temporaire de création de tâche -->
   <style>
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
     .modal-card { background: #fff; border-radius: 12px; width: 640px; max-width: 92vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    .modal-header h3 { margin: 0; font-size: 1.05rem; }
+    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--primary); color: #fff; border-top-left-radius:12px; border-top-right-radius:12px; }
+    .modal-header h3 { margin: 0; font-size: 1.05rem; color:#fff; }
     .modal-body { padding: 12px 14px; }
     .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
   </style>
@@ -1268,8 +1321,6 @@ function generateClientSynthese(){
     #clientMsgsTable tbody tr:hover { background: #f3f6ff; }
     #clientMsgsTable tbody tr.row-selected { background: #e9f0ff; border-left: 3px solid var(--primary); }
   </style>
-  <!-- Accordéons vides pour structurer la page (à compléter comme pour Affaires) -->
-  <div id="invToggle" class="card accordion-toggle" data-tb-marker="CL_14"><h3 style="margin:0;">Investissements</h3><span class="chevron">▾</span></div>
   <div id="invSection" class="card" data-tb-marker="CL_15" style="display:none;">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <h3 style="margin:4px 8px 8px 0;">Contrats du client</h3>
@@ -1404,25 +1455,8 @@ function generateClientSynthese(){
       </tbody>
     </table>
 
-    <div class="pie-grid" style="margin-top:8px;">
-      <div class="pie-card">
-        <h3 class="chart-title">Répartition par catégorie</h3>
-        <div class="dim-buttons" style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
-          <button type="button" class="dim-btn active" data-field="cat_gene">Catégorie générale</button>
-          <button type="button" class="dim-btn" data-field="cat_principale">Catégorie principale</button>
-          <button type="button" class="dim-btn" data-field="cat_det">Catégorie détaillée</button>
-        </div>
-        <canvas id="clientCatChart" height="220"></canvas>
-      </div>
-      <div class="pie-card">
-        <h3 class="chart-title">Répartition géographique du secteur</h3>
-        <canvas id="clientGeoChart" height="220"></canvas>
-      </div>
-    </div>
   </div>
 
-  <!-- Accordéon ESG (client), placé sous Investissements -->
-  <div id="esgToggleClient" class="card accordion-toggle"><h3 style="margin:0;">ESG</h3><span class="chevron">▾</span></div>
   <div id="esgSectionClient" style="display:none;">
     <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box;">
       <h3 class="chart-title">Comparaison ESG Client vs Indice</h3>
@@ -1466,7 +1500,6 @@ function generateClientSynthese(){
     </div>
   </div>
 
-  <div id="graphsToggle" class="card accordion-toggle"><h3 style="margin:0;">Graphiques</h3><span class="chevron">▾</span></div>
   <div id="graphsSection" style="display:none;">
     <div class="card">
       <h3>Historique de valorisation et cumul des mouvements</h3>
@@ -1494,13 +1527,28 @@ function generateClientSynthese(){
       </div>
       <canvas id="clientAllocChart" height="120"></canvas>
     </div>
-    
-    
+
+    <div class="card" style="margin-top:12px;">
+      <div class="pie-grid" style="margin-top:0;">
+        <div class="pie-card">
+          <h3 class="chart-title">Répartition par catégorie</h3>
+          <div class="dim-buttons" style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+            <button type="button" class="dim-btn active" data-field="cat_gene">Catégorie générale</button>
+            <button type="button" class="dim-btn" data-field="cat_principale">Catégorie principale</button>
+            <button type="button" class="dim-btn" data-field="cat_det">Catégorie détaillée</button>
+          </div>
+          <canvas id="clientCatChart" height="220"></canvas>
+        </div>
+        <div class="pie-card">
+          <h3 class="chart-title">Répartition géographique du secteur</h3>
+          <canvas id="clientGeoChart" height="220"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Cadre indépendant: Performances et volatilité annuelles -->
 
-  <div id="reportToggle" class="card accordion-toggle" style="border-left-color: var(--primary);"><h3 style="margin:0;">Reportings pluriannuels</h3><span class="chevron">▾</span></div>
   <div id="reportSection" class="card" style="display:none;">
     {% if reporting_years %}
     <table style="font-size:12px;">
@@ -1548,8 +1596,6 @@ function generateClientSynthese(){
 
   <!-- (section Graphiques fusionnée ci-dessus) -->
 
-  <!-- Documents accordion -->
-  <div id="docsToggle" class="card accordion-toggle" data-tb-marker="CL_16"><h3 style="margin:0;">Documents</h3><span class="chevron">▾</span></div>
   <div id="docsSection" class="card" data-tb-marker="CL_17" style="display:none;">
     <h3>Documents du client</h3>
     <form id="addDocForm" style="margin-bottom:12px; display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;">
@@ -1786,31 +1832,83 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
   const movsRaw = [{% for v in serie_mov_raw %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
   const ctx = document.getElementById('valoChart').getContext('2d');
   const normLabels = labels.map(d => (d||'').toString().slice(0,10));
+  const parsedDates = normLabels.map(d => new Date(d));
+  const primaryColorValo = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#1d4ed8';
   function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
-  // Echelle unique simple comme version d'origine
+  function yearAt(index){
+    const d = parsedDates[index];
+    return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
+  }
   new Chart(ctx, {
     type: 'line',
     data: { labels: normLabels, datasets: [
-      { label: 'Valorisation', data, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8', fill: false, pointRadius: 0, pointHoverRadius: 0 },
-      { label: 'Cumul mouvements', data: movs, borderColor: '#ff6b6b', fill: false, pointRadius: 0, pointHoverRadius: 0 },
+      {
+        label: 'Valorisation',
+        data,
+        borderColor: primaryColorValo,
+        backgroundColor: (ctx) => {
+          const idx = ctx.dataIndex || 0;
+          const v = data[idx] || 0;
+          const m = movs[idx] || 0;
+          return v >= m ? 'rgba(34, 197, 94, 0.16)' : 'rgba(239, 68, 68, 0.16)';
+        },
+        fill: { target: 1 },
+        pointRadius: 0,
+        pointHoverRadius: 0
+      },
+      {
+        label: 'Cumul mouvements',
+        data: movs,
+        borderColor: '#ff6b6b',
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0
+      },
     ] },
     options: {
       responsive: true,
       interaction: { mode: 'index', intersect: false },
       stacked: false,
-      scales: { y: { beginAtZero: false, ticks: { callback: (v)=> euro(v) } } },
+      scales: {
+        x: {
+          ticks: {
+            autoSkip: false,
+            maxRotation: 0,
+            callback: (val, idx) => {
+              const y = yearAt(idx);
+              const prev = yearAt(idx - 1);
+              return y && y !== prev ? String(y) : '';
+            }
+          },
+          grid: {
+            color: (ctx) => {
+              const y = yearAt(ctx.index);
+              const prev = yearAt(ctx.index - 1);
+              return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
+            },
+            lineWidth: (ctx) => {
+              const y = yearAt(ctx.index);
+              const prev = yearAt(ctx.index - 1);
+              return y && y !== prev ? 2 : 0.5;
+            }
+          }
+        },
+        y: { beginAtZero: false, ticks: { callback: (v)=> euro(v) } }
+      },
       plugins: {
         legend: { display: true },
         tooltip: {
           callbacks: {
-            label: function(ctx){
-              const y = ctx.parsed.y;
-              if (ctx.dataset.label === 'Cumul mouvements'){
-                const idx = ctx.dataIndex;
+            label: function(context){
+              const y = context.parsed.y;
+              const idx = context.dataIndex;
+              if (context.dataset.label === 'Cumul mouvements'){
                 const delta = movsRaw[idx] || 0;
-                return ctx.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
+                return context.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
               }
-              return ctx.dataset.label+': '+euro(y);
+              const diff = (data[idx] || 0) - (movs[idx] || 0);
+              const tag = diff >= 0 ? 'Gain' : 'Perte';
+              return [context.dataset.label+': '+euro(y), tag+': '+euro(Math.abs(diff))];
             }
           }
         }
@@ -1844,7 +1942,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         { min: 0.0500, max: 0.1000, base: 4 },
         { min: 0.1000, max: 0.1500, base: 5 },
         { min: 0.1500, max: 0.2500, base: 6 },
-        { min: 0.2500, max: Infinity, base: 7 }
+        { min: 0.2500, max: Infinity, base: 8 }
       ];
       for (const bucket of buckets){
         if (v < bucket.max || bucket.max === Infinity){
@@ -1855,8 +1953,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           if (!isFinite(ratio)) return bucket.base;
           const value = bucket.base + ratio;
           if (!isFinite(value)) return bucket.base;
-          if (bucket.base === 7) return 7;
-          return +value.toFixed(2);
+          return +Math.min(value, 8).toFixed(2);
         }
       }
       return null;
@@ -1880,7 +1977,8 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         const ranges = [
           { from: 1, to: 2 },
           { from: 3, to: 4 },
-          { from: 5, to: 6 }
+          { from: 5, to: 6 },
+          { from: 7, to: 8 }
         ];
         ctxPlugin.save();
         ctxPlugin.fillStyle = srriBandColor;
@@ -1895,7 +1993,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         const clientSrri = {{ client_srri | int }};
         const srriLevels = [clientSrri, clientSrri + 1];
         srriLevels.forEach(level => {
-          if (level < 1 || level > 7) return;
+          if (level < 1 || level > 8) return;
           const yLine = yAxis.getPixelForValue(level);
           if (Number.isFinite(yLine)) {
             ctxPlugin.strokeStyle = srriColor;
@@ -1913,13 +2011,33 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       }
     };
     const perfColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8';
+    const labelPlugin = {
+      id: 'perfLabels',
+      afterDatasetsDraw(chart){
+        const { ctx, data } = chart;
+        const meta = chart.getDatasetMeta(1); // perf dataset index 1 below
+        if (!meta || !meta.data) return;
+        ctx.save();
+        ctx.fillStyle = perfColor;
+        ctx.font = '12px sans-serif';
+        meta.data.forEach((bar, idx)=>{
+          const value = data.datasets[1].data[idx];
+          if (value === null || typeof value === 'undefined') return;
+          const label = Number(value).toFixed(2)+' %';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(label, bar.x, bar.y - 4);
+        });
+        ctx.restore();
+      }
+    };
     const chart = new Chart(ctx, {
-      plugins: [srriBandsPlugin],
+      plugins: [srriBandsPlugin, labelPlugin],
       data: {
         labels: (yearsClient||[]).map(String),
         datasets: [
           { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriBandColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
-          { type:'line', label: 'Perf 52s (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y', order: 2 }
+          { type:'bar', label: 'Perf annuelle (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(37, 99, 235, 0.35)', borderWidth: 1, yAxisID: 'y', order: 2 }
         ]
       },
       options: {
@@ -1932,7 +2050,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           y2: {
             position: 'right',
             min: 1,
-            max: 7,
+            max: 8,
             ticks: { stepSize: 1, callback: v => v, color: srriColor },
             grid: { drawOnChartArea: false },
             title: { display: true, text: 'SRRI', color: srriColor },
@@ -2008,7 +2126,8 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       if (base === null) base = 1; // fallback
       return labels.map(d => { const v = map.get(d); return isFinite(v) ? +(v/base*100).toFixed(2) : null; });
     }
-    const colors = ['#1d4ed8','#e76f51','#2a9d8f','#f4a261','#264653','#43aa8b','#e9c46a','#577590','#f94144','#277da1'];
+    const allocColor = '#ff6b6b';
+    const portfolioColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6';
     let chartAlloc;
     let currentRange = 'all';
     function drawAlloc(selected){
@@ -2019,25 +2138,60 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       if (!labels.length) return;
       const datasets = [];
       let allVals = [];
-      // Client series first, normalized to base 100
+      const name = selected[0];
+      const allocMap = toMap(allocSeries[name]);
+      const allocData = normalize(allocMap, labels);
       const clientData = normalize(clientMap, labels);
-      datasets.push({ label: 'Client (base 100)', data: clientData, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6', fill:false, pointRadius:0, pointHoverRadius:0 });
-      allVals = allVals.concat(clientData.filter(v=> v!=null && isFinite(v)));
-      selected.forEach((name, idx)=>{
-        const map = toMap(allocSeries[name]);
-        const data = normalize(map, labels);
-        datasets.push({ label: name+' (base 100)', data, borderColor: colors[idx%colors.length], fill:false, pointRadius:0, pointHoverRadius:0 });
-        allVals = allVals.concat(data.filter(v=> v!=null && isFinite(v)));
+      allVals = allVals.concat(allocData.filter(v=> v!=null && isFinite(v)), clientData.filter(v=> v!=null && isFinite(v)));
+      datasets.push({ label: name+' (base 100)', data: allocData, borderColor: allocColor, fill:false, pointRadius:0, pointHoverRadius:0 });
+      datasets.push({
+        label: 'Portefeuille (base 100)',
+        data: clientData,
+        borderColor: portfolioColor,
+        backgroundColor: 'transparent',
+        fill: false,
+        pointRadius:0,
+        pointHoverRadius:0
       });
       if (!allVals.length) return;
       const min = Math.min.apply(null, allVals);
       const max = Math.max.apply(null, allVals);
       const pad = ((max - min) || 1) * 0.1;
       const ctxA = document.getElementById('clientAllocChart').getContext('2d');
+      const areaFillPlugin = {
+        id: 'allocFill',
+        beforeDatasetsDraw(chart){
+          const metaAlloc = chart.getDatasetMeta(0);
+          const metaPort = chart.getDatasetMeta(1);
+          if (!metaAlloc || !metaPort || !metaAlloc.data || !metaPort.data) return;
+          const len = Math.min(metaAlloc.data.length, metaPort.data.length);
+          const ctx = chart.ctx;
+          ctx.save();
+          for (let i=0; i < len - 1; i++){
+            const a0 = metaAlloc.data[i], a1 = metaAlloc.data[i+1];
+            const p0 = metaPort.data[i], p1 = metaPort.data[i+1];
+            if (!a0 || !a1 || !p0 || !p1) continue;
+            const v0 = p0.$context.raw, v1 = p1.$context.raw;
+            const b0 = a0.$context.raw, b1 = a1.$context.raw;
+            if (!isFinite(v0) || !isFinite(v1) || !isFinite(b0) || !isFinite(b1)) continue;
+            const sign = ((v0 + v1) / 2) - ((b0 + b1) / 2);
+            ctx.fillStyle = sign >= 0 ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.28)';
+            ctx.beginPath();
+            ctx.moveTo(a0.x, a0.y);
+            ctx.lineTo(a1.x, a1.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p0.x, p0.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      };
       chartAlloc = new Chart(ctxA, {
         type: 'line',
+        plugins: [areaFillPlugin],
         data: { labels, datasets },
-        options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{ y:{ suggestedMin: min - pad, suggestedMax: max + pad } }, plugins:{ legend:{ display:true } } }
+        options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{ y:{ suggestedMin: min - pad, suggestedMax: max + pad } }, plugins:{ legend:{ display:true }, tooltip:{ callbacks:{ label:function(ctx){ const y = ctx.parsed.y; const idx = ctx.dataIndex; const port = clientData[idx] || 0; const alloc = allocData[idx] || 0; const delta = port - alloc; if (ctx.datasetIndex === 0){ return ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''); } const tag = delta >= 0 ? 'Gain' : 'Perte'; return [ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''), tag+': '+(isFinite(delta)?delta.toFixed(2):'')]; } } } } }
       });
     }
     sel.addEventListener('change', function(){
@@ -2045,6 +2199,11 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       drawAlloc(selected);
     });
     document.querySelectorAll('.rangeBtn').forEach(btn => btn.addEventListener('click', function(){ currentRange = this.dataset.range || 'all'; const selected = sel.value ? [sel.value] : []; drawAlloc(selected); }));
+    // Sélection par défaut : première allocation, période "Tout"
+    if (sel.options.length) {
+      sel.selectedIndex = 0;
+      drawAlloc([sel.value]);
+    }
   })();
 
   // --- ESG (client consolidé) Plotly horizontal bar: indice=100 vs client ---

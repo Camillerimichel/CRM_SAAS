@@ -120,6 +120,37 @@
   #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; }
   #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
   #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  /* Barre horizontale des boutons d'accordéon */
+  .section-toggle-row {
+    display:flex;
+    gap:8px;
+    align-items:stretch;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    padding:8px 0 12px;
+    margin:12px 0 6px;
+    width:100%;
+    max-width:100%;
+    grid-column: 1 / -1;
+    box-sizing:border-box;
+  }
+  .section-toggle-row .accordion-toggle {
+    flex:1 1 0;
+    margin:0;
+    min-width:140px;
+    max-width:180px;
+    white-space:normal;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+  }
+  .section-toggle-row .accordion-toggle h3 {
+    font-size:0.85rem;
+    line-height:1.2;
+    margin:0;
+  }
+  .section-toggle-row .chevron { display:none; }
   #affTasksToggle {
     background:#fff;
     color:var(--text);
@@ -272,9 +303,15 @@
   </div>
 
   <!-- Définir une tâche (ouverture de pop-up, même stratégie que Détail Client) -->
-  <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" style="margin-top:12px; cursor:pointer; width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center;" onclick="openAffTaskPopup()">
-    <h3 style="margin:0;">Définir une tâche</h3>
-    <span class="chevron">▾</span>
+  <div class="section-toggle-row">
+    <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" onclick="openAffTaskPopup()">
+      <h3>Définir une tâche</h3>
+    </div>
+    <div id="invToggle" class="card accordion-toggle"><h3 style="margin:0;">Investissements</h3></div>
+    <div id="esgToggle" class="card accordion-toggle"><h3 style="margin:0;">ESG</h3></div>
+    <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" onclick="openAvisModal()"><h3 style="margin:0;">Avis d'opération</h3></div>
+    <div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17"><h3 style="margin:0;">Graphiques</h3></div>
+    <div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22"><h3 style="margin:0;">Reportings annuels</h3></div>
   </div>
 
   <!-- Pop-up de création de tâche pour l'affaire -->
@@ -466,10 +503,6 @@
   </script>
 
 <!-- Accordéon Investissements -->
-<div id="invToggle" class="card accordion-toggle" style="margin-top:20px; margin-bottom:12px; border-left:4px solid #2a9d8f; cursor: pointer; display:flex; align-items:center; justify-content:center;">
-  <h3 class="chart-title" style="font-size: 0.95rem;">Investissements</h3>
-  <span class="chevron">▾</span>
-</div>
 <div id="invSection" style="display:none;">
 <div class="card" style="margin-top:12px;">
   <h3 class="chart-title">Supports financiers</h3>
@@ -558,10 +591,6 @@
 </div>
 <!-- Séparateur visuel -->
 <!-- Accordéon ESG -->
-<div id="esgToggle" class="card" style="margin-top:12px; margin-bottom:12px; border-left:4px solid #6b7280; cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; box-sizing:border-box; grid-column: 1 / -1;">
-  <h3 class="chart-title" style="font-size: 0.95rem;">ESG</h3>
-  <span class="chevron">▾</span>
-  </div>
 <div id="esgSection" style="display:none;">
   <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box; grid-column: 1 / -1;">
     <h3 class="chart-title">Comparaison ESG Affaire vs Indice</h3>
@@ -597,10 +626,6 @@
 </div>
 
 <!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
-<div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" style="margin-top:12px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center;" onclick="openAvisModal()">
-  <h3 class="chart-title" style="font-size: 0.95rem;">Avis d'opération <span class="badge">{{ (avis_affaire|length) if avis_affaire else 0 }}</span></h3>
-  <span class="chevron">▾</span>
-</div>
 <div id="avisSection" data-tb-marker="AF_13" style="display:none;">
   <div class="card" data-tb-marker="AF_14">
     <h3 class="chart-title">Avis d'opération</h3>
@@ -645,10 +670,6 @@
   </div>
 </div>
 
-<div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer;">
-  <h3 class="chart-title" style="font-size: 0.95rem;">Graphiques</h3>
-  <span class="chevron">▾</span>
-</div>
 <div id="graphsSection" data-tb-marker="AF_18" style="display:none;">
 
 <div class="card" data-tb-marker="AF_19" style="margin-top:12px;">
@@ -691,10 +712,6 @@
 </div>
 
 <!-- Reportings pluriannuels (accordéon pleine largeur) -->
-<div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" style="margin-top:20px; margin-bottom:12px; border-left:4px solid var(--primary); cursor: pointer; display:flex; align-items:center; justify-content:center; width:100%; grid-column: 1 / -1;">
-  <h3 class="chart-title" style="font-size: 0.95rem;">Reportings pluriannuels</h3>
-  <span class="chevron">▾</span>
-</div>
 <div id="reportSection" data-tb-marker="AF_23" style="width:100%; grid-column: 1 / -1;">
   <div class="card" data-tb-marker="AF_24" style="margin-top:8px;">
     {% if reporting_years %}
@@ -1139,25 +1156,100 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   })();
   const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#2456a6';
 
-  // Chart 1: valo vs cumul mouvements
+  // Chart 1: valo vs cumul mouvements (remplissage vert/rouge, axe X annuel)
   const ctx1 = document.getElementById('chartValo').getContext('2d');
   let chart1;
   function drawChart1(L, V, C) {
     if (chart1) chart1.destroy();
-    const vmin = Math.min(...V), vmax = Math.max(...V);
-    const cmin = Math.min(...C), cmax = Math.max(...C);
-    const vm = (vmax - vmin) * 0.1 || 1, cm = (cmax - cmin) * 0.1 || 1;
+    const parsedDates = L.map(d => new Date(d));
+    const yearAt = (idx) => {
+      const d = parsedDates[idx];
+      return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
+    };
+    const allMin = Math.min(...V, ...C);
+    const allMax = Math.max(...V, ...C);
+    const margin = (allMax - allMin) * 0.1 || 1;
     chart1 = new Chart(ctx1, {
       type: 'line',
       data: { labels: L, datasets: [
-        { label: 'Valorisation', data: V, borderColor: primaryColor, fill: false, yAxisID: 'y1', pointRadius: 0, pointHoverRadius: 0 },
-        { label: 'Cumul mouvements', data: C, borderColor: '#ff6b6b', fill: false, yAxisID: 'y2', pointRadius: 0, pointHoverRadius: 0 },
+        {
+          label: 'Valorisation',
+          data: V,
+          borderColor: primaryColor,
+          backgroundColor: (ctx) => {
+            const i = ctx.dataIndex || 0;
+            const v = V[i] || 0;
+            const m = C[i] || 0;
+            return v >= m ? 'rgba(34, 197, 94, 0.16)' : 'rgba(239, 68, 68, 0.16)';
+          },
+          fill: { target: 1 },
+          pointRadius: 0,
+          pointHoverRadius: 0
+        },
+        {
+          label: 'Cumul mouvements',
+          data: C,
+          borderColor: '#ff6b6b',
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0
+        },
       ]},
-      options: { responsive:true, interaction:{mode:'index', intersect:false}, stacked:false,
+      options: {
+        responsive:true,
+        interaction:{mode:'index', intersect:false},
+        stacked:false,
         scales: {
-          y1: { type:'linear', position:'left', suggestedMin: vmin - vm, suggestedMax: vmax + vm, ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' }, border:{ color: primaryColor }, title:{ display:true, text:'Valorisation', color: primaryColor } },
-          y2: { type:'linear', position:'right', suggestedMin: cmin - cm, suggestedMax: cmax + cm, ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' }, border:{ color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, title:{ display:true, text:'Cumul mouvements', color:'#ff6b6b' } }
-        }, plugins:{ legend:{ display:true } }
+          x: {
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (val, idx) => {
+                const y = yearAt(idx);
+                const prev = yearAt(idx - 1);
+                return y && y !== prev ? String(y) : '';
+              }
+            },
+            grid: {
+              color: (ctx) => {
+                const y = yearAt(ctx.index);
+                const prev = yearAt(ctx.index - 1);
+                return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
+              },
+              lineWidth: (ctx) => {
+                const y = yearAt(ctx.index);
+                const prev = yearAt(ctx.index - 1);
+                return y && y !== prev ? 2 : 0.5;
+              }
+            }
+          },
+          y: {
+            type:'linear',
+            position:'left',
+            suggestedMin: allMin - margin,
+            suggestedMax: allMax + margin,
+            ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' },
+            border:{ color: primaryColor },
+            title:{ display:true, text:'Valorisation / Cumul mouvements', color: primaryColor }
+          }
+        },
+        plugins:{
+          legend:{ display:true },
+          tooltip:{
+            callbacks:{
+              label: function(ctx){
+                const y = ctx.parsed.y;
+                const idx = ctx.dataIndex;
+                if (ctx.dataset.label === 'Cumul mouvements'){
+                  return ctx.dataset.label+': '+y.toLocaleString('fr-FR')+' €';
+                }
+                const diff = (V[idx] || 0) - (C[idx] || 0);
+                const tag = diff >= 0 ? 'Gain' : 'Perte';
+                return [ctx.dataset.label+': '+y.toLocaleString('fr-FR')+' €', tag+': '+Math.abs(diff).toLocaleString('fr-FR')+' €'];
+              }
+            }
+          }
+        }
       }
     });
   }
@@ -1191,7 +1283,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       { min: 0.05, max: 0.10, base: 4 },
       { min: 0.10, max: 0.15, base: 5 },
       { min: 0.15, max: 0.25, base: 6 },
-      { min: 0.25, max: Infinity, base: 7 }
+      { min: 0.25, max: Infinity, base: 8 }
     ];
     for (let i = 0; i < buckets.length; i++){
       const bucket = buckets[i];
@@ -1205,9 +1297,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         if (!isFinite(ratio)) return bucket.base;
         const value = bucket.base + ratio;
         if (!isFinite(value)) return bucket.base;
-        // classe 7 reste bornée à 7
-        if (bucket.base === 7) return 7;
-        return +value.toFixed(2);
+        return +Math.min(value, 8).toFixed(2);
       }
     }
     return null;
@@ -1225,7 +1315,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const ranges = [];
       const srriFloat = Number(clientSrri);
       if (Number.isFinite(srriFloat)) {
-        const upper = Math.min(srriFloat + 1, 7);
+        const upper = Math.min(srriFloat + 1, 8);
         ranges.push({ from: srriFloat, to: srriFloat });
         if (upper > srriFloat) {
           ranges.push({ from: srriFloat, to: upper });
@@ -1249,14 +1339,33 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   try{
     ann = new Chart(ctx2, {
       type: 'bar',
-      plugins: [srriHighlightPlugin],
+      plugins: [srriHighlightPlugin, {
+        id: 'perfLabels',
+        afterDatasetsDraw(chart){
+          const { ctx, data } = chart;
+          const meta = chart.getDatasetMeta(0); // perf dataset index 0
+          if (!meta || !meta.data) return;
+          ctx.save();
+          ctx.fillStyle = primaryColor;
+          ctx.font = '12px sans-serif';
+          meta.data.forEach((bar, idx)=>{
+            const value = data.datasets[0].data[idx];
+            if (value === null || typeof value === 'undefined') return;
+            const label = Number(value).toFixed(2)+' %';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(label, bar.x, bar.y - 4);
+          });
+          ctx.restore();
+        }
+      }],
       data: { labels: (years||[]).map(String), datasets: [
-        { type: 'line', label: 'Perf 52s (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: primaryColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y' },
+        { type: 'bar', label: 'Perf annuelle (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: 'rgba(37, 99, 235, 0.35)', borderWidth: 1, yAxisID: 'y' },
         { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#ff6b6b', backgroundColor: '#ff6b6b', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
       ]},
       options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{
           y:{ position:'left', ticks:{ callback:v=> v+' %' } },
-          y2:{ position:'right', min:1, max:7, ticks:{ stepSize:1, callback:v=> v, color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, border:{ color:'#ff6b6b' }, title:{ display:true, text:'SRRI', color:'#ff6b6b' } }
+          y2:{ position:'right', min:1, max:8, ticks:{ stepSize:1, callback:v=> v, color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, border:{ color:'#ff6b6b' }, title:{ display:true, text:'SRRI', color:'#ff6b6b' } }
         }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color:(ctx)=> ctx.dataset && ctx.dataset.yAxisID==='y2' ? '#ff6b6b' : primaryColor, formatter:(value, ctx)=> {
             if (value === null || typeof value === 'undefined') return '';
             if (ctx.dataset && ctx.dataset.yAxisID === 'y2') {
@@ -1328,14 +1437,83 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const map = new Map(arr.map(p=> [p.date, parseFloat(p.sicav)]));
       datasets.push({ label:name+' (base 100)', data: normalizeSeries(map, labels), borderColor: '#ff6b6b', fill:false, pointRadius:0, pointHoverRadius:0 });
     });
-    chart3 = new Chart(ctx3, { type:'line', data:{ labels, datasets }, options:{ responsive:true, scales:{ y:{ ticks:{ callback:v=> v.toFixed(0) } } }, plugins:{ legend:{ display:true } } } });
+    const areaFillPluginCmp = {
+      id: 'allocFillCmp',
+      beforeDatasetsDraw(chart){
+        const metaPort = chart.getDatasetMeta(0);
+        const metaAlloc = chart.getDatasetMeta(1);
+        if (!metaPort || !metaAlloc || !metaPort.data || !metaAlloc.data) return;
+        const len = Math.min(metaPort.data.length, metaAlloc.data.length);
+        const ctx = chart.ctx;
+        ctx.save();
+        for (let i=0; i < len - 1; i++){
+          const p0 = metaPort.data[i], p1 = metaPort.data[i+1];
+          const a0 = metaAlloc.data[i], a1 = metaAlloc.data[i+1];
+          if (!p0 || !p1 || !a0 || !a1) continue;
+          const pv0 = p0.$context.raw, pv1 = p1.$context.raw;
+          const av0 = a0.$context.raw, av1 = a1.$context.raw;
+          if (!isFinite(pv0) || !isFinite(pv1) || !isFinite(av0) || !isFinite(av1)) continue;
+          const sign = ((pv0 + pv1)/2) - ((av0 + av1)/2);
+          ctx.fillStyle = sign >= 0 ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.28)';
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.lineTo(a1.x, a1.y);
+          ctx.lineTo(a0.x, a0.y);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    };
+    chart3 = new Chart(ctx3, {
+      type:'line',
+      plugins: datasets.length>=2 ? [areaFillPluginCmp] : [],
+      data:{ labels, datasets },
+      options:{
+        responsive:true,
+        scales:{ y:{ ticks:{ callback:v=> v.toFixed(0) } } },
+        plugins:{
+          legend:{ display:true },
+          tooltip:{ callbacks:{
+            label:function(ctx){
+              const y = ctx.parsed.y;
+              const idx = ctx.dataIndex;
+              const port = portData[idx];
+              const allocVal = allocData[idx];
+              const baseLabel = ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):'');
+              if (!isFinite(port) || !isFinite(allocVal)) return baseLabel;
+              const delta = port - allocVal;
+              const tag = delta >= 0 ? 'Gain' : 'Perte';
+              return [baseLabel, tag+': '+delta.toFixed(2)];
+            }
+          } }
+        }
+      }
+    });
   }
   // Remplir le select d'allocations
   const sel = document.getElementById('allocSelect');
   Object.keys(allocSeries).forEach(name=>{ const opt=document.createElement('option'); opt.value=name; opt.textContent=name; sel.appendChild(opt); });
   sel.addEventListener('change', function(){ drawChart3(this.value ? [this.value] : []); });
-  document.querySelectorAll('.rangeBtnCmp').forEach(btn => btn.addEventListener('click', function(){ currentRange3 = this.dataset.range || 'all'; drawChart3(sel.value ? [sel.value] : []); }));
-  drawChart3([]);
+  const rangeBtns = Array.from(document.querySelectorAll('.rangeBtnCmp'));
+  function setActiveRangeBtn(val){
+    rangeBtns.forEach(b => b.classList.toggle('active', (b.dataset.range||'') === val));
+  }
+  rangeBtns.forEach(btn => btn.addEventListener('click', function(){
+    currentRange3 = this.dataset.range || 'all';
+    setActiveRangeBtn(currentRange3);
+    drawChart3(sel.value ? [sel.value] : []);
+  }));
+  currentRange3 = 'all';
+  setActiveRangeBtn('all');
+  // Sélection par défaut : première allocation si disponible
+  if (sel.options.length > 0) {
+    sel.selectedIndex = 0;
+    drawChart3([sel.value]);
+  } else {
+    drawChart3([]);
+  }
 
 {% endif %}
 </script>

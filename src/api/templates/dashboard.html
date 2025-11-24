@@ -1,7 +1,25 @@
 {% extends "base.html" %}
 
 {% block title %}Tableau de bord{% endblock %}
-{% block header_title %}<i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord{% endblock %}
+{% block header_title %}
+<span class="header-title-wrap">
+  <span class="header-title-text"><i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord</span>
+  <span class="header-kpi-row">
+    <span class="header-kpi-pill">
+      <span class="label">Nombre de placements financiers</span>
+      <span class="value">{{ total_affaires }}</span>
+    </span>
+    <span class="header-kpi-pill">
+      <span class="label">Valorisation totale</span>
+      <span class="value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</span>
+    </span>
+    <span class="header-kpi-pill">
+      <span class="label">Nombre de clients</span>
+      <span class="value">{{ total_clients }}</span>
+    </span>
+  </span>
+</span>
+{% endblock %}
 
 {% block content %}
 
@@ -11,38 +29,42 @@
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_01">
 <!-- KPIs -->
 <style>
-  .dashboard-kpi-bar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1.6rem;
-    flex-wrap: wrap;
-  }
-  .dashboard-kpi-pill {
-    background: #1f4eb8;
-    color: #fff;
-    border: none;
-    border-radius: 999px;
-    padding: 0.65rem 1.4rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    box-shadow: 0 6px 14px rgba(31, 78, 184, 0.25);
+  .header-title-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .dashboard-kpi-pill span.value {
-    font-size: 1.05rem;
+  .header-title-text { display: inline-flex; align-items: center; gap: 8px; }
+  .header-kpi-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .header-kpi-pill {
+    background: linear-gradient(135deg, #1f4eb8, #2563eb);
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
     font-weight: 700;
+    box-shadow: 0 10px 26px rgba(31, 78, 184, 0.25);
+    border: 1px solid rgba(255,255,255,0.12);
   }
-  .dashboard-kpi-pill:disabled {
-    opacity: 1;
-    cursor: default;
-  }
-  .dashboard-kpi-pill span {
+  .header-kpi-pill .label {
     display: block;
-    line-height: 1.2;
+    opacity: 0.9;
+    font-size: 0.85rem;
+    letter-spacing: .01em;
+  }
+  .header-kpi-pill .value {
+    display: block;
+    font-size: 1rem;
+    font-weight: 800;
   }
 </style>
 <style>
@@ -103,6 +125,7 @@
     gap: 14px;
     flex-wrap: wrap;
     padding: 10px 0;
+    align-items: stretch;
   }
   .tasks-label { color: var(--muted); font-weight: 700; letter-spacing: .02em; }
   .tasks-range {
@@ -110,9 +133,37 @@
     gap: 10px;
     align-items: center;
   }
+  .tasks-inline-kpis {
+    display: grid;
+    grid-auto-flow: column;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .tasks-inline-kpi {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    height: 44px;
+  }
+  .tasks-inline-kpi .label {
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .tasks-inline-kpi .value {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+  }
   .tasks-range a.btn-choice {
     min-width: 70px;
-    height: 54px;
+    height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -138,7 +189,7 @@
     background: #fff;
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 12px 14px;
+    padding: 10px 12px;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   }
   .tasks-kpi-label { color: var(--muted); font-weight: 700; font-size: 13px; }
@@ -147,15 +198,16 @@
   .dash-tabs {
     display: flex;
     gap: 8px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    justify-content: center;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    justify-content: stretch;
     align-items: center;
     padding: 12px;
     border-bottom: 1px solid var(--border);
     background: #f8fafe;
     margin: 0 auto 12px auto;
-    max-width: 1100px;
+    max-width: none;
+    width: 100%;
     scrollbar-width: thin;
   }
   .dash-tab {
@@ -165,6 +217,7 @@
     padding: 12px 14px;
     border-radius: 12px;
     font-weight: 700;
+    font-size: 1rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -172,7 +225,7 @@
     cursor: pointer;
     box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
     transition: all .15s ease;
-    flex: 0 0 auto;
+    flex: 1 1 0;
     min-width: 140px;
     min-height: 44px;
     text-align: center;
@@ -187,23 +240,9 @@
   }
   .dash-tab.active i { color: #fff; }
 </style>
-<div class="dashboard-kpi-bar" data-tb-marker="TB_05">
-  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_06">
-    <span class="label">Nombre de placements financiers</span>
-    <span class="value">{{ total_affaires }}</span>
-  </button>
-  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_07">
-    <span class="label">Valorisation totale</span>
-    <span class="value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</span>
-  </button>
-  <button class="dashboard-kpi-pill" type="button" disabled data-tb-marker="TB_08">
-    <span class="label">Nombre de clients</span>
-    <span class="value">{{ total_clients }}</span>
-  </button>
-</div>
-
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs">
+  <button class="dash-tab" data-key="calendar" data-target="calendarSection"><i class="fa-solid fa-calendar"></i> Calendrier</button>
   <button class="dash-tab active" data-key="tasks" data-target="tasksSection"><i class="fa-solid fa-list-check"></i> Tâches</button>
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
   <button class="dash-tab" data-key="analysis" data-target="analysisSection"><i class="fa-solid fa-chart-line"></i> Analyse</button>
@@ -230,27 +269,17 @@
         {% endif %}
       {% endfor %}
     </div>
+    <div class="tasks-inline-kpis" data-tb-marker="TB_12">
+      <div class="tasks-inline-kpi" data-tb-marker="TB_13"><span class="label">Tâches totales</span><span class="value">{{ tasks_total }}</span></div>
+      <div class="tasks-inline-kpi" data-tb-marker="TB_14"><span class="label">Ouvertes</span><span class="value">{{ tasks_open }}</span></div>
+      <div class="tasks-inline-kpi" data-tb-marker="TB_15"><span class="label">Clôturées</span><span class="value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</span></div>
+      <div class="tasks-inline-kpi" data-tb-marker="TB_16"><span class="label">Aujourd'hui</span><span class="value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</span></div>
+    </div>
   </div>
-  <div class="tasks-kpis" data-tb-marker="TB_12">
-    <div class="tasks-kpi-card" data-tb-marker="TB_13">
-      <div class="tasks-kpi-label">Tâches totales</div>
-      <div class="tasks-kpi-value">{{ tasks_total }}</div>
-    </div>
-    <div class="tasks-kpi-card" data-tb-marker="TB_14">
-      <div class="tasks-kpi-label">Ouvertes</div>
-      <div class="tasks-kpi-value">{{ tasks_open }}</div>
-    </div>
-    <div class="tasks-kpi-card" data-tb-marker="TB_15">
-      <div class="tasks-kpi-label">Clôturées</div>
-      <div class="tasks-kpi-value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</div>
-    </div>
-    <div class="tasks-kpi-card" data-tb-marker="TB_16">
-      <div class="tasks-kpi-label">Aujourd'hui</div>
-      <div class="tasks-kpi-value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</div>
-    </div>
+  <div class="tasks-kpis" data-tb-marker="TB_17">
     {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
     {% if total_tasks_days and total_tasks_days > 0 %}
-      <div class="tasks-kpi-card" data-tb-marker="TB_17" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
+      <div class="tasks-kpi-card" data-tb-marker="TB_18" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
         <canvas id="chartTasksDays" height="120"></canvas>
       </div>
     {% endif %}
@@ -268,18 +297,61 @@
   </div>
   </div>
 
+  <style>
+    /* Barre horizontale pour Risques */
+    .risk-toggle-row {
+      display:flex;
+      gap:8px;
+      align-items:stretch;
+      flex-wrap:nowrap;
+      overflow-x:auto;
+      padding:8px 0 10px;
+      margin:8px auto 12px auto;
+      max-width:1100px;
+      box-sizing:border-box;
+    }
+    .risk-toggle-row .risk-toggle {
+      flex:1 1 0;
+      min-width:160px;
+      margin:0;
+      text-align:center;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+      cursor:pointer;
+      font-size:0.95rem;
+      font-weight:600;
+      box-shadow:var(--shadow-sm);
+      color: var(--text);
+      background:#fff;
+    }
+    .risk-toggle-row .risk-toggle.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+      box-shadow: 0 10px 20px rgba(37,99,235,0.18);
+    }
+  </style>
+
   <!-- Accordéon Risques -->
   <div id="risksToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_21" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
     <h3 style="margin:0; font-size:1.05rem;">Conformité et suivi du risque</h3>
     <span class="chevron">▾</span>
   </div>
-  <div id="risksSection" data-tb-marker="TB_22" style="display:none;">
+  <div id="risksSection" data-tb-marker="TB_22" >
+    <div class="risk-toggle-row">
+      <div class="risk-toggle" data-target="complianceSection">Conformité réglementaire</div>
+      <div class="risk-toggle" data-target="rcpSection">Requis réglementaires</div>
+      <div class="risk-toggle" data-target="clienteleSection">Répartition par clientèle</div>
+      <div class="risk-toggle" data-target="srriSection">Suivi du risque</div>
+    </div>
   <!-- Sous-accordéon: Conformité réglementaire -->
-  <div id="complianceToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_23" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Conformité réglementaire</h3>
-    <span class="chevron">▾</span>
-  </div>
-  <div id="complianceSection" data-tb-marker="TB_24" style="display:none;">
+  <div id="complianceToggle" ></div>
+  <div id="complianceSection" data-tb-marker="TB_24" >
     <div class="card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
       <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         <div class="card" style="width:360px; padding:18px; border:1px solid var(--primary); border-radius:10px; box-shadow:0 4px 12px rgba(15,23,42,0.08); text-align:center;">
@@ -528,10 +600,7 @@
   </div>
 
   <!-- Sous-accordéon: Répartition par clientèle -->
-  <div id="rcpToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_33" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Requis réglementaires</h3>
-    <span class="chevron">▾</span>
-  </div>
+  <div id="rcpToggle" ></div>
   <div id="rcpSection" data-tb-marker="TB_34" style="display:none; max-width:900px; margin: 0 auto 1rem auto;">
     <div class="card" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
       
@@ -973,11 +1042,8 @@
 
 
 
-<div id="clienteleToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_35" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Répartition par clientèle</h3>
-    <span class="chevron">▾</span>
-  </div>
-  <div id="clienteleSection" data-tb-marker="TB_36" style="display:none;">
+<div id="clienteleToggle" ></div>
+  <div id="clienteleSection" data-tb-marker="TB_36" >
     <div class="card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
       <h3>Découpage clients par détention</h3>
       <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
@@ -985,11 +1051,8 @@
 </div>
 
 <!-- Sous-accordéon: Répartitions SRRI -->
-  <div id="srriToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_37" style="max-width:900px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.0rem;">Suivi du risque</h3>
-    <span class="chevron">▾</span>
-  </div>
-  <div id="srriSection" data-tb-marker="TB_38" style="display:none;">
+  <div id="srriToggle" ></div>
+  <div id="srriSection" data-tb-marker="TB_38" >
     <div class="card" data-tb-marker="TB_38" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
       <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:center; gap:8px;">
         <h3 class="risk-card-title">Clients</h3>
@@ -1072,18 +1135,65 @@
 
   </div>
 
+<!-- Bloc Calendrier -->
+<div id="calendarSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <div class="card" style="text-align:left;">
+    <h3 style="margin-top:0;">Calendrier des tâches</h3>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Responsable</label><br>
+        <select id="calFilterResp" style="min-width:180px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+          <option value="">Tous</option>
+          {% if finance_rh_options %}
+            {% for rh in finance_rh_options %}
+              <option value="{{ rh.id }}">{{ rh.label or rh.nom or rh.id }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </div>
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Statut</label><br>
+        <select id="calFilterStatut" style="min-width:160px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+          <option value="">Tous</option>
+          <option value="à faire">À faire</option>
+          <option value="en cours">En cours</option>
+          <option value="en attente">En attente</option>
+          <option value="terminé">Terminé</option>
+          <option value="annulé">Annulé</option>
+        </select>
+      </div>
+      <div>
+        <button id="calRefresh" class="btn btn-primary" style="height:32px;">Actualiser</button>
+      </div>
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Période export (jours autour d'aujourd'hui)</label><br>
+        <select id="calRangeSelect" style="min-width:140px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+          <option value="30">30 jours</option>
+          <option value="90" selected>90 jours</option>
+          <option value="180">180 jours</option>
+          <option value="365">365 jours</option>
+        </select>
+      </div>
+      <div>
+        <button id="calExport" class="btn" style="height:32px; border:1px solid var(--border);">Exporter ICS</button>
+      </div>
+    </div>
+    <div id="calendar" style="margin-top:8px;"></div>
+  </div>
+</div>
+
 <!-- Accordéon Analyse portefeuille -->
 <div id="analysisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
   <span class="chevron">▾</span>
  </div>
-<div id="analysisSection" data-tb-marker="TB_57" style="display:none;">
+<div id="analysisSection" data-tb-marker="TB_57" >
   <div class="card" data-tb-marker="TB_58" style="max-width:1100px; margin: 0 auto 1rem auto; text-align:left;">
     <h3 style="margin-top:0;">Analyse financière — Répartition des supports</h3>
-    <form method="get" action="/dashboard#analysisToggle" data-tb-marker="TB_59" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <form id="financeForm" method="get" action="/dashboard#analysisToggle" data-tb-marker="TB_59" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
       {% if tb_markers_param %}
         <input type="hidden" name="markers" value="1" />
-      {% endif %}
+      {% endif %}      <input type="hidden" name="page_size" value="20">
       <div>
         <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
         <input type="date" name="finance_date" value="{{ finance_date_input }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
@@ -1111,8 +1221,8 @@
     <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue : {{ finance_effective_date_display }}</div>
     <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
     {% if finance_supports %}
-    <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
-      <table data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+        <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
+      <table id="financeSupportsTable" data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
         <thead>
           <tr style="background:#f1f5f9; text-align:left;">
             <th style="padding:6px 10px;">Code ISIN</th>
@@ -1125,7 +1235,7 @@
         </thead>
         <tbody>
           {% for sup in finance_supports %}
-          <tr{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
+          <tr data-row-index="{{ loop.index0 }}"{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
             <td style="padding:6px 10px;">
               {% if sup.code_isin %}
                 <a href="#" class="finance-support-link" data-support-code="{{ sup.code_isin }}" data-support-name="{{ sup.nom or '' }}" data-clients='{{ sup.clients | tojson | safe }}'>{{ sup.code_isin }}</a>
@@ -1143,7 +1253,15 @@
         </tbody>
       </table>
     </div>
-    <div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
+    <div style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap;">
+      <div style="font-weight:600;">Page <span id="financePageLabel">1</span></div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="btn" id="financePrevBtn" onclick="financeGoPage(-1)">Précédent</button>
+        <button type="button" class="btn" id="financeNextBtn" onclick="financeGoPage(1)">Suivant</button>
+      </div>
+    </div>
+
+<div id="financeSupportModal"<div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
       <div class="modal-card">
         <div class="modal-header">
           <h3><i class="fa-solid fa-users-line" style="margin-right:8px;"></i><span id="financeSupportModalLabel">Clients par support</span></h3>
@@ -1200,7 +1318,7 @@
           {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
         </select>
       </div>
-      <div data-tb-marker="TB_67" style="display:none;">
+      <div data-tb-marker="TB_67" >
         <label class="muted" style="font-size:0.85rem;">Date</label><br>
         <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;"></select>
       </div>
@@ -1234,9 +1352,11 @@
     #groupsSection .group-grid { display:flex; flex-wrap:wrap; gap:12px; }
     #groupsSection .group-card { flex:1 1 260px; border:1px solid var(--border); border-radius:12px; padding:12px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,0.08); display:flex; flex-direction:column; gap:8px; }
     #groupsSection .group-card h4 { margin:0; font-size:1rem; }
+    #groupsSection .group-title { display:inline-block; padding:0; border-radius:8px; }
+    #groupsSection .group-card.active .group-title { background: var(--primary); color: #fff; padding:6px 10px; }
     #groupsSection .group-meta { font-size:0.85rem; color:#475569; display:grid; grid-template-columns: 120px 1fr; row-gap:4px; column-gap:6px; }
     #groupsSection .group-meta span { font-weight:600; color:#1e293b; }
-    #groupsSection .group-card .btn { align-self:flex-start; margin-top:auto; }
+    #groupsSection .group-card .btn { align-self:flex-start; margin-top:auto; padding:6px 10px; font-size:0.9rem; min-height:32px; }
   </style>
   <div class="card" style="margin-bottom:12px;">
     <h3 style="margin:0 0 8px 0;">Groupes de personnes</h3>
@@ -1244,14 +1364,14 @@
     <div class="group-grid">
       {% for grp in dashboard_groups_personnes %}
       <div class="group-card">
-        <h4>{{ grp.nom }}</h4>
+        <h4 class="group-title">{{ grp.nom }}</h4>
         <div class="group-meta">
           <span>Membres</span><div>{{ grp.nb_membres }}</div>
           <span>Responsable</span><div>{{ grp.responsable }}</div>
           <span>Création</span><div>{{ grp.date_creation }}</div>
           <span>Fin</span><div>{{ grp.date_fin }}</div>
         </div>
-        <a class="btn btn-primary" href="{{ grp.link }}">{{ grp.link_label }}</a>
+        <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
       </div>
       {% endfor %}
     </div>
@@ -1265,14 +1385,14 @@
     <div class="group-grid">
       {% for grp in dashboard_groups_affaires %}
       <div class="group-card">
-        <h4>{{ grp.nom }}</h4>
+        <h4 class="group-title">{{ grp.nom }}</h4>
         <div class="group-meta">
           <span>Membres</span><div>{{ grp.nb_membres }}</div>
           <span>Responsable</span><div>{{ grp.responsable }}</div>
           <span>Création</span><div>{{ grp.date_creation }}</div>
           <span>Fin</span><div>{{ grp.date_fin }}</div>
         </div>
-        <a class="btn btn-primary" href="{{ grp.link }}">{{ grp.link_label }}</a>
+        <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
       </div>
       {% endfor %}
     </div>
@@ -1285,17 +1405,15 @@
 <!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
-<div id="remToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_75" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<div id="remToggle" class="card" data-tb-marker="TB_75" >
   <h3 style="margin:0; font-size:1.05rem;">Rémunérations</h3>
-  <span class="chevron">▾</span>
 </div>
-<div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+<div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:block;">
   <!-- Sous-accordéon: Frais de gestion -->
-  <div id="remFraisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_77" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+  <div id="remFraisToggle" class="card" data-tb-marker="TB_77" >
     <h3 style="margin:0; font-size:1.0rem;">Frais de gestion</h3>
-    <span class="chevron">▾</span>
   </div>
-  <div id="remFraisSection" data-tb-marker="TB_78" style="display:none;">
+  <div id="remFraisSection" data-tb-marker="TB_78" style="display:block;">
     <div class="card" data-tb-marker="TB_79" style="text-align:left;">
       <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
       {% if not rem_contracts %}
@@ -1408,10 +1526,9 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
 </div>
 
-<!-- Accordéon Rétrocession des supports -->
-<div id="retroToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_85" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
+<!-- Bloc Rétrocession des supports (sans accordéon) -->
+<div id="retroToggle" class="card" data-tb-marker="TB_85" >
   <h3 style="margin:0; font-size:1.05rem;">Rétrocession des supports</h3>
-  <span class="chevron">▾</span>
 </div>
 <div id="retroSection" data-tb-marker="TB_86" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
   <div class="card" data-tb-marker="TB_87" style="text-align:left;">
@@ -1921,12 +2038,13 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Tabs principaux (remplacent les accordéons racine)
   (function(){
     const groups = [
+      { key:'calendar', toggle:null, section:'calendarSection' },
       { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
       { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
-      { key:'commissions', toggle:'remToggle', section:'remSection', extraToggle:'retroToggle', extraSection:'retroSection' },
+      { key:'commissions', toggle:'remToggle', section:'remSection' },
     ];
     const $ = (id)=> document.getElementById(id);
     const tabs = Array.from(document.querySelectorAll('#dashTabs .dash-tab'));
@@ -1944,6 +2062,8 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       if (!g) return;
       const remFraisToggle = document.getElementById('remFraisToggle');
       const remFraisSection = document.getElementById('remFraisSection');
+      const retroToggle = document.getElementById('retroToggle');
+      const retroSection = document.getElementById('retroSection');
       groups.forEach(item => {
         const s = $(item.section);
         const t = $(item.toggle);
@@ -1955,24 +2075,47 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         }
         if (item.extraToggle){
           const extraT = $(item.extraToggle);
-          if (extraT){ extraT.style.display = 'none'; }
-        }
-        // Cas spécifique Commissions : forcer l'ouverture du sous-bloc frais de gestion
-        if (item.key === 'commissions' && item.key === key && remFraisSection){
-          remFraisSection.style.display = '';
-          if (remFraisToggle){
-            remFraisToggle.classList.remove('collapsed');
-            remFraisToggle.style.display = 'none'; // masqué, géré par l'onglet
+          if (extraT){
+            if (item.key === key){
+              extraT.style.display = '';
+              extraT.classList.remove('collapsed');
+            } else {
+              extraT.style.display = 'none';
+            }
           }
         }
+        // Cas spécifique Commissions : ne jamais masquer le bloc "Commissions sur frais de gestion" quand l'onglet est actif
+        if (item.key === 'commissions'){
+          // Pas d'accordéon : toujours visibles, jamais masqués
+          if (remFraisToggle) { remFraisToggle.style.display = 'none'; remFraisToggle.onclick = null; }
+          if (retroToggle)    { retroToggle.style.display    = 'none'; retroToggle.onclick = null; }
+          if (remFraisSection) remFraisSection.style.display = '';
+          if (retroSection)    retroSection.style.display    = '';
+        }
+
       });
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
+      // Colorer les boutons de groupes lorsque l'onglet Groupes est actif
+      const groupButtons = document.querySelectorAll('#groupsSection .group-card .btn');
+      const groupCards = document.querySelectorAll('#groupsSection .group-card');
+      groupButtons.forEach(btn => {
+        if (key === 'groups') { btn.classList.add('btn-primary'); }
+        else { btn.classList.remove('btn-primary'); }
+      });
+      groupCards.forEach(card => {
+        if (key === 'groups') { card.classList.add('active'); }
+        else { card.classList.remove('active'); }
+      });
+      // Forcer le recalcul d'affichage du calendrier quand l'onglet est activé (sinon FullCalendar reste vide)
+      if (key === 'calendar' && window._dashboardCalendar){
+        try {
+          window._dashboardCalendar.updateSize();
+          window._dashboardCalendar.render();
+        } catch(_e){}
+      }
       if (doScroll){
-        const target = $(g.section);
-        const scrollTarget = g.extraSection ? $(g.extraSection) : target;
-        if (scrollTarget){
-          try { scrollTarget.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
-        }
+        // Reste en haut : on évite tout scroll automatique pour ne pas décaler la vue
+        window.scrollTo({ top: 0, behavior: 'instant' });
       }
     }
 
@@ -1981,7 +2124,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       if (hash){
         const match = getGroupByTarget(hash) || getGroupByKey(hash);
         if (match) return match.key;
-        if (hash === 'remFraisToggle' || hash === 'remFraisSection') return 'commissions';
+        if (hash === 'remFraisToggle' || hash === 'remFraisSection' || hash === 'retroToggle' || hash === 'retroSection') return 'commissions';
       }
       const params = new URLSearchParams(window.location.search || '');
       const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
@@ -2000,7 +2143,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       tab.addEventListener('click', (ev) => {
         ev.preventDefault();
         show(tab.dataset.key, true);
-        try { tab.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
       });
     });
 
@@ -2292,4 +2434,166 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 </script>
 
 </div>
+<script>
+  // Toggles horizontaux Risques
+  (function(){
+    var buttons = document.querySelectorAll('.risk-toggle-row .risk-toggle');
+    var sections = ['complianceSection','rcpSection','clienteleSection','srriSection'];
+    function openSection(id){
+      sections.forEach(function(sec){
+        var el = document.getElementById(sec);
+        if (el) el.style.display = (sec === id) ? '' : 'none';
+      });
+      buttons.forEach(function(btn){
+        var target = btn.getAttribute('data-target');
+        if (target === id) { btn.classList.add('active'); }
+        else { btn.classList.remove('active'); }
+      });
+    }
+    // ouvrir Conformité par défaut
+    openSection('complianceSection');
+    buttons.forEach(function(btn){
+      btn.addEventListener('click', function(){ openSection(btn.getAttribute('data-target')); });
+    });
+  })();
+
+    function financeGoPage(delta){
+    var rows = Array.from(document.querySelectorAll('#financeSupportsTable tbody tr'));
+    if (!rows.length) return;
+    var pageSize = 20;
+    var total = Math.ceil(rows.length / pageSize);
+    var label = document.getElementById('financePageLabel');
+    var prev = document.getElementById('financePrevBtn');
+    var next = document.getElementById('financeNextBtn');
+    var current = parseInt(label ? label.textContent : '1', 10);
+    if (!isFinite(current) || current < 1) current = 1;
+    var target = Math.min(Math.max(current + delta, 1), total);
+    rows.forEach(function(r){ r.style.display = 'none'; });
+    var start = (target - 1) * pageSize;
+    var end = start + pageSize;
+    rows.slice(start, end).forEach(function(r){ r.style.display = ''; });
+    if (label) label.textContent = String(target);
+    if (prev) prev.disabled = target <= 1;
+    if (next) next.disabled = target >= total;
+  }
+  document.addEventListener('DOMContentLoaded', function(){ financeGoPage(0); });
+
+  // FullCalendar (intégration calendrier tâches)
+  (function(){
+    if (!document.getElementById('calendar')) return;
+    const apiUrl = '/dashboard/api/taches';
+    function loadTasks(){
+      const statut = (document.getElementById('calFilterStatut')||{}).value || '';
+      const resp = (document.getElementById('calFilterResp')||{}).value || '';
+      const params = new URLSearchParams();
+      if (statut) params.set('statut', statut);
+      if (resp) params.set('rh_id', resp);
+      const qs = params.toString();
+      return fetch(qs ? (apiUrl + '?' + qs) : apiUrl).then(r=>r.json());
+    }
+    function ensureScript(url){ return new Promise((res,rej)=>{ var s=document.createElement('script'); s.src=url; s.onload=()=>res(); s.onerror=rej; document.head.appendChild(s); }); }
+    function ensureStyle(href){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
+    ensureStyle('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css');
+    ensureScript('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js').then(function(){
+      const calEl = document.getElementById('calendar');
+      const statutSelect = document.getElementById('calFilterStatut');
+      const respSelect = document.getElementById('calFilterResp');
+      const refreshBtn = document.getElementById('calRefresh');
+      const exportBtn = document.getElementById('calExport');
+      const rangeSelect = document.getElementById('calRangeSelect');
+      
+    // Peupler le filtre Responsable avec finance_rh_options si dispo
+    try {
+      var rhSel = document.getElementById('calFilterResp');
+      var rhOptions = {{ finance_rh_options|tojson if finance_rh_options is defined else '[]' }};
+      if (rhSel && Array.isArray(rhOptions)) {
+        // Reset existing dynamic options (keep first "Tous")
+        while (rhSel.options.length > 1) { rhSel.remove(1); }
+        var seen = new Set();
+        rhOptions.forEach(function(rh){
+          var id = rh.id;
+          if (seen.has(id)) return;
+          seen.add(id);
+          var opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = rh.label || rh.nom || id;
+          rhSel.appendChild(opt);
+        });
+      }
+    } catch(e) { console.warn('RH options calendar', e); }
+
+      function statusColors(statut){
+        const s = (statut || '').toString().trim().toLowerCase();
+        if (s === 'en cours') return { bg: '#16a34a', fg: '#fff' };
+        if (s === 'en attente') return { bg: '#f59e0b', fg: '#fff' };
+        if (s === 'terminé' || s === 'termine') return { bg: '#4b5563', fg: '#fff' };
+        if (s === 'annulé' || s === 'annule') return { bg: '#b91c1c', fg: '#fff' };
+        return { bg: '#2563eb', fg: '#fff' };
+      }
+
+      const calendar = new FullCalendar.Calendar(calEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,timeGridDay' },
+        height: 650,
+        events: async function(info, success){
+          try{
+            const data = await loadTasks();
+            const items = (data && data.items) || [];
+            success(items.map(ev => ({
+              id: ev.id,
+              title: ev.title,
+              start: ev.start,
+              end: ev.end,
+              backgroundColor: statusColors(ev.statut).bg,
+              borderColor: statusColors(ev.statut).bg,
+              textColor: statusColors(ev.statut).fg,
+              extendedProps: ev
+            })));
+          } catch(e){ success([]); }
+        },
+        eventClick: function(info){
+          const ev = info.event.extendedProps || {};
+          const taskId = ev.id || info.event.id;
+          if (taskId) {
+            const url = '/dashboard/taches/' + taskId;
+            try { window.open(url, '_blank', 'noopener'); }
+            catch(_e) { window.location.href = url; }
+          }
+        }
+      });
+      calendar.render();
+      window._dashboardCalendar = calendar;
+      if (refreshBtn) refreshBtn.addEventListener('click', function(){ calendar.refetchEvents(); });
+      if (statutSelect) statutSelect.addEventListener('change', function(){ calendar.refetchEvents(); });
+      if (respSelect) respSelect.addEventListener('change', function(){ calendar.refetchEvents(); });
+      if (exportBtn){
+        exportBtn.addEventListener('click', function(){
+          const statut = (statutSelect || {}).value || '';
+          const resp = (respSelect || {}).value || '';
+          const range = (rangeSelect || {}).value || '';
+          const params = new URLSearchParams();
+          if (statut) params.set('statut', statut);
+          if (resp) params.set('rh_id', resp);
+          if (range) params.set('range_days', range);
+          const url = apiUrl + '.ics' + (params.toString() ? ('?' + params.toString()) : '');
+          try { window.open(url, '_blank', 'noopener'); }
+          catch(_e){ window.location.href = url; }
+        });
+      }
+    });
+  })();
+
+
+    // Forcer l'affichage des deux blocs commissions au submit
+    const remForm = document.getElementById('remForm');
+    const retroForm = document.getElementById('retroForm');
+    function showCommBlocks(){
+      const remFraisSection = document.getElementById('remFraisSection');
+      const retroSection = document.getElementById('retroSection');
+      if (remFraisSection) remFraisSection.style.display = '';
+      if (retroSection) retroSection.style.display = '';
+    }
+    if (remForm){ remForm.addEventListener('submit', showCommBlocks); }
+    if (retroForm){ retroForm.addEventListener('submit', showCommBlocks); }
+</script>
 {% endblock %}

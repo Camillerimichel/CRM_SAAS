@@ -40,22 +40,6 @@
 </style>
 
 <div class="main-container">
-  <div class="header-section">
-    <p>Total: {{ total_documents }}</p>
-    <p>
-      Obsolescences par niveau:
-      {% for x in obs_by_niveau %}
-        <strong>{{ x.niveau or 'N/A' }}</strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
-      {% endfor %}
-    </p>
-    <p>
-      Obsolescences par risques:
-      {% for x in obs_by_risque %}
-        <strong>{{ x.risque or 'N/A' }}</strong>: {{ x.nb }}{% if not loop.last %} | {% endif %}
-      {% endfor %}
-    </p>
-  </div>
-
   <div class="table-container">
     <div id="quickToggleDocs" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
       <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>

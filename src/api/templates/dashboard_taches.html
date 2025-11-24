@@ -4,13 +4,18 @@
 {% block header_subtitle %}Suivi des actions, communications et réclamations{% endblock %}
 
 {% block content %}
-  <div class="card" style="margin-bottom: 1rem;">
-    <button type="button" class="accordion-toggle" onclick="toggleTacheAccordion()" style="width:100%; display:flex; align-items:center;">
-      <span style="flex:1; text-align:center;"><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</span>
-      <i id="tache_acc_icon" class="fa-solid fa-chevron-down" style="position:absolute; right:16px;"></i>
-    </button>
+  <style>
+    /* Reset custom button colors: use base styles */
+  </style>
 
-    <div id="tache_accordion_body" class="task-block" style="display:none; margin-top:.8rem;">
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 1rem;">
+    <div class="card" style="flex:1 1 280px; margin:0;">
+      <button type="button" class="accordion-toggle collapsed" onclick="toggleTacheAccordion()" style="width:100%; justify-content:center;">
+        <span style="display:flex; align-items:center; justify-content:center; gap:8px;"><i class="fa-solid fa-list-check"></i>Définir une tâche</span>
+        <i id="tache_acc_icon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
+      </button>
+
+      <div id="tache_accordion_body" class="task-block" style="display:none; margin-top:.8rem;">
     <form id="form-create-tache" method="post" action="/dashboard/taches">
       <!-- Ligne 1: Client / Affaire / RH -->
       <div class="form-row" style="margin-bottom:.6rem;">
@@ -140,9 +145,11 @@
       function toggleTacheAccordion(){
         const body = document.getElementById('tache_accordion_body');
         const icn = document.getElementById('tache_acc_icon');
+        const btn = icn ? icn.closest('.accordion-toggle') : null;
         const isOpen = body.style.display === 'block';
         body.style.display = isOpen ? 'none' : 'block';
-        icn.className = isOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+        if (icn) icn.className = isOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+        if (btn) btn.classList.toggle('active', !isOpen);
       }
       const TYPES = [
         {% for t in types %}
@@ -202,6 +209,31 @@
         document.getElementById('comm_block').style.display = on ? 'block' : 'none';
         btn.classList.toggle('btn-choice-active', on);
       }
+      function toggleTacheAccordion(){
+        const body = document.getElementById('tache_accordion_body');
+        const icn = document.getElementById('tache_acc_icon');
+        const btn = icn ? icn.closest('.accordion-toggle') : null;
+        const otherBody = document.getElementById('tasksListBody');
+        const otherIcn = document.getElementById('tasksListIcon');
+        const otherBtn = otherIcn ? otherIcn.closest('.accordion-toggle') : null;
+        const isOpen = body.style.display === 'block';
+        const willOpen = !isOpen;
+        body.style.display = willOpen ? 'block' : 'none';
+        if (icn) icn.className = willOpen ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+        if (btn) {
+          btn.classList.toggle('active', willOpen);
+          btn.classList.toggle('collapsed', !willOpen);
+        }
+        // close the other accordion
+        if (willOpen && otherBody) {
+          otherBody.style.display = 'none';
+          if (otherIcn) otherIcn.className = 'fa-solid fa-chevron-down';
+          if (otherBtn) {
+            otherBtn.classList.remove('active');
+            otherBtn.classList.add('collapsed');
+          }
+        }
+      }
       function normalizeName(s){
         if(!s) return '';
         return String(s).trim().replace(/\s+/g,' ').toLowerCase();
@@ -251,8 +283,12 @@
     </div>
   </div>
 
-  <div class="card">
-    <h2 style="margin-bottom:.6rem;">Liste des tâches</h2>
+    <div class="card" style="flex:1 1 280px; margin:0;">
+      <button type="button" class="accordion-toggle collapsed" onclick="toggleTasksList()" style="width:100%; justify-content:center; padding:10px 12px; margin:0 0 .6rem 0; cursor:pointer;">
+        <h2 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:center; font-size:1.05rem; font-weight:600;"><i class="fa-solid fa-list-check"></i>Liste des tâches</h2>
+        <i id="tasksListIcon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
+      </button>
+      <div id="tasksListBody" style="display:none;">
     <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
       <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list" style="margin-right:6px;"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun" style="margin-right:6px;"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
@@ -420,6 +456,8 @@
 
       <!-- Navigation vers une page d'édition dédiée via le lien Statut -->
     </form>
+      </div> <!-- /#tasksListBody -->
+    </div>
   </div>
   <script>
     function toggleComment(id){
@@ -435,5 +473,49 @@
       }
       return false;
     }
+    function toggleTasksList(){
+      var body = document.getElementById('tasksListBody');
+      var icn = document.getElementById('tasksListIcon');
+      if (!body || !icn) return;
+      var otherBody = document.getElementById('tache_accordion_body');
+      var otherIcn = document.getElementById('tache_acc_icon');
+      var otherBtn = otherIcn ? otherIcn.closest('.accordion-toggle') : null;
+      var isOpen = body.style.display !== 'none';
+      var willOpen = !isOpen;
+        body.style.display = willOpen ? 'block' : 'none';
+        icn.className = willOpen ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+        var btn = icn.closest('.accordion-toggle');
+        if (btn) { 
+          btn.classList.toggle('active', willOpen);
+          btn.classList.toggle('collapsed', !willOpen);
+        }
+        if (willOpen && otherBody) {
+          otherBody.style.display = 'none';
+          if (otherIcn) otherIcn.className = 'fa-solid fa-chevron-down';
+          if (otherBtn) {
+            otherBtn.classList.remove('active');
+            otherBtn.classList.add('collapsed');
+          }
+        }
+      }
+    // Initial state: keep both accordions closed (fond blanc / texte noir)
+    (function syncAccordions(){
+      var tacheBody = document.getElementById('tache_accordion_body');
+      var tacheBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleTacheAccordion\"]');
+      if (tacheBody && tacheBtn) {
+        tacheBody.style.display = 'none';
+        tacheBtn.classList.remove('active');
+        var ic = document.getElementById('tache_acc_icon');
+        if (ic) ic.className = 'fa-solid fa-chevron-down';
+      }
+      var tasksBody = document.getElementById('tasksListBody');
+      var tasksBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleTasksList\"]');
+      if (tasksBody && tasksBtn) {
+        tasksBody.style.display = 'none';
+        tasksBtn.classList.remove('active');
+        var ic2 = document.getElementById('tasksListIcon');
+        if (ic2) ic2.className = 'fa-solid fa-chevron-down';
+      }
+    })();
   </script>
 {% endblock %}
