@@ -7,8 +7,13 @@
     <div class="card">{{ error }}</div>
   {% else %}
     <div class="card" style="margin-bottom:12px;">
-      <h3 style="margin:0 0 8px 0;">Détails</h3>
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:8px;">
+      <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+        <h3 style="margin:0;">Détails</h3>
+        <button id="detailsEditToggle" type="button" title="Modifier les détails" style="border:none; background:transparent; cursor:pointer; padding:2px; color:#2563eb; line-height:1;">
+          <i class="fa-solid fa-pen" style="font-size:16px; color:#2563eb;"></i>
+        </button>
+      </div>
+      <div id="detailsView" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:8px;">
         <div><strong>Date:</strong> {{ ev.date_evenement }}</div>
         <div><strong>Type:</strong> {{ ev.type_libelle }} <span class="badge">{{ ev.type_categorie }}</span></div>
         <div><strong>Client:</strong>
@@ -59,6 +64,29 @@
           {% endif %}
         </div>
       </div>
+      <form id="detailsEdit" data-active="0" method="post" action="/dashboard/taches/{{ evenement_id }}/update" style="display:none; margin-top:8px;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:8px;">
+          <div>
+            <label>Client (ID)</label>
+            <input type="text" name="client_id" value="{{ ev.client_id or '' }}" />
+          </div>
+          <div>
+            <label>Affaire (ID)</label>
+            <input type="text" name="affaire_id" value="{{ ev.affaire_id or '' }}" />
+          </div>
+          <div>
+            <label>Catégorie</label>
+            <input type="text" name="categorie" value="{{ ev.type_categorie or '' }}" />
+          </div>
+          <div>
+            <label>Type</label>
+            <input type="text" name="type_libelle" value="{{ ev.type_libelle }}" />
+          </div>
+        </div>
+        <div class="create-btn-container" style="margin-top:.6rem;">
+          <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Enregistrer</button>
+        </div>
+      </form>
       <div style="margin-top:8px;"><strong>Commentaires:</strong>
         {% if comment_entries and comment_entries|length > 0 %}
           <div style="margin-top:6px;">
@@ -117,6 +145,29 @@
       try { window.close(); } catch(e) {}
     }
   }
+  function toggleEditDetails(){
+    var view = document.getElementById('detailsView');
+    var form = document.getElementById('detailsEdit');
+    if (!view || !form) return;
+    var isHidden = form.style.display === 'none' || form.style.display === '';
+    if (isHidden){
+      form.style.display = 'block';
+      view.style.display = 'none';
+    } else {
+      form.style.display = 'none';
+      view.style.display = 'grid';
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById('detailsEditToggle');
+    if (btn){
+      btn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        alert('Passage en mode modification des détails.');
+        toggleEditDetails();
+      });
+    }
+  });
 </script>
 <div style="margin-top:8px;">
   <a href="/dashboard/taches" class="btn"><i class="fa-solid fa-arrow-left" style="margin-right:6px;"></i>Retour</a>

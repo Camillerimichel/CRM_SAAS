@@ -31,6 +31,7 @@
             font-family: "Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
             font-size: 16px;
             line-height: 1.45;
+            padding-bottom: 90px; /* espace pour le menu bas fixe */
         }
         h1, h2, h3 { margin: 0; font-weight: 700; color: var(--text); }
         h1 { font-size: 1.9rem; }
@@ -314,6 +315,72 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        /* ===== Footer menu ===== */
+        .bottom-menu {
+            position: fixed;
+            inset: auto 0 0 0;
+            background: rgba(255,255,255,0.96);
+            border-top: 1px solid var(--border);
+            box-shadow: 0 -6px 16px rgba(15,23,42,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 14px 20px;
+            z-index: 1200;
+            flex-wrap: wrap;
+        }
+        .bottom-menu button {
+            border-radius: 10px;
+            background: #fff;
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(15,23,42,0.08);
+            transition: all .15s ease;
+        }
+        .bottom-menu button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(37,99,235,0.35);
+        }
+        /* ===== Footer modals ===== */
+        .footer-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1.25rem;
+            z-index: 1300;
+        }
+        .footer-modal-backdrop.active { display: flex; }
+        .footer-modal-dialog {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1rem 1.4rem;
+            width: min(95vw, 900px);
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 18px 36px rgba(15,23,42,0.18);
+            position: relative;
+        }
+        .footer-modal-close {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            border: none;
+            background: none;
+            font-size: 1.1rem;
+            color: var(--muted);
+            cursor: pointer;
+        }
+        .footer-modal-close:hover { color: var(--primary); }
+        .footer-modal-body h3 { margin-top: 0; }
     </style>
 </head>
 <body>
@@ -335,11 +402,13 @@
         <div class="nav-inner">
             {% set path = request.url.path if request and request.url else '' %}
             <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Accueil</a>
+            <a href="/dashboard/veille" class="{% if path.startswith('/dashboard/veille') %}active{% endif %}"><i class="fa-solid fa-newspaper"></i>Veille</a>
             <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
             <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
             <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
-            <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres financières</a>
+            <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
             <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
+            <a href="/dashboard/veille" class="{% if path.startswith('/dashboard/veille') %}active{% endif %}"><i class="fa-solid fa-newspaper"></i>Veille</a>
             <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
             <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Paramètres</a>
         </div>
@@ -356,6 +425,507 @@
             <div class="spinner"></div>
             <div class="loader-text">Veuillez patienter…</div>
         </div>
+    </div>
+    <div class="bottom-menu" role="navigation" aria-label="Liens légaux">
+      <button type="button" onclick="openFooterModal('mentions')">Mentions légales</button>
+      <button type="button" onclick="openFooterModal('contact')">Nous contacter</button>
+      <button type="button" onclick="openFooterModal('reclamation')">Réclamations</button>
+      <button type="button" onclick="openFooterModal('der')">DER</button>
+      <button type="button" onclick="openFooterModal('rgpd')">RGPD</button>
+      <button type="button" onclick="openFooterModal('conflits')">Conflits d'intérêts</button>
+      <button type="button" onclick="openFooterModal('charte')">Charte de déontologie</button>
+    </div>
+
+    <!-- Modales footer -->
+    <div class="footer-modal-backdrop" id="footer-modal-der" aria-hidden="true">
+      <div class="footer-modal-dialog" style="max-width:1000px;">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('der')">×</button>
+        <div class="footer-modal-body">
+          <style>
+            .der-section { margin-bottom: 14px; }
+            .der-section h4 { margin: 0 0 6px; font-size: 1rem; }
+            .der-list { margin: 0; padding-left: 18px; }
+            .der-table { width: 100%; border-collapse: collapse; }
+            .der-table th, .der-table td { border: 1px solid var(--border); padding: 6px 8px; font-size: .92rem; }
+            .der-table th { background: var(--primary); color:#fff; text-align: left; }
+            .muted-note { color: var(--muted); font-size: .9rem; }
+          </style>
+          {% set der_courtier = DER_courtier if DER_courtier is defined else None %}
+          {% set der_statut_social = DER_statut_social if DER_statut_social is defined else None %}
+          {% set der_activites = DER_activites if DER_activites is defined else [] %}
+          {% set der_garanties = DER_courtier_garanties_normes if DER_courtier_garanties_normes is defined else [] %}
+          {% set der_centre_mediation = centre_mediation_lib if (centre_mediation_lib is defined and centre_mediation_lib) else (der_courtier.centre_mediation if der_courtier else '') %}
+          {% set der_client = client if client is defined else None %}
+          {% set der_today = fatca_today if fatca_today is defined else '' %}
+          <div class="modal-header" style="padding:10px 12px; margin:-6px -6px 10px -6px; display:flex; align-items:center; gap:10px; background: var(--primary); color:#fff; border-radius:10px;">
+            <h3 style="margin:0; display:flex; align-items:center; gap:8px; color:#fff;"><i class="fa-solid fa-file-signature" style="color:#fff;"></i> Entrée en relation (DER)</h3>
+            <span style="flex:1"></span>
+            <button type="button" class="btn btn-primary" style="padding:8px 12px; color:#fff;" onclick="safeGenerateDerPdf()"><i class="fa-solid fa-file-pdf" style="margin-right:6px; color:#fff;"></i>Générer le PDF</button>
+          </div>
+          <div class="der-section">
+            <h3 style="margin:0 0 8px;">DOCUMENT D’ENTRÉE EN RELATION (DER)</h3>
+            <div class="muted-note">Conformément aux articles L.520-1 et suivants du Code des assurances et L.541-8-1 du Code monétaire et financier</div>
+          </div>
+
+          <div class="der-section">
+            <h4>1. Identification du courtier</h4>
+            <ul class="der-list">
+              <li><strong>Dénomination sociale :</strong> {{ der_courtier.nom_cabinet if der_courtier else '' }}</li>
+              <li><strong>Responsable :</strong> {{ der_courtier.nom_responsable if der_courtier else '' }}</li>
+              <li><strong>Statut social :</strong> {{ der_statut_social.lib if der_statut_social else '' }}</li>
+              <li><strong>Capital social :</strong> {% if der_courtier and der_courtier.capital_social is not none %}{{ '{:,.0f}'.format((der_courtier.capital_social)|float).replace(',', ' ') }} €{% endif %}</li>
+              <li><strong>SIREN :</strong> {{ der_courtier.siren if der_courtier else '' }}</li>
+              <li><strong>RCS :</strong> {{ der_courtier.rcs if der_courtier else '' }}</li>
+              <li><strong>Numéro ORIAS :</strong> {{ der_courtier.numero_orias if der_courtier else '' }}</li>
+              <li><strong>Adresse :</strong> {{ der_courtier.adresse_rue if der_courtier else '' }}, {{ der_courtier.adresse_cp if der_courtier else '' }} {{ der_courtier.adresse_ville if der_courtier else '' }}</li>
+              <li><strong>Courriel :</strong> {{ der_courtier.courriel if der_courtier else '' }}</li>
+              <li><strong>Association professionnelle :</strong> {{ der_courtier.association_prof if der_courtier else '' }}{% if der_courtier and der_courtier.num_adh_assoc %} (adhérent n° {{ der_courtier.num_adh_assoc }}){% endif %}</li>
+              <li><strong>Catégorie de courtage :</strong> {{ der_courtier.categorie_courtage if der_courtier else '' }}</li>
+            </ul>
+          </div>
+
+          <div class="der-section">
+            <h4>2. Activités et domaines d’exercice</h4>
+            {% if der_activites and (der_activites|length > 0) %}
+              <table class="der-table">
+                <thead>
+                  <tr>
+                    <th>Domaine</th>
+                    <th>Activité</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for a in der_activites %}
+                  <tr>
+                    <td>{{ a.domaine or '' }}</td>
+                    <td>{{ a.libelle or '' }}</td>
+                    <td>{{ 'Exercée' if (a.statut or '')|lower == 'exercee' else 'Non exercée' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="muted-note">Aucune activité renseignée.</p>
+            {% endif %}
+          </div>
+
+          <div class="der-section">
+            <h4>3. Autorités de tutelle</h4>
+            <ul class="der-list">
+              <li><strong>AMF (Autorité des Marchés Financiers)</strong><br/>17, place de la Bourse – 75082 Paris Cedex 02</li>
+              <li><strong>ACPR (Autorité de Contrôle Prudentiel et de Résolution)</strong><br/>61, rue Taitbout – 75436 Paris Cedex 09</li>
+            </ul>
+            <p class="muted-note">Ces autorités veillent au respect des obligations professionnelles du courtier.</p>
+          </div>
+
+          <div class="der-section">
+            <h4>4. Nature et étendue du service</h4>
+            <p>{{ der_courtier.nom_cabinet if der_courtier else '' }} agit en qualité de <strong>courtier indépendant</strong>. Son rôle est d’analyser vos besoins, objectifs et profil de risque afin de recommander les solutions adaptées.</p>
+            <p>Le cabinet ne perçoit ni ne conserve de fonds destinés aux assureurs ou aux clients.</p>
+          </div>
+
+          <div class="der-section">
+            <h4>5. Rémunération et frais</h4>
+            <p>Le cabinet est rémunéré sous forme :</p>
+            <ul class="der-list">
+              <li>de <strong>commissions</strong> versées par les compagnies partenaires ;</li>
+              <li>et/ou de <strong>frais</strong> ou <strong>honoraires</strong> prévus dans la lettre de mission.</li>
+            </ul>
+          </div>
+
+          <div class="der-section">
+            <h4>6. Garanties professionnelles</h4>
+            <p>Le cabinet justifie d’une <strong>assurance responsabilité civile professionnelle</strong> et d’une <strong>garantie financière</strong>, conformément à la réglementation.</p>
+            {% if der_garanties and (der_garanties|length>0) %}
+            <table class="der-table">
+              <thead>
+                <tr>
+                  <th>Type de garantie</th>
+                  <th style="text-align:center;">IAS</th>
+                  <th style="text-align:center;">IOBSP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for g in der_garanties %}
+                <tr>
+                  <td>{{ g.type_garantie }}</td>
+                  <td class="center">{% if g.IAS is not none %}{{ '{:,.0f}'.format((g.IAS)|float).replace(',', ' ') }} €{% endif %}</td>
+                  <td class="center">{% if g.IOBSP is not none %}{{ '{:,.0f}'.format((g.IOBSP)|float).replace(',', ' ') }} €{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+          </div>
+
+          <div class="der-section">
+            <h4>7. Données personnelles</h4>
+            <p><strong>Responsable du traitement :</strong> {{ der_courtier.nom_cabinet if der_courtier else '' }} – {{ der_courtier.courriel if der_courtier else '' }}{% if der_courtier and der_courtier.responsable_dpo %} (DPO : {{ der_courtier.responsable_dpo }}){% endif %}</p>
+            <p><strong>Finalités :</strong> évaluation de la situation et des besoins, recommandations adaptées, souscription/gestion des contrats, obligations légales.</p>
+            <p><strong>Bases légales :</strong> exécution contractuelle, obligations légales, intérêt légitime et, le cas échéant, consentement.</p>
+            <p><strong>Durée de conservation :</strong> pendant la relation puis délais légaux (ex. 10 ans LCB-FT ; 5 ans devoir de conseil).</p>
+            <p><strong>Droits :</strong> accès, rectification, effacement, limitation, opposition, portabilité (contacter {{ der_courtier.responsable_dpo if der_courtier else '' }} – {{ der_courtier.courriel if der_courtier else '' }}).</p>
+          </div>
+
+          <div class="der-section">
+            <h4>8. Médiation et réclamations</h4>
+            <p>Toute réclamation peut être adressée à :<br/>
+            <strong>{{ der_courtier.nom_cabinet if der_courtier else '' }} – Service Réclamations</strong><br/>
+            {{ der_courtier.adresse_rue if der_courtier else '' }}, {{ der_courtier.adresse_cp if der_courtier else '' }} {{ der_courtier.adresse_ville if der_courtier else '' }}<br/>
+            Email : {{ der_courtier.courriel if der_courtier else '' }}</p>
+            <p>En cas d’absence de solution amiable, le Client peut saisir :<br/>
+            <strong>{{ der_centre_mediation }}</strong></p>
+          </div>
+
+          <div class="der-section">
+            <h4>9. Acceptation</h4>
+            <p>Je, soussigné(e) <strong>{{ der_client.prenom if der_client else '' }} {{ der_client.nom if der_client else '' }}</strong>, reconnais avoir reçu et pris connaissance du présent <strong>Document d’Entrée en Relation</strong> avant tout engagement.</p>
+            <p><strong>Fait à :</strong> {{ der_courtier.adresse_ville if der_courtier else '' }}<br/>
+            {% set _d = der_today|default('') %}
+            <strong>Le :</strong> {% if _d and (_d|length >= 10) %}{{ _d[8:10] ~ '/' ~ _d[5:7] ~ '/' ~ _d[0:4] }}{% else %}{{ der_today }}{% endif %}</p>
+            <p><strong>Signature du client :</strong> ________________________<br/>
+            <strong>Signature du courtier :</strong> ________________________</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-mentions" aria-hidden="true">
+      <div class="footer-modal-dialog">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('mentions')">×</button>
+        <div class="footer-modal-body">
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">Mentions légales — CRM_SAAS</h3>
+          <p class="muted">Voici les informations obligatoires pour l’exploitation du portail, plantées comme un étendard : claires, droites et loyales.</p>
+          <ol class="der-list" style="padding-left:18px; margin-top:10px;">
+            <li style="margin-bottom:10px;">
+              <strong>Éditeur</strong><br/>
+              Société : SAS Optiwealth France — SAS — Capital : 1 000 euros<br/>
+              Siège : 17 rue de l’Argonne, 33500 Libourne, France<br/>
+              RCS / TVA : 924 915 226 Libourne / FR65924915226<br/>
+              Direction de la publication : Michel Camilleri<br/>
+              Contact : michel.camilleri@optiwealth.fr<br/>
+              Registre : ORIAS n° 24006950<br/>
+              Ici se dit qui parle, d’où il parle et sous quels numéros il répond devant la loi.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Hébergeur</strong><br/>
+              Hébergeur : Hostinger International Ltd<br/>
+              Adresse : 61 Lordou Vironos Street, 6023 Larnaca, Chypre (Hostinger)<br/>
+              Contact : gdpr@hostinger.com (datarequests.org)<br/>
+              Voici l’adresse de ceux qui gardent les murs numériques et la porte où frapper.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Données personnelles (RGPD)</strong><br/>
+              Responsable de traitement : Michel Camilleri, michel.camilleri@optiwealth.fr<br/>
+              DPO : Michel Camilleri<br/>
+              Finalités : gestion du site, réponses aux contacts, prospection B2B consentie, sécurité.<br/>
+              Bases légales : art. 6-1 a), b), c) et f) RGPD (EUR-Lex)<br/>
+              Données : identité, contact, contenu des messages, journaux techniques, préférences cookies.<br/>
+              Durées : contacts 3 ans après dernier échange; logs sécurité 12 mois; cookies selon §4.<br/>
+              Destinataires : services internes, hébergeur et prestataires nécessaires, soumis à confidentialité.<br/>
+              Transferts hors UE : le cas échéant avec garanties art. 46 RGPD; détails sur demande (EUR-Lex)<br/>
+              Droits : accès, rectification, effacement, limitation, opposition, portabilité, directives post-mortem; réclamation CNIL (CNIL)<br/>
+              Sécurité : contrôle d’accès, chiffrement, journalisation, sauvegardes, tests planifiés.<br/>
+              Ici se dit, sans détour, ce qui est collecté, pourquoi cela l’est et comment cela est protégé.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Cookies et traceurs</strong><br/>
+              Les cookies non essentiels ne se déposent qu’avec consentement. Dès l’arrivée, un bandeau prévient et un lien “Gérer les cookies” reste à portée.<br/>
+              Les exemptions CNIL pour la mesure d’audience s’appliquent. La durée de vie se limite à 13 mois et le consentement se garde au moins 6 mois.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Sécurité des systèmes et usage du site</strong><br/>
+              Les accès se protègent contre l’abus ; intrusion, altération ou scraping non autorisés sont prohibés.<br/>
+              Des journaux techniques préviennent et détectent les incidents.<br/>
+              Toute faille se signale à michel.camilleri@optiwealth.fr avant divulgation publique.<br/>
+              Les obligations légales d’hébergement et de retrait de contenus sont honorées.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Propriété intellectuelle</strong><br/>
+              Les contenus, marques et logos sont protégés. Toute réutilisation exige une autorisation écrite, hors exceptions prévues par la loi.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Informations financières</strong><br/>
+              Les contenus demeurent informatifs ; aucune recommandation d’investissement ni offre au public n’est formulée. Les documents officiels servent de référence avant toute décision.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Liens externes</strong><br/>
+              Des liens sortants sont proposés pour convenance ; le contenu tiers reste hors de maîtrise.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Droit applicable</strong><br/>
+              Le site relève du droit français et des tribunaux compétents de [ville], sous réserve des règles impératives.
+            </li>
+            <li style="margin-bottom:10px;">
+              <strong>Mise à jour</strong><br/>
+              Dernière mise à jour : 10 novembre 2025.
+            </li>
+          </ol>
+          <p class="muted" style="margin-top:6px;">Références : LCEN art. 6 ; obligations mentions légales ; CNIL cookies (2020-091).</p>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-rgpd" aria-hidden="true">
+      <div class="footer-modal-dialog">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('rgpd')">×</button>
+        <div class="footer-modal-body">
+          {% set rgpd_courtier = courtier if (courtier is defined and courtier) else (DER_courtier if DER_courtier is defined else None) %}
+          {% set rgpd_dpo = rgpd_courtier.responsable_dpo if rgpd_courtier else '' %}
+          {% set rgpd_mail = rgpd_courtier.courriel if rgpd_courtier else '' %}
+          {% set rgpd_resp_traitement = rgpd_courtier.nom_responsable if rgpd_courtier else '' %}
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">RGPD — Protection des données</h3>
+          <p class="muted" style="margin-top:6px;">Nous veillons sur vos données comme sur un trésor confié : avec rigueur, loyauté et transparence.</p>
+          <div style="display:grid; gap:10px; margin-top:10px;">
+            <div>
+              <strong>Responsable du traitement :</strong><br/>
+              {{ rgpd_courtier.nom_cabinet if rgpd_courtier else '' }}{% if rgpd_mail %} — {{ rgpd_mail }}{% endif %}. Responsable nommé : {{ rgpd_resp_traitement }}.
+            </div>
+            <div>
+              <strong>DPO / Responsable des données numériques :</strong><br/>
+              {{ rgpd_dpo }}{% if rgpd_mail %} — {{ rgpd_mail }}{% endif %}. DPO désigné (champ “Responsable des données numériques” des paramètres courtier).
+            </div>
+            <div>
+              <strong>Finalités :</strong> nous gérons le site et les comptes, nous répondons à vos demandes, nous assurons le suivi relationnel, la conformité réglementaire et la sécurité.
+            </div>
+            <div>
+              <strong>Bases légales :</strong> nous agissons sur la base de l’exécution contractuelle, des obligations légales (LCB-FT, devoir de conseil), de l’intérêt légitime (sécurité, amélioration) et du consentement lorsque la loi l’exige.
+            </div>
+            <div>
+              <strong>Durées de conservation :</strong><br/>
+              Nous gardons les logs techniques 12 mois, les contacts 3 ans après le dernier échange, les données réglementaires selon les durées légales (5 à 10 ans) et les cookies selon la politique dédiée.
+            </div>
+            <div>
+              <strong>Droits :</strong> vous disposez des droits d’accès, rectification, effacement, limitation, opposition, portabilité et directives post-mortem. Vous pouvez saisir la CNIL si besoin.
+            </div>
+            <div>
+              <strong>Sécurité :</strong> nous verrouillons l’accès, nous chiffrons, nous journalisons, nous sauvegardons et nous testons. Nos prestataires sont tenus à la confidentialité.
+            </div>
+            <div>
+              <strong>Transferts hors UE :</strong> si nous transférons, nous le faisons sous garanties adéquates (art. 46 RGPD).
+            </div>
+            <div>
+              <strong>Contact :</strong> pour exercer vos droits ou poser une question, écrivez à {{ rgpd_courtier.courriel if rgpd_courtier else '' }}. Nous vous répondrons avec diligence.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-reclamation" aria-hidden="true">
+      <div class="footer-modal-dialog">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('reclamation')">×</button>
+        <div class="footer-modal-body">
+          {% set rc_courtier = courtier if (courtier is defined and courtier) else (DER_courtier if DER_courtier is defined else None) %}
+          {% set rc_mediator_id = rc_courtier.centre_mediation if rc_courtier else '' %}
+          {% set rc_mediators = rc_courtier.mediators if rc_courtier else '' %}
+          {% set rc_mail_mediators = rc_courtier.mail_mediators if rc_courtier else '' %}
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">Réclamation & Médiation</h3>
+          <p class="muted" style="margin-top:6px;">Procédure standard de traitement des réclamations.</p>
+          <div style="display:grid; gap:10px; margin-top:10px;">
+            <div>
+              <strong>Service Réclamations :</strong><br/>
+              {{ rc_courtier.nom_cabinet if rc_courtier else '' }}<br/>
+              {{ rc_courtier.adresse_rue if rc_courtier else '' }}, {{ rc_courtier.adresse_cp if rc_courtier else '' }} {{ rc_courtier.adresse_ville if rc_courtier else '' }}<br/>
+              Email : {{ rc_courtier.courriel if rc_courtier else '' }}
+            </div>
+            <div>
+              <strong>Modalités :</strong><br/>
+              - Accusé de réception sous 10 jours ouvrés<br/>
+              - Réponse sous 2 mois maximum (sous réserve de dossier complet)<br/>
+              - Suivi et escalade via le service réclamations
+            </div>
+            <div>
+              <strong>Médiation :</strong><br/>
+              Médiateur : {{ rc_mediators or 'À compléter' }}<br/>
+              Coordonnées : {{ rc_mail_mediators or 'À compléter' }}<br/>
+              Référence médiation : {{ rc_mediator_id or 'À compléter' }}
+            </div>
+            <div>
+              <strong>Autorités de tutelle :</strong><br/>
+              ACPR – 4 Place de Budapest, CS 92459, 75436 Paris Cedex 09<br/>
+              AMF – 17 place de la Bourse, 75082 Paris Cedex 02
+            </div>
+            <div>
+              <strong>Recours :</strong><br/>
+              En l’absence de solution, vous pouvez saisir le médiateur après réponse du service réclamations, ou à défaut de réponse dans les délais.
+            </div>
+            <div style="border:1px solid var(--border); padding:10px; border-radius:10px; background:#f8fafc;">
+              <h4 style="margin:0 0 8px;">Déclarer une réclamation (création de tâche)</h4>
+              <form id="reclamTaskForm">
+                <input type="hidden" name="type_libelle" value="Réclamation" />
+                <input type="hidden" name="categorie" value="client" />
+                <div style="display:grid; gap:8px; grid-template-columns: repeat(auto-fit, minmax(220px,1fr));">
+                  <div>
+                    <label>Nom / référence</label>
+                    <input type="text" id="reclamTaskName" placeholder="Nom du client ou référence" required />
+                  </div>
+                  <div>
+                    <label>Date</label>
+                    <input type="date" id="reclamTaskDate" />
+                  </div>
+                  <div>
+                    <label>Heure</label>
+                    <input type="time" id="reclamTaskTime" />
+                  </div>
+                </div>
+                <div style="margin-top:8px;">
+                  <label>Commentaire</label>
+                  <textarea id="reclamTaskComment" rows="3" placeholder="Détail de la réclamation / contexte"></textarea>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+                  <button type="button" class="btn" onclick="submitReclamTask()" style="padding:8px 12px;"><i class="fa-solid fa-plus"></i> Créer la tâche</button>
+                </div>
+                <div id="reclamTaskStatus" class="muted" style="margin-top:6px; display:none;"></div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-contact" aria-hidden="true">
+      <div class="footer-modal-dialog">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('contact')">×</button>
+        <div class="footer-modal-body">
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">Nous contacter</h3>
+          <p class="muted" style="margin-top:6px;">Envoyez-nous un message, une tâche sera créée automatiquement.</p>
+          <form id="contactTaskForm" style="display:grid; gap:8px; margin-top:10px;">
+            <div>
+              <label>Nom / Référence</label>
+              <input type="text" id="contactName" placeholder="Votre nom" required />
+            </div>
+            <div>
+              <label>Email</label>
+              <input type="email" id="contactEmail" placeholder="votre@email.com" />
+            </div>
+            <div>
+              <label>Message</label>
+              <textarea id="contactMessage" rows="3" placeholder="Votre demande" required></textarea>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+              <button type="button" class="btn" style="padding:8px 12px;" onclick="submitContactTask()"><i class="fa-solid fa-paper-plane"></i> Envoyer</button>
+            </div>
+            <div id="contactTaskStatus" class="muted" style="margin-top:6px; display:none;"></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-charte" aria-hidden="true">
+      <div class="footer-modal-dialog">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('charte')">×</button>
+        <div class="footer-modal-body">
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">Charte de déontologie</h3>
+          <p class="muted" style="margin-top:6px;">Nous voulons que cette charte soit un phare : elle éclaire la route du gérant et rassure le mandant.</p>
+          <div style="display:grid; gap:12px; margin-top:10px;">
+            <div>
+              <strong>Dispositions générales</strong><br/>
+              Nous appliquons ces principes à tout mandat confié, hors gestion pour compte propre. Nous adaptons la forme aux contraintes du mandant (conservateur imposé, protection juridique, gage, PEA, contrats vie), mais nous ne trahissons jamais l’esprit.
+            </div>
+            <div>
+              <strong>Conflits d’intérêts</strong><br/>
+              Nous séparons les métiers, nous garantissons l’autonomie des décisions d’investissement et nous écartons les injonctions externes. Nous traitons les ordres avec égalité, nous surveillons les délégations et nous refusons toute gratification qui déformerait le conseil.
+            </div>
+            <div>
+              <strong>Moyens et contrôles</strong><br/>
+              Nous armons les équipes d’outils d’analyse et de procédures d’ordres sécurisées. Nous contrôlons la conformité aux mandats, la confidentialité et la justesse des documents remis aux mandants.
+            </div>
+            <div>
+              <strong>Confidentialité</strong><br/>
+              Nous gardons les données comme un secret confié : seuls des habilités y accèdent, via des dispositifs sécurisés.
+            </div>
+            <div>
+              <strong>Relations contractuelles</strong><br/>
+              Nous écrivons un mandat clair (objectifs, produits, univers d’investissement, rémunération, durée, résiliation). Nous ne déléguons rien sans accord écrit du mandant et nous l’informons de toute évolution d’objectifs.
+            </div>
+            <div>
+              <strong>Relations avec les mandants</strong><br/>
+              Nous assumons une obligation de moyens, nous justifions nos décisions (OPA/OPE) et nous agissons à la fréquence dictée par l’intérêt du mandant. Nous sommes transparents sur les rétrocessions et commissions, et nous encadrons toute ingérence du mandant.
+            </div>
+            <div>
+              <strong>Intermédiaires</strong><br/>
+              Nous choisissons nos intermédiaires sur la qualité. Nous interdisons les rétrocessions numéraires et nous n’acceptons les soft commissions que si elles servent le mandant sans surcoût ni dégradation d’exécution.
+            </div>
+            <div>
+              <strong>Commercialisation</strong><br/>
+              Nous bannissons la publicité trompeuse, nous restons vigilants LCB-FT et nous demeurons loyaux envers les concurrents. Nous divulguons les partages de rémunération avec les apporteurs d’affaires.
+            </div>
+            <div>
+              <strong>Gérant (personne physique)</strong><br/>
+              Nous refusons tout conflit d’intérêts, nous restons sobres sur nos opérations personnelles, nous rejetons les cadeaux compromettants et nous ne tirons jamais profit d’une information sensible. Nous signalons pressions ou erreurs à la hiérarchie.
+            </div>
+            <div>
+              <strong>RCCI</strong><br/>
+              Nous dotons le RCCI de moyens et d’autonomie ; il contrôle les niveaux I/II et recueille les déclarations déontologiques annuelles.
+            </div>
+            <div>
+              <strong>Intégrité des marchés</strong><br/>
+              Nous prévenons et détectons les abus de marché (délit d’initié, manipulation, diffusion trompeuse) avec des procédures, des formations et des alertes.
+            </div>
+            <div>
+              <strong>Transactions personnelles</strong><br/>
+              Nous interdisons les opérations personnelles sur des titres gérés pour les mandants et nous faisons déclarer chaque année les comptes titres et les mouvements, que le RCCI vérifie.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-modal-backdrop" id="footer-modal-conflits" aria-hidden="true">
+      <div class="footer-modal-dialog" style="max-width:1000px;">
+        <button type="button" class="footer-modal-close" onclick="closeFooterModal('conflits')">×</button>
+        <div class="footer-modal-body">
+          <h3 style="margin:0; padding:10px 12px; border-radius:10px; background: var(--primary); color:#fff;">Conflits d'intérêts</h3>
+          <p class="muted" style="margin-top:6px;">Nous écrivons cette politique comme on dresse un serment : protéger, avec constance, la primauté des intérêts de ceux qui nous confient leur confiance.</p>
+          <div style="display:grid; gap:12px; margin-top:10px;">
+            <div>
+              <strong>Introduction</strong><br/>
+              Nous faisons nôtres les articles 313-18 à 313-22 du RG AMF et nous veillons, d’un œil attentif, à identifier, prévenir et dompter chaque conflit pour que l’indépendance de jugement demeure intacte et que le client garde toujours le premier rang.
+            </div>
+            <div>
+              <strong>Ce que nous appelons “conflit d’intérêts”</strong><br/>
+              Nous appelons conflit cette heure trouble où une décision peut vaciller sous l’ombre d’un intérêt personnel, d’une pression étrangère ou d’un avantage injuste accordé à l’un au détriment de l’autre.
+            </div>
+            <div>
+              <strong>I. Cartographier pour voir clair</strong><br/>
+              Nous traçons trois lignes de vigilance : (1) client contre client ; (2) la maison contre ses clients ; (3) les collaborateurs contre ceux qu’ils servent. La conformité parcourt ces lignes, saison après saison, pour s’assurer que la route reste dégagée.
+            </div>
+            <div>
+              <strong>II. Prévenir avant de guérir</strong><br/>
+              Nous faisons vivre un code de déontologie et un règlement intérieur qui exaltent l’intégrité, le secret et la sobriété face aux cadeaux.<br/>
+              Nous séparons nettement les fonctions, comme on sépare le fleuve de ses affluents, pour que ni l’intérêt propre ni le commerce ne troublent la gestion ni le contrôle.<br/>
+              Nous dessinons des rémunérations qui ne fléchissent pas le conseil.<br/>
+              Nous horodatons et pré-affectons les ordres pour que la primauté du client reste gravée dans chaque ligne.<br/>
+              Le contrôle interne (RCCI) veille, libre et jaloux, sur l’accès aux informations sensibles.<br/>
+              Nous exigeons des formations et la certification AMF : chacun doit savoir et se souvenir.
+            </div>
+            <div>
+              <strong>III. Remonter, consigner, traiter</strong><br/>
+              La conformité et le contrôle interne tiennent un registre comme on tient un journal de bord : dates, faits générateurs, impacts, acteurs, résolution. Si le contrôleur vacille, la direction générale saisit la barre.
+            </div>
+            <div>
+              <strong>IV. Gérer avec transparence</strong><br/>
+              La conformité et la direction scrutent chaque cas, prennent des mesures d’urgence pour en circonscrire l’onde et, si la loyauté l’exige, informent le client clairement avant d’agir. Nous conservons chaque trace, comme on garde la mémoire d’un orage traversé.
+            </div>
+            <div>
+              <strong>V. Quelques illustrations de vigilance</strong>
+              <ul style="margin:6px 0 0 18px; padding:0;">
+                <li>Nous refusons tout cumul de fonctions ou tout avantage personnel qui ferait passer l’intérêt du client au second plan.</li>
+                <li>Nous bannissons les biais de rémunération et tout traitement préférentiel d’un client “rentable”.</li>
+                <li>Nous déclarons et revisitons chaque année les liens familiaux ou personnels ; aucune société liée ne jette son ombre ici.</li>
+                <li>Nous encadrons les cadeaux et nous contrôlons les comptes titres personnels déclarés.</li>
+                <li>Nous choisissons les intermédiaires sur des critères objectifs et nous interdisons les rétrocessions numéraires.</li>
+                <li>Nous limitons les produits “maison” pour écarter l’auto-préférence ; nous fixons un seuil prudent sous 20 %.</li>
+              </ul>
+            </div>
+            <div>
+              <strong>VI. Revoir pour rester lucide</strong><br/>
+              Nous revoyons la cartographie chaque année et nous faisons évoluer les procédures au rythme des activités, comme on remet de l’ordre dans une bibliothèque vivante.
+            </div>
+            <div>
+              <strong>VII. Activités et niveau de risque</strong><br/>
+              Nous jugeons le risque faible en gestion collective, sous mandat et conseil, et nous plafonnons l’exposition aux fonds propres. Nous n’exerçons pas les autres activités (courtage, IOBSP, conseil entreprises, etc.) ou nous les maintenons à risque nul.
+            </div>
+            <div class="muted" style="font-size:0.9rem;">Toute demande de détail peut être adressée par écrit à la Conformité.</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -491,6 +1061,148 @@
           document.addEventListener('DOMContentLoaded', initGroups);
         } else { initGroups(); }
       })();
+
+      // Footer modals
+      function openFooterModal(key){
+        var modal = document.getElementById('footer-modal-'+key);
+        if (!modal) return;
+        modal.classList.add('active');
+        modal.setAttribute('aria-hidden','false');
+      }
+      function closeFooterModal(key){
+        var modal = document.getElementById('footer-modal-'+key);
+        if (!modal) return;
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden','true');
+      }
+      window.openFooterModal = openFooterModal;
+      window.closeFooterModal = closeFooterModal;
+      document.addEventListener('click', function(ev){
+        var backdrop = ev.target.closest('.footer-modal-backdrop');
+        if (backdrop && ev.target === backdrop){
+          backdrop.classList.remove('active');
+          backdrop.setAttribute('aria-hidden','true');
+        }
+      });
+      function safeGenerateDerPdf(){
+        if (typeof generateDerPdf === 'function'){
+          generateDerPdf();
+        } else {
+          alert("Génération DER indisponible depuis cette page.");
+        }
+      }
+      function submitReclamTask(){
+        var name = (document.getElementById('reclamTaskName')?.value || '').trim();
+        var date = (document.getElementById('reclamTaskDate')?.value || '').trim();
+        var time = (document.getElementById('reclamTaskTime')?.value || '').trim();
+        var comment = (document.getElementById('reclamTaskComment')?.value || '').trim();
+        var statusEl = document.getElementById('reclamTaskStatus');
+        if (statusEl){ statusEl.style.display='none'; statusEl.textContent=''; statusEl.style.color=''; }
+        if (!name){
+          alert('Merci de préciser un nom ou une référence.');
+          return;
+        }
+        var lines = [];
+        lines.push(name);
+        if (comment) lines.push(comment);
+        if (date || time){
+          var when = date ? date : '';
+          if (time) when += (when ? ' ' : '') + time;
+          var details = 'RDV';
+          if (when) details += ' le ' + when;
+          lines.push(details);
+        }
+        lines.push('Statut réclamation : oui');
+        var finalComment = lines.join('\n');
+        var payload = {
+          type_libelle: 'Réclamation',
+          categorie: 'client',
+          commentaire: finalComment,
+          statut: 'à faire',
+          client_id: null,
+          utilisateur_responsable: '',
+        };
+        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Création de la tâche…'); }
+        fetch('/taches/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        .then(function(res){ if(!res.ok) throw new Error('HTTP '+res.status); return res.json().catch(function(){ return {}; }); })
+        .then(function(){
+          if (statusEl){
+            statusEl.textContent = 'Tâche créée (catégorie Client, statut À faire).';
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#16a34a';
+          }
+          document.getElementById('reclamTaskForm')?.reset();
+        })
+        .catch(function(err){
+          console.warn('Reclam task creation failed', err);
+          if (statusEl){
+            statusEl.textContent = 'Erreur lors de la création de la tâche.';
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#b91c1c';
+          } else {
+            alert('Erreur lors de la création de la tâche.');
+          }
+        })
+        .finally(function(){
+          if (typeof window.hideGlobalLoader === 'function'){ window.hideGlobalLoader(); }
+        });
+      }
+      function submitContactTask(){
+        var name = (document.getElementById('contactName')?.value || '').trim();
+        var email = (document.getElementById('contactEmail')?.value || '').trim();
+        var msg = (document.getElementById('contactMessage')?.value || '').trim();
+        var statusEl = document.getElementById('contactTaskStatus');
+        if (statusEl){ statusEl.style.display='none'; statusEl.textContent=''; statusEl.style.color=''; }
+        if (!name || !msg){
+          alert('Merci de renseigner le nom et le message.');
+          return;
+        }
+        var lines = [];
+        lines.push(name);
+        if (email) lines.push('Email : ' + email);
+        lines.push(msg);
+        lines.push('Source : contact site');
+        var payload = {
+          type_libelle: 'Prise de contact via le site',
+          categorie: 'client',
+          commentaire: lines.join('\n'),
+          statut: 'à faire',
+          client_id: null,
+          utilisateur_responsable: '',
+        };
+        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Création de la tâche…'); }
+        fetch('/taches/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        .then(function(res){ if(!res.ok) throw new Error('HTTP '+res.status); return res.json().catch(function(){ return {}; }); })
+        .then(function(){
+          if (statusEl){
+            statusEl.textContent = 'Message enregistré, tâche créée.';
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#16a34a';
+          }
+          document.getElementById('contactTaskForm')?.reset();
+        })
+        .catch(function(err){
+          console.warn('Contact task creation failed', err);
+          if (statusEl){
+            statusEl.textContent = 'Erreur lors de la création de la tâche.';
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#b91c1c';
+          } else {
+            alert('Erreur lors de la création de la tâche.');
+          }
+        })
+        .finally(function(){
+          if (typeof window.hideGlobalLoader === 'function'){ window.hideGlobalLoader(); }
+        });
+      }
     </script>
 </body>
 </html>

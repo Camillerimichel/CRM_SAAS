@@ -8,8 +8,8 @@
     /* Reset custom button colors: use base styles */
   </style>
 
-  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 1rem;">
-    <div class="card" style="flex:1 1 280px; margin:0;">
+  <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 1rem;">
+    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
       <button type="button" class="accordion-toggle collapsed" onclick="toggleTacheAccordion()" style="width:100%; justify-content:center;">
         <span style="display:flex; align-items:center; justify-content:center; gap:8px;"><i class="fa-solid fa-list-check"></i>Définir une tâche</span>
         <i id="tache_acc_icon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
@@ -283,34 +283,75 @@
     </div>
   </div>
 
-    <div class="card" style="flex:1 1 280px; margin:0;">
+    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
       <button type="button" class="accordion-toggle collapsed" onclick="toggleTasksList()" style="width:100%; justify-content:center; padding:10px 12px; margin:0 0 .6rem 0; cursor:pointer;">
         <h2 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:center; font-size:1.05rem; font-weight:600;"><i class="fa-solid fa-list-check"></i>Liste des tâches</h2>
         <i id="tasksListIcon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
       </button>
       <div id="tasksListBody" style="display:none;">
-    <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
-      <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list" style="margin-right:6px;"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun" style="margin-right:6px;"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>En retard <span class="badge">{{ counts.late }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé"><i class="fa-solid fa-bell" style="margin-right:6px;"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&statut=termin%C3%A9"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i>Réclamations terminées <span class="badge">{{ counts.reclamations_terminees }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire"><i class="fa-regular fa-square" style="margin-right:6px;"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente"><i class="fa-regular fa-clock" style="margin-right:6px;"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours"><i class="fa-solid fa-play" style="margin-right:6px;"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=termin%C3%A9"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Terminées <span class="badge">{{ counts.termine }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9"><i class="fa-solid fa-xmark" style="margin-right:6px;"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
+    <div class="tasks-quickfilters" style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
+      <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation"></i>En retard <span class="badge">{{ counts.late }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé"><i class="fa-solid fa-bell"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&statut=termin%C3%A9"><i class="fa-solid fa-circle-check"></i>Réclamations terminées <span class="badge">{{ counts.reclamations_terminees }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire"><i class="fa-regular fa-square"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente"><i class="fa-regular fa-clock"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours"><i class="fa-solid fa-play"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=termin%C3%A9"><i class="fa-solid fa-check"></i>Terminées <span class="badge">{{ counts.termine }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9"><i class="fa-solid fa-xmark"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
     </div>
     <form method="get" action="/dashboard/taches">
       <style>
+        table.tasks-table-condensed th,
+        table.tasks-table-condensed td { font-size: .9rem; }
         table.tasks-table-condensed thead th:nth-child(2),
-        table.tasks-table-condensed tbody td:nth-child(2) { width: 95px; }
+        table.tasks-table-condensed tbody td:nth-child(2) {
+          width: 82px;
+          white-space: normal;
+          line-height: 1.25;
+        }
         table.tasks-table-condensed thead th:nth-child(5),
-        table.tasks-table-condensed tbody td:nth-child(5) { width: 130px; }
+        table.tasks-table-condensed tbody td:nth-child(5) {
+          width: 110px;
+          white-space: normal;
+          line-height: 1.25;
+        }
         table.tasks-table-condensed thead th:nth-child(6),
-        table.tasks-table-condensed tbody td:nth-child(6) { width: 130px; }
+        table.tasks-table-condensed tbody td:nth-child(6) { width: 120px; }
+        table.tasks-table-condensed .wrap-2 { white-space: normal; word-break: break-word; }
+        table.tasks-table-condensed td.status-cell {
+          white-space: normal;
+          display: flex;
+          align-items: flex-start;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        table.tasks-table-condensed .status-chip.btn,
+        table.tasks-table-condensed .status-chip.btn-choice {
+          height: auto;
+          min-height: 0;
+          padding: 2px 6px;
+          font-size: 11px;
+          border-radius: 6px;
+          line-height: 1.2;
+          text-transform: none;
+        }
+        table.tasks-table-condensed .status-note {
+          font-size: .78rem;
+          color: var(--muted);
+          line-height: 1.25;
+        }
+        .tasks-quickfilters .btn-choice {
+          height: 34px;
+          padding: 6px 10px;
+          font-size: .95rem;
+          gap: 6px;
+          white-space: normal;
+          line-height: 1.2;
+        }
       </style>
-      <table id="tasksTable" class="display nowrap tasks-table-condensed" style="width:100%">
+      <table id="tasksTable" class="display tasks-table-condensed" style="width:100%">
         <thead>
           <tr>
             <th>Date</th>
@@ -361,8 +402,8 @@
                   <a href="/dashboard/affaires/{{ r.affaire_id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ r.affaire_id }}</a>
                 {% else %}-{% endif %}
               </td>
-              <td style="min-width:200px;">{{ r.rh_label if r.rh_label else '-' }}</td>
-              <td>
+              <td class="wrap-2" style="min-width:0;">{{ r.rh_label if r.rh_label else '-' }}</td>
+              <td class="status-cell">
                 {% set statut_label = (r.statut or 'à faire')|lower %}
                 {% set btn_class = 'btn-choice' %}
                 {% if statut_label == 'en cours' %}
@@ -376,9 +417,9 @@
                 {% else %}
                   {% set btn_style = '' %}
                 {% endif %}
-                <a class="btn {{ btn_class }}" href="/dashboard/taches/{{ r.evenement_id }}" style="padding:2px 6px; font-size:11px; border-radius:4px; {{ btn_style }}">{{ r.statut or 'à faire' }}</a>
+                <a class="btn {{ btn_class }} status-chip" href="/dashboard/taches/{{ r.evenement_id }}" style="{{ btn_style }}">{{ r.statut or 'à faire' }}</a>
                 {% if r.statut_reclamation_label %}
-                  <div class="muted" style="font-size:0.75rem; margin-top:2px;">Réclamation : {{ r.statut_reclamation_label }}</div>
+                  <span class="status-note">Réclamation : {{ r.statut_reclamation_label }}</span>
                 {% endif %}
               </td>
             </tr>
@@ -401,12 +442,16 @@
               paging: true,
               pageLength: 25,
               fixedHeader: false,
+              autoWidth: false,
               dom: 'Bfrtip',
               buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'taches', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
               order: [[0,'desc']],
               language: { emptyTable: 'Aucune tâche' },
               columnDefs: [
-                { targets: [0,1,2,3,4,5], className: 'nowrap' },
+                { targets: [0,3], className: 'nowrap' },
+                { targets: 1, className: 'wrap-2', width: '90px' },
+                { targets: 4, className: 'wrap-2', width: '110px' },
+                { targets: 5, className: 'wrap-2', width: '120px' },
                 { targets: 0, render: function(data, type){
                     if (!data) return '';
                     var s = String(data).trim();
@@ -458,6 +503,117 @@
     </form>
       </div> <!-- /#tasksListBody -->
     </div>
+    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
+      <button type="button" class="accordion-toggle collapsed" onclick="toggleReclamPivot()" style="width:100%; justify-content:center; padding:10px 12px; margin:0 0 .6rem 0; cursor:pointer;">
+        <h2 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:center; font-size:1.05rem; font-weight:600;"><i class="fa-solid fa-table-list"></i>Livre des réclamations</h2>
+        <i id="reclamPivotIcon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
+      </button>
+      <div id="reclamPivotBody" style="display:none;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom: .6rem;">
+          <div>
+            <p class="eyebrow" style="margin-bottom:4px;">Réclamations par type et statut</p>
+            <h3 style="margin:0;">Synthèse</h3>
+            <div class="muted" style="font-size:0.9rem; margin-top:2px;">Total : {{ reclam_stats.total if reclam_stats else 0 }}</div>
+            {% if reclam_stats and reclam_stats.by_status %}
+              <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; font-size:0.9rem;">
+                {% for st in reclam_stats.by_status %}
+                  <span class="badge">{{ st.label or 'Statut non renseigné' }} : {{ st.count }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <a href="/dashboard/reclamations/export"
+             class="btn btn-primary"
+             style="min-width:120px; padding:5px 8px; display:inline-flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; color:#fff; font-size:0.9rem; border-radius:8px;">
+            <i class="fa-solid fa-file-export" style="color:#fff; font-size:0.9rem;"></i>Export
+          </a>
+        </div>
+        {% if reclam_pivot.types and reclam_pivot.statuses %}
+          <style>
+            .reclam-pivot-table {
+              width: 100%;
+              border-collapse: separate;
+              border-spacing: 0;
+              font-size: 0.85rem;
+              margin-top: 0.7rem;
+            }
+            .reclam-pivot-table th {
+              border: 1px solid #e2e8f0;
+              padding: 6px 8px;
+              text-align: center;
+              white-space: normal;
+              line-height: 1.2;
+              background: var(--primary);
+              color: #fff;
+            }
+            .reclam-pivot-table td {
+              border: 1px solid #e2e8f0;
+              padding: 6px 8px;
+              text-align: center;
+              white-space: nowrap;
+            }
+            .reclam-pivot-table td.has-data { background:#f4f6f9; }
+            .reclam-pivot-table td.pivot-cell { cursor: pointer; }
+            .reclam-pivot-table tbody td:first-child {
+              text-align: left;
+              background: #e2e8f0;
+              font-weight: 600;
+              position: sticky;
+              left: 0;
+              z-index: 1;
+            }
+          </style>
+          <div style="overflow:auto;">
+            <table class="reclam-pivot-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  {% for status in reclam_pivot.statuses %}
+                    <th>{{ status }}</th>
+                  {% endfor %}
+                </tr>
+                <tr class="reclam-filter-row">
+                  <th>
+                    <select id="pivotTypeFilter" onchange="filterReclamPivot()" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:8px; border:1px solid var(--border);">
+                      <option value="">Tous les types</option>
+                      {% for t in reclam_pivot.types %}
+                        <option value="{{ t.label }}">{{ t.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </th>
+                  {% for status in reclam_pivot.statuses %}
+                    <th>
+                      <select class="pivot-status-filter" data-status="{{ status|lower }}" onchange="filterReclamPivot()" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:8px; border:1px solid var(--border);">
+                        <option value="">Tous</option>
+                        <option value="has">> 0</option>
+                        <option value="zero">= 0</option>
+                      </select>
+                    </th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for t in reclam_pivot.types %}
+                    {% set counts = t.counts if t.counts is defined else (t['counts'] if 'counts' in t else {}) %}
+                  <tr data-type="{{ (t.label or '')|lower }}">
+                    <td class="has-data">{{ t.label or 'Type' }}</td>
+                    {% for status in reclam_pivot.statuses %}
+                      {% set val = counts.get(status, 0) if counts else 0 %}
+                      {% set display_val = val if val else '' %}
+                      {% set data_class = 'has-data pivot-cell' if display_val else '' %}
+                      <td class="{{ data_class }}" data-status="{{ status|lower }}" data-status-label="{{ status }}" data-val="{{ val }}">{{ display_val }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div id="reclamPivotEmpty" class="muted" style="margin-top:0.6rem; display:none;">Aucune réclamation pour ces filtres.</div>
+        {% else %}
+          <div class="muted" style="margin-top:0.6rem;">Aucune réclamation trouvée.</div>
+        {% endif %}
+      </div>
+    </div>
   </div>
   <script>
     function toggleComment(id){
@@ -498,7 +654,7 @@
           }
         }
       }
-    // Initial state: keep both accordions closed (fond blanc / texte noir)
+    // Initial state: keep accordions closed (fond blanc / texte noir)
     (function syncAccordions(){
       var tacheBody = document.getElementById('tache_accordion_body');
       var tacheBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleTacheAccordion\"]');
@@ -516,6 +672,111 @@
         var ic2 = document.getElementById('tasksListIcon');
         if (ic2) ic2.className = 'fa-solid fa-chevron-down';
       }
+      var reclBody = document.getElementById('reclamPivotBody');
+      var reclBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleReclamPivot\"]');
+      if (reclBody && reclBtn) {
+        reclBody.style.display = 'none';
+        reclBtn.classList.remove('active');
+        var ic3 = document.getElementById('reclamPivotIcon');
+        if (ic3) ic3.className = 'fa-solid fa-chevron-down';
+      }
     })();
+    function toggleReclamPivot(){
+      var body = document.getElementById('reclamPivotBody');
+      var icn = document.getElementById('reclamPivotIcon');
+      if (!body || !icn) return;
+      var otherBodies = [
+        { el: document.getElementById('tasksListBody'), ic: document.getElementById('tasksListIcon') },
+        { el: document.getElementById('tache_accordion_body'), ic: document.getElementById('tache_acc_icon') }
+      ];
+      var isOpen = body.style.display !== 'none';
+      var willOpen = !isOpen;
+      body.style.display = willOpen ? 'block' : 'none';
+      icn.className = willOpen ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+      var btn = icn.closest('.accordion-toggle');
+      if (btn) {
+        btn.classList.toggle('active', willOpen);
+        btn.classList.toggle('collapsed', !willOpen);
+      }
+      if (willOpen){
+        otherBodies.forEach(function(entry){
+          if(entry.el){
+            entry.el.style.display = 'none';
+          }
+          if(entry.ic){
+            entry.ic.className = 'fa-solid fa-chevron-down';
+            var b = entry.ic.closest('.accordion-toggle');
+            if (b) { b.classList.remove('active'); b.classList.add('collapsed'); }
+          }
+        });
+      }
+    }
+    function filterReclamPivot(){
+      var typeSel = document.getElementById('pivotTypeFilter');
+      var typeVal = typeSel ? (typeSel.value || '').toLowerCase() : '';
+      var statusFilters = document.querySelectorAll('.pivot-status-filter');
+      var rows = document.querySelectorAll('#reclamPivotBody .reclam-pivot-table tbody tr');
+      var shown = 0;
+      rows.forEach(function(row){
+        var type = (row.getAttribute('data-type') || '').toLowerCase();
+        var okType = !typeVal || type === typeVal;
+        var visible = okType;
+        if (visible && statusFilters && statusFilters.length){
+          statusFilters.forEach(function(sel){
+            if (!visible) return;
+            var statusKey = (sel.getAttribute('data-status') || '').toLowerCase();
+            var mode = sel.value || '';
+            if (!statusKey || !mode) return;
+            var cell = row.querySelector('td[data-status="'+statusKey+'"]');
+            var val = cell ? parseFloat(cell.getAttribute('data-val') || '0') : 0;
+            if (mode === 'has' && !(val > 0)) { visible = false; }
+            if (mode === 'zero' && val !== 0) { visible = false; }
+          });
+        }
+        row.style.display = visible ? '' : 'none';
+        if (visible) shown++;
+      });
+      var empty = document.getElementById('reclamPivotEmpty');
+      if (empty) empty.style.display = shown ? 'none' : '';
+    }
+    // Init filters once DOM is ready
+    document.addEventListener('DOMContentLoaded', filterReclamPivot);
+    function filterTasksFromPivot(typeLabel, statusLabel, attempt){
+      attempt = attempt || 0;
+      // Open tasks accordion
+      var tasksBody = document.getElementById('tasksListBody');
+      if (tasksBody && tasksBody.style.display === 'none') {
+        toggleTasksList();
+      }
+      if (!window.tasksDT) {
+        if (attempt < 5) {
+          setTimeout(function(){ filterTasksFromPivot(typeLabel, statusLabel, attempt+1); }, 150);
+        }
+        return;
+      }
+      // Type
+      var typeSel = document.getElementById('tasks_type_filter');
+      if (typeSel) typeSel.value = typeLabel || '';
+      window.tasksDT.column(1).search(typeLabel || '', false, false, true);
+      // Statut (col 5)
+      window.tasksDT.column(5).search(statusLabel || '', false, false, true);
+      // Clear RH filter to avoid hiding matches
+      window.tasksDT.column(4).search('');
+      var rhSel = document.getElementById('tasks_rh_filter');
+      if (rhSel) rhSel.value = '';
+      window.tasksDT.draw();
+      // Scroll to tasks list
+      if (tasksBody) { tasksBody.scrollIntoView({behavior:'smooth', block:'start'}); }
+    }
+    // Click binding on pivot cells
+    document.addEventListener('click', function(ev){
+      var cell = ev.target.closest('.pivot-cell');
+      if (!cell) return;
+      var row = cell.closest('tr');
+      var typeLabel = row ? (row.querySelector('td.has-data')?.textContent || '').trim() : '';
+      var statusLabel = (cell.getAttribute('data-status-label') || cell.getAttribute('data-status') || '').trim();
+      if (!statusLabel) return;
+      filterTasksFromPivot(typeLabel, statusLabel);
+    });
   </script>
 {% endblock %}

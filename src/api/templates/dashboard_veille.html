@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Veille réglementaire{% endblock %}
+{% block header_title %}Veille réglementaire{% endblock %}
+{% block header_subtitle %}PRIIPs, MiFID, DDA/IDD, ESG, AMF/ACPR, sanctions, jurisprudence{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h3 style="margin:0 0 8px;">Veille (fichier local)</h3>
+    <p class="muted" style="margin-bottom:8px;">Sources issues du fichier data/veille_reglementaire.json.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>Titre</th>
+          <th>Date</th>
+          <th>Tags</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if items %}
+          {% for it in items %}
+            <tr>
+              <td>{{ it.source }}</td>
+              <td>
+                {% if it.link %}<a href="{{ it.link }}" target="_blank" style="text-decoration:underline; color:inherit;">{% endif %}
+                {{ it.title or '(sans titre)' }}
+                {% if it.link %}</a>{% endif %}
+                {% if it.summary %}
+                  <div class="muted" style="font-size:0.9rem; margin-top:4px;">{{ it.summary }}</div>
+                {% endif %}
+              </td>
+              <td>{{ it.published[:10] if it.published else '' }}</td>
+              <td>{{ it.tags|join(', ') }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="4" class="muted">Aucune entrée (vérifiez data/veille_reglementaire.json).</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

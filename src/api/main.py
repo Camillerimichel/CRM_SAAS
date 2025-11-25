@@ -20,6 +20,8 @@ app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(groupes.router)
 
+# Servir l'app React compilée (http://localhost:8000/app)
+
 
 # ---------------- Route d'accueil ----------------
 @app.get("/")
