@@ -10,12 +10,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Fil
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam
 from sqlalchemy import text
-from datetime import datetime, date as _date, timedelta
+from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 import csv
 import io
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl, quote
+import ssl
+import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 
 
 from src.database import get_db
@@ -56,6 +60,7 @@ logger = logging.getLogger("uvicorn.error")
 BASE_DIR = Path(__file__).resolve().parents[2]
 DOCUMENTS_DIR = BASE_DIR / "documents"
 VEILLE_FILE = BASE_DIR / "data" / "veille_reglementaire.json"
+VEILLE_CACHE = {"ts": None, "items": []}
 
 
 def rows_to_dicts(rows):
@@ -71,6 +76,188 @@ def rows_to_dicts(rows):
             data["full_name"] = full_name
         result.append(data)
     return result
+
+# ---------------- Veille distante (RSS/HTML fallback) ----------------
+KEYWORDS_VEILLE = [
+    "priips",
+    "mifid",
+    "dda",
+    "idd",
+    "esg",
+    "sfdr",
+    "amf",
+    "acpr",
+    "assurance-vie",
+    "assurance vie",
+    "assurance",
+    "courtage",
+    "courtier",
+    "cif",
+    "conseiller en investissements financiers",
+    "jurisprudence",
+    "sanction",
+    "directive",
+    "règlement",
+]
+
+
+def _matches_keywords(text: str) -> bool:
+    content = text.lower()
+    return any(k in content for k in KEYWORDS_VEILLE)
+
+
+class _LinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links: list[dict] = []
+        self._href = None
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "a":
+            href = None
+            for k, v in attrs:
+                if k.lower() == "href":
+                    href = v
+                    break
+            if href:
+                self._href = href
+                self._parts = []
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href:
+            txt = "".join(self._parts).strip()
+            self.links.append({"href": self._href, "text": txt})
+            self._href = None
+            self._parts = []
+
+    def handle_data(self, data):
+        if self._href:
+            self._parts.append(data)
+
+
+def _parse_html_links(html_text: str, base_url: str):
+    parser = _LinkParser()
+    try:
+        parser.feed(html_text)
+    except Exception:
+        return []
+    items = []
+    for link in parser.links:
+        href = link.get("href", "")
+        text = (link.get("text") or "").strip()
+        if not href or not text:
+            continue
+        full = urljoin(base_url, href)
+        items.append({"title": text, "link": full, "date": "", "summary": ""})
+    return items
+
+
+def _parse_rss(xml_text: str):
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    items = []
+    for item in root.findall(".//item"):
+        items.append(
+            {
+                "title": (item.findtext("title") or "").strip(),
+                "link": (item.findtext("link") or "").strip(),
+                "date": (item.findtext("pubDate") or "").strip(),
+                "summary": (item.findtext("description") or "").strip(),
+            }
+        )
+    for entry in root.findall(".//atom:entry", ns):
+        items.append(
+            {
+                "title": (entry.findtext("atom:title", default="", namespaces=ns) or "").strip(),
+                "link": (entry.find("atom:link", ns).attrib.get("href", "") if entry.find("atom:link", ns) is not None else "").strip(),
+                "date": (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip(),
+                "summary": (entry.findtext("atom:summary", default="", namespaces=ns) or "").strip(),
+            }
+        )
+    return items
+
+
+def _fetch_url(url: str, insecure: bool = False, proxy: str | None = None, timeout: int = 12) -> str | None:
+    import urllib.request
+    ctx = ssl._create_unverified_context() if insecure else None
+    handlers = []
+    if proxy:
+        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    if ctx:
+        handlers.append(urllib.request.HTTPSHandler(context=ctx))
+    opener = urllib.request.build_opener(*handlers) if handlers else urllib.request.build_opener()
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", "Mozilla/5.0 (VeilleReglementaire)")
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            charset = resp.headers.get_content_charset() or "utf-8"
+            return resp.read().decode(charset, errors="replace")
+    except Exception:
+        return None
+
+
+def _collect_veille(insecure: bool = True, proxy: str | None = None) -> list[dict]:
+    sources = [
+        # Régulateurs
+        {"name": "AMF", "url": "https://www.amf-france.org/fr/actualites", "html": ["https://www.amf-france.org/fr/espace-presse/communiques-de-presse", "https://www.amf-france.org/fr"]},
+        {"name": "ACPR", "url": "https://acpr.banque-france.fr/rss.xml", "html": ["https://acpr.banque-france.fr/communiques-de-presse", "https://acpr.banque-france.fr/actualites"]},
+        {"name": "ESMA", "url": "https://www.esma.europa.eu/whats-new", "html": ["https://www.esma.europa.eu/press-news/esma-news", "https://www.esma.europa.eu/press-news/press-releases"]},
+        {"name": "EIOPA", "url": "https://www.eiopa.europa.eu/news-events/news", "html": ["https://www.eiopa.europa.eu/media/speeches"]},
+        {"name": "EBA", "url": "https://www.eba.europa.eu/press-and-media/news", "html": []},
+        {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "html": ["https://www.cnil.fr/fr/actualites"]},
+        {"name": "CJUE", "url": "https://curia.europa.eu/jcms/jcms/Jo2_7026/rss", "html": []},
+        # Presse
+        {"name": "Agefi Actifs", "url": "https://www.agefiactifs.com/", "html": []},
+        {"name": "Revue Banque", "url": "https://www.revue-banque.fr/", "html": ["https://www.revue-banque.fr/banque-detail/actualites", "https://www.revue-banque.fr/assurance/actualites"]},
+        {"name": "Argus Assurance", "url": "https://www.argusdelassurance.com/", "html": []},
+        {"name": "Option Finance", "url": "https://www.optionfinance.fr/", "html": ["https://www.optionfinance.fr/accueil/actualites.html", "https://www.optionfinance.fr/asset-management/actualites.html"]},
+        # Presse internationale
+        {"name": "Bloomberg", "url": "https://www.bloomberg.com/feeds/podcasts/etf_report.xml", "html": ["https://www.bloomberg.com/markets"]},
+        {"name": "Reuters", "url": "https://feeds.reuters.com/reuters/worldnews", "html": []},
+        {"name": "Financial Times", "url": "https://www.ft.com/?format=rss", "html": []},
+    ]
+    seen = set()
+    items: list[dict] = []
+    for src in sources:
+        xml = _fetch_url(src["url"], insecure=insecure, proxy=proxy)
+        entries = []
+        if xml:
+            entries = _parse_rss(xml)
+        if not entries:
+            for alt in src.get("html") or []:
+                html = _fetch_url(alt, insecure=insecure, proxy=proxy)
+                if html:
+                    entries = _parse_html_links(html, alt)
+                    if entries:
+                        break
+        for e in entries:
+            title = e.get("title", "")
+            link = e.get("link", "")
+            summary = e.get("summary", "")
+            blob = f"{title} {summary}"
+            if not _matches_keywords(blob):
+                continue
+            key = (title, link)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "source": src["name"],
+                    "title": title,
+                    "link": link,
+                    "summary": summary,
+                    "published": e.get("date", ""),
+                    "tags": [src["name"]],
+                    "collected_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+    items.sort(key=lambda x: x.get("published") or "", reverse=True)
+    return items
 
 
 def _slugify_filename(value: str | None) -> str:
@@ -367,17 +554,52 @@ def _parse_valo_filter_expression(expr: str | None) -> dict:
 def dashboard_veille(request: Request):
     import json
     items = []
+    # Cache simple (5 minutes)
+    now = datetime.now(timezone.utc)
     try:
-        if VEILLE_FILE.exists():
-            with VEILLE_FILE.open("r", encoding="utf-8") as f:
-                items = json.load(f) or []
+        if VEILLE_CACHE["ts"] and (now - VEILLE_CACHE["ts"]).total_seconds() < 300:
+            items = VEILLE_CACHE["items"]
+        else:
+            items = _collect_veille(insecure=True, proxy=None)
+            VEILLE_CACHE["items"] = items
+            VEILLE_CACHE["ts"] = now
     except Exception:
         items = []
+    # fallback local si rien de collecté
+    if not items:
+        try:
+            if VEILLE_FILE.exists():
+                with VEILLE_FILE.open("r", encoding="utf-8") as f:
+                    items = json.load(f) or []
+        except Exception:
+            items = []
+    # Group by first tag when available
+    grouped = {}
+    for it in items:
+        tags = it.get("tags") or []
+        key = tags[0] if tags else "Divers"
+        grouped.setdefault(key, []).append(it)
+    # sort by date inside each group
+    for k in grouped:
+        grouped[k].sort(key=lambda x: x.get("published") or "", reverse=True)
+    # Bloc "News récentes" : top 15 tous tags confondus
+    recent = sorted(items, key=lambda x: x.get("published") or "", reverse=True)[:15]
+    # Bloc marchés financiers (mock local ou placeholder)
+    markets = [
+        {"name": "CAC 40", "value": "7 250", "var": "+0.8%"},
+        {"name": "DAX", "value": "16 150", "var": "+0.5%"},
+        {"name": "S&P 500", "value": "4 380", "var": "-0.3%"},
+        {"name": "EuroStoxx 50", "value": "4 350", "var": "+0.2%"},
+        {"name": "NASDAQ", "value": "13 600", "var": "-0.6%"},
+    ]
     return templates.TemplateResponse(
         "dashboard_veille.html",
         {
             "request": request,
             "items": items,
+            "grouped": grouped,
+            "recent": recent,
+            "markets": markets,
         },
     )
 

@@ -4,39 +4,97 @@
 {% block header_subtitle %}PRIIPs, MiFID, DDA/IDD, ESG, AMF/ACPR, sanctions, jurisprudence{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <h3 style="margin:0 0 8px;">Veille (fichier local)</h3>
-    <p class="muted" style="margin-bottom:8px;">Sources issues du fichier data/veille_reglementaire.json.</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Source</th>
-          <th>Titre</th>
-          <th>Date</th>
-          <th>Tags</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% if items %}
-          {% for it in items %}
-            <tr>
-              <td>{{ it.source }}</td>
-              <td>
-                {% if it.link %}<a href="{{ it.link }}" target="_blank" style="text-decoration:underline; color:inherit;">{% endif %}
-                {{ it.title or '(sans titre)' }}
-                {% if it.link %}</a>{% endif %}
-                {% if it.summary %}
-                  <div class="muted" style="font-size:0.9rem; margin-top:4px;">{{ it.summary }}</div>
-                {% endif %}
-              </td>
-              <td>{{ it.published[:10] if it.published else '' }}</td>
-              <td>{{ it.tags|join(', ') }}</td>
-            </tr>
+  <style>
+    .veille-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .veille-column { border:1px solid var(--border); border-radius:12px; background:#fff; box-shadow: var(--shadow-sm); display:flex; flex-direction:column; min-height:280px; max-height:380px; }
+    .veille-column header { padding:10px 12px; border-bottom:1px solid var(--border); font-weight:700; display:flex; align-items:center; gap:6px; }
+    .veille-column .body { padding:10px 12px; overflow-y:auto; }
+    .veille-item { margin-bottom:10px; }
+    .veille-item a { color: #0f172a; font-weight:400; text-decoration: none; }
+    .veille-item a:hover { text-decoration: underline; }
+    .veille-item .meta { font-size:0.85rem; color: var(--muted); margin-top:2px; }
+    .veille-item .summary { font-size:0.9rem; color: var(--muted); margin-top:4px; }
+  </style>
+
+  <div class="veille-grid" style="margin-bottom:12px;">
+    <div class="veille-column">
+      <header><i class="fa-solid fa-clock"></i> News récentes</header>
+      <div class="body">
+        {% if recent %}
+          {% for it in recent %}
+            <div class="veille-item">
+              {% if it.link %}<a href="{{ it.link }}" target="_blank">{% endif %}
+              {{ it.title or '(sans titre)' }}
+              {% if it.link %}</a>{% endif %}
+              <div class="meta">
+                {{ it.source }}{% if it.published %} · {{ it.published[:10] }}{% endif %}
+              </div>
+              {% if it.summary %}
+                <div class="summary">{{ it.summary }}</div>
+              {% endif %}
+            </div>
           {% endfor %}
         {% else %}
-          <tr><td colspan="4" class="muted">Aucune entrée (vérifiez data/veille_reglementaire.json).</td></tr>
+          <div class="muted">Aucune entrée.</div>
         {% endif %}
-      </tbody>
-    </table>
+      </div>
+    </div>
+    <div class="veille-column">
+      <header><i class="fa-solid fa-chart-line"></i> Marchés financiers</header>
+      <div class="body">
+        {% if markets %}
+          <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead>
+              <tr>
+                <th style="text-align:left; border-bottom:1px solid var(--border); padding:4px 0;">Indice</th>
+                <th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Valeur</th>
+                <th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Variation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in markets %}
+                <tr>
+                  <td style="padding:4px 0;">{{ m.name }}</td>
+                  <td style="padding:4px 3px; text-align:right;">{{ m.value }}</td>
+                  <td style="padding:4px 3px; text-align:right;">{{ m.var }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="muted">Pas de données marchés.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="veille-grid">
+    {% if grouped %}
+      {% for tag, group_items in grouped.items() %}
+        <div class="veille-column">
+          <header><i class="fa-solid fa-newspaper"></i> {{ tag }}</header>
+          <div class="body">
+            {% for it in group_items %}
+              <div class="veille-item">
+                {% if it.link %}<a href="{{ it.link }}" target="_blank">{% endif %}
+                {{ it.title or '(sans titre)' }}
+                {% if it.link %}</a>{% endif %}
+                <div class="meta">
+                  {{ it.source }}{% if it.published %} · {{ it.published[:10] }}{% endif %}
+                </div>
+                {% if it.summary %}
+                  <div class="summary">{{ it.summary }}</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+            {% if group_items|length == 0 %}
+              <div class="muted">Aucun élément.</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="muted">Aucune entrée (vérifiez la collecte).</div>
+    {% endif %}
   </div>
 {% endblock %}
