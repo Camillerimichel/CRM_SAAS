@@ -55,6 +55,7 @@ logger = logging.getLogger("uvicorn.error")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DOCUMENTS_DIR = BASE_DIR / "documents"
+VEILLE_FILE = BASE_DIR / "data" / "veille_reglementaire.json"
 
 
 def rows_to_dicts(rows):
@@ -360,6 +361,25 @@ def _parse_valo_filter_expression(expr: str | None) -> dict:
             result["min"] = num
             result["max"] = num
     return result
+
+
+@router.get("/veille", response_class=HTMLResponse)
+def dashboard_veille(request: Request):
+    import json
+    items = []
+    try:
+        if VEILLE_FILE.exists():
+            with VEILLE_FILE.open("r", encoding="utf-8") as f:
+                items = json.load(f) or []
+    except Exception:
+        items = []
+    return templates.TemplateResponse(
+        "dashboard_veille.html",
+        {
+            "request": request,
+            "items": items,
+        },
+    )
 
 
 def _fmt_currency(value: float | int | None) -> str:
@@ -16186,6 +16206,9 @@ def dashboard_taches(
         {},
     )
 
+    # Livre des réclamations (pour modal dédié)
+    reclam_stats, reclam_pivot = _compute_reclamations_data(db)
+
     return templates.TemplateResponse(
         "dashboard_taches.html",
         {
@@ -16224,6 +16247,8 @@ def dashboard_taches(
             "rh_list": rh_list,
             "rh_options": rh_options,
             "reclam_statuses": reclam_statuses,
+            "reclam_stats": reclam_stats,
+            "reclam_pivot": reclam_pivot,
         },
     )
 
@@ -16693,6 +16718,54 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
         redirect_to = urlunsplit(parts._replace(query=urlencode(query, doseq=True)))
 
     return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.post("/taches/{evenement_id}/update", response_class=HTMLResponse)
+async def dashboard_taches_update(
+    evenement_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    from datetime import datetime as _dt
+    form = await request.form()
+    ev = db.query(Evenement).filter(Evenement.id == evenement_id).first()
+    if not ev:
+        return RedirectResponse(url="/dashboard/taches", status_code=303)
+
+    date_raw = form.get("date_evenement")
+    type_label = (form.get("type_libelle") or "").strip()
+    cat_label = (form.get("categorie") or "").strip()
+    client_raw = form.get("client_id")
+    affaire_raw = form.get("affaire_id")
+
+    if date_raw:
+        try:
+            ev.date_evenement = _dt.fromisoformat(date_raw.replace(" ", "T"))
+        except Exception:
+            pass
+    if type_label:
+        q = db.query(TypeEvenement).filter(func.lower(TypeEvenement.libelle) == func.lower(type_label))
+        if cat_label:
+            q = q.filter(func.lower(TypeEvenement.categorie) == func.lower(cat_label))
+        type_row = q.first()
+        if type_row and getattr(type_row, "id", None):
+            ev.type_id = type_row.id
+    if client_raw is not None:
+        try:
+            ev.client_id = int(client_raw) if str(client_raw).strip() else None
+        except Exception:
+            ev.client_id = None
+    if affaire_raw is not None:
+        try:
+            ev.affaire_id = int(affaire_raw) if str(affaire_raw).strip() else None
+        except Exception:
+            ev.affaire_id = None
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return RedirectResponse(url=f"/dashboard/taches/{evenement_id}", status_code=303)
 
 
 # ---------------- Création Tâche depuis Détail Client ----------------

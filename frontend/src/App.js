@@ -6,9 +6,11 @@ import Allocations from "./pages/Allocations";
 import Tasks from "./pages/Tasks";
 import Supports from "./pages/Supports";
 import QuestionnaireRisque from "./pages/QuestionnaireRisque";
+import Veille from "./pages/Veille";
 
 const tabs = [
   { key: "dashboard", label: "Tableau de bord" },
+  { key: "veille", label: "Veille" },
   { key: "clients", label: "Clients" },
   { key: "affaires", label: "Affaires" },
   { key: "allocations", label: "Allocations" },
@@ -34,6 +36,8 @@ function App() {
         return <Tasks />;
       case "risque":
         return <QuestionnaireRisque />;
+      case "veille":
+        return <Veille />;
       default:
         return <Dashboard />;
     }
