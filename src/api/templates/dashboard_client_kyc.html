@@ -213,18 +213,32 @@
                 </div>
               </div>
             </div>
+           <div class="row three-cols" style="display:flex; gap:12px; flex-wrap:wrap;">
+             <div class="field" style="flex:1 1 220px; min-width:200px;">
+               <label for="etatDateNaissance">Date de naissance</label>
+               <input id="etatDateNaissance" name="date_naissance" type="date" value="{{ kyc_etat_civil.date_naissance if kyc_etat_civil and kyc_etat_civil.date_naissance else '' }}" />
+             </div>
+             <div class="field" style="flex:1 1 260px; min-width:220px;">
+               <label for="etatLieuNaissance">Lieu de naissance</label>
+               <input id="etatLieuNaissance" name="lieu_naissance" type="text" placeholder="Ville, pays" value="{{ kyc_etat_civil.lieu_naissance if kyc_etat_civil else '' }}" />
+             </div>
+             <div class="field" style="flex:1 1 220px; min-width:200px;">
+               <label for="etatNationalite">Nationalité</label>
+               <input id="etatNationalite" name="nationalite" type="text" placeholder="Nationalité" value="{{ kyc_etat_civil.nationalite if kyc_etat_civil else '' }}" />
+             </div>
+           </div>
             <div class="row three-cols" style="display:flex; gap:12px; flex-wrap:wrap;">
               <div class="field" style="flex:1 1 220px; min-width:200px;">
-                <label for="etatDateNaissance">Date de naissance</label>
-                <input id="etatDateNaissance" name="date_naissance" type="date" value="{{ kyc_etat_civil.date_naissance if kyc_etat_civil and kyc_etat_civil.date_naissance else '' }}" />
-              </div>
-              <div class="field" style="flex:1 1 260px; min-width:220px;">
-                <label for="etatLieuNaissance">Lieu de naissance</label>
-                <input id="etatLieuNaissance" name="lieu_naissance" type="text" placeholder="Ville, pays" value="{{ kyc_etat_civil.lieu_naissance if kyc_etat_civil else '' }}" />
+                <label for="etatEmail">Email</label>
+                <input id="etatEmail" name="email" type="email" placeholder="Email" value="{{ client.email if client and client.email else '' }}" />
               </div>
               <div class="field" style="flex:1 1 220px; min-width:200px;">
-                <label for="etatNationalite">Nationalité</label>
-                <input id="etatNationalite" name="nationalite" type="text" placeholder="Nationalité" value="{{ kyc_etat_civil.nationalite if kyc_etat_civil else '' }}" />
+                <label for="etatTelephone">Téléphone</label>
+                <input id="etatTelephone" name="telephone" type="text" placeholder="Téléphone" value="{{ client.telephone if client and client.telephone else '' }}" />
+              </div>
+              <div class="field" style="flex:1 1 220px; min-width:200px;">
+                <label for="etatNif">NIF (Numéro d'identification fiscale)</label>
+                <input id="etatNif" name="nif" type="text" placeholder="NIF" value="{{ client.nif if client and client.nif else '' }}" />
               </div>
             </div>
             <div class="field">
@@ -783,6 +797,8 @@
                 Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
                 <span style="margin:0 6px;">|</span>
                 Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+                <span style="margin:0 6px;">|</span>
+                SRRI: <span id="riskSrriValue" class="offer-pill">—</span>
               </div>
             </div>
           </div>
@@ -1357,6 +1373,7 @@
             function updateOffer(){
               // mirror compute on client for UX
               const OFFRE={court_terme:1, prudente:2, equilibree:3, dynamique:4, offensif:5};
+              const SRRI_MAP={1:2,2:3,3:4,4:5,5:6};
               const conso = (val('connaissance_adequate')||'').toLowerCase();
               let offer = OFFRE.court_terme;
               if (conso === 'non'){
@@ -1387,6 +1404,7 @@
               }
               const calcPill = document.getElementById('riskOfferCalcPill');
               const finalPill = document.getElementById('riskOfferFinalPill');
+              const srriSpan = document.getElementById('riskSrriValue');
               if (calcPill) calcPill.textContent = offerLabelFromId(offer);
               let finalOffer = offer;
               // Revenus CT priority
@@ -1406,6 +1424,7 @@
                 else if (accG === 'non' && pers) finalOffer = pers;
               } catch(e) {}
               if (finalPill) finalPill.textContent = offerLabelFromId(finalOffer);
+              if (srriSpan) srriSpan.textContent = SRRI_MAP[finalOffer] ? 'SRRI ' + SRRI_MAP[finalOffer] : '—';
             }
 
             function updateSaveEnabled(){

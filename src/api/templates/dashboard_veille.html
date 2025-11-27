@@ -42,6 +42,11 @@
     <div class="veille-column">
       <header><i class="fa-solid fa-chart-line"></i> Marchés financiers</header>
       <div class="body">
+        {% if markets_meta %}
+          <div class="muted" style="font-size:0.85rem; margin-bottom:6px;">
+            Source : {{ markets_meta.source }} · Extraction : {{ markets_meta.timestamp }}
+          </div>
+        {% endif %}
         {% if markets %}
           <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
             <thead>

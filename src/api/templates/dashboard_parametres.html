@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Paramètres{% endblock %}
-{% block header_title %}<i class="fa-solid fa-gear" style="margin-right:8px;"></i>Paramètres{% endblock %}
+{% block title %}Administration{% endblock %}
+{% block header_title %}<i class="fa-solid fa-gear" style="margin-right:8px;"></i>Administration{% endblock %}
 
 {% block content %}
 <style>
@@ -23,8 +23,8 @@
     background: #f8fafe;
   }
   .param-tab {
-    border: 1px solid var(--border);
-    background: #fff;
+    border: 1px solid transparent;
+    background: transparent;
     color: var(--text);
     padding: 12px 14px;
     border-radius: 12px;
@@ -34,7 +34,7 @@
     justify-content: center;
     gap: 8px;
     cursor: pointer;
-    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+    box-shadow: none;
     transition: all .15s ease;
     flex: 0 0 auto;
     min-width: 150px;
@@ -42,14 +42,14 @@
     text-align: center;
   }
   .param-tab i { color: var(--primary-600); }
-  .param-tab:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+  .param-tab:hover { transform: translateY(-1px); border-color: transparent; }
   .param-tab.active {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    color: #fff;
+    background: transparent;
+    color: var(--primary-600);
     border-color: transparent;
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+    box-shadow: none;
   }
-  .param-tab.active i { color: #fff; }
+  .param-tab.active i { color: var(--primary-600); }
   #paramContainer #assureursPanel > .accordion-subtoggle,
   #paramContainer #contratsPanel > .accordion-subtoggle,
   #paramContainer #courtierPanel > .accordion-subtoggle,
@@ -243,6 +243,33 @@
   #paramContainer .support-sort[data-order="desc"]::after {
     content: ' \25BE';
   }
+  /* Portefeuille KPI */
+  #paramContainer .portfolio-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    align-items: stretch;
+  }
+  #paramContainer .portfolio-kpi {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    min-width: 0;
+    box-shadow: var(--shadow-sm);
+    text-align: center;
+  }
+  #paramContainer .portfolio-kpi .label {
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  #paramContainer .portfolio-kpi .value {
+    font-size: 1.3rem;
+    font-weight: 800;
+    text-align: center;
+  }
   /* Harmoniser la hauteur des champs dans Courtier */
   #courtierPanel select,
   #courtierPanel input[type="email"],
@@ -365,8 +392,20 @@
     <span id="toastErrorMsg" style="margin-left:6px; opacity:.9;"></span>
   </div>
   <div class="card" style="margin-bottom:1rem;">
-    <h2>Administration des référentiels</h2>
-    <p class="muted" style="margin-top:.35rem;">Configurer les sociétés, contrats génériques et supports financiers proposés aux clients.</p>
+    <div class="portfolio-kpis">
+      <div class="portfolio-kpi">
+        <div class="label">Nombre de placements financiers</div>
+        <div class="value">{{ portfolio_total_affaires }}</div>
+      </div>
+      <div class="portfolio-kpi">
+        <div class="label">Valorisation totale</div>
+        <div class="value">{{ portfolio_total_valo_str }} €</div>
+      </div>
+      <div class="portfolio-kpi">
+        <div class="label">Nombre de clients</div>
+        <div class="value">{{ portfolio_total_clients }}</div>
+      </div>
+    </div>
   </div>
 
   <div class="card" style="padding:0; overflow:hidden;">
@@ -1019,6 +1058,8 @@
           </table>
         </div>
         </div>
+      </div>
+      <!-- Fin Courtier -->
       </div>
       <div class="accordion-toggle" data-target="contratsPanel" data-level="root">
         <span><i class="fa-solid fa-file-contract" style="margin-right:6px;"></i> Contrats d'assurance vie</span>

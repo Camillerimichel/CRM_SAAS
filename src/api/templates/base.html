@@ -103,6 +103,7 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            justify-content: flex-start;
         }
         nav a {
             text-decoration: none;
@@ -110,9 +111,9 @@
             font-weight: 700;
             padding: 10px 14px;
             border-radius: 12px;
-            background: #fff;
-            border: 1px solid var(--border);
-            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+            background: transparent;
+            border: 1px solid transparent;
+            box-shadow: none;
             display: inline-flex;
             align-items: center;
             gap: 8px;
@@ -121,12 +122,12 @@
         nav a i { color: var(--primary-600); }
         nav a:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
         nav a.active {
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: #fff;
+            background: transparent;
+            color: var(--primary-600);
             border-color: transparent;
-            box-shadow: 0 14px 32px rgba(37, 99, 235, 0.25);
+            box-shadow: none;
         }
-        nav a.active i { color: #fff; }
+        nav a.active i { color: var(--primary-600); }
 
         /* Mise en page */
         .container { max-width: 1200px; margin: 1.2rem auto 2rem; padding: 0 1rem; }
@@ -317,11 +318,10 @@
         }
         /* ===== Footer menu ===== */
         .bottom-menu {
-            position: fixed;
-            inset: auto 0 0 0;
-            background: rgba(255,255,255,0.96);
+            position: static;
+            background: transparent;
             border-top: 1px solid var(--border);
-            box-shadow: 0 -6px 16px rgba(15,23,42,0.08);
+            box-shadow: none;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -329,22 +329,26 @@
             padding: 14px 20px;
             z-index: 1200;
             flex-wrap: wrap;
+            margin-top: 32px;
         }
         .bottom-menu button {
             border-radius: 10px;
-            background: #fff;
+            background: transparent;
             color: var(--text);
-            border: 1px solid var(--border);
-            padding: 10px 14px;
+            border: 1px solid transparent;
+            padding: 8px 12px;
             font-weight: 700;
-            font-size: 15px;
+            font-size: 14px;
             cursor: pointer;
-            box-shadow: 0 4px 12px rgba(15,23,42,0.08);
+            box-shadow: none;
             transition: all .15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         .bottom-menu button:hover {
             transform: translateY(-1px);
-            border-color: rgba(37,99,235,0.35);
+            border-color: transparent;
         }
         /* ===== Footer modals ===== */
         .footer-modal-backdrop {
@@ -390,7 +394,7 @@
         <div class="brand">
           <div class="brand-mark">CRM</div>
           <div class="brand-text">
-            <p class="muted" style="font-weight:700; text-transform:uppercase; letter-spacing:.06em;">Pilotage portefeuille</p>
+            <p class="muted" style="font-weight:700; text-transform:uppercase; letter-spacing:.06em;">Suivi conforme du portefeuille</p>
             <h1>{% block header_title %}CRM SAAS{% endblock %}</h1>
             {% block header_subtitle %}{% endblock %}
           </div>
@@ -402,15 +406,13 @@
         <div class="nav-inner">
             {% set path = request.url.path if request and request.url else '' %}
             <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Accueil</a>
-            <a href="/dashboard/veille" class="{% if path.startswith('/dashboard/veille') %}active{% endif %}"><i class="fa-solid fa-newspaper"></i>Veille</a>
             <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
             <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
             <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
             <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
             <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
-            <a href="/dashboard/veille" class="{% if path.startswith('/dashboard/veille') %}active{% endif %}"><i class="fa-solid fa-newspaper"></i>Veille</a>
             <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
-            <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Paramètres</a>
+            <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Administration</a>
         </div>
       </nav>
     </div>
@@ -427,13 +429,13 @@
         </div>
     </div>
     <div class="bottom-menu" role="navigation" aria-label="Liens légaux">
-      <button type="button" onclick="openFooterModal('mentions')">Mentions légales</button>
-      <button type="button" onclick="openFooterModal('contact')">Nous contacter</button>
-      <button type="button" onclick="openFooterModal('reclamation')">Réclamations</button>
-      <button type="button" onclick="openFooterModal('der')">DER</button>
-      <button type="button" onclick="openFooterModal('rgpd')">RGPD</button>
-      <button type="button" onclick="openFooterModal('conflits')">Conflits d'intérêts</button>
-      <button type="button" onclick="openFooterModal('charte')">Charte de déontologie</button>
+      <button type="button" onclick="openFooterModal('mentions')"><i class="fa-solid fa-scale-balanced"></i> Mentions légales</button>
+      <button type="button" onclick="openFooterModal('contact')"><i class="fa-solid fa-envelope"></i> Nous contacter</button>
+      <button type="button" onclick="openFooterModal('reclamation')"><i class="fa-solid fa-triangle-exclamation"></i> Réclamations</button>
+      <button type="button" onclick="openFooterModal('der')"><i class="fa-solid fa-file-signature"></i> DER</button>
+      <button type="button" onclick="openFooterModal('rgpd')"><i class="fa-solid fa-shield-halved"></i> RGPD</button>
+      <button type="button" onclick="openFooterModal('conflits')"><i class="fa-solid fa-handshake-angle"></i> Conflits d'intérêts</button>
+      <button type="button" onclick="openFooterModal('charte')"><i class="fa-solid fa-scroll"></i> Charte de déontologie</button>
     </div>
 
     <!-- Modales footer -->
