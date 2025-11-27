@@ -550,11 +550,10 @@ def _parse_valo_filter_expression(expr: str | None) -> dict:
     return result
 
 
-@router.get("/veille", response_class=HTMLResponse)
-def dashboard_veille(request: Request):
+def _get_veille_context() -> dict:
     import json
-    items = []
-    # Cache simple (5 minutes)
+
+    items: list[dict] = []
     now = datetime.now(timezone.utc)
     try:
         if VEILLE_CACHE["ts"] and (now - VEILLE_CACHE["ts"]).total_seconds() < 300:
@@ -565,7 +564,6 @@ def dashboard_veille(request: Request):
             VEILLE_CACHE["ts"] = now
     except Exception:
         items = []
-    # fallback local si rien de collecté
     if not items:
         try:
             if VEILLE_FILE.exists():
@@ -573,18 +571,14 @@ def dashboard_veille(request: Request):
                     items = json.load(f) or []
         except Exception:
             items = []
-    # Group by first tag when available
-    grouped = {}
+    grouped: dict = {}
     for it in items:
         tags = it.get("tags") or []
         key = tags[0] if tags else "Divers"
         grouped.setdefault(key, []).append(it)
-    # sort by date inside each group
     for k in grouped:
         grouped[k].sort(key=lambda x: x.get("published") or "", reverse=True)
-    # Bloc "News récentes" : top 15 tous tags confondus
     recent = sorted(items, key=lambda x: x.get("published") or "", reverse=True)[:15]
-    # Bloc marchés financiers (mock local ou placeholder)
     markets = [
         {"name": "CAC 40", "value": "7 250", "var": "+0.8%"},
         {"name": "DAX", "value": "16 150", "var": "+0.5%"},
@@ -592,16 +586,39 @@ def dashboard_veille(request: Request):
         {"name": "EuroStoxx 50", "value": "4 350", "var": "+0.2%"},
         {"name": "NASDAQ", "value": "13 600", "var": "-0.6%"},
     ]
+    markets_meta = {
+        "source": "Données marchés (mock local)",
+        "timestamp": now.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC"),
+    }
+    return {
+        "items": items,
+        "grouped": grouped,
+        "recent": recent,
+        "markets": markets,
+        "markets_meta": markets_meta,
+    }
+
+
+@router.get("/veille", response_class=HTMLResponse)
+def dashboard_veille(request: Request):
+    # Veille chargée à la demande (lazy)
+    veille_ctx = {"items": [], "recent": [], "grouped": {}, "markets": [], "markets_meta": {}}
     return templates.TemplateResponse(
         "dashboard_veille.html",
         {
             "request": request,
-            "items": items,
-            "grouped": grouped,
-            "recent": recent,
-            "markets": markets,
+            "items": veille_ctx.get("items"),
+            "grouped": veille_ctx.get("grouped"),
+            "recent": veille_ctx.get("recent"),
+            "markets": veille_ctx.get("markets"),
+            "markets_meta": veille_ctx.get("markets_meta"),
         },
     )
+
+@router.get("/veille/data", response_class=JSONResponse)
+def dashboard_veille_data():
+    veille_ctx = _get_veille_context()
+    return veille_ctx
 
 
 def _fmt_currency(value: float | int | None) -> str:
@@ -4882,9 +4899,37 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     compliance_activites: list[dict] = []
     courtier_documents: list[dict] = []
     courtier_document_edit: dict | None = None
+    # KPIs portefeuille
+    total_clients = 0
+    total_affaires = 0
+    total_valo = 0.0
+    total_valo_str = "0"
 
     # Chargement des données si les tables existent
     from sqlalchemy import text as _text
+
+    try:
+        total_clients = db.query(func.count(Client.id)).scalar() or 0
+    except Exception:
+        total_clients = 0
+    try:
+        total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
+    except Exception:
+        total_affaires = 0
+    try:
+        finance_global_ctx = _build_finance_analysis(
+            db=db,
+            finance_rh_id=None,
+            finance_date_param=None,
+            finance_valo_param=None,
+        )
+        total_valo = finance_global_ctx.get("finance_total_valo") or 0.0
+    except Exception:
+        total_valo = 0.0
+    try:
+        total_valo_str = "{:,.0f}".format(float(total_valo or 0)).replace(",", " ")
+    except Exception:
+        total_valo_str = "0"
 
     def _load_admin_types_list() -> list[dict]:
         try:
@@ -5426,6 +5471,10 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "admin_intervenants": admin_intervenants,
             "groupes_details": groupes_details,
             "admin_rh": admin_rh,
+            "portfolio_total_clients": total_clients,
+            "portfolio_total_affaires": total_affaires,
+            "portfolio_total_valo": total_valo,
+            "portfolio_total_valo_str": total_valo_str,
         },
     )
 
@@ -8858,6 +8907,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         tasks_type_by_rh = []
         tasks_type_total = []
 
+    veille_ctx = _get_veille_context()
+
     rem_contracts = []
     rem_rows_full = []
     rem_total_commission = 0.0
@@ -9484,6 +9535,12 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             "tasks_range": range_days,
             "tasks_type_by_rh": tasks_type_by_rh,
             "tasks_type_total": tasks_type_total,
+            # Veille
+            "veille_items": veille_ctx.get("items"),
+            "veille_recent": veille_ctx.get("recent"),
+            "veille_grouped": veille_ctx.get("grouped"),
+            "veille_markets": veille_ctx.get("markets"),
+            "veille_markets_meta": veille_ctx.get("markets_meta"),
             "rem_contracts": rem_contracts,
             "rem_selected_contract": rem_selected_contract,
             "rem_limit": rem_limit,
@@ -9695,6 +9752,9 @@ async def dashboard_client_kyc(
                 "lieu_naissance",
                 "nationalite",
                 "commentaire",
+                "email",
+                "telephone",
+                "nif",
             ]}
             rec_id = form.get("id") or None
             try:
@@ -9743,6 +9803,28 @@ async def dashboard_client_kyc(
                         ),
                         payload | {"cid": client_id},
                     )
+                # Mettre à jour email / téléphone / NIF dans mariadb_clients
+                try:
+                    db.execute(
+                        text(
+                            """
+                            UPDATE mariadb_clients
+                            SET email = :email,
+                                telephone = :telephone,
+                                nif = :nif
+                            WHERE id = :cid
+                            """
+                        ),
+                        {
+                            "email": payload.get("email"),
+                            "telephone": payload.get("telephone"),
+                            "nif": payload.get("nif"),
+                            "cid": client_id,
+                        },
+                    )
+                except Exception:
+                    db.rollback()
+                    raise
                 db.commit()
                 etat_success = "Etat civil sauvegardé avec succès."
             except Exception as exc:
@@ -11113,6 +11195,9 @@ async def dashboard_client_kyc(
                 # Décharge si l'offre finale diffère de l'offre calculée suite à un refus
                 if accept_offre_calculee == "non" and params_main["offre_finale_niveau_id"] != int(offre_calc):
                     params_main["decharge_responsabilite"] = 1
+                # SRRI mappé sur l'offre finale
+                srri_map = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
+                srri_val = srri_map.get(int(params_main["offre_finale_niveau_id"]), None)
                 # Insertion systématique d'un nouveau questionnaire
                 db.execute(
                     _text(
@@ -11361,11 +11446,13 @@ async def dashboard_client_kyc(
                     # Récupérer allocation liée au niveau de risque
                     allocation_nom = None
                     allocation_md = None
+                    allocation_id_client = None
                     try:
                         row_alloc = db.execute(
                             _text(
                                 """
                                 SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                                       a.id AS allocation_id,
                                        ar.texte AS allocation_texte
                                 FROM allocation_risque ar
                                 LEFT JOIN allocations a ON a.nom = ar.allocation_name
@@ -11378,10 +11465,42 @@ async def dashboard_client_kyc(
                         ).fetchone()
                         if row_alloc:
                             allocation_nom = row_alloc[0]
-                            allocation_md = row_alloc[1]
+                            allocation_id_client = row_alloc[1] if hasattr(row_alloc, "_mapping") and row_alloc._mapping.get("allocation_id") is not None else None
+                            allocation_md = row_alloc[2] if hasattr(row_alloc, "_mapping") else row_alloc[1]
                     except Exception:
                         allocation_nom = None
                         allocation_md = None
+                        allocation_id_client = None
+
+                    # Si le client accepte le risque calculé, mettre à jour mariadb_clients.allocation_id
+                    try:
+                        if accept_offre_calculee == "oui":
+                            if allocation_id_client is None and allocation_nom:
+                                try:
+                                    row_alloc_id = db.execute(
+                                        _text("SELECT id FROM allocations WHERE nom = :nom LIMIT 1"),
+                                        {"nom": allocation_nom},
+                                    ).fetchone()
+                                    if row_alloc_id:
+                                        allocation_id_client = row_alloc_id[0] if not hasattr(row_alloc_id, "_mapping") else (row_alloc_id._mapping.get("id") or row_alloc_id[0])
+                                except Exception:
+                                    allocation_id_client = None
+                            if allocation_id_client is not None:
+                                db.execute(
+                                    _text("UPDATE mariadb_clients SET allocation_id = :aid WHERE id = :cid"),
+                                    {"aid": int(allocation_id_client), "cid": client_id},
+                                )
+                    except Exception as exc:
+                        logger.debug("KYC_Client_Risque: mise à jour allocation_id client impossible: %s", exc, exc_info=True)
+                    # Mettre à jour le SRRI dans mariadb_clients selon la correspondance
+                    try:
+                        if srri_val is not None:
+                            db.execute(
+                                _text("UPDATE mariadb_clients SET SRRI = :s WHERE id = :cid"),
+                                {"s": int(srri_val), "cid": client_id},
+                            )
+                    except Exception as exc:
+                        logger.debug("KYC_Client_Risque: mise à jour SRRI client impossible: %s", exc, exc_info=True)
 
                     # Charger la série de performance/volatilité pour cette allocation
                     alloc_chart = None
@@ -17185,6 +17304,36 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
     return RedirectResponse(url=f"/dashboard/affaires/{affaire_id}", status_code=303)
 
 
+# ---------------- Mise à jour SRRI Affaire ----------------
+@router.post("/affaires/{affaire_id}/srri", response_class=HTMLResponse)
+async def dashboard_affaire_update_srri(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    srri_raw = form.get("srri")
+    try:
+        srri_val = int(srri_raw) if srri_raw not in (None, "", "None") else None
+    except Exception:
+        srri_val = None
+    if srri_val is not None:
+        # clamp 1-7
+        if srri_val < 1 or srri_val > 7:
+            srri_val = None
+    affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+    updated = False
+    if affaire and srri_val is not None:
+        try:
+            affaire.SRRI = srri_val
+            db.add(affaire)
+            db.commit()
+            updated = True
+        except Exception:
+            db.rollback()
+            updated = False
+    # Si SRRI modifié, forcer l'édition de la synthèse PDF
+    if updated:
+        return RedirectResponse(url=f"/dashboard/affaires/{affaire_id}/synthese/pdf", status_code=303)
+    return RedirectResponse(url=f"/dashboard/affaires/{affaire_id}", status_code=303)
+
+
 # ---------------- Détail Client ----------------
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
@@ -17198,6 +17347,35 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     DER_sql_mediation: str | None = None
 
     client = db.query(Client).filter(Client.id == client_id).first()
+    client_allocation_id = None
+    client_allocation_name = None
+    allocations_lookup: dict[int, str] = {}
+    try:
+        row_cli_alloc = db.execute(text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+        if row_cli_alloc:
+            client_allocation_id = row_cli_alloc[0] if not hasattr(row_cli_alloc, "_mapping") else (row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0])
+        if client_allocation_id:
+            row_alloc_name = db.execute(text("SELECT nom FROM allocations WHERE id = :aid"), {"aid": client_allocation_id}).fetchone()
+            if row_alloc_name:
+                client_allocation_name = row_alloc_name[0] if not hasattr(row_alloc_name, "_mapping") else (row_alloc_name._mapping.get("nom") or row_alloc_name[0])
+        # Si pas trouvé dans allocations, tenter allocation_risque -> allocation_name
+        if client_allocation_name is None and client_allocation_id:
+            row_alloc_risque = db.execute(text("SELECT allocation_name FROM allocation_risque WHERE id = :aid"), {"aid": client_allocation_id}).fetchone()
+            if row_alloc_risque:
+                client_allocation_name = row_alloc_risque[0] if not hasattr(row_alloc_risque, "_mapping") else (row_alloc_risque._mapping.get("allocation_name") or row_alloc_risque[0])
+        try:
+            rows_lookup = db.execute(text("SELECT id, nom FROM allocations")).fetchall()
+            for r in rows_lookup:
+                try:
+                    rid = r[0] if not hasattr(r, "_mapping") else (r._mapping.get("id") or r[0])
+                    rname = r[1] if not hasattr(r, "_mapping") else (r._mapping.get("nom") or r[1])
+                    allocations_lookup[int(rid)] = rname
+                except Exception:
+                    continue
+        except Exception:
+            allocations_lookup = {}
+    except Exception:
+        client_allocation_id = getattr(client, "allocation_id", None) if client else None
 
     # Historique complet pour la courbe (inclut mouvements pour cumul)
     historique = (
@@ -18867,6 +19045,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "esg_unmatched_fields": esg_unmatched_fields,
             "contrat_choisi_nom": contrat_choisi_nom,
             "contrat_choisi_societe": contrat_choisi_societe,
+            "allocation_reference_name": allocation_reference_name or client_allocation_name,
+            "client_allocation_id": client_allocation_id,
+            "client_allocation_name": client_allocation_name,
+            "allocations_lookup": allocations_lookup,
             # Lettre d'adéquation: infos consolidées
             "etat_civil_latest": etat_civil_latest,
             "nb_enfants_latest": nb_enfants_latest,

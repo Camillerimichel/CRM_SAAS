@@ -7,18 +7,6 @@
     {% if client_responsable %}
       <span class="badge" style="background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:2px 8px; border-radius:999px; font-size:.85rem;">Responsable: {{ client_responsable }}</span>
     {% endif %}
-    <span style="display:inline-flex; gap:6px;">
-      {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
-        <button type="button" class="btn" style="background:#16a34a; color:#fff; border:1px solid #16a34a; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')">{{ msgs_nonreg_count }} message{{ 's' if msgs_nonreg_count>1 }} en cours</button>
-      {% endif %}
-      {% if msgs_reg_count and msgs_reg_count > 0 %}
-        <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
-      {% endif %}
-      {% if affaire %}
-        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="generateAffaireSynthese()"><i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Synthèse PDF</button>
-      {% endif %}
-      <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openAffAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
-    </span>
   </span>
 {% endblock %}
 
@@ -71,6 +59,12 @@
     padding:6px 10px;
     margin-bottom:6px;
   }
+  .section-toggle-row .accordion-toggle.active {
+    color: var(--primary-600) !important;
+  }
+  .section-toggle-row .accordion-toggle.active i {
+    color: var(--primary-600) !important;
+  }
   /* Equal-size pie charts */
   .pie-grid { grid-template-columns: 1fr 1fr; align-items: stretch; }
   /* Cadres fixes, assez hauts pour afficher les abscisses */
@@ -78,6 +72,8 @@
   .pie-card canvas { flex: 1 1 auto; display:block; }
   .chart-title { font-size: 0.95rem; margin: 0 0 4px 0; }
   .accordion-toggle h3 { font-size: 1.05rem !important; margin: 0; font-weight: 600; }
+  .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
+  .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
   /* Small SRRI icon override */
   .card .srri-icon { font-size: 0.9rem !important; margin-left: 6px; margin-bottom: 0 !important; vertical-align: middle; }
   /* Harmoniser boutons avec Détail Client */
@@ -93,26 +89,51 @@
   /* ESG block full width enforcement */
   #esgToggle, #esgSection, #esgSection > .card { width:100%; box-sizing:border-box; grid-column: 1 / -1; }
   /* Toggle chevron styles (reuse for inv+graphs) */
-  #invToggle, #esgToggle, #avisToggle, #graphsToggle { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; width:100%; box-sizing:border-box; grid-column: 1 / -1; clear: both; }
+  #invToggle, #esgToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    text-align:center;
+    width:auto;
+    box-sizing:border-box;
+    grid-column: auto;
+    clear: none;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+  }
   #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   #invToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
-  #invToggle:not(.collapsed), #esgToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed) {
-    background: var(--primary);
-    color:#fff;
-    border-color: var(--primary);
-    box-shadow:0 10px 22px rgba(36,86,166,0.28);
+  #invToggle:not(.collapsed), #esgToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed), #riskToggle:not(.collapsed) {
+    background: transparent !important;
+    color: var(--primary-600);
+    border-color: transparent !important;
+    box-shadow:none !important;
   }
-  #invToggle:not(.collapsed) *, #esgToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) * {
-    color:#fff !important;
+  #invToggle:not(.collapsed) *, #esgToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) *, #riskToggle:not(.collapsed) * {
+    color: var(--primary-600) !important;
   }
   #invToggle:not(.collapsed) .badge, #esgToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
-    background:rgba(255,255,255,0.2) !important;
-    border-color:rgba(255,255,255,0.35) !important;
+    background:transparent !important;
+    border-color:transparent !important;
   }
   /* Ensure accordion sections take full row under any grid */
   #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
   /* Reportings pluriannuels toggle full width */
-  #reportToggle { width:100%; box-sizing:border-box; grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; }
+  #reportToggle {
+    width:auto;
+    box-sizing:border-box;
+    grid-column: auto;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    text-align:center;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+  }
   #reportToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease; font-size: 1rem; }
   #reportToggle.collapsed .chevron { transform: rotate(-90deg); }
   #reportSection { width:100%; grid-column: 1 / -1; }
@@ -123,32 +144,48 @@
   /* Barre horizontale des boutons d'accordéon */
   .section-toggle-row {
     display:flex;
-    gap:8px;
-    align-items:stretch;
-    flex-wrap:nowrap;
+    flex-direction:row;
+    justify-content:flex-start;
+    column-gap:12px;
+    row-gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
     overflow-x:auto;
-    padding:8px 0 12px;
-    margin:12px 0 6px;
+    padding:8px 0 10px;
+    margin:12px 0 10px;
     width:100%;
     max-width:100%;
     grid-column: 1 / -1;
     box-sizing:border-box;
   }
   .section-toggle-row .accordion-toggle {
-    flex:1 1 0;
-    margin:0;
-    min-width:140px;
-    max-width:180px;
+    flex:0 0 auto;
+    min-width:0;
     white-space:normal;
-    display:flex;
+    display:inline-flex;
     align-items:center;
     justify-content:center;
     text-align:center;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+    color: var(--text) !important;
+    padding: 6px 8px;
   }
   .section-toggle-row .accordion-toggle h3 {
-    font-size:0.85rem;
+    font-size:0.95rem;
     line-height:1.2;
     margin:0;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    color: inherit;
+  }
+  .section-toggle-row .accordion-toggle i { color: inherit !important; }
+  .section-toggle-row .accordion-toggle,
+  .section-toggle-row .accordion-toggle.collapsed,
+  .section-toggle-row .accordion-toggle.collapsed * {
+    color: var(--text) !important;
   }
   .section-toggle-row .chevron { display:none; }
   #affTasksToggle {
@@ -244,7 +281,7 @@
   #affMsgsTable td:nth-child(5) { white-space: normal; word-break: break-word; }
 </style>
 <div id="affMsgsModal" class="modal-overlay" data-tb-marker="AF_09" onclick="if(event.target===this) closeAffMsgs()">
-  <div class="modal-card" data-tb-marker="AF_10">
+    <div class="modal-card" data-tb-marker="AF_10">
     <div class="modal-header">
       <h3 id="affMsgsTitle"><i class="fa-solid fa-envelope" style="margin-right:8px;"></i>Messages</h3>
       <button class="modal-close" onclick="closeAffMsgs()">✕</button>
@@ -267,52 +304,138 @@
   </div>
 </div>
 
-<!-- KPIs en tête -->
-<div class="kpi-grid" data-tb-marker="AF_02" style="margin-top:12px;">
-  <div class="card" data-tb-marker="AF_03">
-    <div class="kpi-heading">Synthèse</div>
-    <div class="kpi-mini"><strong>Statut:</strong>
-      {% if affaire and affaire.date_cle %}
-        Clôturé (<span class="js-local-dt" data-iso="{{ affaire.date_cle }}">{{ affaire.date_cle }}</span>)
-      {% else %}
-        Ouvert
-      {% endif %}
+<!-- Pop-up SRRI / Risque -->
+<div id="affRiskModal" class="modal-overlay" onclick="if(event.target===this) closeAffRiskModal()">
+  <div class="modal-card" style="width:420px; max-width:95vw;">
+    <div class="modal-header">
+      <h3 style="display:flex; align-items:center; gap:8px; margin:0;"><i class="fa-solid fa-triangle-exclamation"></i>SRRI de l'affaire</h3>
+      <button class="modal-close" onclick="closeAffRiskModal()">✕</button>
     </div>
-    <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
-  </div>
-  <div class="card" data-tb-marker="AF_04">
-    <div class="kpi-heading">Investissement</div>
-    <div class="kpi-mini kpi-line" style="margin-top:6px;">
-      <span>Valorisation</span>
-      <span class="kv" style="font-size:1.35rem;">{{ '{:,.0f}'.format(last_valo or 0).replace(',', ' ') }} €</span>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:10px;">Modifier le SRRI impacte le profil de risque. Veillez à obtenir la validation du client avant de confirmer.</p>
+      <form method="post" action="/dashboard/affaires/{{ affaire.id }}/srri" onsubmit="return confirm('Changer le niveau de risque (SRRI) impacte le profil de l\'affaire. Confirmer la modification ?');">
+        {% if af_markers_param %}<input type="hidden" name="markers" value="1"/>{% endif %}
+        <label for="srriSelect">SRRI (1 à 7)</label>
+        <select id="srriSelect" name="srri" style="margin:6px 0 12px 0; width:100%;">
+          <option value="">-- Sélectionner --</option>
+          {% for n in range(1,8) %}
+            <option value="{{ n }}" {% if srri_client is not none and (srri_client|int)==n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+        <div class="muted" style="font-size:0.9rem; margin-bottom:12px;">SRRI actuel: {{ srri_client if srri_client is not none else '-' }} | SRRI calculé: {{ srri_calc if srri_calc is not none else '-' }}</div>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="btn" onclick="closeAffRiskModal()">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
     </div>
-    <div class="kpi-mini kpi-line" style="margin-top:4px;">
-      <span>Variation</span>
-      <span class="kv {% if (last_valo or 0) >= (solde or 0) %}gain{% else %}loss{% endif %}">{% if (last_valo or 0) >= (solde or 0) %}En plus-value{% else %}En moins-value{% endif %}</span>
-    </div>
-    <div class="kpi-mini kpi-line" style="margin-top:6px;"><span>Versements</span><span class="kv">{{ '{:,.0f}'.format(depots or 0).replace(',', ' ') }} €</span></div>
-    <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ '{:,.0f}'.format(retraits or 0).replace(',', ' ') }} €</span></div>
-    <div class="kpi-mini kpi-line"><span>Solde mouvements</span><span class="kv">{{ '{:,.0f}'.format(solde or 0).replace(',', ' ') }} €</span></div>
   </div>
-  <div class="card" data-tb-marker="AF_05">
-    <div class="kpi-heading">Indicateurs</div>
-    <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
-    <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
-    <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
-    <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
-  </div>
+</div>
 
+<!-- KPIs en tête -->
   <!-- Définir une tâche (ouverture de pop-up, même stratégie que Détail Client) -->
-  <div class="section-toggle-row">
-    <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" onclick="openAffTaskPopup()">
-      <h3>Définir une tâche</h3>
+  <div class="section-toggle-row" style="margin-top:12px;">
+    <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" title="Définir une tâche" aria-label="Définir une tâche" onclick="markAffToggleActive('affTasksToggle'); openAffTaskPopup()">
+      <h3 style="display:flex; align-items:center; gap:8px; margin:0; justify-content:flex-start;">
+        <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+      </h3>
     </div>
-    <div id="invToggle" class="card accordion-toggle"><h3 style="margin:0;">Investissements</h3></div>
-    <div id="esgToggle" class="card accordion-toggle"><h3 style="margin:0;">ESG</h3></div>
-    <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" onclick="openAvisModal()"><h3 style="margin:0;">Avis d'opération</h3></div>
-    <div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17"><h3 style="margin:0;">Graphiques</h3></div>
-    <div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22"><h3 style="margin:0;">Reportings annuels</h3></div>
+    <div id="invToggle" class="card accordion-toggle" title="Investissements" aria-label="Investissements">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+      </h3>
+    </div>
+    <div id="esgToggle" class="card accordion-toggle" title="ESG" aria-label="ESG">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+      </h3>
+    </div>
+    <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-file-contract" aria-hidden="true"></i>
+      </h3>
+    </div>
+    <div id="riskToggle" class="card accordion-toggle" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      </h3>
+    </div>
+    <div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" title="Graphiques" aria-label="Graphiques">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-chart-pie" aria-hidden="true"></i>
+      </h3>
+    </div>
+    <div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" title="Reportings annuels" aria-label="Reportings annuels">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+      </h3>
+    </div>
   </div>
+<div class="card" style="margin-top:10px; margin-bottom:0.5rem; padding:0;">
+  <div id="affSynthToggle" class="accordion-toggle" data-target="affSynthPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
+    <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+      <i class="fa-solid fa-rectangle-list" style="margin-right:6px;"></i>
+      <span>Synthèse</span>
+      <span class="chevron" style="margin-left:4px;">▾</span>
+    </h3>
+  </div>
+  <div id="affSynthPanel" class="accordion-panel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+      {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
+        <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')" title="Messages en cours">
+          <i class="fa-solid fa-triangle-exclamation"></i> {{ msgs_nonreg_count }}
+        </button>
+      {% endif %}
+      {% if msgs_reg_count and msgs_reg_count > 0 %}
+        <button type="button" class="btn" style="background:#fff; color:#c62828; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')" title="Messages réglementaires">
+          <i class="fa-solid fa-triangle-exclamation"></i> {{ msgs_reg_count }}
+        </button>
+      {% endif %}
+      {% if affaire %}
+        <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="generateAffaireSynthese()" title="Synthèse PDF">
+          <i class="fa-solid fa-file-pdf"></i>
+        </button>
+      {% endif %}
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="openAffAdminGroups()" title="Administration">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+    <div class="kpi-grid" data-tb-marker="AF_02" style="margin-top:0;">
+      <div class="card" data-tb-marker="AF_03">
+        <div class="kpi-heading">Synthèse</div>
+        <div class="kpi-mini"><strong>Statut:</strong>
+          {% if affaire and affaire.date_cle %}
+            Clôturé (<span class="js-local-dt" data-iso="{{ affaire.date_cle }}">{{ affaire.date_cle }}</span>)
+          {% else %}
+            Ouvert
+          {% endif %}
+        </div>
+        <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
+      </div>
+      <div class="card" data-tb-marker="AF_04">
+        <div class="kpi-heading">Investissement</div>
+        <div class="kpi-mini kpi-line" style="margin-top:6px;">
+          <span>Valorisation</span>
+          <span class="kv" style="font-size:1.35rem;">{{ '{:,.0f}'.format(last_valo or 0).replace(',', ' ') }} €</span>
+        </div>
+        <div class="kpi-mini kpi-line" style="margin-top:4px;">
+          <span>Variation</span>
+          <span class="kv {% if (last_valo or 0) >= (solde or 0) %}gain{% else %}loss{% endif %}">{% if (last_valo or 0) >= (solde or 0) %}En plus-value{% else %}En moins-value{% endif %}</span>
+        </div>
+        <div class="kpi-mini kpi-line" style="margin-top:6px;"><span>Versements</span><span class="kv">{{ '{:,.0f}'.format(depots or 0).replace(',', ' ') }} €</span></div>
+        <div class="kpi-mini kpi-line"><span>Retraits</span><span class="kv">{{ '{:,.0f}'.format(retraits or 0).replace(',', ' ') }} €</span></div>
+        <div class="kpi-mini kpi-line"><span>Solde mouvements</span><span class="kv">{{ '{:,.0f}'.format(solde or 0).replace(',', ' ') }} €</span></div>
+      </div>
+      <div class="card" data-tb-marker="AF_05">
+        <div class="kpi-heading">Indicateurs</div>
+        <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+        <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
+        <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
+        <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+      </div>
+    </div>
+  </div>
+</div>
 
   <!-- Pop-up de création de tâche pour l'affaire -->
   <style>
@@ -672,40 +795,64 @@
 
 <div id="graphsSection" data-tb-marker="AF_18" style="display:none;">
 
-<div class="card" data-tb-marker="AF_19" style="margin-top:12px;">
-  <h3>Evolution valorisation et cumul des mouvements</h3>
-  <canvas id="chartValo" height="120"></canvas>
-  <small class="muted">Courbes sans points; axes ajustés automatiquement.</small>
-  <div style="margin-top:8px;">
-    <button class="rangeBtn" data-range="90">3M</button>
-    <button class="rangeBtn" data-range="180">6M</button>
-    <button class="rangeBtn" data-range="365">1A</button>
-    <button class="rangeBtn" data-range="all">Tout</button>
+<div class="card" data-tb-marker="AF_19" style="margin-top:12px; padding:0;">
+  <div id="graphValoToggle" class="accordion-toggle" data-target="graphValoPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
+    <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+      <i class="fa-solid fa-chart-line"></i>
+      <span>Evolution valorisation et cumul des mouvements</span>
+      <span class="chevron" style="margin-left:4px;">▾</span>
+    </h3>
+  </div>
+  <div id="graphValoPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
+    <canvas id="chartValo" height="120"></canvas>
+    <small class="muted">Courbes sans points; axes ajustés automatiquement.</small>
+    <div style="margin-top:8px;">
+      <button class="rangeBtn" data-range="90">3M</button>
+      <button class="rangeBtn" data-range="180">6M</button>
+      <button class="rangeBtn" data-range="365">1A</button>
+      <button class="rangeBtn" data-range="all">Tout</button>
+    </div>
   </div>
 </div>
 
-<div class="card" data-tb-marker="AF_20" style="margin-top:12px;">
-  <h3>Performances et SRRI</h3>
-  <canvas id="chartAnnuel" height="120"></canvas>
+<div class="card" data-tb-marker="AF_20" style="margin-top:12px; padding:0;">
+  <div id="graphPerfToggle" class="accordion-toggle" data-target="graphPerfPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
+    <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+      <i class="fa-solid fa-chart-area"></i>
+      <span>Performances et SRRI</span>
+      <span class="chevron" style="margin-left:4px;">▾</span>
+    </h3>
+  </div>
+  <div id="graphPerfPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
+    <canvas id="chartAnnuel" height="120"></canvas>
+  </div>
 </div>
 
-<div class="card" data-tb-marker="AF_21" style="margin-top:12px;">
-  <h3>Comparatif investissements vs Offre produit</h3>
-  <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
-    <div>
-      <label>Offres financières à comparer</label><br>
-      <select id="allocSelect" style="min-width:200px; max-width:260px; width:auto;"></select>
-    </div>
-    <div>
-      <label class="muted" style="font-size:0.85rem;">Période</label><br>
-      <button class="rangeBtnCmp" data-range="all">Tout</button>
-      <button class="rangeBtnCmp" data-range="365">1 an</button>
-      <button class="rangeBtnCmp" data-range="180">6 mois</button>
-      <button class="rangeBtnCmp" data-range="90">3 mois</button>
-      <button class="rangeBtnCmp" data-range="30">1 mois</button>
-    </div>
+<div class="card" data-tb-marker="AF_21" style="margin-top:12px; padding:0;">
+  <div id="graphCmpToggle" class="accordion-toggle" data-target="graphCmpPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
+    <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+      <i class="fa-solid fa-chart-pie"></i>
+      <span>Comparatif investissements vs Offre produit</span>
+      <span class="chevron" style="margin-left:4px;">▾</span>
+    </h3>
   </div>
-  <canvas id="chartSicav" height="120" style="margin-top:8px;"></canvas>
+  <div id="graphCmpPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
+    <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
+      <div>
+        <label>Offres financières à comparer</label><br>
+        <select id="allocSelect" style="min-width:200px; max-width:260px; width:auto;"></select>
+      </div>
+      <div>
+        <label class="muted" style="font-size:0.85rem;">Période</label><br>
+        <button class="rangeBtnCmp" data-range="all">Tout</button>
+        <button class="rangeBtnCmp" data-range="365">1 an</button>
+        <button class="rangeBtnCmp" data-range="180">6 mois</button>
+        <button class="rangeBtnCmp" data-range="90">3 mois</button>
+        <button class="rangeBtnCmp" data-range="30">1 mois</button>
+      </div>
+    </div>
+    <canvas id="chartSicav" height="120" style="margin-top:8px;"></canvas>
+  </div>
 </div>
 
 <!-- (sections supports & répartitions remontées plus haut) -->
@@ -949,6 +1096,66 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     });
   });
 
+  // SRRI modal
+  function openAffRiskModal(){
+    const m = document.getElementById('affRiskModal');
+    if (!m) return;
+    m.style.display = 'flex';
+    markAffToggleActive('riskToggle');
+  }
+  function closeAffRiskModal(){
+    const m = document.getElementById('affRiskModal');
+    if (!m) return;
+    m.style.display = 'none';
+  }
+  window.openAffRiskModal = openAffRiskModal;
+  window.closeAffRiskModal = closeAffRiskModal;
+
+  function markAffToggleActive(id){
+    try{
+      document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
+        btn.classList.toggle('active', btn.id === id);
+      });
+    }catch(e){}
+  }
+
+  // Accordéon Synthèse (affaire) pour les 3 blocs KPI
+  (function(){
+    var t = document.getElementById('affSynthToggle');
+    var p = document.getElementById('affSynthPanel');
+    if (!t || !p) return;
+    function set(open){
+      p.style.display = open ? '' : 'none';
+      if (!open) t.classList.add('collapsed'); else t.classList.remove('collapsed');
+    }
+    set(false);
+    t.addEventListener('click', function(){
+      var isOpen = p.style.display !== 'none';
+      set(!isOpen);
+    });
+  })();
+
+  // Accordéons pour les graphiques (valorisation, perf, comparatif)
+  (function(){
+    const accs = [
+      {t:'graphValoToggle', p:'graphValoPanel'},
+      {t:'graphPerfToggle', p:'graphPerfPanel'},
+      {t:'graphCmpToggle', p:'graphCmpPanel'},
+    ];
+    accs.forEach(({t,p})=>{
+      const toggle = document.getElementById(t);
+      const panel = document.getElementById(p);
+      if (!toggle || !panel) return;
+      function set(open){
+        panel.style.display = open ? '' : 'none';
+        toggle.classList.toggle('collapsed', !open);
+      }
+      // ouverture par défaut
+      set(true);
+      toggle.addEventListener('click', ()=> set(panel.style.display === 'none'));
+    });
+  })();
+
   // Accordéons mutualisés: un seul ouvert, possibilité de tout fermer; scroll en haut à l'ouverture
   (function(){
     var groups = [
@@ -962,15 +1169,15 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       groups.forEach(function(g){
         var t = byId(g.toggleId), s = byId(g.sectionId);
         if (!t || !s) return;
-        if (targetKey && g.key === targetKey){ s.style.display = ''; t.classList.remove('collapsed'); }
-        else { s.style.display = 'none'; t.classList.add('collapsed'); }
+        if (targetKey && g.key === targetKey){ s.style.display = ''; t.classList.remove('collapsed'); markAffToggleActive(g.toggleId); }
+        else { s.style.display = 'none'; t.classList.add('collapsed'); if (targetKey) {} }
       });
       try { localStorage.setItem('aff_detail_open', targetKey || ''); } catch(e) {}
     }
     // Init: restaurer la dernière ouverte si possible
     var saved = ''; try { saved = localStorage.getItem('aff_detail_open') || ''; } catch(e) {}
     if (saved) { setOpen(saved); }
-    else { setOpen(''); }
+    else { setOpen(''); markAffToggleActive(''); }
     // Bind clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);
@@ -1790,7 +1997,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const notice = document.getElementById('affGroupsNotice');
       if (!Array.isArray(affGroupDetails) || affGroupDetails.length === 0){
         const opt = document.createElement('option'); opt.value=''; opt.textContent='Aucun groupe Affaires'; sel.appendChild(opt);
-        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Affaires trouvé. Allez dans Paramètres > Groupes pour en créer.'; }
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Affaires trouvé. Allez dans Administration > Groupes pour en créer.'; }
         return;
       }
       if (notice) { notice.style.display = 'none'; notice.textContent = ''; }

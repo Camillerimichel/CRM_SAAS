@@ -2,23 +2,7 @@
 
 {% block title %}Tableau de bord{% endblock %}
 {% block header_title %}
-<span class="header-title-wrap">
-  <span class="header-title-text"><i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord</span>
-  <span class="header-kpi-row">
-    <span class="header-kpi-pill">
-      <span class="label">Nombre de placements financiers</span>
-      <span class="value">{{ total_affaires }}</span>
-    </span>
-    <span class="header-kpi-pill">
-      <span class="label">Valorisation totale</span>
-      <span class="value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</span>
-    </span>
-    <span class="header-kpi-pill">
-      <span class="label">Nombre de clients</span>
-      <span class="value">{{ total_clients }}</span>
-    </span>
-  </span>
-</span>
+<span class="header-title-text"><i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord</span>
 {% endblock %}
 
 {% block content %}
@@ -29,43 +13,9 @@
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_01">
 <!-- KPIs -->
 <style>
-  .header-title-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
   .header-title-text { display: inline-flex; align-items: center; gap: 8px; }
-  .header-kpi-row {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .header-kpi-pill {
-    background: linear-gradient(135deg, #1f4eb8, #2563eb);
-    color: #fff;
-    border-radius: 999px;
-    padding: 8px 14px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.95rem;
-    font-weight: 700;
-    box-shadow: 0 10px 26px rgba(31, 78, 184, 0.25);
-    border: 1px solid rgba(255,255,255,0.12);
-  }
-  .header-kpi-pill .label {
-    display: block;
-    opacity: 0.9;
-    font-size: 0.85rem;
-    letter-spacing: .01em;
-  }
-  .header-kpi-pill .value {
-    display: block;
-    font-size: 1rem;
-    font-weight: 800;
-  }
+  /* Rapprocher la zone de travail du bandeau d'onglets */
+  .container { margin-top: 0; padding-top: 0; }
 </style>
 <style>
   .accordion-toggle {
@@ -143,35 +93,35 @@
   .tasks-inline-kpi {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 10px 12px;
+    gap: 4px;
+    padding: 6px 8px;
     border-radius: 12px;
     background: #fff;
     border: 1px solid var(--border);
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-    height: 44px;
+    height: 28px;
   }
   .tasks-inline-kpi .label {
     color: var(--muted);
     font-weight: 700;
-    font-size: 13px;
+    font-size: 11px;
   }
   .tasks-inline-kpi .value {
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 800;
     color: var(--text);
   }
   .tasks-range a.btn-choice {
-    min-width: 70px;
-    height: 44px;
+    min-width: 40px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
-    border-radius: 14px;
+    font-size: 12px;
+    border-radius: 10px;
     background: #fff;
     border: 1px solid var(--border);
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 5px 12px rgba(15, 23, 42, 0.06);
   }
   .tasks-range a.btn-choice-active {
     background: linear-gradient(135deg, #2563eb, #1d4ed8);
@@ -197,52 +147,53 @@
   /* Tabs principaux (Dashboard) */
   .dash-tabs {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
     overflow-x: visible;
-    justify-content: stretch;
+    justify-content: center;
     align-items: center;
-    padding: 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
     background: #f8fafe;
-    margin: 0 auto 12px auto;
-    max-width: none;
+    margin: 0 auto 10px;
+    max-width: 1200px;
     width: 100%;
     scrollbar-width: thin;
   }
   .dash-tab {
-    border: 1px solid var(--border);
-    background: #fff;
+    border: 1px solid transparent;
+    background: transparent;
     color: var(--text);
-    padding: 12px 14px;
+    padding: 10px 12px;
     border-radius: 12px;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.95rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     cursor: pointer;
-    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+    box-shadow: none;
     transition: all .15s ease;
-    flex: 1 1 0;
-    min-width: 140px;
-    min-height: 44px;
+    flex: 0 1 120px;
+    min-width: 110px;
+    min-height: 40px;
     text-align: center;
   }
   .dash-tab i { color: var(--primary-600); }
-  .dash-tab:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+  .dash-tab:hover { transform: translateY(-1px); border-color: transparent; }
   .dash-tab.active {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    color: #fff;
+    background: transparent;
+    color: var(--primary-600);
     border-color: transparent;
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+    box-shadow: none;
   }
-  .dash-tab.active i { color: #fff; }
+  .dash-tab.active i { color: var(--primary-600); }
 </style>
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs">
   <button class="dash-tab" data-key="calendar" data-target="calendarSection"><i class="fa-solid fa-calendar"></i> Calendrier</button>
+  <button class="dash-tab" data-key="veille" data-target="veilleSection"><i class="fa-solid fa-newspaper"></i> Veille</button>
   <button class="dash-tab active" data-key="tasks" data-target="tasksSection"><i class="fa-solid fa-list-check"></i> Tâches</button>
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
   <button class="dash-tab" data-key="analysis" data-target="analysisSection"><i class="fa-solid fa-chart-line"></i> Analyse</button>
@@ -276,23 +227,23 @@
       <div class="tasks-inline-kpi" data-tb-marker="TB_16"><span class="label">Aujourd'hui</span><span class="value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</span></div>
     </div>
   </div>
-  <div class="tasks-kpis" data-tb-marker="TB_17">
+  <div class="tasks-kpis" data-tb-marker="TB_17" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:10px; align-items:stretch;">
     {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
     {% if total_tasks_days and total_tasks_days > 0 %}
-      <div class="tasks-kpi-card" data-tb-marker="TB_18" style="grid-column: 1 / -1; min-height:140px; display:flex; align-items:center; justify-content:center;">
-        <canvas id="chartTasksDays" height="120"></canvas>
+      <div class="tasks-kpi-card" data-tb-marker="TB_18" style="min-height:220px; display:flex; align-items:center; justify-content:center;">
+        <canvas id="chartTasksDays" height="180" style="width:100%;"></canvas>
       </div>
     {% endif %}
-  </div>
-  <div class="card" data-tb-marker="TB_18" style="margin-top:8px;">
-    <div data-tb-marker="TB_19" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-      <div class="muted">Filtre par responsable commercial:</div>
-      <select id="tasksRhSelect" style="width:160px;">
-        <option value="">Tous</option>
-      </select>
-    </div>
-    <div data-tb-marker="TB_20" style="min-height:140px; display:flex; align-items:center; justify-content:center;">
-      <canvas id="chartTasksType" height="110" style="width:100%;"></canvas>
+    <div class="tasks-kpi-card" data-tb-marker="TB_19" style="min-height:220px; display:flex; flex-direction:column;">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+        <div class="muted">Filtre par responsable commercial:</div>
+        <select id="tasksRhSelect" style="width:160px;">
+          <option value="">Tous</option>
+        </select>
+      </div>
+      <div data-tb-marker="TB_20" style="flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;">
+        <canvas id="chartTasksType" height="160" style="width:100%;"></canvas>
+      </div>
     </div>
   </div>
   </div>
@@ -304,37 +255,36 @@
       gap:8px;
       align-items:stretch;
       flex-wrap:nowrap;
-      overflow-x:auto;
-      padding:8px 0 10px;
-      margin:8px auto 12px auto;
-      max-width:1100px;
-      box-sizing:border-box;
-    }
-    .risk-toggle-row .risk-toggle {
-      flex:1 1 0;
-      min-width:160px;
-      margin:0;
-      text-align:center;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:10px;
-      border:1px solid var(--border);
-      border-radius:10px;
-      background:#fff;
-      cursor:pointer;
-      font-size:0.95rem;
-      font-weight:600;
-      box-shadow:var(--shadow-sm);
-      color: var(--text);
-      background:#fff;
-    }
-    .risk-toggle-row .risk-toggle.active {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-      box-shadow: 0 10px 20px rgba(37,99,235,0.18);
-    }
+    overflow-x:auto;
+    padding:8px 0 10px;
+    margin:8px auto 12px auto;
+    max-width:1100px;
+    box-sizing:border-box;
+  }
+  .risk-toggle-row .risk-toggle {
+    flex:1 1 0;
+    min-width:160px;
+    margin:0;
+    text-align:center;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:10px;
+    border:1px solid transparent;
+    border-radius:10px;
+    background: transparent;
+    cursor:pointer;
+    font-size:0.95rem;
+    font-weight:600;
+    box-shadow:none;
+    color: var(--text);
+  }
+  .risk-toggle-row .risk-toggle.active {
+    background: transparent;
+    color: var(--primary-600);
+    border-color: transparent;
+    box-shadow: none;
+  }
   </style>
 
   <!-- Accordéon Risques -->
@@ -1133,7 +1083,7 @@
     </div>
   </div>
 
-  </div>
+</div>
 
 <!-- Bloc Calendrier -->
 <div id="calendarSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
@@ -1182,6 +1132,30 @@
   </div>
 </div>
 
+<!-- Bloc Veille -->
+<div id="veilleSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+  <style>
+    .veille-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; }
+    .veille-column { border:1px solid var(--border); border-radius:12px; background:#fff; box-shadow: var(--shadow-sm); display:flex; flex-direction:column; min-height:220px; max-height:360px; }
+    .veille-column header { padding:10px 12px; border-bottom:1px solid var(--border); font-weight:700; display:flex; align-items:center; gap:6px; }
+    .veille-column .body { padding:10px 12px; overflow-y:auto; }
+    .veille-item { margin-bottom:10px; }
+    .veille-item a { color: #0f172a; font-weight:500; text-decoration: none; }
+    .veille-item a:hover { text-decoration: underline; }
+    .veille-item .meta { font-size:0.85rem; color: var(--muted); margin-top:2px; }
+    .veille-item .summary { font-size:0.9rem; color: var(--muted); margin-top:4px; }
+  </style>
+  <div class="card" style="text-align:left;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+      <h3 style="margin:0;">Veille réglementaire</h3>
+      <button id="veilleLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-rotate"></i> Charger la veille
+      </button>
+    </div>
+    <div id="veilleContent" style="margin-top:12px;" class="muted">La veille sera chargée au clic.</div>
+  </div>
+</div>
+
 <!-- Accordéon Analyse portefeuille -->
 <div id="analysisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
@@ -1221,18 +1195,18 @@
     <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue : {{ finance_effective_date_display }}</div>
     <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
     {% if finance_supports %}
-        <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
-      <table id="financeSupportsTable" data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-        <thead>
-          <tr style="background:#f1f5f9; text-align:left;">
-            <th style="padding:6px 10px;">Code ISIN</th>
-            <th style="padding:6px 10px;">Support</th>
-            <th style="padding:6px 10px;">Catégorie principale</th>
-            <th style="padding:6px 10px;">Catégorie géo</th>
-            <th style="padding:6px 10px;">SRRI</th>
-            <th style="padding:6px 10px; text-align:right;">Valorisation</th>
-          </tr>
-        </thead>
+    <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
+  <table id="financeSupportsTable" data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+    <thead>
+      <tr style="background:#f1f5f9; text-align:left; font-size:0.85rem;">
+        <th style="padding:4px 8px;">Code ISIN</th>
+        <th style="padding:4px 8px;">Support</th>
+        <th style="padding:4px 8px;">Catégorie principale</th>
+        <th style="padding:4px 8px;">Catégorie géo</th>
+        <th style="padding:4px 8px;">SRRI</th>
+        <th style="padding:4px 8px; text-align:right;">Valorisation</th>
+      </tr>
+    </thead>
         <tbody>
           {% for sup in finance_supports %}
           <tr data-row-index="{{ loop.index0 }}"{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
@@ -1697,7 +1671,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       opt.value = '';
       opt.textContent = 'Aucun groupe Personnes';
       sel.appendChild(opt);
-      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Paramètres > Groupes.', true);
+      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
       return;
     }
     financeSupportGroupDetails.forEach(g => {
@@ -1728,7 +1702,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       financeSupportGroupsLoaded = true;
       renderFinanceSupportGroupSelect();
       if (financeSupportGroupDetails.length === 0){
-        setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Paramètres > Groupes.', true);
+    setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
       } else {
         setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
       }
@@ -2037,8 +2011,68 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
   // Tabs principaux (remplacent les accordéons racine)
   (function(){
+    let veilleLoaded = false;
+    async function loadVeille(){
+      if (veilleLoaded) return;
+      const container = document.getElementById('veilleContent');
+      if (!container) return;
+      container.innerHTML = 'Chargement de la veille...';
+      try{
+        const res = await fetch('/dashboard/veille/data', { credentials:'same-origin' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const recent = data.recent || [];
+        const markets = data.markets || [];
+        const markets_meta = data.markets_meta || {};
+        const grouped = data.grouped || {};
+        const renderItems = (items)=> items.map(it=>{
+          const linkStart = it.link ? `<a href="${it.link}" target="_blank">` : '';
+          const linkEnd = it.link ? '</a>' : '';
+          const title = it.title || '(sans titre)';
+          const meta = `${it.source||''}${it.published ? ' · ' + String(it.published).slice(0,10) : ''}`;
+          const summary = it.summary ? `<div class="summary">${it.summary}</div>` : '';
+          return `<div class="veille-item">${linkStart}${title}${linkEnd}<div class="meta">${meta}</div>${summary}</div>`;
+        }).join('') || '<div class="muted">Aucune entrée.</div>';
+        const renderMarkets = ()=>{
+          if (!markets.length) return '<div class="muted">Pas de données marchés.</div>';
+          const rows = markets.map(m=>`<tr><td style="padding:4px 0;">${m.name||''}</td><td style="padding:4px 3px; text-align:right;">${m.value||''}</td><td style="padding:4px 3px; text-align:right;">${m.var||''}</td></tr>`).join('');
+          const meta = markets_meta && (markets_meta.source || markets_meta.timestamp) ? `<div class="muted" style="font-size:0.85rem; margin-bottom:6px;">Source : ${markets_meta.source||''}${markets_meta.timestamp ? ' · Extraction : '+markets_meta.timestamp : ''}</div>` : '';
+          return `${meta}<table style="width:100%; border-collapse:collapse; font-size:0.9rem;"><thead><tr><th style="text-align:left; border-bottom:1px solid var(--border); padding:4px 0;">Indice</th><th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Valeur</th><th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Variation</th></tr></thead><tbody>${rows}</tbody></table>`;
+        };
+        const groupedHtml = Object.keys(grouped||{}).map(tag=>{
+          const gitems = grouped[tag] || [];
+          return `<div class="veille-column"><header><i class="fa-solid fa-newspaper"></i> ${tag}</header><div class="body">${renderItems(gitems)}</div></div>`;
+        }).join('');
+        container.innerHTML = `
+        <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+          <a class="btn" href="/dashboard/veille" target="_blank" rel="noopener noreferrer" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Ouvrir la page complète
+          </a>
+        </div>
+        <div class="veille-grid" style="margin:12px 0 14px 0;">
+          <div class="veille-column">
+            <header><i class="fa-solid fa-clock"></i> News récentes</header>
+            <div class="body">${renderItems(recent)}</div>
+          </div>
+          <div class="veille-column">
+            <header><i class="fa-solid fa-chart-line"></i> Marchés financiers</header>
+            <div class="body">${renderMarkets()}</div>
+          </div>
+        </div>
+        <div class="veille-grid">${groupedHtml || '<div class="muted">Aucune entrée (vérifiez la collecte).</div>'}</div>
+        `;
+        veilleLoaded = true;
+      } catch(err){
+        console.error('Veille load error', err);
+        container.innerHTML = '<div class="muted">Impossible de charger la veille pour le moment (détails console).</div>';
+      }
+    }
+    const veilleBtn = document.getElementById('veilleLoadBtn');
+    if (veilleBtn) veilleBtn.addEventListener('click', loadVeille);
+
     const groups = [
       { key:'calendar', toggle:null, section:'calendarSection' },
+      { key:'veille', toggle:null, section:'veilleSection' },
       { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
@@ -2094,6 +2128,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         }
 
       });
+      if (key === 'veille') { loadVeille(); }
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
       // Colorer les boutons de groupes lorsque l'onglet Groupes est actif
       const groupButtons = document.querySelectorAll('#groupsSection .group-card .btn');
@@ -2534,7 +2569,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       const calendar = new FullCalendar.Calendar(calEl, {
         initialView: 'dayGridMonth',
         headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,timeGridDay' },
-        height: 650,
+        height: 520,
         events: async function(info, success){
           try{
             const data = await loadTasks();

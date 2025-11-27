@@ -5,16 +5,6 @@
   {% if client %}
     <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <span><i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client – {{ client.prenom }} {{ client.nom }}</span>
-      <span style="display:inline-flex; gap:6px;">
-        {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
-          <button type="button" class="btn" style="background:#16a34a; color:#fff; border:1px solid #16a34a; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('nonreg')">{{ msgs_nonreg_count }} message{{ 's' if msgs_nonreg_count>1 }} en cours</button>
-        {% endif %}
-        {% if msgs_reg_count and msgs_reg_count > 0 %}
-          <button type="button" class="btn" style="background:#c62828; color:#fff; border:1px solid #c62828; padding:.25rem .5rem; font-size:.85rem;" onclick="openClientMsgs('reg')">{{ msgs_reg_count }} réglementaire{{ 's' if msgs_reg_count>1 }}</button>
-        {% endif %}
-        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="openClientAdminGroups()"><i class="fa-solid fa-gear" style="margin-right:6px;"></i>Administration</button>
-        <button type="button" class="btn" style="padding:.25rem .6rem; font-size:.85rem;" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf" style="margin-right:6px;"></i>Edition de synthèse</button>
-      </span>
     </span>
   {% else %}
     <i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client
@@ -161,53 +151,47 @@
   .accordion-toggle:not(.collapsed) .chevron,
   .accordion-toggle:not(.collapsed) i,
   .accordion-toggle:not(.collapsed) span { color:#fff; }
-  /* Barre horizontale des boutons d'accordéon */
+  /* Barre sous-menu indépendante (fond/bordure transparents) */
   .section-toggle-row {
     display:flex;
-    gap:8px;
-    align-items:stretch;
-    flex-wrap:nowrap;
+    justify-content:flex-start;
+    gap:12px;
+    align-items:center;
+    flex-wrap:wrap;
     overflow-x:auto;
     padding:8px 0 10px;
-    margin:10px 0 6px;
+    margin:8px 0 10px;
     width:100%;
     box-sizing:border-box;
   }
   .section-toggle-row .accordion-toggle {
-    flex:1 1 0;
-    margin:0;
-    min-width:140px;
-    max-width:180px;
+    flex:0 0 auto;
+    min-width:0;
     white-space:normal;
-    display:flex;
+    display:inline-flex;
     align-items:center;
     justify-content:center;
     text-align:center;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+    color: var(--text) !important;
+    padding: 6px 8px;
   }
   .section-toggle-row .accordion-toggle h3 {
-    font-size:0.85rem;
+    font-size:0.95rem;
     line-height:1.2;
     margin:0;
+    color: inherit;
   }
   .section-toggle-row .chevron { display:none; }
-  #confToggleDetail,
-  #clientTasksToggle {
-    background:#fff;
-    color:var(--text);
-    border:1px solid var(--border);
-    box-shadow:var(--shadow-sm);
+  .section-toggle-row .accordion-toggle i { color: inherit; }
+  .section-toggle-row .accordion-toggle.active {
+    color: var(--primary-600) !important;
   }
-  #confToggleDetail .chevron,
-  #clientTasksToggle .chevron {
-    color:var(--muted);
-  }
-  #confToggleDetail:not(.collapsed),
-  #clientTasksToggle:not(.collapsed) {
-    background:#fff;
-    color:var(--text);
-    border:1px solid var(--border);
-    box-shadow:var(--shadow-sm);
-  }
+  .section-toggle-row .accordion-toggle.active i,
+  .section-toggle-row .accordion-toggle.active span,
+  .section-toggle-row .accordion-toggle.active h3 { color: var(--primary-600) !important; }
   #confToggleDetail:not(.collapsed) .chevron,
   #clientTasksToggle:not(.collapsed) .chevron,
   #confToggleDetail:not(.collapsed) i,
@@ -226,6 +210,9 @@
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
   .kyc-main-btn i { font-size:1rem; color:#fff; }
   /* Bouton Conformité identique aux autres (pilule primaire) */
+  /* Masquer les libellés du menu principal (icônes seules) */
+  .section-toggle-row button span { display:none; }
+  .section-toggle-row button { min-width:auto; padding:10px 12px; }
   /* aucun style spécifique: utiliser l'apparence standard des autres accordéons */
   .tb-markers-enabled [data-tb-marker] {
     position: relative;
@@ -255,63 +242,140 @@
 
 
 {% if client %}
-  <div class="grid" data-tb-marker="CL_02">
-    <div class="card" data-tb-marker="CL_03">
-      <div class="card-header">Synthèse</div>
-      <div class="kpi-small">Contrats ouverts: {{ nb_contrats_ouverts }}</div>
-      <div class="kpi-small">Contrats fermés: {{ nb_contrats_fermes }}</div>
-      <div class="kpi-small">Durée historique: {{ duree_historique_str }}</div>
-      {% set selected_rh_id = client.commercial_id if client and client.commercial_id is not none else None %}
-      <div class="kpi-mini kpi-line">
-        <span>Responsable</span>
-        <span class="kv">
-          <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
-            {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
-            <span style="display:inline-flex; align-items:center; gap:8px;">
-              <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
-                <option value="">— Aucun —</option>
-                {% for rh in rh_list %}
-                  <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
-                {% endfor %}
-              </select>
-            </span>
-          </form>
-        </span>
-      </div>
+  <!-- Actions rapides -->
+  <div class="section-toggle-row" style="margin-top:6px;">
+    <button id="confToggleDetail" class="accordion-toggle" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
+      <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Relation client et conformité</span>
+    </button>
+    <button id="clientTasksToggle" class="accordion-toggle" data-tb-marker="CL_06" type="button" title="Définir une tâche" aria-label="Définir une tâche" onclick="setSectionToggleActive('clientTasksToggle'); openTaskPopup();">
+      <i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Définir une tâche</span>
+    </button>
+    <button id="invToggle" class="accordion-toggle" data-tb-marker="CL_14" type="button" title="Investissements" aria-label="Investissements" onclick="setSectionToggleActive('invToggle');">
+      <i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Investissements</span>
+    </button>
+    <button id="esgToggleClient" class="accordion-toggle" type="button" title="ESG" aria-label="ESG" onclick="setSectionToggleActive('esgToggleClient');">
+      <i class="fa-solid fa-leaf" aria-hidden="true"></i><span>ESG</span>
+    </button>
+    <button id="graphsToggle" class="accordion-toggle" type="button" title="Graphiques" aria-label="Graphiques" onclick="setSectionToggleActive('graphsToggle');">
+      <i class="fa-solid fa-chart-pie" aria-hidden="true"></i><span>Graphiques</span>
+    </button>
+    <button id="reportToggle" class="accordion-toggle" type="button" title="Reportings annuels" aria-label="Reportings annuels" onclick="setSectionToggleActive('reportToggle');">
+      <i class="fa-solid fa-file-lines" aria-hidden="true"></i><span>Reportings annuels</span>
+    </button>
+    <button id="docsToggle" class="accordion-toggle" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
+      <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
+    </button>
+  </div>
+  <div class="card" style="margin-bottom:0.5rem; padding:0;">
+    <div id="synthToggle" class="accordion-toggle" data-target="synthPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
+      <h3 style="margin:0;"><i class="fa-solid fa-rectangle-list" style="margin-right:6px;"></i> Synthèse</h3>
+      <span class="chevron">▾</span>
     </div>
-    <div class="card" data-tb-marker="CL_04">
-      <div class="card-header">Investissements</div>
-      <div class="kpi-mini kpi-line"><span>Valorisation</span><span class="kv valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Solde net</span><span class="kv">{{ solde_str }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
-      <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
-    </div>
-    <div class="card" data-tb-marker="CL_05">
-      <div class="card-header">Indicateurs</div>
-      <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
-      <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
-      {% set srri_icon_class = None %}
-      {% if client_srri is not none and current_srri is not none %}
-        {% if client_srri > current_srri %}
-          {% set srri_icon_class = 'srri-blue' %}
-        {% elif client_srri == current_srri %}
-          {% set srri_icon_class = 'srri-green' %}
-        {% else %}
-          {% set srri_icon_class = 'srri-red' %}
-        {% endif %}
+    <div id="synthPanel" class="accordion-panel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+      {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
+        <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('nonreg')" title="Messages en cours">
+          <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_nonreg_count }}</span>
+        </button>
       {% endif %}
-      <div class="kpi-mini kpi-line">
-        <span>SRRI client / actuel</span>
-        <span class="kv">
-          {% if srri_icon_class %}
-            <span class="srri-dot {{ srri_icon_class }}" aria-hidden="true"></span>
-          {% endif %}
-          {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
-        </span>
+      {% if msgs_reg_count and msgs_reg_count > 0 %}
+        <button type="button" class="btn" style="background:#fff; color:#c62828; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('reg')" title="Messages réglementaires">
+          <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_reg_count }}</span>
+        </button>
+      {% endif %}
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientAdminGroups()" title="Groupes">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="generateClientSynthese()" title="Edition de synthèse">
+        <i class="fa-solid fa-file-pdf"></i>
+      </button>
+    </div>
+    <div class="grid" data-tb-marker="CL_02">
+      <div class="card" data-tb-marker="CL_03">
+        <div class="card-header">Synthèse</div>
+        <div class="kpi-small">Contrats ouverts: {{ nb_contrats_ouverts }}</div>
+        <div class="kpi-small">Contrats fermés: {{ nb_contrats_fermes }}</div>
+        <div class="kpi-small">Durée historique: {{ duree_historique_str }}</div>
+        {% set selected_rh_id = client.commercial_id if client and client.commercial_id is not none else None %}
+        <div class="kpi-mini kpi-line">
+          <span>Responsable</span>
+          <span class="kv">
+            <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
+              {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
+              <span style="display:inline-flex; align-items:center; gap:8px;">
+                <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
+                  <option value="">— Aucun —</option>
+                  {% for rh in rh_list %}
+                    <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
+                  {% endfor %}
+                </select>
+              </span>
+            </form>
+          </span>
+        </div>
       </div>
-      <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
+      <div class="card" data-tb-marker="CL_04">
+        <div class="card-header">Investissements</div>
+        <div class="kpi-mini kpi-line"><span>Valorisation</span><span class="kv valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</span></div>
+        <div class="kpi-mini kpi-line"><span>Solde net</span><span class="kv">{{ solde_str }}</span></div>
+        <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
+        <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
+      </div>
+      <div class="card" data-tb-marker="CL_05">
+        <div class="card-header">Indicateurs</div>
+        <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct is not none %}{{ '%.2f'|format(last_perf_pct) }} %{% else %}-{% endif %}</span></div>
+        <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct is not none %}{{ '%.2f'|format(last_vol_pct) }} %{% else %}-{% endif %}</span></div>
+        {% set srri_icon_class = None %}
+        {% if client_srri is not none and current_srri is not none %}
+          {% if client_srri > current_srri %}
+            {% set srri_icon_class = 'srri-blue' %}
+          {% elif client_srri == current_srri %}
+            {% set srri_icon_class = 'srri-green' %}
+          {% else %}
+            {% set srri_icon_class = 'srri-red' %}
+          {% endif %}
+        {% endif %}
+        <div class="kpi-mini kpi-line">
+          <span>SRRI client / actuel</span>
+          <span class="kv">
+            {% if srri_icon_class %}
+              <span class="srri-dot {{ srri_icon_class }}" aria-hidden="true"></span>
+            {% endif %}
+            {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
+          </span>
+        </div>
+        <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
+      </div>
     </div>
   </div>
+
+  <script>
+    (function(){
+      function setActive(id){
+        document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
+          btn.classList.toggle('active', btn.id === id);
+        });
+      }
+      window.setSectionToggleActive = setActive;
+      setActive('confToggleDetail');
+      document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
+        btn.addEventListener('click', function(){ setActive(btn.id); });
+      });
+    })();
+  </script>
+  <script>
+    (function(){
+      const toggle = document.getElementById('synthToggle');
+      const panel = document.getElementById('synthPanel');
+      if (!toggle || !panel) return;
+      toggle.classList.add('collapsed');
+      toggle.addEventListener('click', function(){
+        const isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'block';
+        toggle.classList.toggle('collapsed', isOpen);
+      });
+    })();
+  </script>
 
   
 
@@ -432,7 +496,7 @@ function generateClientSynthese(){
       const notice = document.getElementById('clientGroupsNotice');
       if (!Array.isArray(clientGroupDetails) || clientGroupDetails.length === 0){
         const opt = document.createElement('option'); opt.value=''; opt.textContent='Aucun groupe Personnes'; sel.appendChild(opt);
-        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Personnes trouvé. Allez dans Paramètres > Groupes pour en créer.'; }
+        if (notice) { notice.style.display = 'block'; notice.textContent = 'Aucun groupe Personnes trouvé. Allez dans Administration > Groupes pour en créer.'; }
         return;
       }
       if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
@@ -743,6 +807,7 @@ function generateClientSynthese(){
         </div>
       </div>
     </div>
+    </div>
   </div>
   <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
   <style>
@@ -788,6 +853,7 @@ function generateClientSynthese(){
       </div>
     </div>
   </div>
+
 
   <div id="supportContractsModal" class="modal-overlay" onclick="if(event.target===this) closeSupportContractsModal()">
     <div class="modal-card" style="width:980px; max-width:98vw;">
@@ -837,31 +903,6 @@ function generateClientSynthese(){
     </div>
   </div>
 
-  <!-- Actions rapides -->
-  <div class="section-toggle-row">
-    <div id="confToggleDetail" class="card accordion-toggle" data-tb-marker="CL_13" onclick="openConfMain()">
-      <h3>Relation client et conformité</h3>
-    </div>
-    <div id="clientTasksToggle" class="card accordion-toggle" data-tb-marker="CL_06" onclick="openTaskPopup()">
-      <h3>Définir une tâche</h3>
-    </div>
-    <div id="invToggle" class="card accordion-toggle" data-tb-marker="CL_14">
-      <h3>Investissements</h3>
-    </div>
-    <div id="esgToggleClient" class="card accordion-toggle">
-      <h3>ESG</h3>
-    </div>
-    <div id="graphsToggle" class="card accordion-toggle">
-      <h3>Graphiques</h3>
-    </div>
-    <div id="reportToggle" class="card accordion-toggle">
-      <h3>Reportings pluriannuels</h3>
-    </div>
-    <div id="docsToggle" class="card accordion-toggle" data-tb-marker="CL_16">
-      <h3>Documents</h3>
-    </div>
-  </div>
-  
   <!-- Popup temporaire de création de tâche -->
   <style>
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
@@ -1500,17 +1541,33 @@ function generateClientSynthese(){
     </div>
   </div>
 
-  <div id="graphsSection" style="display:none;">
-    <div class="card">
-      <h3>Historique de valorisation et cumul des mouvements</h3>
+<div id="graphsSection" style="display:none;">
+  <div class="muted" style="margin-bottom:6px; font-size:0.85rem;">{{ client_allocation_id if client_allocation_id is not none else '—' }}</div>
+  <div class="card" style="margin-bottom:10px;">
+    <div class="accordion-toggle" data-target="graphValoPanel" style="margin:0; justify-content:flex-start;">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-line"></i> Evolution des investissements et de la valorisation des placements</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="graphValoPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
       <canvas id="valoChart" height="120"></canvas>
     </div>
-    <div class="card" style="margin-top:12px;">
-      <h3>Evolutions performances annuelle et SRRI moyen</h3>
+  </div>
+  <div class="card" style="margin-bottom:10px;">
+    <div class="accordion-toggle" data-target="graphSrriPanel" style="margin:0; justify-content:flex-start;">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-line"></i> Performances et risques</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="graphSrriPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
       <canvas id="clientSrriChart" height="120"></canvas>
     </div>
-    <div class="card" style="margin-top:12px;">
-      <h3>Évolution des allocations (SICAV)</h3>
+  </div>
+  <div class="card" style="margin-bottom:10px;">
+    <div class="accordion-toggle" data-target="graphAllocPanel" style="margin:0; justify-content:flex-start;">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-column"></i> Comparaison placements clients / Offre financière</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
+      <div class="muted" style="font-size:0.85rem; margin-bottom:6px;">Allocation DB (client): {{ client_allocation_id if client_allocation_id is not none else '—' }} — Nom allocation client: {{ client_allocation_name or '—' }} — Allocation de référence: {{ allocation_reference_name or '—' }}</div>
       <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
         <div>
           <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
@@ -1527,8 +1584,14 @@ function generateClientSynthese(){
       </div>
       <canvas id="clientAllocChart" height="120"></canvas>
     </div>
+  </div>
 
-    <div class="card" style="margin-top:12px;">
+  <div class="card" style="margin-bottom:10px;">
+    <div class="accordion-toggle" data-target="graphPiePanel" style="margin:0; justify-content:flex-start;">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-pie"></i> Répartition par catégorie / géographique</h3>
+      <span class="chevron">▾</span>
+    </div>
+    <div id="graphPiePanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
       <div class="pie-grid" style="margin-top:0;">
         <div class="pie-card">
           <h3 class="chart-title">Répartition par catégorie</h3>
@@ -1546,6 +1609,7 @@ function generateClientSynthese(){
       </div>
     </div>
   </div>
+</div>
 
   <!-- Cadre indépendant: Performances et volatilité annuelles -->
 
@@ -1677,6 +1741,24 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
 <script>
+  // Accordéons internes du bloc Graphiques (indépendants, fermés par défaut)
+  (function(){
+    const toggles = document.querySelectorAll('#graphsSection .accordion-toggle[data-target]');
+    toggles.forEach(function(t){
+      const targetId = t.getAttribute('data-target');
+      const panel = document.getElementById(targetId);
+      if (!panel) return;
+      t.classList.add('collapsed');
+      panel.style.display = 'none';
+      t.addEventListener('click', function(){
+        const isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : '';
+        t.classList.toggle('collapsed', isOpen);
+      });
+    });
+  })();
+</script>
+<script>
   // Accordéons mutualisés: un seul ouvert à la fois et possibilité de tout fermer
   (function(){
     var groups = [
@@ -1711,7 +1793,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       t.addEventListener('click', function(){
         var isOpen = s.style.display !== 'none';
         if (isOpen) { setOpen(''); }
-        else { setOpen(g.key); try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {} }
+        else { setOpen(g.key); }
       });
     });
   })();
@@ -2084,14 +2166,34 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
     const allocSeries = {{ alloc_series | tojson }};
     const clientSicav = {{ client_sicav | tojson }};
     const sel = document.getElementById('allocSelectClient');
+    const defaultAllocRaw = {{ (
+      (client_allocation_name if client_allocation_name else None)
+      or allocation_reference_name
+      or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else ''))
+      or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))
+    )|tojson }};
+    let defaultAlloc = defaultAllocRaw ? String(defaultAllocRaw).trim() : '';
     if (!sel) return;
     // Remplir le sélecteur
+    let hasDefault = false;
     Object.keys(allocSeries||{}).forEach(name => {
       const opt = document.createElement('option');
       opt.value = name;
       opt.textContent = name;
       sel.appendChild(opt);
+      if (defaultAlloc && name.trim().toLowerCase() === defaultAlloc.toLowerCase()){
+        hasDefault = true;
+        // normaliser sur la valeur présente dans la série
+        defaultAlloc = name;
+      }
     });
+    if (defaultAlloc && !hasDefault){
+      const opt = document.createElement('option');
+      opt.value = defaultAlloc;
+      opt.textContent = defaultAlloc + ' (sans données)';
+      opt.dataset.missing = '1';
+      sel.appendChild(opt);
+    }
     function toMap(arr){ const m = new Map(); (arr||[]).forEach(p=>{ if(p&&p.date!=null){ m.set(String(p.date).slice(0,10), parseFloat(p.sicav)); } }); return m; }
     const clientMap = toMap(clientSicav);
     // Intersect dates across selected allocations and client
@@ -2199,11 +2301,17 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       drawAlloc(selected);
     });
     document.querySelectorAll('.rangeBtn').forEach(btn => btn.addEventListener('click', function(){ currentRange = this.dataset.range || 'all'; const selected = sel.value ? [sel.value] : []; drawAlloc(selected); }));
-    // Sélection par défaut : première allocation, période "Tout"
-    if (sel.options.length) {
-      sel.selectedIndex = 0;
-      drawAlloc([sel.value]);
-    }
+    // Sélection par défaut : allocation type du client si disponible, sinon première
+    (function(){
+      let target = defaultAlloc || '';
+      if (target){
+        for (let i=0; i<sel.options.length; i++){
+          if (sel.options[i].value === target){ sel.selectedIndex = i; break; }
+        }
+      }
+      if (!sel.value && sel.options.length){ sel.selectedIndex = 0; }
+      if (sel.value){ drawAlloc([sel.value]); }
+    })();
   })();
 
   // --- ESG (client consolidé) Plotly horizontal bar: indice=100 vs client ---
@@ -2849,7 +2957,13 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
 </div>
 
 <script>
-  // Toggle Conformité panel
+    function setSectionToggleActive(id){
+      try {
+        const buttons = document.querySelectorAll('.section-toggle-row .accordion-toggle');
+        buttons.forEach(btn => btn.classList.toggle('active', btn.id === id));
+      } catch(e){}
+    }
+    // Toggle Conformité panel
     // Ouvrir/fermer la modale Conformité
     function openConfMain(){
       var m = document.getElementById('confMainModal');
