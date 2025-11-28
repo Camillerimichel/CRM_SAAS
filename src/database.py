@@ -1,12 +1,18 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
-# URL de connexion SQLite vers le fichier Base.sqlite à la racine du projet
-SQLALCHEMY_DATABASE_URL = "sqlite:///./data/Base.sqlite"
+# Connexion MySQL (tunnel SSH actif sur 127.0.0.1:3306)
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    # Mot de passe contient '@@' → encodé en %40%40
+    "mysql+pymysql://crm_user:Veduta1789%40%40@127.0.0.1:3306/MariaDB_CRM_SAAS?charset=utf8mb4",
+)
 
-# Pour SQLite uniquement : check_same_thread doit être désactivé
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
 
 # Factory de sessions

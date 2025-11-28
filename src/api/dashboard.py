@@ -8091,6 +8091,28 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     distribution_avg_valid_pct = 100.0
     reclam_stats = {"total": 0, "by_status": []}
     reclam_pivot = {"types": [], "statuses": []}
+    # Comptages documents (init par défaut)
+    total_documents = 0
+    der_total = 0
+    der_obsolete = 0
+    der_total_pct = 0.0
+    der_obsolete_pct = 0.0
+    cc_total = 0
+    cc_obsolete = 0
+    cc_total_pct = 0.0
+    cc_obsolete_pct = 0.0
+    esg_total = 0
+    esg_obsolete = 0
+    esg_total_pct = 0.0
+    esg_obsolete_pct = 0.0
+    lm_total = 0
+    lm_obsolete = 0
+    lm_total_pct = 0.0
+    lm_obsolete_pct = 0.0
+    la_total = 0
+    la_obsolete = 0
+    la_total_pct = 0.0
+    la_obsolete_pct = 0.0
     try:
         total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
         der_total = (
@@ -8567,32 +8589,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             distribution_avg_obsolete_pct = 100.0
         distribution_avg_valid_pct = 100.0 - distribution_avg_obsolete_pct
     except Exception as exc:
-        logger.debug("Dashboard ORIAS document lookup failed: %s", exc, exc_info=True)
-        distribution_avg_obsolete_pct = 0.0
-        distribution_avg_valid_pct = 100.0
-    except Exception as exc:
         logger.exception("Failed to compute compliance stats", exc_info=exc)
-        total_documents = 0
-        der_total = 0
-        der_obsolete = 0
-        der_total_pct = 0.0
-        der_obsolete_pct = 0.0
-        cc_total = 0
-        cc_obsolete = 0
-        cc_total_pct = 0.0
-        cc_obsolete_pct = 0.0
-        esg_total = 0
-        esg_obsolete = 0
-        esg_total_pct = 0.0
-        esg_obsolete_pct = 0.0
-        lm_total = 0
-        lm_obsolete = 0
-        lm_total_pct = 0.0
-        lm_obsolete_pct = 0.0
-        la_total = 0
-        la_obsolete = 0
-        la_total_pct = 0.0
-        la_obsolete_pct = 0.0
         obs_by_niveau = []
         obs_by_risque = []
         orias_doc_found = False
@@ -19423,7 +19420,11 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
             params["end_date"] = end_date.isoformat()
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC"
-    rows = db.execute(text(sql), params).fetchall()
+    try:
+        rows = db.execute(text(sql), params).fetchall()
+    except Exception as exc:
+        logger.exception("Calendrier: vue_suivi_evenement manquante ou inaccessible", exc_info=exc)
+        return []
     # Prépare les libellés RH / clients / affaires pour l'affichage du calendrier
     rh_lookup: dict[int, str] = {}
     try:

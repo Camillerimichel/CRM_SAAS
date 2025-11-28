@@ -145,3 +145,4 @@ websocket-client==1.8.0
 websockets==15.0.1
 widgetsnbextension==4.0.14
 reportlab==4.4.4
+pymysql==1.1.1
