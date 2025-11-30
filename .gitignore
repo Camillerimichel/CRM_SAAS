@@ -29,3 +29,17 @@ frontend/node_modules/.cache/
 
 # Local env (do not commit)
 backend/.env
+node_modules
+node_modules
+# Local venvs
+.venv/
+src/.venv/
+
+# Node deps/build
+frontend/node_modules/
+frontend/build/
+
+# Logs / pid
+uvicorn*.log
+uvicorn*.pid
+frontend/serve.log
