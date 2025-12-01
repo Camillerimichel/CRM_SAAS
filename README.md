@@ -90,12 +90,25 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Lancer le serveur
-uvicorn main:app --reload
+uvicorn src.api.main:app --host 0.0.0.0 --port 8100 --reload
 
 
 ```
 
-API disponible sur : [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+API disponible sur : [http://72.61.94.45:8100/docs](http://72.61.94.45:8100/docs)
+
+---
+
+## 🖥️ Frontend (React) – Port 8101
+
+```bash
+cd frontend
+npm install          # première installation
+npm run build        # génère le dossier build/
+PORT=8101 npm run serve
+```
+
+Le serveur statique Node intégré à `npm run serve` diffuse `build/` sur [http://72.61.94.45:8101](http://72.61.94.45:8101). L’API et l’app partagent désormais les IP/ports réservés 8100/8101.
 
 ---
 
@@ -103,19 +116,19 @@ API disponible sur : [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 ```bash
 # Tous les clients
-curl -X GET "http://127.0.0.1:8000/reporting/clients"
+curl -X GET "http://72.61.94.45:8100/reporting/clients"
 
 # Top 5 clients
-curl -X GET "http://127.0.0.1:8000/reporting/top-clients?limit=5"
+curl -X GET "http://72.61.94.45:8100/reporting/top-clients?limit=5"
 
 # Toutes les affaires
-curl -X GET "http://127.0.0.1:8000/reporting/affaires"
+curl -X GET "http://72.61.94.45:8100/reporting/affaires"
 
 # Toutes les allocations
-curl -X GET "http://127.0.0.1:8000/reporting/allocations"
+curl -X GET "http://72.61.94.45:8100/reporting/allocations"
 
 # Tous les supports
-curl -X GET "http://127.0.0.1:8000/reporting/supports"
+curl -X GET "http://72.61.94.45:8100/reporting/supports"
 ```
 
 ---

@@ -1,13 +1,17 @@
 # ---------------- Imports principaux ----------------
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates   # <-- ajoute ceci
+from fastapi.staticfiles import StaticFiles
+import threading
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from src.database import get_db
 from fastapi import Query
 from datetime import date
+from pathlib import Path
 
 
 # ---------------- Définition app FastAPI ----------------
@@ -24,9 +28,80 @@ app.include_router(groupes.router)
 
 
 # ---------------- Route d'accueil ----------------
-@app.get("/")
-def read_root():
-    return {"message": "Bienvenue sur l’API CRM_SAAS. Consultez /docs pour la documentation."}
+@app.get("/", response_class=HTMLResponse)
+def read_root(request: Request):
+    """Page d'accueil publique avant redirection vers le dashboard."""
+    return templates.TemplateResponse("home.html", {"request": request})
+
+_THIS_FILE = Path(__file__).resolve()
+BASE_DIR = _THIS_FILE.parents[2]
+# Lorsque le code est exécuté depuis /var/www/CRM_SAAS/src/api/main.py,
+# BASE_DIR pointe sur /var/www/CRM_SAAS/src. On corrige pour remonter
+# à la racine si besoin afin de trouver /frontend.
+if not (BASE_DIR / "frontend").exists() and len(_THIS_FILE.parents) >= 3:
+    BASE_DIR = _THIS_FILE.parents[3]
+
+FRONTEND_BUILD_PATH = BASE_DIR / "frontend" / "build"
+FAVICON_PATH = BASE_DIR / "frontend" / "public" / "favicon.ico"
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    if FAVICON_PATH.exists():
+        return FileResponse(FAVICON_PATH)
+    raise HTTPException(status_code=404, detail="Favicon non trouvée")
+
+if FRONTEND_BUILD_PATH.exists():
+    frontend_app = FastAPI()
+
+    frontend_app.mount(
+        "/",
+        StaticFiles(directory=FRONTEND_BUILD_PATH, html=True),
+        name="dashboard",
+    )
+
+    static_dir = FRONTEND_BUILD_PATH / "static"
+    if static_dir.exists():
+        frontend_app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    def _serve_frontend_asset(filename: str):
+        asset_path = FRONTEND_BUILD_PATH / filename
+        if asset_path.exists():
+            return FileResponse(asset_path)
+        raise HTTPException(status_code=404, detail=f"Fichier {filename} introuvable")
+
+    @frontend_app.get("/manifest.json", include_in_schema=False)
+    @frontend_app.get("/asset-manifest.json", include_in_schema=False)
+    @frontend_app.get("/robots.txt", include_in_schema=False)
+    @frontend_app.get("/logo192.png", include_in_schema=False)
+    @frontend_app.get("/logo512.png", include_in_schema=False)
+    @frontend_app.get("/apple-touch-icon.png", include_in_schema=False)
+    @frontend_app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+    def serve_frontend_assets(request: Request):
+        filename = request.url.path.lstrip("/")
+        return _serve_frontend_asset(filename)
+
+    app.mount("/dashboard", frontend_app)
+
+logger = logging.getLogger("uvicorn.error")
+
+# Préchauffage du cache finance au démarrage pour éviter le premier chargement lent
+def _warm_finance_cache():
+    try:
+        from src.api.dashboard import _build_finance_analysis
+        from src.database import SessionLocal
+        db = SessionLocal()
+        try:
+            _build_finance_analysis(db, finance_rh_id=None, finance_date_param=None, finance_valo_param=None)
+            logger.info("Finance cache prewarmed successfully")
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Finance cache prewarm failed", exc_info=True)
+
+@app.on_event("startup")
+def _on_startup():
+    # Préchauffage synchrone pour éviter le premier hit très lent (peut prendre ~40s)
+    _warm_finance_cache()
 
 # ---------------- Middleware CORS ----------------
 app.add_middleware(
@@ -36,6 +111,12 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "http://72.61.94.45",
+        "https://72.61.94.45",
+        "http://72.61.94.45:8100",
+        "https://72.61.94.45:8100",
+        "http://72.61.94.45:8101",
+        "https://72.61.94.45:8101",
     ],
     allow_credentials=True,
     allow_methods=["*"],

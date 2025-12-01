@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "../config";
 import {
   PieChart,
   Pie,
@@ -23,10 +24,10 @@ function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      fetch("http://127.0.0.1:8000/reporting/clients").then((res) => res.json()),
-      fetch("http://127.0.0.1:8000/reporting/affaires").then((res) => res.json()),
-      fetch("http://127.0.0.1:8000/reporting/allocations").then((res) => res.json()),
-      fetch("http://127.0.0.1:8000/reporting/supports").then((res) => res.json()),
+      fetch(`${API_BASE_URL}/reporting/clients/`).then((res) => res.json()),
+      fetch(`${API_BASE_URL}/reporting/affaires/`).then((res) => res.json()),
+      fetch(`${API_BASE_URL}/reporting/allocations/`).then((res) => res.json()),
+      fetch(`${API_BASE_URL}/reporting/supports/`).then((res) => res.json()),
     ]).then(([c, a, al, s]) => {
       const totalValo = al.reduce((sum, row) => {
         const valo = parseFloat(row?.valo ?? 0);

@@ -68,67 +68,6 @@
   .risk-dot.red { background: #ef4444; }
   .risk-dot.green { background: #16a34a; }
   .risk-dot.blue { background: #3b82f6; }
-  /* Tâches */
-  .tasks-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    padding: 10px 0;
-    align-items: stretch;
-  }
-  .tasks-label { color: var(--muted); font-weight: 700; letter-spacing: .02em; }
-  .tasks-range {
-    display: inline-flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .tasks-inline-kpis {
-    display: grid;
-    grid-auto-flow: column;
-    gap: 10px;
-    align-items: center;
-    justify-content: flex-start;
-  }
-  .tasks-inline-kpi {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 8px;
-    border-radius: 12px;
-    background: #fff;
-    border: 1px solid var(--border);
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-    height: 28px;
-  }
-  .tasks-inline-kpi .label {
-    color: var(--muted);
-    font-weight: 700;
-    font-size: 11px;
-  }
-  .tasks-inline-kpi .value {
-    font-size: 14px;
-    font-weight: 800;
-    color: var(--text);
-  }
-  .tasks-range a.btn-choice {
-    min-width: 40px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    border-radius: 10px;
-    background: #fff;
-    border: 1px solid var(--border);
-    box-shadow: 0 5px 12px rgba(15, 23, 42, 0.06);
-  }
-  .tasks-range a.btn-choice-active {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    color: #fff;
-    border-color: transparent;
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
-  }
   .tasks-kpis {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -192,61 +131,11 @@
 </style>
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs">
-  <button class="dash-tab" data-key="calendar" data-target="calendarSection"><i class="fa-solid fa-calendar"></i> Calendrier</button>
-  <button class="dash-tab" data-key="veille" data-target="veilleSection"><i class="fa-solid fa-newspaper"></i> Veille</button>
-  <button class="dash-tab active" data-key="tasks" data-target="tasksSection"><i class="fa-solid fa-list-check"></i> Tâches</button>
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
-  <button class="dash-tab" data-key="analysis" data-target="analysisSection"><i class="fa-solid fa-chart-line"></i> Analyse</button>
   <button class="dash-tab" data-key="esg" data-target="esgSection"><i class="fa-solid fa-leaf"></i> ESG</button>
   <button class="dash-tab" data-key="groups" data-target="groupsSection"><i class="fa-solid fa-layer-group"></i> Groupes</button>
   <button class="dash-tab" data-key="commissions" data-target="remSection"><i class="fa-solid fa-coins"></i> Commissions</button>
 </div>
-
-  <!-- Accordéon Tâches en cours (remonté avant Risques) -->
-  <div id="tasksToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_09" style="max-width:1100px; margin: 0 auto 0.5rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-    <h3 style="margin:0; font-size:1.05rem;">Tâches en cours</h3>
-    <span class="chevron">▾</span>
-  </div>
-  <div id="tasksSection" data-tb-marker="TB_10" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div data-tb-marker="TB_11" class="tasks-toolbar">
-    <div class="tasks-label">Période</div>
-    <div class="tasks-range">
-      {% set r = tasks_range or 14 %}
-      {% for n in [7,14,30] %}
-        {% if n == r %}
-          <a class="btn btn-choice btn-choice-active" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} J</a>
-        {% else %}
-          <a class="btn btn-choice" href="?tasks_range={{ n }}{{ tb_markers_suffix }}#tasksToggle">{{ n }} J</a>
-        {% endif %}
-      {% endfor %}
-    </div>
-    <div class="tasks-inline-kpis" data-tb-marker="TB_12">
-      <div class="tasks-inline-kpi" data-tb-marker="TB_13"><span class="label">Tâches totales</span><span class="value">{{ tasks_total }}</span></div>
-      <div class="tasks-inline-kpi" data-tb-marker="TB_14"><span class="label">Ouvertes</span><span class="value">{{ tasks_open }}</span></div>
-      <div class="tasks-inline-kpi" data-tb-marker="TB_15"><span class="label">Clôturées</span><span class="value">{{ (tasks_total - tasks_open) if tasks_total is not none else 0 }}</span></div>
-      <div class="tasks-inline-kpi" data-tb-marker="TB_16"><span class="label">Aujourd'hui</span><span class="value">{% set today = tasks_days|last %}{{ today.nb if today else 0 }}</span></div>
-    </div>
-  </div>
-  <div class="tasks-kpis" data-tb-marker="TB_17" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:10px; align-items:stretch;">
-    {% set total_tasks_days = tasks_days | map(attribute='nb') | sum %}
-    {% if total_tasks_days and total_tasks_days > 0 %}
-      <div class="tasks-kpi-card" data-tb-marker="TB_18" style="min-height:220px; display:flex; align-items:center; justify-content:center;">
-        <canvas id="chartTasksDays" height="180" style="width:100%;"></canvas>
-      </div>
-    {% endif %}
-    <div class="tasks-kpi-card" data-tb-marker="TB_19" style="min-height:220px; display:flex; flex-direction:column;">
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-        <div class="muted">Filtre par responsable commercial:</div>
-        <select id="tasksRhSelect" style="width:160px;">
-          <option value="">Tous</option>
-        </select>
-      </div>
-      <div data-tb-marker="TB_20" style="flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;">
-        <canvas id="chartTasksType" height="160" style="width:100%;"></canvas>
-      </div>
-    </div>
-  </div>
-  </div>
 
   <style>
     /* Barre horizontale pour Risques */
@@ -299,10 +188,17 @@
       <div class="risk-toggle" data-target="clienteleSection">Répartition par clientèle</div>
       <div class="risk-toggle" data-target="srriSection">Suivi du risque</div>
     </div>
+    <div style="height:1px; background:var(--border); margin:10px 0;"></div>
   <!-- Sous-accordéon: Conformité réglementaire -->
   <div id="complianceToggle" ></div>
   <div id="complianceSection" data-tb-marker="TB_24" >
     <div class="card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+      <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <button id="conformiteLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-rotate"></i> Charger la conformité
+        </button>
+        <span id="conformiteStatus" class="muted" style="align-self:center; font-size:0.9rem;">(non chargé)</span>
+      </div>
       <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         <div class="card" style="width:360px; padding:18px; border:1px solid var(--primary); border-radius:10px; box-shadow:0 4px 12px rgba(15,23,42,0.08); text-align:center;">
           <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
@@ -370,64 +266,49 @@
         </div>
       </div>
       <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
-        {% set der_obsolete_pct = (docs_der_obsolete_pct or 0)|float %}
-        {% if der_obsolete_pct < 0 %}{% set der_obsolete_pct = 0.0 %}{% elif der_obsolete_pct > 100 %}{% set der_obsolete_pct = 100.0 %}{% endif %}
-        {% set der_valid_pct = 100.0 - der_obsolete_pct %}
         <div data-tb-marker="TB_27" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">DER</div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_der_total or 0 }} / {{ '%.1f'|format(docs_der_total_pct or 0) }} %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_der_obsolete or 0 }} / {{ '%.1f'|format(docs_der_obsolete_pct or 0) }} %</div>
-          <div class="compliance-progress" role="img" aria-label="DER : {{ der_valid_pct|round(1) }} % valides, {{ der_obsolete_pct|round(1) }} % obsolètes">
-            <div class="compliance-progress-valid" style="width: {{ der_valid_pct }}%;"></div>
-            <div class="compliance-progress-obsolete" style="width: {{ der_obsolete_pct }}%;"></div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="derTotal">—</span> / <span id="derTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="derObs">—</span> / <span id="derObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="DER">
+            <div id="derValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="derObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        {% set cc_obsolete_pct = (docs_cc_obsolete_pct or 0)|float %}
-        {% if cc_obsolete_pct < 0 %}{% set cc_obsolete_pct = 0.0 %}{% elif cc_obsolete_pct > 100 %}{% set cc_obsolete_pct = 100.0 %}{% endif %}
-        {% set cc_valid_pct = 100.0 - cc_obsolete_pct %}
         <div data-tb-marker="TB_28" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Connaissance client</div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_cc_total or 0 }} / {{ '%.1f'|format(docs_cc_total_pct or 0) }} %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_cc_obsolete or 0 }} / {{ '%.1f'|format(docs_cc_obsolete_pct or 0) }} %</div>
-          <div class="compliance-progress" role="img" aria-label="Connaissance client : {{ cc_valid_pct|round(1) }} % valides, {{ cc_obsolete_pct|round(1) }} % obsolètes">
-            <div class="compliance-progress-valid" style="width: {{ cc_valid_pct }}%;"></div>
-            <div class="compliance-progress-obsolete" style="width: {{ cc_obsolete_pct }}%;"></div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="ccTotal">—</span> / <span id="ccTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="ccObs">—</span> / <span id="ccObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="Connaissance client">
+            <div id="ccValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="ccObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        {% set esg_obsolete_pct = (docs_esg_obsolete_pct or 0)|float %}
-        {% if esg_obsolete_pct < 0 %}{% set esg_obsolete_pct = 0.0 %}{% elif esg_obsolete_pct > 100 %}{% set esg_obsolete_pct = 100.0 %}{% endif %}
-        {% set esg_valid_pct = 100.0 - esg_obsolete_pct %}
         <div data-tb-marker="TB_29" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">ESG</div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_esg_total or 0 }} / {{ '%.1f'|format(docs_esg_total_pct or 0) }} %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_esg_obsolete or 0 }} / {{ '%.1f'|format(docs_esg_obsolete_pct or 0) }} %</div>
-          <div class="compliance-progress" role="img" aria-label="ESG : {{ esg_valid_pct|round(1) }} % valides, {{ esg_obsolete_pct|round(1) }} % obsolètes">
-            <div class="compliance-progress-valid" style="width: {{ esg_valid_pct }}%;"></div>
-            <div class="compliance-progress-obsolete" style="width: {{ esg_obsolete_pct }}%;"></div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="esgTotal">—</span> / <span id="esgTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="esgObs">—</span> / <span id="esgObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="ESG">
+            <div id="esgValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="esgObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        {% set lm_obsolete_pct = (docs_lm_obsolete_pct or 0)|float %}
-        {% if lm_obsolete_pct < 0 %}{% set lm_obsolete_pct = 0.0 %}{% elif lm_obsolete_pct > 100 %}{% set lm_obsolete_pct = 100.0 %}{% endif %}
-        {% set lm_valid_pct = 100.0 - lm_obsolete_pct %}
         <div data-tb-marker="TB_30" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres de mission</div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_lm_total or 0 }} / {{ '%.1f'|format(docs_lm_total_pct or 0) }} %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_lm_obsolete or 0 }} / {{ '%.1f'|format(docs_lm_obsolete_pct or 0) }} %</div>
-          <div class="compliance-progress" role="img" aria-label="Lettres de mission : {{ lm_valid_pct|round(1) }} % valides, {{ lm_obsolete_pct|round(1) }} % obsolètes">
-            <div class="compliance-progress-valid" style="width: {{ lm_valid_pct }}%;"></div>
-            <div class="compliance-progress-obsolete" style="width: {{ lm_obsolete_pct }}%;"></div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="lmTotal">—</span> / <span id="lmTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="lmObs">—</span> / <span id="lmObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="Lettres de mission">
+            <div id="lmValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="lmObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        {% set la_obsolete_pct = (docs_la_obsolete_pct or 0)|float %}
-        {% if la_obsolete_pct < 0 %}{% set la_obsolete_pct = 0.0 %}{% elif la_obsolete_pct > 100 %}{% set la_obsolete_pct = 100.0 %}{% endif %}
-        {% set la_valid_pct = 100.0 - la_obsolete_pct %}
         <div data-tb-marker="TB_31" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres d'adéquation</div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ docs_la_total or 0 }} / {{ '%.1f'|format(docs_la_total_pct or 0) }} %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : {{ docs_la_obsolete or 0 }} / {{ '%.1f'|format(docs_la_obsolete_pct or 0) }} %</div>
-          <div class="compliance-progress" role="img" aria-label="Lettres d'adéquation : {{ la_valid_pct|round(1) }} % valides, {{ la_obsolete_pct|round(1) }} % obsolètes">
-            <div class="compliance-progress-valid" style="width: {{ la_valid_pct }}%;"></div>
-            <div class="compliance-progress-obsolete" style="width: {{ la_obsolete_pct }}%;"></div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="laTotal">—</span> / <span id="laTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="laObs">—</span> / <span id="laObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="Lettres d'adéquation">
+            <div id="laValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="laObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_32" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
@@ -435,16 +316,8 @@
             <div style="font-weight:600; background:#f1f5f9; border-radius:8px; padding:6px; flex:1; text-align:center;">Réclamations</div>
             <button type="button" onclick="openInfoModal('reclamPivot')" aria-label="Voir le détail des réclamations" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; border:1px solid var(--primary); background:#fff; color:var(--primary); font-weight:600; cursor:pointer;">i</button>
           </div>
-          <div class="muted" style="font-size:0.85rem;">Total : {{ reclam_stats.total or 0 }}</div>
-          {% if reclam_stats.by_status %}
-            {% for item in reclam_stats.by_status %}
-              <div class="muted" style="font-size:0.85rem;">
-                {{ item.label or 'statut non renseigné' }} : {{ item.count }}
-              </div>
-            {% endfor %}
-          {% else %}
-            <div class="muted" style="font-size:0.85rem;">Aucun statut renseigné</div>
-          {% endif %}
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="reclamTotal">—</span></div>
+          <div id="reclamStatusList" class="muted" style="font-size:0.85rem;">(non chargé)</div>
         </div>
       </div>
     </div>
@@ -1085,196 +958,6 @@
 
 </div>
 
-<!-- Bloc Calendrier -->
-<div id="calendarSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div class="card" style="text-align:left;">
-    <h3 style="margin-top:0;">Calendrier des tâches</h3>
-    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Responsable</label><br>
-        <select id="calFilterResp" style="min-width:180px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
-          <option value="">Tous</option>
-          {% if finance_rh_options %}
-            {% for rh in finance_rh_options %}
-              <option value="{{ rh.id }}">{{ rh.label or rh.nom or rh.id }}</option>
-            {% endfor %}
-          {% endif %}
-        </select>
-      </div>
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Statut</label><br>
-        <select id="calFilterStatut" style="min-width:160px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
-          <option value="">Tous</option>
-          <option value="à faire">À faire</option>
-          <option value="en cours">En cours</option>
-          <option value="en attente">En attente</option>
-          <option value="terminé">Terminé</option>
-          <option value="annulé">Annulé</option>
-        </select>
-      </div>
-      <div>
-        <button id="calRefresh" class="btn btn-primary" style="height:32px;">Actualiser</button>
-      </div>
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Période export (jours autour d'aujourd'hui)</label><br>
-        <select id="calRangeSelect" style="min-width:140px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
-          <option value="30">30 jours</option>
-          <option value="90" selected>90 jours</option>
-          <option value="180">180 jours</option>
-          <option value="365">365 jours</option>
-        </select>
-      </div>
-      <div>
-        <button id="calExport" class="btn" style="height:32px; border:1px solid var(--border);">Exporter ICS</button>
-      </div>
-    </div>
-    <div id="calendar" style="margin-top:8px;"></div>
-  </div>
-</div>
-
-<!-- Bloc Veille -->
-<div id="veilleSection" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <style>
-    .veille-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; }
-    .veille-column { border:1px solid var(--border); border-radius:12px; background:#fff; box-shadow: var(--shadow-sm); display:flex; flex-direction:column; min-height:220px; max-height:360px; }
-    .veille-column header { padding:10px 12px; border-bottom:1px solid var(--border); font-weight:700; display:flex; align-items:center; gap:6px; }
-    .veille-column .body { padding:10px 12px; overflow-y:auto; }
-    .veille-item { margin-bottom:10px; }
-    .veille-item a { color: #0f172a; font-weight:500; text-decoration: none; }
-    .veille-item a:hover { text-decoration: underline; }
-    .veille-item .meta { font-size:0.85rem; color: var(--muted); margin-top:2px; }
-    .veille-item .summary { font-size:0.9rem; color: var(--muted); margin-top:4px; }
-  </style>
-  <div class="card" style="text-align:left;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
-      <h3 style="margin:0;">Veille réglementaire</h3>
-      <button id="veilleLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
-        <i class="fa-solid fa-rotate"></i> Charger la veille
-      </button>
-    </div>
-    <div id="veilleContent" style="margin-top:12px;" class="muted">La veille sera chargée au clic.</div>
-  </div>
-</div>
-
-<!-- Accordéon Analyse portefeuille -->
-<div id="analysisToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_56" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-  <h3 style="margin:0; font-size:1.05rem;">Analyse portefeuille</h3>
-  <span class="chevron">▾</span>
- </div>
-<div id="analysisSection" data-tb-marker="TB_57" >
-  <div class="card" data-tb-marker="TB_58" style="max-width:1100px; margin: 0 auto 1rem auto; text-align:left;">
-    <h3 style="margin-top:0;">Analyse financière — Répartition des supports</h3>
-    <form id="financeForm" method="get" action="/dashboard#analysisToggle" data-tb-marker="TB_59" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      {% if tb_markers_param %}
-        <input type="hidden" name="markers" value="1" />
-      {% endif %}      <input type="hidden" name="page_size" value="20">
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
-        <input type="date" name="finance_date" value="{{ finance_date_input }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
-      </div>
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Responsable commercial</label><br>
-        <select name="finance_rh" style="min-width:220px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;">
-          <option value="">Tous</option>
-          {% for rh in finance_rh_options %}
-            <option value="{{ rh.id }}" {% if finance_rh_selected is not none and rh.id == finance_rh_selected %}selected{% endif %}>{{ rh.label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Valorisation</label><br>
-        <input type="text" name="finance_valo" value="{{ finance_valo_input or '' }}" placeholder=">100k, 100k-500k" style="min-width:200px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
-      </div>
-      <div>
-        <button type="submit" class="btn-primary" style="height:36px;">Filtrer</button>
-      </div>
-      <div>
-        <button type="button" class="btn" id="finance_export_btn" style="height:36px;">Exporter CSV</button>
-      </div>
-    </form>
-    <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue : {{ finance_effective_date_display }}</div>
-    <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
-    {% if finance_supports %}
-    <div data-tb-marker="TB_60" style="margin-top:12px; overflow-x:auto;">
-  <table id="financeSupportsTable" data-tb-marker="TB_61" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-    <thead>
-      <tr style="background:#f1f5f9; text-align:left; font-size:0.85rem;">
-        <th style="padding:4px 8px;">Code ISIN</th>
-        <th style="padding:4px 8px;">Support</th>
-        <th style="padding:4px 8px;">Catégorie principale</th>
-        <th style="padding:4px 8px;">Catégorie géo</th>
-        <th style="padding:4px 8px;">SRRI</th>
-        <th style="padding:4px 8px; text-align:right;">Valorisation</th>
-      </tr>
-    </thead>
-        <tbody>
-          {% for sup in finance_supports %}
-          <tr data-row-index="{{ loop.index0 }}"{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
-            <td style="padding:6px 10px;">
-              {% if sup.code_isin %}
-                <a href="#" class="finance-support-link" data-support-code="{{ sup.code_isin }}" data-support-name="{{ sup.nom or '' }}" data-clients='{{ sup.clients | tojson | safe }}'>{{ sup.code_isin }}</a>
-              {% else %}
-                {{ sup.code_isin or '—' }}
-              {% endif %}
-            </td>
-            <td style="padding:6px 10px;">{{ sup.nom or '—' }}</td>
-            <td style="padding:6px 10px;">{{ sup.cat_principale or '—' }}</td>
-            <td style="padding:6px 10px;">{{ sup.cat_geo or '—' }}</td>
-            <td style="padding:6px 10px;">{{ sup.srri if sup.srri is not none else '—' }}</td>
-            <td style="padding:6px 10px; text-align:right;">{{ sup.total_valo_str }} €</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap;">
-      <div style="font-weight:600;">Page <span id="financePageLabel">1</span></div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button type="button" class="btn" id="financePrevBtn" onclick="financeGoPage(-1)">Précédent</button>
-        <button type="button" class="btn" id="financeNextBtn" onclick="financeGoPage(1)">Suivant</button>
-      </div>
-    </div>
-
-<div id="financeSupportModal"<div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3><i class="fa-solid fa-users-line" style="margin-right:8px;"></i><span id="financeSupportModalLabel">Clients par support</span></h3>
-          <button class="modal-close" onclick="closeFinanceSupportModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div id="financeSupportGroupActions" style="display:none; margin-bottom:12px;">
-            <div style="font-weight:600; margin-bottom:6px;">Ajouter ces clients à un groupe</div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-              <div>
-                <label class="muted" style="font-size:0.85rem; display:block; margin-bottom:4px;">Groupe existant</label>
-                <select id="financeSupportGroupSelect" style="min-width:240px; height:34px;"></select>
-              </div>
-              <div>
-                <button type="button" class="btn btn-primary" id="financeSupportGroupAddBtn" style="height:34px;">
-                  <i class="fa-solid fa-user-group" style="margin-right:6px; color:#fff;"></i>Ajouter la liste
-                </button>
-              </div>
-            </div>
-            <div id="financeSupportGroupStatus" class="muted" style="margin-top:4px;"></div>
-          </div>
-          <table id="financeSupportModalTable">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Contrat</th>
-                <th style="text-align:right;">Valorisation</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    {% else %}
-    <div class="muted" style="margin-top:12px;">Aucune donnée pour les critères sélectionnés.</div>
-    {% endif %}
-  </div>
-</div>
 
 <!-- Accordéon ESG (global) -->
 <div id="esgToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_62" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
@@ -1283,36 +966,19 @@
 </div>
 <div id="esgSection" data-tb-marker="TB_63" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
   <div class="card" data-tb-marker="TB_64" style="text-align:left;">
-    <h3 style="margin-top:0;">Comparaison ESG Portefeuille vs Indice - global</h3>
-    <div data-tb-marker="TB_65" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
-      <div data-tb-marker="TB_66">
-        <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
-        <select id="esgAllocSelectGlobal" style="min-width:220px; max-width:280px; width:auto;">
-          <option value="">— choisir —</option>
-          {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
-        </select>
+    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
+      <div>
+        <h3 style="margin-top:0;">ESG</h3>
+        <p class="muted" style="margin:4px 0 0 0;">Chargé à la demande pour ne pas ralentir le tableau de bord.</p>
       </div>
-      <div data-tb-marker="TB_67" >
-        <label class="muted" style="font-size:0.85rem;">Date</label><br>
-        <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;"></select>
-      </div>
-      <div data-tb-marker="TB_68" style="flex:1 1 auto; min-width:260px;">
-        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
-        <div id="esgFieldsGlobal" data-tb-marker="TB_69" style="display:flex; gap:6px; flex-wrap:wrap;">
-          {% for it in esg_fields %}
-            {% set col = it.col if it is mapping else it %}
-            {% set label = it.label if it is mapping else it %}
-            <button type="button" class="btn btn-choice esg-field-global" data-field="{{ col }}" title="{{ label }}">{{ label }}</button>
-          {% endfor %}
-        </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button id="esgLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-leaf"></i> Charger l'ESG
+        </button>
+        <span id="esgStatus" class="muted" style="font-size:0.9rem;">(non chargé)</span>
       </div>
     </div>
-    <div id="esgChartGlobal" data-tb-marker="TB_70" style="height:320px; width:100%;"></div>
-    <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Portefeuille = valeur relative (Portefeuille / Indice × 100).</div>
-    <details id="esgSqlGlobalDetails" data-tb-marker="TB_71" style="margin-top:8px;">
-      <summary class="muted" style="cursor:pointer;">Voir les données brutes</summary>
-      <div id="esgDebugPanelGlobal" class="muted" style="font-size:12px; display:none;"></div>
-    </details>
+    <div id="esgContent" class="muted" style="margin-top:10px;">Clique sur "Charger l'ESG" pour afficher les indicateurs.</div>
   </div>
 </div>
 
@@ -1641,223 +1307,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
-  function closeFinanceSupportModal(){
-    const modal = document.getElementById('financeSupportModal');
-    if (modal) modal.style.display = 'none';
-  }
-  let financeSupportCurrentClients = [];
-  let financeSupportGroupDetails = [];
-  let financeSupportGroupsLoaded = false;
-  let financeSupportGroupLoading = false;
-  function setFinanceSupportGroupStatus(message, isError){
-    const el = document.getElementById('financeSupportGroupStatus');
-    if (!el) return;
-    el.textContent = message || '';
-    el.style.color = isError ? '#b91c1c' : '#475569';
-  }
-  function renderFinanceSupportGroupSelect(){
-    const sel = document.getElementById('financeSupportGroupSelect');
-    if (!sel) return;
-    sel.innerHTML = '';
-    if (!financeSupportGroupsLoaded){
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Chargement des groupes…';
-      sel.appendChild(opt);
-      return;
-    }
-    if (!Array.isArray(financeSupportGroupDetails) || financeSupportGroupDetails.length === 0){
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Aucun groupe Personnes';
-      sel.appendChild(opt);
-      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
-      return;
-    }
-    financeSupportGroupDetails.forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g.id;
-      opt.textContent = g.nom + (g.actif === 0 ? ' (inactif)' : '');
-      sel.appendChild(opt);
-    });
-    setFinanceSupportGroupStatus('', false);
-  }
-  async function loadFinanceSupportGroups(){
-    if (financeSupportGroupLoading) return;
-    financeSupportGroupLoading = true;
-    setFinanceSupportGroupStatus('Chargement des groupes…', false);
-    try{
-      let details = [];
-      const res = await fetch('/api/groupes/details?type=client&actifs_only=true');
-      if (res.ok){
-        details = await res.json();
-      }
-      if (!Array.isArray(details) || details.length === 0){
-        const res2 = await fetch('/api/groupes/details?type=client&actifs_only=false');
-        if (res2.ok){
-          details = await res2.json();
-        }
-      }
-      financeSupportGroupDetails = Array.isArray(details) ? details : [];
-      financeSupportGroupsLoaded = true;
-      renderFinanceSupportGroupSelect();
-      if (financeSupportGroupDetails.length === 0){
-    setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
-      } else {
-        setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
-      }
-    } catch(err){
-      console.warn('finance support group load error', err);
-      setFinanceSupportGroupStatus('Erreur de chargement des groupes.', true);
-    } finally {
-      financeSupportGroupLoading = false;
-    }
-  }
-  function toggleFinanceSupportGroupActions(shouldShow){
-    const container = document.getElementById('financeSupportGroupActions');
-    if (!container) return;
-    if (!shouldShow){
-      container.style.display = 'none';
-      setFinanceSupportGroupStatus('', false);
-      return;
-    }
-    container.style.display = '';
-    renderFinanceSupportGroupSelect();
-    if (!financeSupportGroupsLoaded && !financeSupportGroupLoading){
-      loadFinanceSupportGroups();
-    } else if (financeSupportGroupDetails.length){
-      setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
-    }
-  }
-  async function addFinanceSupportClientsToGroup(){
-    const btn = document.getElementById('financeSupportGroupAddBtn');
-    const sel = document.getElementById('financeSupportGroupSelect');
-    if (!btn || !sel) return;
-    const gid = parseInt(sel.value, 10);
-    if (!gid){
-      setFinanceSupportGroupStatus('Sélectionnez un groupe valide.', true);
-      return;
-    }
-    const clients = Array.isArray(financeSupportCurrentClients) ? financeSupportCurrentClients.filter(c => c && c.client_id) : [];
-    if (!clients.length){
-      setFinanceSupportGroupStatus('Aucun client identifiable à ajouter.', true);
-      return;
-    }
-    btn.disabled = true;
-    setFinanceSupportGroupStatus('Ajout en cours…', false);
-    let success = 0;
-    let attempted = 0;
-    for (const client of clients){
-      attempted++;
-      try{
-        const resp = await fetch('/api/groupes/memberships', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupe_id: gid, client_id: client.client_id })
-        });
-        if (resp.ok){
-          success++;
-        } else {
-          console.warn('finance support group add error', resp.status);
-        }
-      } catch(err){
-        console.warn('finance support group add error', err);
-      }
-    }
-    btn.disabled = false;
-    if (!attempted){
-      setFinanceSupportGroupStatus('Aucun client valide pour l’ajout.', true);
-    } else if (success === attempted){
-      const plural = success > 1 ? 'clients' : 'client';
-      setFinanceSupportGroupStatus(`Liste ajoutée (${success} ${plural}).`, false);
-    } else {
-      setFinanceSupportGroupStatus(`Ajout partiel : ${success}/${attempted} clients.`, true);
-    }
-  }
-  function openFinanceSupportModal(code, name, clients){
-    const modal = document.getElementById('financeSupportModal');
-    if (!modal) return;
-    const tbody = modal.querySelector('#financeSupportModalTable tbody');
-    const labelEl = document.getElementById('financeSupportModalLabel');
-    if (labelEl){
-      const parts = ['Clients par support'];
-      const detail = [name, code].filter(Boolean).join(' • ');
-      if (detail) parts.push(detail);
-      labelEl.textContent = parts.join(' — ');
-    }
-    if (tbody){
-      tbody.innerHTML = '';
-      const rows = Array.isArray(clients) ? clients : [];
-      financeSupportCurrentClients = rows.filter(function(item){ return item && item.client_id; });
-      toggleFinanceSupportGroupActions(rows.length > 0);
-      rows.forEach(function(item){
-        const tr = document.createElement('tr');
-        const clientTd = document.createElement('td');
-        const fullname = item.client_fullname || item.client_nom || 'Client';
-        if (item.client_id){
-          const link = document.createElement('a');
-          link.href = `/dashboard/clients/${encodeURIComponent(item.client_id)}`;
-          link.textContent = fullname;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          clientTd.appendChild(link);
-        } else {
-          clientTd.textContent = fullname;
-        }
-        tr.appendChild(clientTd);
-        const contratTd = document.createElement('td');
-        if (item.affaire_id){
-          const link = document.createElement('a');
-          link.href = `/dashboard/affaires/${encodeURIComponent(item.affaire_id)}`;
-          link.textContent = item.affaire_ref || `Affaire ${item.affaire_id}`;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          contratTd.appendChild(link);
-        } else {
-          contratTd.textContent = item.affaire_ref || '-';
-        }
-        tr.appendChild(contratTd);
-        const valoTd = document.createElement('td');
-        valoTd.className = 'numeric';
-        valoTd.textContent = item.valorisation_str ? item.valorisation_str + ' €' : '-';
-        tr.appendChild(valoTd);
-        tbody.appendChild(tr);
-      });
-      if (!rows.length){
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 3;
-        td.className = 'muted';
-        td.textContent = 'Aucun client trouvé pour ce support.';
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-      }
-    }
-    modal.style.display = 'flex';
-  }
-
-  document.addEventListener('DOMContentLoaded', function(){
-    document.querySelectorAll('.finance-support-link').forEach(function(link){
-      link.addEventListener('click', function(ev){
-        ev.preventDefault();
-        let clients = [];
-        try{
-          clients = this.dataset.clients ? JSON.parse(this.dataset.clients) : [];
-        }catch(err){
-          console.warn('finance support clients parse error', err);
-        }
-        openFinanceSupportModal(this.dataset.supportCode || '', this.dataset.supportName || '', clients);
-      });
-    });
-    const addBtn = document.getElementById('financeSupportGroupAddBtn');
-    if (addBtn){
-      addBtn.addEventListener('click', function(ev){
-        ev.preventDefault();
-        addFinanceSupportClientsToGroup();
-      });
-    }
-  });
-
   // Chart.js texte/axes en bleu corporate
   try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
   function toChartData(items, labelKey, valueKey) {
@@ -1907,56 +1356,280 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Buckets chart (first): height reduced above
   makeBarFill('chartClientsBuckets', cb_labels, cb_data, false);
 
-  // ------- Tâches: datasets -------
-  const tasksStatut = {{ tasks_statut | tojson }};
-  const tasksCategorie = {{ tasks_categorie | tojson }};
-  const tasksDays = {{ tasks_days | tojson }};
-  const ts_labels = tasksStatut.map(x => (x.statut || 'n/a'));
-  const ts_data = tasksStatut.map(x => x.nb || 0);
-  const tc_labels = tasksCategorie.map(x => (x.categorie || 'n/a'));
-  const tc_data = tasksCategorie.map(x => x.nb || 0);
-  const td_labels = tasksDays.map(x => x.day);
-  const td_data = tasksDays.map(x => x.nb || 0);
-  // Draw
-  if (document.getElementById('chartTasksStatut')) makeBar('chartTasksStatut', ts_labels, ts_data, false);
-  if (document.getElementById('chartTasksCategorie')) makeBar('chartTasksCategorie', tc_labels, tc_data, false);
-  if (document.getElementById('chartTasksDays')) makeBarFill('chartTasksDays', td_labels, td_data, false);
-  const tdist = {{ tasks_close_dist | tojson }};
-  const tdist_labels = tdist.map(x => x.bucket);
-  const tdist_data = tdist.map(x => x.nb || 0);
-  if (document.getElementById('chartTasksCloseDist')) makeBarFill('chartTasksCloseDist', tdist_labels, tdist_data, false);
-
-  // -------- Graphique: Nb de tâches par type (avec filtre RH) --------
+  // ------- Conformité: lazy load -------
   (function(){
-    const byRh = {{ tasks_type_by_rh | tojson }} || [];
-    const totals = {{ tasks_type_total | tojson }} || [];
-    const sel = document.getElementById('tasksRhSelect');
-    const canvas = document.getElementById('chartTasksType');
-    if (!sel || !canvas) return;
-    // Options RH (uniques, non vides)
-    const rhPairs = [];
-    const seen = new Set();
-    byRh.forEach(r => { if (r.rh_id != null && r.rh_nom){ const key = r.rh_id+""; if(!seen.has(key)){ seen.add(key); rhPairs.push({id:r.rh_id, nom:r.rh_nom}); } } });
-    rhPairs.sort((a,b)=> String(a.nom).localeCompare(String(b.nom),'fr',{sensitivity:'base'}));
-    rhPairs.forEach(p=>{ const o=document.createElement('option'); o.value=String(p.id); o.textContent=p.nom; sel.appendChild(o); });
-    let chartInst = null;
-    function draw(rhId){
-      // Build map type->nb
-      const map = new Map();
-      if (rhId){
-        byRh.filter(r => String(r.rh_id) === String(rhId)).forEach(r => { map.set(r.type, (map.get(r.type)||0) + Number(r.nb||0)); });
-      } else {
-        (totals||[]).forEach(r => { map.set(r.type, (map.get(r.type)||0) + Number(r.nb||0)); });
+    let confLoaded = false;
+    const btn = document.getElementById('conformiteLoadBtn');
+    const statusEl = document.getElementById('conformiteStatus');
+    const setStatus = (txt)=> { if (statusEl) statusEl.textContent = txt; };
+    const setText = (id, val)=> { const el=document.getElementById(id); if (el) el.textContent = (val ?? '—'); };
+    const setPctBars = (validId, obsId, obsPct)=>{
+      const validBar = document.getElementById(validId);
+      const obsBar = document.getElementById(obsId);
+      const v = Math.max(0, Math.min(100, 100 - (Number(obsPct)||0)));
+      const o = Math.max(0, Math.min(100, Number(obsPct)||0));
+      if (validBar) validBar.style.width = v + '%';
+      if (obsBar) obsBar.style.width = o + '%';
+    };
+
+    function renderReclam(data){
+      const container = document.getElementById('reclamStatusList');
+      if (!container) return;
+      const stats = data.reclam_stats || {};
+      const list = stats.by_status || [];
+      if (!list.length){
+        container.textContent = 'Aucun statut renseigné';
+        return;
       }
-      const entries = Array.from(map.entries()).sort((a,b)=> b[1]-a[1]);
-      const labels = entries.map(e=> e[0]);
-      const data = entries.map(e=> e[1]);
-      if (chartInst) { chartInst.destroy(); chartInst = null; }
-      const ctx = canvas.getContext('2d');
-      chartInst = new Chart(ctx, { type:'bar', data:{ labels, datasets:[{ data, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' }]}, options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } } });
+      container.innerHTML = list.map(item=>{
+        const label = item.label || 'statut non renseigné';
+        return `<div>${label} : ${item.count}</div>`;
+      }).join('');
     }
-    sel.addEventListener('change', function(){ const v = this.value || ''; draw(v||null); });
-    draw(null);
+
+    async function loadConformite(){
+      if (confLoaded) return;
+      setStatus('Chargement…');
+      try{
+        const res = await fetch('/dashboard/conformite/summary', { credentials:'same-origin' });
+        if (!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json();
+        setText('derTotal', data.docs_der_total);
+        setText('derTotalPct', (data.docs_der_total_pct||0).toFixed(1));
+        setText('derObs', data.docs_der_obsolete);
+        setText('derObsPct', (data.docs_der_obsolete_pct||0).toFixed(1));
+        setPctBars('derValidBar', 'derObsBar', data.docs_der_obsolete_pct);
+
+        setText('ccTotal', data.docs_cc_total);
+        setText('ccTotalPct', (data.docs_cc_total_pct||0).toFixed(1));
+        setText('ccObs', data.docs_cc_obsolete);
+        setText('ccObsPct', (data.docs_cc_obsolete_pct||0).toFixed(1));
+        setPctBars('ccValidBar', 'ccObsBar', data.docs_cc_obsolete_pct);
+
+        setText('esgTotal', data.docs_esg_total);
+        setText('esgTotalPct', (data.docs_esg_total_pct||0).toFixed(1));
+        setText('esgObs', data.docs_esg_obsolete);
+        setText('esgObsPct', (data.docs_esg_obsolete_pct||0).toFixed(1));
+        setPctBars('esgValidBar', 'esgObsBar', data.docs_esg_obsolete_pct);
+
+        setText('lmTotal', data.docs_lm_total);
+        setText('lmTotalPct', (data.docs_lm_total_pct||0).toFixed(1));
+        setText('lmObs', data.docs_lm_obsolete);
+        setText('lmObsPct', (data.docs_lm_obsolete_pct||0).toFixed(1));
+        setPctBars('lmValidBar', 'lmObsBar', data.docs_lm_obsolete_pct);
+
+        setText('laTotal', data.docs_la_total);
+        setText('laTotalPct', (data.docs_la_total_pct||0).toFixed(1));
+        setText('laObs', data.docs_la_obsolete);
+        setText('laObsPct', (data.docs_la_obsolete_pct||0).toFixed(1));
+        setPctBars('laValidBar', 'laObsBar', data.docs_la_obsolete_pct);
+
+        setText('reclamTotal', (data.reclam_stats && data.reclam_stats.total) || 0);
+        renderReclam(data);
+        setStatus('Chargé');
+        confLoaded = true;
+      } catch(err){
+        console.error('Conformité load error', err);
+        setStatus('Erreur de chargement');
+      }
+    }
+    if (btn) btn.addEventListener('click', loadConformite);
+    window.__loadConformiteSection = function(){ if (!confLoaded) loadConformite(); };
+  })();
+
+  // ------- ESG: lazy load -------
+  (function(){
+    let esgLoaded = false;
+    const btn = document.getElementById('esgLoadBtn');
+    const statusEl = document.getElementById('esgStatus');
+    const contentEl = document.getElementById('esgContent');
+    const setStatus = (txt)=> { if (statusEl) statusEl.textContent = txt; };
+
+    function renderESG(data){
+      if (!contentEl) return;
+      const allocs = data.alloc_names || [];
+      const fields = data.esg_fields || [];
+      const dates = data.dates || [];
+      const fieldsHtml = fields.map(it => {
+        const col = it.col || it;
+        const label = it.label || col;
+        return `<button type="button" class="btn btn-choice esg-field-global" data-field="${col}" title="${label}">${label}</button>`;
+      }).join('') || '<div class="muted">Aucun champ ESG détecté.</div>';
+      const allocOptions = ['<option value="">— choisir —</option>'].concat(allocs.map(nm => `<option value="${nm}">${nm}</option>`)).join('');
+      const dateOptions = dates.length ? dates.map(d => `<option value="${d}">${d}</option>`).join('') : '';
+      contentEl.innerHTML = `
+        <div data-tb-marker="TB_65" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+          <div data-tb-marker="TB_66">
+            <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+            <select id="esgAllocSelectGlobal" style="min-width:220px; max-width:280px; width:auto;">${allocOptions}</select>
+          </div>
+          ${dateOptions ? `
+          <div data-tb-marker="TB_67" >
+            <label class="muted" style="font-size:0.85rem;">Date</label><br>
+            <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;">${dateOptions}</select>
+          </div>` : ''}
+          <div data-tb-marker="TB_68" style="flex:1 1 auto; min-width:260px;">
+            <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+            <div id="esgFieldsGlobal" data-tb-marker="TB_69" style="display:flex; gap:6px; flex-wrap:wrap;">${fieldsHtml}</div>
+          </div>
+        </div>
+        <div id="esgChartGlobal" data-tb-marker="TB_70" style="height:320px; width:100%;"></div>
+        <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Portefeuille = valeur relative (Portefeuille / Indice × 100).</div>
+        <details id="esgSqlGlobalDetails" data-tb-marker="TB_71" style="margin-top:8px;">
+          <summary class="muted" style="cursor:pointer;">Voir les données brutes</summary>
+          <div id="esgDebugPanelGlobal" class="muted" style="font-size:12px; display:none;"></div>
+        </details>
+      `;
+      esgLoaded = true;
+      setStatus('Chargé');
+      // Initialiser les contrôles ESG (clics, fetch et tracé)
+      initEsgControls();
+    }
+
+    async function loadESG(){
+      if (esgLoaded) return;
+      setStatus('Chargement…');
+      if (contentEl) contentEl.textContent = 'Chargement ESG…';
+      try{
+        const res = await fetch('/dashboard/esg/fields', { credentials:'same-origin' });
+        if (!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json();
+        renderESG(data);
+      } catch(err){
+        console.error('ESG load error', err);
+        setStatus('Erreur');
+        if (contentEl) contentEl.textContent = 'Impossible de charger les données ESG.';
+      }
+    }
+    if (btn) btn.addEventListener('click', loadESG);
+    window.__loadEsgSection = function(){ if (!esgLoaded) loadESG(); };
+
+    // Inspiré de l'ancien bloc ESG global, mais initialisé après rendu lazy
+    function initEsgControls(){
+      const allocSel = document.getElementById('esgAllocSelectGlobal');
+      const allocDateSel = document.getElementById('esgAllocDateGlobal');
+      const fieldsWrap = document.getElementById('esgFieldsGlobal');
+      if (!allocSel || !fieldsWrap) return;
+
+      const keyFields = 'global_esg_fields';
+      const keyAlloc = 'global_esg_alloc';
+      const keyAllocDate = 'global_esg_alloc_date';
+      function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field-global.btn-choice-active')).map(b=> b.getAttribute('data-field')); }
+      fieldsWrap.addEventListener('click', function(e){
+        const b=e.target.closest('.esg-field-global'); if(!b) return;
+        const sel = selectedFields();
+        if (b.classList.contains('btn-choice-active')){ b.classList.remove('btn-choice-active'); }
+        else { if (sel.length >= 4) return; b.classList.add('btn-choice-active'); }
+        try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
+        drawESG();
+      });
+
+      // Restaurer sélection champs si existante
+      try{
+        const stored = JSON.parse(localStorage.getItem(keyFields) || '[]');
+        if (stored && stored.length){
+          fieldsWrap.querySelectorAll('.esg-field-global').forEach(btn=>{
+            const f = btn.getAttribute('data-field');
+            if (stored.includes(f)) btn.classList.add('btn-choice-active');
+          });
+        } else {
+          const first = fieldsWrap.querySelector('.esg-field-global');
+          const second = fieldsWrap.querySelectorAll('.esg-field-global')[1];
+          if (first) first.classList.add('btn-choice-active');
+          if (second) second.classList.add('btn-choice-active');
+          try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_ee){}
+        }
+      }catch(_e){}
+
+      // Restaurer allocation/date
+      try{
+        const savedAlloc = localStorage.getItem(keyAlloc) || '';
+        if (savedAlloc && allocSel.querySelector(`option[value="${savedAlloc}"]`)) allocSel.value = savedAlloc;
+      }catch(_e){}
+      if (allocDateSel){
+        try{
+          const savedDate = localStorage.getItem(keyAllocDate) || '';
+          if (savedDate && allocDateSel.querySelector(`option[value="${savedDate}"]`)) allocDateSel.value = savedDate;
+        }catch(_e){}
+      }
+      if (!allocSel.value && allocSel.options.length > 1){
+        allocSel.selectedIndex = 1;
+      }
+
+      function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
+      function drawESG(){
+        const fields = selectedFields();
+        const alloc = allocSel.value || '';
+        const allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
+        if (!fields.length || !alloc) return;
+        ensurePlotly(function(){
+          const url = `/dashboard/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}&debug=1` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'');
+          fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
+            let rows = (data && data.results) || [];
+            rows = rows.filter(r => r && (r.affaire != null || r.index != null || r.global != null || r.index_raw != null));
+            const cats = rows.map(r=> r.field);
+            const idx = rows.map(function(r){
+              if (r.index != null) return Number(r.index);
+              if (r.index_raw != null) return 100;
+              return null;
+            });
+            const g = rows.map(function(r){
+              if (r.affaire != null) return Number(r.affaire);
+              if (r.global != null) return Number(r.global);
+              const pr = (r.global_raw==null? null : Number(r.global_raw));
+              const ir = (r.index_raw==null? null : Number(r.index_raw));
+              if (pr==null || ir==null || ir===0) return null;
+              return (pr/ir)*100.0;
+            });
+            const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6';
+            const traces = [
+              { x: idx, y: cats, type:'bar', orientation:'h', name:(alloc||'Indice'), marker:{ color:'#9ca3af' } },
+              { x: g, y: cats, type:'bar', orientation:'h', name:'Portefeuille', marker:{ color: primary } }
+            ];
+            const layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+            const cfg = { displayModeBar: false, responsive: true };
+            Plotly.react('esgChartGlobal', traces, layout, cfg);
+            const dbgWrap = document.getElementById('esgDebugPanelGlobal');
+            if (dbgWrap){
+              const d = data && data.debug ? data.debug : null;
+              if (d){
+                const fieldsList = fields;
+                const prow = d.portfolio_raw || {};
+                const irow = d.index_raw || {};
+                let html = '<div style=\"margin-top:6px;\"><strong>Valeurs brutes (par champ)</strong>';
+                html += '<table style=\"border-collapse:collapse; margin-top:4px; font-family:monospace; font-size:12px;\">';
+                html += '<tr><th style=\"text-align:left; padding-right:12px;\">Champ</th><th style=\"text-align:right; padding-right:12px;\">' + (alloc||'Indice') + '</th><th style=\"text-align:right;\">Portefeuille</th></tr>';
+                fieldsList.forEach(function(f){
+                  const iv = Object.prototype.hasOwnProperty.call(irow, f) ? irow[f] : null;
+                  const pv = Object.prototype.hasOwnProperty.call(prow, f) ? prow[f] : null;
+                  html += `<tr><td style=\"padding-right:12px;\">${f}</td><td style=\"text-align:right; padding-right:12px;\">${iv==null?'':iv}</td><td style=\"text-align:right;\">${pv==null?'':pv}</td></tr>`;
+                });
+                html += '</table></div>';
+                dbgWrap.innerHTML = html;
+                dbgWrap.style.display = 'block';
+              } else {
+                dbgWrap.innerHTML = '';
+                dbgWrap.style.display = 'none';
+              }
+            }
+          }).catch(function(err){ console.error('ESG fetch error', err); });
+        });
+      }
+      if (allocSel){
+        allocSel.addEventListener('change', function(){
+          try{ localStorage.setItem(keyAlloc, allocSel.value || ''); }catch(_e){}
+          drawESG();
+        });
+      }
+      if (allocDateSel){
+        allocDateSel.addEventListener('change', function(){
+          try{ localStorage.setItem(keyAllocDate, allocDateSel.value || ''); }catch(_e){}
+          drawESG();
+        });
+      }
+      // Lancer un premier dessin si des champs sont pré-sélectionnés
+      drawESG();
+    }
   })();
 
   (function syncRemRetroForms(){
@@ -2012,70 +1685,12 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Tabs principaux (remplacent les accordéons racine)
   (function(){
     let veilleLoaded = false;
-    async function loadVeille(){
-      if (veilleLoaded) return;
-      const container = document.getElementById('veilleContent');
-      if (!container) return;
-      container.innerHTML = 'Chargement de la veille...';
-      try{
-        const res = await fetch('/dashboard/veille/data', { credentials:'same-origin' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        const recent = data.recent || [];
-        const markets = data.markets || [];
-        const markets_meta = data.markets_meta || {};
-        const grouped = data.grouped || {};
-        const renderItems = (items)=> items.map(it=>{
-          const linkStart = it.link ? `<a href="${it.link}" target="_blank">` : '';
-          const linkEnd = it.link ? '</a>' : '';
-          const title = it.title || '(sans titre)';
-          const meta = `${it.source||''}${it.published ? ' · ' + String(it.published).slice(0,10) : ''}`;
-          const summary = it.summary ? `<div class="summary">${it.summary}</div>` : '';
-          return `<div class="veille-item">${linkStart}${title}${linkEnd}<div class="meta">${meta}</div>${summary}</div>`;
-        }).join('') || '<div class="muted">Aucune entrée.</div>';
-        const renderMarkets = ()=>{
-          if (!markets.length) return '<div class="muted">Pas de données marchés.</div>';
-          const rows = markets.map(m=>`<tr><td style="padding:4px 0;">${m.name||''}</td><td style="padding:4px 3px; text-align:right;">${m.value||''}</td><td style="padding:4px 3px; text-align:right;">${m.var||''}</td></tr>`).join('');
-          const meta = markets_meta && (markets_meta.source || markets_meta.timestamp) ? `<div class="muted" style="font-size:0.85rem; margin-bottom:6px;">Source : ${markets_meta.source||''}${markets_meta.timestamp ? ' · Extraction : '+markets_meta.timestamp : ''}</div>` : '';
-          return `${meta}<table style="width:100%; border-collapse:collapse; font-size:0.9rem;"><thead><tr><th style="text-align:left; border-bottom:1px solid var(--border); padding:4px 0;">Indice</th><th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Valeur</th><th style="text-align:right; border-bottom:1px solid var(--border); padding:4px 3px;">Variation</th></tr></thead><tbody>${rows}</tbody></table>`;
-        };
-        const groupedHtml = Object.keys(grouped||{}).map(tag=>{
-          const gitems = grouped[tag] || [];
-          return `<div class="veille-column"><header><i class="fa-solid fa-newspaper"></i> ${tag}</header><div class="body">${renderItems(gitems)}</div></div>`;
-        }).join('');
-        container.innerHTML = `
-        <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-          <a class="btn" href="/dashboard/veille" target="_blank" rel="noopener noreferrer" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
-            <i class="fa-solid fa-arrow-up-right-from-square"></i> Ouvrir la page complète
-          </a>
-        </div>
-        <div class="veille-grid" style="margin:12px 0 14px 0;">
-          <div class="veille-column">
-            <header><i class="fa-solid fa-clock"></i> News récentes</header>
-            <div class="body">${renderItems(recent)}</div>
-          </div>
-          <div class="veille-column">
-            <header><i class="fa-solid fa-chart-line"></i> Marchés financiers</header>
-            <div class="body">${renderMarkets()}</div>
-          </div>
-        </div>
-        <div class="veille-grid">${groupedHtml || '<div class="muted">Aucune entrée (vérifiez la collecte).</div>'}</div>
-        `;
-        veilleLoaded = true;
-      } catch(err){
-        console.error('Veille load error', err);
-        container.innerHTML = '<div class="muted">Impossible de charger la veille pour le moment (détails console).</div>';
-      }
-    }
-    const veilleBtn = document.getElementById('veilleLoadBtn');
-    if (veilleBtn) veilleBtn.addEventListener('click', loadVeille);
+    // Veille déplacée sur /dashboard/veille
+
 
     const groups = [
-      { key:'calendar', toggle:null, section:'calendarSection' },
-      { key:'veille', toggle:null, section:'veilleSection' },
-      { key:'tasks', toggle:'tasksToggle', section:'tasksSection' },
+      { key:'veille', toggle:null, section:'' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
-      { key:'analysis', toggle:'analysisToggle', section:'analysisSection' },
       { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
       { key:'commissions', toggle:'remToggle', section:'remSection' },
@@ -2128,7 +1743,8 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         }
 
       });
-      if (key === 'veille') { loadVeille(); }
+      if (key === 'risks' && window.__loadConformiteSection) { window.__loadConformiteSection(); }
+      if (key === 'esg' && window.__loadEsgSection) { window.__loadEsgSection(); }
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
       // Colorer les boutons de groupes lorsque l'onglet Groupes est actif
       const groupButtons = document.querySelectorAll('#groupsSection .group-card .btn');
@@ -2141,13 +1757,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         if (key === 'groups') { card.classList.add('active'); }
         else { card.classList.remove('active'); }
       });
-      // Forcer le recalcul d'affichage du calendrier quand l'onglet est activé (sinon FullCalendar reste vide)
-      if (key === 'calendar' && window._dashboardCalendar){
-        try {
-          window._dashboardCalendar.updateSize();
-          window._dashboardCalendar.render();
-        } catch(_e){}
-      }
       if (doScroll){
         // Reste en haut : on évite tout scroll automatique pour ne pas décaler la vue
         window.scrollTo({ top: 0, behavior: 'instant' });
@@ -2165,13 +1774,13 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
       if (retroParamKeys.some(key => params.has(key))) return 'commissions';
       if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
-        return 'analysis';
+        return 'tasks';
       }
       const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
       if (remParamKeys.some(key => params.has(key))){
         return 'commissions';
       }
-      return 'tasks';
+      return 'veille';
     }
 
     tabs.forEach(tab => {
@@ -2221,24 +1830,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       if (next){
         try { toggle.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
       }
-    });
-  })();
-
-  (function(){
-    var exportBtn = document.getElementById('finance_export_btn');
-    if (!exportBtn) return;
-    exportBtn.addEventListener('click', function(){
-      var params = new URLSearchParams();
-      var dateInput = document.querySelector('input[name="finance_date"]');
-      if (dateInput && dateInput.value) params.set('finance_date', dateInput.value);
-      var rhSelect = document.querySelector('select[name="finance_rh"]');
-      if (rhSelect && rhSelect.value) params.set('finance_rh', rhSelect.value);
-      var valoInput = document.querySelector('input[name="finance_valo"]');
-      if (valoInput && valoInput.value) params.set('finance_valo', valoInput.value);
-      var url = '/dashboard/finance/export';
-      var qs = params.toString();
-      if (qs) url += '?' + qs;
-      window.location.href = url;
     });
   })();
 
@@ -2492,133 +2083,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     });
   })();
 
-    function financeGoPage(delta){
-    var rows = Array.from(document.querySelectorAll('#financeSupportsTable tbody tr'));
-    if (!rows.length) return;
-    var pageSize = 20;
-    var total = Math.ceil(rows.length / pageSize);
-    var label = document.getElementById('financePageLabel');
-    var prev = document.getElementById('financePrevBtn');
-    var next = document.getElementById('financeNextBtn');
-    var current = parseInt(label ? label.textContent : '1', 10);
-    if (!isFinite(current) || current < 1) current = 1;
-    var target = Math.min(Math.max(current + delta, 1), total);
-    rows.forEach(function(r){ r.style.display = 'none'; });
-    var start = (target - 1) * pageSize;
-    var end = start + pageSize;
-    rows.slice(start, end).forEach(function(r){ r.style.display = ''; });
-    if (label) label.textContent = String(target);
-    if (prev) prev.disabled = target <= 1;
-    if (next) next.disabled = target >= total;
-  }
-  document.addEventListener('DOMContentLoaded', function(){ financeGoPage(0); });
-
-  // FullCalendar (intégration calendrier tâches)
-  (function(){
-    if (!document.getElementById('calendar')) return;
-    const apiUrl = '/dashboard/api/taches';
-    function loadTasks(){
-      const statut = (document.getElementById('calFilterStatut')||{}).value || '';
-      const resp = (document.getElementById('calFilterResp')||{}).value || '';
-      const params = new URLSearchParams();
-      if (statut) params.set('statut', statut);
-      if (resp) params.set('rh_id', resp);
-      const qs = params.toString();
-      return fetch(qs ? (apiUrl + '?' + qs) : apiUrl).then(r=>r.json());
-    }
-    function ensureScript(url){ return new Promise((res,rej)=>{ var s=document.createElement('script'); s.src=url; s.onload=()=>res(); s.onerror=rej; document.head.appendChild(s); }); }
-    function ensureStyle(href){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
-    ensureStyle('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css');
-    ensureScript('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js').then(function(){
-      const calEl = document.getElementById('calendar');
-      const statutSelect = document.getElementById('calFilterStatut');
-      const respSelect = document.getElementById('calFilterResp');
-      const refreshBtn = document.getElementById('calRefresh');
-      const exportBtn = document.getElementById('calExport');
-      const rangeSelect = document.getElementById('calRangeSelect');
-      
-    // Peupler le filtre Responsable avec finance_rh_options si dispo
-    try {
-      var rhSel = document.getElementById('calFilterResp');
-      var rhOptions = {{ finance_rh_options|tojson if finance_rh_options is defined else '[]' }};
-      if (rhSel && Array.isArray(rhOptions)) {
-        // Reset existing dynamic options (keep first "Tous")
-        while (rhSel.options.length > 1) { rhSel.remove(1); }
-        var seen = new Set();
-        rhOptions.forEach(function(rh){
-          var id = rh.id;
-          if (seen.has(id)) return;
-          seen.add(id);
-          var opt = document.createElement('option');
-          opt.value = id;
-          opt.textContent = rh.label || rh.nom || id;
-          rhSel.appendChild(opt);
-        });
-      }
-    } catch(e) { console.warn('RH options calendar', e); }
-
-      function statusColors(statut){
-        const s = (statut || '').toString().trim().toLowerCase();
-        if (s === 'en cours') return { bg: '#16a34a', fg: '#fff' };
-        if (s === 'en attente') return { bg: '#f59e0b', fg: '#fff' };
-        if (s === 'terminé' || s === 'termine') return { bg: '#4b5563', fg: '#fff' };
-        if (s === 'annulé' || s === 'annule') return { bg: '#b91c1c', fg: '#fff' };
-        return { bg: '#2563eb', fg: '#fff' };
-      }
-
-      const calendar = new FullCalendar.Calendar(calEl, {
-        initialView: 'dayGridMonth',
-        headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,timeGridDay' },
-        height: 520,
-        events: async function(info, success){
-          try{
-            const data = await loadTasks();
-            const items = (data && data.items) || [];
-            success(items.map(ev => ({
-              id: ev.id,
-              title: ev.title,
-              start: ev.start,
-              end: ev.end,
-              backgroundColor: statusColors(ev.statut).bg,
-              borderColor: statusColors(ev.statut).bg,
-              textColor: statusColors(ev.statut).fg,
-              extendedProps: ev
-            })));
-          } catch(e){ success([]); }
-        },
-        eventClick: function(info){
-          const ev = info.event.extendedProps || {};
-          const taskId = ev.id || info.event.id;
-          if (taskId) {
-            const url = '/dashboard/taches/' + taskId;
-            try { window.open(url, '_blank', 'noopener'); }
-            catch(_e) { window.location.href = url; }
-          }
-        }
-      });
-      calendar.render();
-      window._dashboardCalendar = calendar;
-      if (refreshBtn) refreshBtn.addEventListener('click', function(){ calendar.refetchEvents(); });
-      if (statutSelect) statutSelect.addEventListener('change', function(){ calendar.refetchEvents(); });
-      if (respSelect) respSelect.addEventListener('change', function(){ calendar.refetchEvents(); });
-      if (exportBtn){
-        exportBtn.addEventListener('click', function(){
-          const statut = (statutSelect || {}).value || '';
-          const resp = (respSelect || {}).value || '';
-          const range = (rangeSelect || {}).value || '';
-          const params = new URLSearchParams();
-          if (statut) params.set('statut', statut);
-          if (resp) params.set('rh_id', resp);
-          if (range) params.set('range_days', range);
-          const url = apiUrl + '.ics' + (params.toString() ? ('?' + params.toString()) : '');
-          try { window.open(url, '_blank', 'noopener'); }
-          catch(_e){ window.location.href = url; }
-        });
-      }
-    });
-  })();
-
-
     // Forcer l'affichage des deux blocs commissions au submit
     const remForm = document.getElementById('remForm');
     const retroForm = document.getElementById('retroForm');
@@ -2630,5 +2094,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     }
     if (remForm){ remForm.addEventListener('submit', showCommBlocks); }
     if (retroForm){ retroForm.addEventListener('submit', showCommBlocks); }
+
 </script>
 {% endblock %}

@@ -5,6 +5,19 @@
 
 {% block content %}
   <style>
+    .veille-loader {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      margin-bottom:12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#f8fafc;
+      color:#0f172a;
+      font-weight:600;
+      box-shadow: var(--shadow-sm);
+    }
     .veille-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
     .veille-column { border:1px solid var(--border); border-radius:12px; background:#fff; box-shadow: var(--shadow-sm); display:flex; flex-direction:column; min-height:280px; max-height:380px; }
     .veille-column header { padding:10px 12px; border-bottom:1px solid var(--border); font-weight:700; display:flex; align-items:center; gap:6px; }
@@ -15,6 +28,10 @@
     .veille-item .meta { font-size:0.85rem; color: var(--muted); margin-top:2px; }
     .veille-item .summary { font-size:0.9rem; color: var(--muted); margin-top:4px; }
   </style>
+
+  <div id="veilleLoading" class="veille-loader">
+    <i class="fa-solid fa-circle-notch fa-spin"></i> Chargement de la veille… merci de patienter.
+  </div>
 
   <div class="veille-grid" style="margin-bottom:12px;">
     <div class="veille-column">
@@ -102,4 +119,10 @@
       <div class="muted">Aucune entrée (vérifiez la collecte).</div>
     {% endif %}
   </div>
+  <script>
+    window.addEventListener('load', function(){
+      var l = document.getElementById('veilleLoading');
+      if (l) l.style.display = 'none';
+    });
+  </script>
 {% endblock %}

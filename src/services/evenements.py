@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Iterable
+import logging
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.orm.exc import ObjectDeletedError
 from sqlalchemy import and_, or_, func, text
 
 from src.models.evenement import Evenement
@@ -19,6 +22,7 @@ from src.schemas.evenement_intervenant import EvenementIntervenantCreateSchema
 from src.schemas.evenement_lien import EvenementLienCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
 
+logger = logging.getLogger("uvicorn.error")
 
 # -------------------- Evenements --------------------
 def list_evenements(
@@ -61,6 +65,8 @@ def get_evenement(db: Session, evenement_id: int) -> Evenement | None:
 
 
 def create_evenement(db: Session, payload: EvenementCreateSchema) -> Evenement:
+    from datetime import datetime as _dt
+    started_at = _dt.utcnow()
     ev = Evenement(
         type_id=payload.type_id,
         client_id=payload.client_id,
@@ -73,10 +79,35 @@ def create_evenement(db: Session, payload: EvenementCreateSchema) -> Evenement:
         rh_id=payload.rh_id,
         statut_reclamation_id=payload.statut_reclamation_id,
     )
-    db.add(ev)
-    db.commit()
-    db.refresh(ev)
-    return ev
+    try:
+        logger.info("create_evenement payload=%s", payload.dict() if hasattr(payload, "dict") else payload)
+        db.add(ev)
+        db.flush()  # assign PK before commit
+        ev_id = ev.id
+        db.commit()
+        logger.info("create_evenement success ev_id=%s", ev_id)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("create_evenement failed", exc_info=True)
+        raise
+    try:
+        if ev_id in (None, 0):
+            logger.warning("create_evenement returned id=%s, attempting lookup", ev_id)
+            row = (
+                db.query(Evenement)
+                .filter(Evenement.client_id == payload.client_id)
+                .filter(Evenement.affaire_id == payload.affaire_id)
+                .filter(Evenement.type_id == payload.type_id)
+                .filter(Evenement.date_evenement >= started_at.replace(microsecond=0))
+                .order_by(Evenement.id.desc())
+                .first()
+            )
+            if row:
+                ev_id = row.id
+                return row
+        return db.query(Evenement).filter(Evenement.id == ev_id).first()
+    except Exception:
+        return ev
 
 
 def update_evenement(db: Session, evenement_id: int, payload: EvenementUpdateSchema) -> Evenement | None:
@@ -132,6 +163,8 @@ def ensure_type(db: Session, libelle: str, categorie: str | None = None) -> Type
 
 
 def create_tache(db: Session, payload: TacheCreateSchema) -> Evenement:
+    from datetime import datetime as _dt
+    started_at = _dt.utcnow()
     t = ensure_type(db, payload.type_libelle, payload.categorie or "tache")
     ev = Evenement(
         type_id=t.id,
@@ -145,10 +178,35 @@ def create_tache(db: Session, payload: TacheCreateSchema) -> Evenement:
         rh_id=payload.rh_id,
         statut_reclamation_id=payload.statut_reclamation_id,
     )
-    db.add(ev)
-    db.commit()
-    db.refresh(ev)
-    return ev
+    try:
+        logger.info("create_tache payload=%s", payload.dict() if hasattr(payload, "dict") else payload)
+        db.add(ev)
+        db.flush()
+        ev_id = ev.id
+        db.commit()
+        logger.info("create_tache success ev_id=%s", ev_id)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("create_tache failed", exc_info=True)
+        raise
+    try:
+        if ev_id in (None, 0):
+            logger.warning("create_tache returned id=%s, attempting lookup", ev_id)
+            row = (
+                db.query(Evenement)
+                .filter(Evenement.client_id == payload.client_id)
+                .filter(Evenement.affaire_id == payload.affaire_id)
+                .filter(Evenement.type_id == t.id)
+                .filter(Evenement.date_evenement >= started_at.replace(microsecond=0))
+                .order_by(Evenement.id.desc())
+                .first()
+            )
+            if row:
+                ev_id = row.id
+                return row
+        return db.query(Evenement).filter(Evenement.id == ev_id).first()
+    except Exception:
+        return ev
 
 
 def add_statut_to_evenement(db: Session, evenement_id: int, payload: EvenementStatutCreateSchema) -> EvenementStatut | str:

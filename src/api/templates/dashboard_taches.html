@@ -5,17 +5,156 @@
 
 {% block content %}
   <style>
-    /* Reset custom button colors: use base styles */
+    /* Styles synthèse tâches (repris du dashboard) */
+    .tasks-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 10px 0;
+      align-items: stretch;
+    }
+    .tasks-label { color: var(--muted); font-weight: 700; letter-spacing: .02em; }
+    .tasks-range {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .tasks-inline-kpis {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .tasks-inline-kpi {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-radius: 12px;
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+      height: 28px;
+    }
+    .tasks-inline-kpi .label {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .tasks-inline-kpi .value {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .tasks-range button.btn-choice {
+      min-width: 40px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: 0 5px 12px rgba(15, 23, 42, 0.06);
+    }
+    .tasks-range button.btn-choice-active {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+    }
+    .tasks-nav {
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin: 0 0 12px 0;
+    }
+    .tasks-nav .nav-btn {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:8px 12px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:#fff;
+      cursor:pointer;
+      font-weight:600;
+      box-shadow: 0 6px 14px rgba(15,23,42,0.08);
+      transition: all .15s ease;
+    }
+    .tasks-nav .nav-btn:hover {
+      background: var(--primary-100);
+      color: var(--primary-600);
+      border-color: #c7d2fe;
+      transform: translateY(-1px);
+    }
+    .task-section { display:none; }
+    .task-section.active { display:block; }
+    .task-card.active { border:1px solid var(--primary-100); box-shadow: 0 10px 24px rgba(37,99,235,0.12); }
   </style>
 
-  <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 1rem;">
-    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
-      <button type="button" class="accordion-toggle collapsed" onclick="toggleTacheAccordion()" style="width:100%; justify-content:center;">
-        <span style="display:flex; align-items:center; justify-content:center; gap:8px;"><i class="fa-solid fa-list-check"></i>Définir une tâche</span>
-        <i id="tache_acc_icon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
-      </button>
+  <div class="tasks-nav">
+    <button type="button" class="nav-btn" onclick="focusTaskSection('tasksSummaryCard','toggleTasksSummary')"><i class="fa-solid fa-list-check"></i>Synthèse</button>
+    <button type="button" class="nav-btn" onclick="focusTaskSection('tacheFormCard','toggleTacheAccordion')"><i class="fa-solid fa-pen-to-square"></i>Définir une tâche</button>
+    <button type="button" class="nav-btn" onclick="focusTaskSection('tasksListCard','toggleTasksList')"><i class="fa-solid fa-list"></i>Liste des tâches</button>
+    <button type="button" class="nav-btn" onclick="focusTaskSection('calendarCard','toggleCalendarAccordion')"><i class="fa-solid fa-calendar"></i>Calendrier</button>
+    <button type="button" class="nav-btn" onclick="focusTaskSection('reclamCard','toggleReclamPivot')"><i class="fa-solid fa-table-list"></i>Livre des réclamations</button>
+  </div>
 
-      <div id="tache_accordion_body" class="task-block" style="display:none; margin-top:.8rem;">
+  <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 1rem;">
+    <div class="card task-card" id="tasksSummaryCard" style="flex:1 1 100%; width:100%; margin:0;">
+      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
+        <i class="fa-solid fa-list-check"></i> Synthèse
+      </div>
+      <div id="tasksSummaryBody" class="task-section" style="padding-top:.6rem;">
+        <div class="tasks-toolbar">
+          <div class="tasks-label">Période</div>
+          <div class="tasks-range">
+            {% set r = 14 %}
+            {% for n in [7,14,30] %}
+              <button type="button" class="btn btn-choice{% if n == r %} btn-choice-active{% endif %} tasks-range-btn" data-range="{{ n }}">{{ n }} J</button>
+            {% endfor %}
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button id="tasksLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-rotate"></i> Charger les tâches
+            </button>
+            <span id="tasksStatus" class="muted" style="font-size:0.9rem;">(non chargé)</span>
+          </div>
+          <div class="tasks-inline-kpis">
+            <div class="tasks-inline-kpi"><span class="label">Tâches totales</span><span class="value" id="tasksTotal">—</span></div>
+            <div class="tasks-inline-kpi"><span class="label">Ouvertes</span><span class="value" id="tasksOpen">—</span></div>
+            <div class="tasks-inline-kpi"><span class="label">Clôturées</span><span class="value" id="tasksClosed">—</span></div>
+            <div class="tasks-inline-kpi"><span class="label">Aujourd'hui</span><span class="value" id="tasksToday">—</span></div>
+          </div>
+        </div>
+        <div class="tasks-kpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:10px; align-items:stretch;">
+          <div class="tasks-kpi-card" style="min-height:220px; display:flex; align-items:center; justify-content:center;">
+            <canvas id="chartTasksDays" height="180" style="width:100%;"></canvas>
+          </div>
+          <div class="tasks-kpi-card" style="min-height:220px; display:flex; flex-direction:column;">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+              <div class="muted">Filtre par responsable commercial:</div>
+              <select id="tasksRhSelect" style="width:160px;">
+                <option value="">Tous</option>
+              </select>
+            </div>
+            <div style="flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;">
+              <canvas id="chartTasksType" height="160" style="width:100%;"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card task-card" id="tacheFormCard" style="flex:1 1 100%; width:100%; margin:0;">
+      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
+        <i class="fa-solid fa-pen-to-square"></i> Définir une tâche
+      </div>
+
+      <div id="tache_accordion_body" class="task-block task-section" style="margin-top:.8rem;">
     <form id="form-create-tache" method="post" action="/dashboard/taches">
       <!-- Ligne 1: Client / Affaire / RH -->
       <div class="form-row" style="margin-bottom:.6rem;">
@@ -31,11 +170,9 @@
           <label>Affecter à (RH)</label>
           <select name="rh_id">
             <option value="">-- aucun --</option>
-            {% for rh in rh_list %}
-              {% set rid = rh.id if rh.id is not none else rh[0] %}
-              {% set rprenom = rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '') %}
-              {% set rnom = rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '') %}
-              {% set label = (rprenom ~ ' ' ~ rnom).strip() %}
+            {% for rh in rh_options %}
+              {% set rid = rh.id if rh.id is not none else rh.get('id') %}
+              {% set label = rh.label if rh.label is defined else rh.get('label') %}
               <option value="{{ rid }}">{{ label if label else rid }}</option>
             {% endfor %}
           </select>
@@ -142,15 +279,6 @@
     </form>
 
     <script>
-      function toggleTacheAccordion(){
-        const body = document.getElementById('tache_accordion_body');
-        const icn = document.getElementById('tache_acc_icon');
-        const btn = icn ? icn.closest('.accordion-toggle') : null;
-        const isOpen = body.style.display === 'block';
-        body.style.display = isOpen ? 'none' : 'block';
-        if (icn) icn.className = isOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
-        if (btn) btn.classList.toggle('active', !isOpen);
-      }
       const TYPES = [
         {% for t in types %}
           { id: {{ t.id }}, libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
@@ -161,6 +289,9 @@
           { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
         {% endfor %}
       ];
+      const TASKS_RH_OPTIONS = {{ rh_options|tojson }};
+      let tasksCalendarInstance = null;
+      let tasksCalendarLoaded = false;
       const RECLAM_STATUS_ROW = document.getElementById('reclam_status_row');
       const RECLAM_STATUS_SELECT = document.getElementById('reclam_status_select');
       function populateTypes(cat) {
@@ -216,6 +347,12 @@
         const otherBody = document.getElementById('tasksListBody');
         const otherIcn = document.getElementById('tasksListIcon');
         const otherBtn = otherIcn ? otherIcn.closest('.accordion-toggle') : null;
+        const calendarBody = document.getElementById('calendarAccordionBody');
+        const calendarIcn = document.getElementById('calendarAccordionIcon');
+        const calendarBtn = calendarIcn ? calendarIcn.closest('.accordion-toggle') : null;
+        const summaryBody = document.getElementById('tasksSummaryBody');
+        const summaryIcn = document.getElementById('tasksSummaryIcon');
+        const summaryBtn = summaryIcn ? summaryIcn.closest('.accordion-toggle') : null;
         const isOpen = body.style.display === 'block';
         const willOpen = !isOpen;
         body.style.display = willOpen ? 'block' : 'none';
@@ -231,6 +368,22 @@
           if (otherBtn) {
             otherBtn.classList.remove('active');
             otherBtn.classList.add('collapsed');
+          }
+        }
+        if (willOpen && calendarBody) {
+          calendarBody.style.display = 'none';
+          if (calendarIcn) calendarIcn.className = 'fa-solid fa-chevron-down';
+          if (calendarBtn) {
+            calendarBtn.classList.remove('active');
+            calendarBtn.classList.add('collapsed');
+          }
+        }
+        if (willOpen && summaryBody) {
+          summaryBody.style.display = 'none';
+          if (summaryIcn) summaryIcn.className = 'fa-solid fa-chevron-down';
+          if (summaryBtn) {
+            summaryBtn.classList.remove('active');
+            summaryBtn.classList.add('collapsed');
           }
         }
       }
@@ -283,12 +436,11 @@
     </div>
   </div>
 
-    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
-      <button type="button" class="accordion-toggle collapsed" onclick="toggleTasksList()" style="width:100%; justify-content:center; padding:10px 12px; margin:0 0 .6rem 0; cursor:pointer;">
-        <h2 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:center; font-size:1.05rem; font-weight:600;"><i class="fa-solid fa-list-check"></i>Liste des tâches</h2>
-        <i id="tasksListIcon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
-      </button>
-      <div id="tasksListBody" style="display:none;">
+    <div class="card task-card" id="tasksListCard" style="flex:1 1 100%; width:100%; margin:0;">
+      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
+        <i class="fa-solid fa-list-check"></i> Liste des tâches
+      </div>
+      <div id="tasksListBody" class="task-section">
     <div class="tasks-quickfilters" style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
       <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
@@ -503,12 +655,56 @@
     </form>
       </div> <!-- /#tasksListBody -->
     </div>
-    <div class="card" style="flex:1 1 100%; width:100%; margin:0;">
-      <button type="button" class="accordion-toggle collapsed" onclick="toggleReclamPivot()" style="width:100%; justify-content:center; padding:10px 12px; margin:0 0 .6rem 0; cursor:pointer;">
-        <h2 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:center; font-size:1.05rem; font-weight:600;"><i class="fa-solid fa-table-list"></i>Livre des réclamations</h2>
-        <i id="reclamPivotIcon" class="fa-solid fa-chevron-down" style="margin-left:auto;"></i>
-      </button>
-      <div id="reclamPivotBody" style="display:none;">
+    <div class="card task-card" id="calendarCard" style="flex:1 1 100%; width:100%; margin:0;">
+      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
+        <i class="fa-solid fa-calendar"></i> Calendrier
+      </div>
+      <div id="calendarAccordionBody" class="task-section active">
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
+          <div>
+            <label class="muted" style="font-size:0.85rem;">Responsable</label><br>
+            <select id="tasksCalFilterResp" style="min-width:180px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+              <option value="">Tous</option>
+              {% for rh in rh_options %}
+                <option value="{{ rh.id }}">{{ rh.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:0.85rem;">Statut</label><br>
+            <select id="tasksCalFilterStatut" style="min-width:160px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+              <option value="">Tous</option>
+              <option value="à faire">À faire</option>
+              <option value="en cours">En cours</option>
+              <option value="en attente">En attente</option>
+              <option value="terminé">Terminé</option>
+              <option value="annulé">Annulé</option>
+            </select>
+          </div>
+          <div>
+            <button id="tasksCalRefresh" class="btn btn-primary" style="height:32px;">Actualiser</button>
+          </div>
+          <div>
+            <label class="muted" style="font-size:0.85rem;">Période export (jours autour d'aujourd'hui)</label><br>
+            <select id="tasksCalRangeSelect" style="min-width:140px; height:32px; padding:4px 8px; border:1px solid var(--border); border-radius:8px;">
+              <option value="30">30 jours</option>
+              <option value="90" selected>90 jours</option>
+              <option value="180">180 jours</option>
+              <option value="365">365 jours</option>
+            </select>
+          </div>
+          <div>
+            <button id="tasksCalExport" class="btn" style="height:32px; border:1px solid var(--border);">Exporter ICS</button>
+          </div>
+        </div>
+        <div id="tasksCalendar" style="margin-top:8px; min-height:480px;"></div>
+      </div>
+    </div>
+    <div class="card task-card" id="reclamCard" style="flex:1 1 100%; width:100%; margin:0;">
+      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
+        <i class="fa-solid fa-table-list"></i> Livre des réclamations
+      </div>
+      <div id="reclamPivotBody" class="task-section">
         <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom: .6rem;">
           <div>
             <p class="eyebrow" style="margin-bottom:4px;">Réclamations par type et statut</p>
@@ -615,7 +811,143 @@
       </div>
     </div>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script>
+    // Synthèse tâches (charts)
+    (function(){
+      var summaryLoaded = false;
+      var summaryRange = 14;
+      var charts = { days:null, type:null, statut:null, categorie:null, dist:null };
+      var statusEl = document.getElementById('tasksStatus');
+      var btnLoad = document.getElementById('tasksLoadBtn');
+      var btnsRange = Array.from(document.querySelectorAll('.tasks-range-btn'));
+      var selRh = document.getElementById('tasksRhSelect');
+
+      function setStatus(txt){ if (statusEl) statusEl.textContent = txt; }
+      function fmt(x){ return (x === null || x === undefined) ? '—' : x; }
+      function setText(id, value){ var el=document.getElementById(id); if(el) el.textContent = value; }
+      function destroyChart(ch){ if(ch && ch.destroy) ch.destroy(); }
+      function primaryColor(){ return getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; }
+
+      function renderCharts(data){
+        var stat = data.tasks_statut || [];
+        var cat = data.tasks_categorie || [];
+        var days = data.tasks_days || [];
+        var dist = data.tasks_close_dist || [];
+        var byRh = data.tasks_type_by_rh || [];
+        var totals = data.tasks_type_total || [];
+        var color = primaryColor();
+
+        destroyChart(charts.statut);
+        if (document.getElementById('chartTasksStatut') && stat.length){
+          charts.statut = new Chart(document.getElementById('chartTasksStatut').getContext('2d'), {
+            type:'bar', data:{ labels: stat.map(function(x){return x.statut||'n/a';}), datasets:[{ data: stat.map(function(x){return x.nb||0;}), backgroundColor: color }]},
+            options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+          });
+        }
+
+        destroyChart(charts.categorie);
+        if (document.getElementById('chartTasksCategorie') && cat.length){
+          charts.categorie = new Chart(document.getElementById('chartTasksCategorie').getContext('2d'), {
+            type:'bar', data:{ labels: cat.map(function(x){return x.categorie||'n/a';}), datasets:[{ data: cat.map(function(x){return x.nb||0;}), backgroundColor: color }]},
+            options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+          });
+        }
+
+        destroyChart(charts.days);
+        if (document.getElementById('chartTasksDays') && days.length){
+          charts.days = new Chart(document.getElementById('chartTasksDays').getContext('2d'), {
+            type:'bar', data:{ labels: days.map(function(x){return x.day;}), datasets:[{ data: days.map(function(x){return x.nb||0;}), backgroundColor: color }]},
+            options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+          });
+        }
+
+        destroyChart(charts.dist);
+        if (document.getElementById('chartTasksCloseDist') && dist.length){
+          charts.dist = new Chart(document.getElementById('chartTasksCloseDist').getContext('2d'), {
+            type:'bar', data:{ labels: dist.map(function(x){return x.bucket;}), datasets:[{ data: dist.map(function(x){return x.nb||0;}), backgroundColor: color }]},
+            options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+          });
+        }
+
+        if (selRh){
+          selRh.innerHTML = '';
+          var optAll = document.createElement('option'); optAll.value=''; optAll.textContent='Tous'; selRh.appendChild(optAll);
+          var rhPairs = [];
+          var seen = new Set();
+          byRh.forEach(function(r){
+            if (r.rh_id == null || !r.rh_nom) return;
+            var key = String(r.rh_id);
+            if (seen.has(key)) return;
+            seen.add(key);
+            rhPairs.push({ id:r.rh_id, nom:r.rh_nom });
+          });
+          rhPairs.sort(function(a,b){ return String(a.nom).localeCompare(String(b.nom),'fr',{sensitivity:'base'}); });
+          rhPairs.forEach(function(p){
+            var o=document.createElement('option'); o.value=String(p.id); o.textContent=p.nom; selRh.appendChild(o);
+          });
+          destroyChart(charts.type);
+          function drawType(rhId){
+            var map = new Map();
+            if (rhId){
+              byRh.filter(function(r){ return String(r.rh_id) === String(rhId); }).forEach(function(r){ map.set(r.type, (map.get(r.type)||0) + Number(r.nb||0)); });
+            } else {
+              (totals||[]).forEach(function(r){ map.set(r.type, (map.get(r.type)||0) + Number(r.nb||0)); });
+            }
+            var entries = Array.from(map.entries()).sort(function(a,b){ return b[1]-a[1]; });
+            var labels = entries.map(function(e){ return e[0]; });
+            var data = entries.map(function(e){ return e[1]; });
+            destroyChart(charts.type);
+            if (document.getElementById('chartTasksType') && labels.length){
+              charts.type = new Chart(document.getElementById('chartTasksType').getContext('2d'), {
+                type:'bar', data:{ labels: labels, datasets:[{ data: data, backgroundColor: color }]},
+                options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+              });
+            }
+          }
+          selRh.onchange = function(){ drawType(this.value || null); };
+          drawType(null);
+        }
+      }
+
+      async function loadSummary(range){
+        var targetRange = range || summaryRange || 14;
+        setStatus('Chargement…');
+        try{
+          var res = await fetch('/dashboard/tasks/summary?range=' + targetRange, { credentials:'same-origin' });
+          if (!res.ok) throw new Error('HTTP '+res.status);
+          var data = await res.json();
+          summaryRange = targetRange;
+          setText('tasksTotal', fmt(data.tasks_total));
+          setText('tasksOpen', fmt(data.tasks_open));
+          var closed = (Number(data.tasks_total||0) - Number(data.tasks_open||0));
+          setText('tasksClosed', fmt(closed));
+          var today = (data.tasks_days || []).slice(-1)[0];
+          setText('tasksToday', fmt(today ? today.nb : '—'));
+          renderCharts(data);
+          btnsRange.forEach(function(btn){
+            var r = Number(btn.dataset.range || 0);
+            if (r === targetRange){ btn.classList.add('btn-choice-active'); }
+            else { btn.classList.remove('btn-choice-active'); }
+          });
+          setStatus('Chargé');
+          summaryLoaded = true;
+        } catch(err){
+          console.error('Tasks summary load error', err);
+          setStatus('Erreur de chargement');
+        }
+      }
+
+      if (btnLoad) btnLoad.addEventListener('click', function(){ loadSummary(); });
+      btnsRange.forEach(function(btn){
+        btn.addEventListener('click', function(){ loadSummary(Number(btn.dataset.range||14)); });
+      });
+
+      window.__toggleTasksSummary = function(willOpen){
+        if (willOpen && !summaryLoaded) { loadSummary(summaryRange); }
+      };
+    })();
+
     function toggleComment(id){
       var s = document.getElementById('cmt-short-'+id);
       var f = document.getElementById('cmt-full-'+id);
@@ -629,6 +961,65 @@
       }
       return false;
     }
+    function toggleTasksSummary(){
+      var body = document.getElementById('tasksSummaryBody');
+      var icn = document.getElementById('tasksSummaryIcon');
+      if (!body || !icn) return;
+      var createBody = document.getElementById('tache_accordion_body');
+      var createIcn = document.getElementById('tache_acc_icon');
+      var createBtn = createIcn ? createIcn.closest('.accordion-toggle') : null;
+      var listBody = document.getElementById('tasksListBody');
+      var listIcn = document.getElementById('tasksListIcon');
+      var listBtn = listIcn ? listIcn.closest('.accordion-toggle') : null;
+      var calendarBody = document.getElementById('calendarAccordionBody');
+      var calendarIcn = document.getElementById('calendarAccordionIcon');
+      var calendarBtn = calendarIcn ? calendarIcn.closest('.accordion-toggle') : null;
+      var reclBody = document.getElementById('reclamPivotBody');
+      var reclIcn = document.getElementById('reclamPivotIcon');
+      var reclBtn = reclIcn ? reclIcn.closest('.accordion-toggle') : null;
+      var isOpen = body.style.display !== 'none';
+      var willOpen = !isOpen;
+      body.style.display = willOpen ? 'block' : 'none';
+      icn.className = willOpen ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+      var btn = icn.closest('.accordion-toggle');
+      if (btn){
+        btn.classList.toggle('active', willOpen);
+        btn.classList.toggle('collapsed', !willOpen);
+      }
+      if (willOpen && createBody){
+        createBody.style.display = 'none';
+        if (createIcn) createIcn.className = 'fa-solid fa-chevron-down';
+        if (createBtn){
+          createBtn.classList.remove('active');
+          createBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && listBody){
+        listBody.style.display = 'none';
+        if (listIcn) listIcn.className = 'fa-solid fa-chevron-down';
+        if (listBtn){
+          listBtn.classList.remove('active');
+          listBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && calendarBody){
+        calendarBody.style.display = 'none';
+        if (calendarIcn) calendarIcn.className = 'fa-solid fa-chevron-down';
+        if (calendarBtn){
+          calendarBtn.classList.remove('active');
+          calendarBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && reclBody){
+        reclBody.style.display = 'none';
+        if (reclIcn) reclIcn.className = 'fa-solid fa-chevron-down';
+        if (reclBtn){
+          reclBtn.classList.remove('active');
+          reclBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && window.__toggleTasksSummary){ window.__toggleTasksSummary(true); }
+    }
     function toggleTasksList(){
       var body = document.getElementById('tasksListBody');
       var icn = document.getElementById('tasksListIcon');
@@ -636,6 +1027,12 @@
       var otherBody = document.getElementById('tache_accordion_body');
       var otherIcn = document.getElementById('tache_acc_icon');
       var otherBtn = otherIcn ? otherIcn.closest('.accordion-toggle') : null;
+      var calendarBody = document.getElementById('calendarAccordionBody');
+      var calendarIcn = document.getElementById('calendarAccordionIcon');
+      var calendarBtn = calendarIcn ? calendarIcn.closest('.accordion-toggle') : null;
+      var summaryBody = document.getElementById('tasksSummaryBody');
+      var summaryIcn = document.getElementById('tasksSummaryIcon');
+      var summaryBtn = summaryIcn ? summaryIcn.closest('.accordion-toggle') : null;
       var isOpen = body.style.display !== 'none';
       var willOpen = !isOpen;
         body.style.display = willOpen ? 'block' : 'none';
@@ -653,7 +1050,202 @@
             otherBtn.classList.add('collapsed');
           }
         }
+        if (willOpen && calendarBody) {
+          calendarBody.style.display = 'none';
+          if (calendarIcn) calendarIcn.className = 'fa-solid fa-chevron-down';
+          if (calendarBtn) {
+            calendarBtn.classList.remove('active');
+            calendarBtn.classList.add('collapsed');
+          }
+        }
+        if (willOpen && summaryBody) {
+          summaryBody.style.display = 'none';
+          if (summaryIcn) summaryIcn.className = 'fa-solid fa-chevron-down';
+          if (summaryBtn) {
+            summaryBtn.classList.remove('active');
+            summaryBtn.classList.add('collapsed');
+          }
+        }
       }
+    async function initTasksCalendar(){
+      if (tasksCalendarLoaded && tasksCalendarInstance) { return tasksCalendarInstance; }
+      var calEl = document.getElementById('tasksCalendar');
+      if (!calEl) return null;
+      function ensureStyleOnce(href){
+        if (document.querySelector('link[href=\"'+href+'\"]')) return;
+        var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l);
+      }
+      function ensureScriptOnce(src){
+        return new Promise(function(resolve, reject){
+          var existing = document.querySelector('script[src=\"'+src+'\"]');
+          if (existing){
+            if (existing.dataset.loaded === '1') { return resolve(); }
+            existing.addEventListener('load', function(){ resolve(); });
+            existing.addEventListener('error', reject);
+            return;
+          }
+          var s=document.createElement('script');
+          s.src=src;
+          s.dataset.loaded='0';
+          s.onload=function(){ s.dataset.loaded='1'; resolve(); };
+          s.onerror=reject;
+          document.head.appendChild(s);
+        });
+      }
+      ensureStyleOnce('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css');
+      await ensureScriptOnce('https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js');
+
+      var statutSelect = document.getElementById('tasksCalFilterStatut');
+      var respSelect = document.getElementById('tasksCalFilterResp');
+      var refreshBtn = document.getElementById('tasksCalRefresh');
+      var exportBtn = document.getElementById('tasksCalExport');
+      var rangeSelect = document.getElementById('tasksCalRangeSelect');
+
+      try {
+        if (respSelect && Array.isArray(TASKS_RH_OPTIONS)) {
+          while (respSelect.options.length > 1) { respSelect.remove(1); }
+          var seen = new Set();
+          TASKS_RH_OPTIONS.forEach(function(rh){
+            var id = rh.id;
+            if (seen.has(id)) return;
+            seen.add(id);
+            var opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = rh.label || rh.nom || ('RH #' + id);
+            respSelect.appendChild(opt);
+          });
+        }
+      } catch(e){ console.warn('RH options calendar', e); }
+
+      var apiUrl = '/dashboard/api/taches';
+      function loadTasks(){
+        var statut = (statutSelect || {}).value || '';
+        var resp = (respSelect || {}).value || '';
+        var params = new URLSearchParams();
+        if (statut) params.set('statut', statut);
+        if (resp) params.set('rh_id', resp);
+        var qs = params.toString();
+        return fetch(qs ? (apiUrl + '?' + qs) : apiUrl).then(function(r){ return r.json(); });
+      }
+      function statusColors(statut){
+        var s = (statut || '').toString().trim().toLowerCase();
+        if (s === 'en cours') return { bg: '#16a34a', fg: '#fff' };
+        if (s === 'en attente') return { bg: '#f59e0b', fg: '#fff' };
+        if (s === 'terminé' || s === 'termine') return { bg: '#4b5563', fg: '#fff' };
+        if (s === 'annulé' || s === 'annule') return { bg: '#b91c1c', fg: '#fff' };
+        return { bg: '#2563eb', fg: '#fff' };
+      }
+
+      tasksCalendarInstance = new FullCalendar.Calendar(calEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,timeGridDay' },
+        height: 520,
+        events: async function(info, success){
+          try {
+            var data = await loadTasks();
+            var items = (data && data.items) || [];
+            success(items.map(function(ev){
+              var colors = statusColors(ev.statut);
+              return {
+                id: ev.id,
+                title: ev.title,
+                start: ev.start,
+                end: ev.end,
+                backgroundColor: colors.bg,
+                borderColor: colors.bg,
+                textColor: colors.fg,
+                extendedProps: ev
+              };
+            }));
+          } catch(_e){ success([]); }
+        },
+        eventClick: function(info){
+          var ev = info.event.extendedProps || {};
+          var taskId = ev.id || info.event.id;
+          if (taskId) {
+            var url = '/dashboard/taches/' + taskId;
+            try { window.open(url, '_blank', 'noopener'); }
+            catch(_err) { window.location.href = url; }
+          }
+        }
+      });
+      tasksCalendarInstance.render();
+      tasksCalendarLoaded = true;
+
+      if (refreshBtn) refreshBtn.addEventListener('click', function(){ if (tasksCalendarInstance) tasksCalendarInstance.refetchEvents(); });
+      if (statutSelect) statutSelect.addEventListener('change', function(){ if (tasksCalendarInstance) tasksCalendarInstance.refetchEvents(); });
+      if (respSelect) respSelect.addEventListener('change', function(){ if (tasksCalendarInstance) tasksCalendarInstance.refetchEvents(); });
+      if (exportBtn){
+        exportBtn.addEventListener('click', function(){
+          var statut = (statutSelect || {}).value || '';
+          var resp = (respSelect || {}).value || '';
+          var range = (rangeSelect || {}).value || '';
+          var params = new URLSearchParams();
+          if (statut) params.set('statut', statut);
+          if (resp) params.set('rh_id', resp);
+          if (range) params.set('range_days', range);
+          var url = apiUrl + '.ics' + (params.toString() ? ('?' + params.toString()) : '');
+          try { window.open(url, '_blank', 'noopener'); }
+          catch(_err){ window.location.href = url; }
+        });
+      }
+      return tasksCalendarInstance;
+    }
+    function toggleCalendarAccordion(){
+      var body = document.getElementById('calendarAccordionBody');
+      var icn = document.getElementById('calendarAccordionIcon');
+      if (!body || !icn) return;
+      var tasksBody = document.getElementById('tasksListBody');
+      var tasksIcn = document.getElementById('tasksListIcon');
+      var tasksBtn = tasksIcn ? tasksIcn.closest('.accordion-toggle') : null;
+      var createBody = document.getElementById('tache_accordion_body');
+      var createIcn = document.getElementById('tache_acc_icon');
+      var createBtn = createIcn ? createIcn.closest('.accordion-toggle') : null;
+      var summaryBody = document.getElementById('tasksSummaryBody');
+      var summaryIcn = document.getElementById('tasksSummaryIcon');
+      var summaryBtn = summaryIcn ? summaryIcn.closest('.accordion-toggle') : null;
+      var isOpen = body.style.display !== 'none';
+      var willOpen = !isOpen;
+      body.style.display = willOpen ? 'block' : 'none';
+      icn.className = willOpen ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+      var btn = icn.closest('.accordion-toggle');
+      if (btn){
+        btn.classList.toggle('active', willOpen);
+        btn.classList.toggle('collapsed', !willOpen);
+      }
+      if (willOpen && tasksBody){
+        tasksBody.style.display = 'none';
+        if (tasksIcn) tasksIcn.className = 'fa-solid fa-chevron-down';
+        if (tasksBtn){
+          tasksBtn.classList.remove('active');
+          tasksBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && createBody){
+        createBody.style.display = 'none';
+        if (createIcn) createIcn.className = 'fa-solid fa-chevron-down';
+        if (createBtn){
+          createBtn.classList.remove('active');
+          createBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen && summaryBody){
+        summaryBody.style.display = 'none';
+        if (summaryIcn) summaryIcn.className = 'fa-solid fa-chevron-down';
+        if (summaryBtn){
+          summaryBtn.classList.remove('active');
+          summaryBtn.classList.add('collapsed');
+        }
+      }
+      if (willOpen){
+        initTasksCalendar().then(function(cal){
+          if (cal){
+            cal.updateSize();
+            cal.render();
+          }
+        }).catch(function(err){ console.warn('Calendrier tâches', err); });
+      }
+    }
     // Initial state: keep accordions closed (fond blanc / texte noir)
     (function syncAccordions(){
       var tacheBody = document.getElementById('tache_accordion_body');
@@ -672,6 +1264,22 @@
         var ic2 = document.getElementById('tasksListIcon');
         if (ic2) ic2.className = 'fa-solid fa-chevron-down';
       }
+      var calendarBody = document.getElementById('calendarAccordionBody');
+      var calendarBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleCalendarAccordion\"]');
+      if (calendarBody && calendarBtn) {
+        calendarBody.style.display = 'none';
+        calendarBtn.classList.remove('active');
+        var icCal = document.getElementById('calendarAccordionIcon');
+        if (icCal) icCal.className = 'fa-solid fa-chevron-down';
+      }
+      var summaryBody = document.getElementById('tasksSummaryBody');
+      var summaryBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleTasksSummary\"]');
+      if (summaryBody && summaryBtn) {
+        summaryBody.style.display = 'none';
+        summaryBtn.classList.remove('active');
+        var icSum = document.getElementById('tasksSummaryIcon');
+        if (icSum) icSum.className = 'fa-solid fa-chevron-down';
+      }
       var reclBody = document.getElementById('reclamPivotBody');
       var reclBtn = document.querySelector('button.accordion-toggle[onclick^=\"toggleReclamPivot\"]');
       if (reclBody && reclBtn) {
@@ -687,7 +1295,9 @@
       if (!body || !icn) return;
       var otherBodies = [
         { el: document.getElementById('tasksListBody'), ic: document.getElementById('tasksListIcon') },
-        { el: document.getElementById('tache_accordion_body'), ic: document.getElementById('tache_acc_icon') }
+        { el: document.getElementById('tache_accordion_body'), ic: document.getElementById('tache_acc_icon') },
+        { el: document.getElementById('calendarAccordionBody'), ic: document.getElementById('calendarAccordionIcon') },
+        { el: document.getElementById('tasksSummaryBody'), ic: document.getElementById('tasksSummaryIcon') }
       ];
       var isOpen = body.style.display !== 'none';
       var willOpen = !isOpen;
@@ -778,5 +1388,46 @@
       if (!statusLabel) return;
       filterTasksFromPivot(typeLabel, statusLabel);
     });
+
+    // Navigation horizontale : affichage exclusif + scroll (sans accordéons)
+    var TASK_SECTIONS = [
+      { card: 'tasksSummaryCard', body: 'tasksSummaryBody' },
+      { card: 'tacheFormCard', body: 'tache_accordion_body' },
+      { card: 'tasksListCard', body: 'tasksListBody' },
+      { card: 'calendarCard', body: 'calendarAccordionBody' },
+      { card: 'reclamCard', body: 'reclamPivotBody' },
+    ];
+    function setSectionOpen(targetCard){
+      TASK_SECTIONS.forEach(function(sec){
+        var open = targetCard && sec.card === targetCard;
+        var body = document.getElementById(sec.body);
+        var card = document.getElementById(sec.card);
+        if (body){
+          body.style.display = open ? 'block' : 'none';
+          body.classList.toggle('active', open);
+        }
+        if (card){
+          card.style.display = open ? 'block' : 'none';
+          card.classList.toggle('active', open);
+        }
+      });
+      if (targetCard === 'calendarCard'){
+        initTasksCalendar().then(function(cal){
+          if (cal){ cal.updateSize(); cal.render(); }
+        }).catch(function(err){ console.warn('Calendrier tâches', err); });
+      }
+      if (targetCard === 'tasksSummaryCard' && typeof window.__toggleTasksSummary === 'function'){
+        window.__toggleTasksSummary(true);
+      }
+    }
+    // Harmonise les anciennes fonctions d'accordéon pour s'appuyer sur l'affichage exclusif
+    window.focusTaskSection = function(targetCard){ setSectionOpen(targetCard); };
+    window.toggleTasksSummary = function(){ setSectionOpen('tasksSummaryCard'); };
+    window.toggleTacheAccordion = function(){ setSectionOpen('tacheFormCard'); };
+    window.toggleTasksList = function(){ setSectionOpen('tasksListCard'); };
+    window.toggleCalendarAccordion = function(){ setSectionOpen('calendarCard'); };
+    window.toggleReclamPivot = function(){ setSectionOpen('reclamCard'); };
+    // Section par défaut au chargement
+    document.addEventListener('DOMContentLoaded', function(){ setSectionOpen('tasksSummaryCard'); });
   </script>
 {% endblock %}

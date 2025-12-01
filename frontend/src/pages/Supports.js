@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Select from "react-select";
+import { API_BASE_URL } from "../config";
 
 function Supports() {
   const [supports, setSupports] = useState([]);
@@ -13,7 +14,7 @@ function Supports() {
   const [filterCatGeo, setFilterCatGeo] = useState([]);
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/supports")
+    fetch(`${API_BASE_URL}/supports/`)
       .then((res) => res.json())
       .then((data) => {
         setSupports(data);

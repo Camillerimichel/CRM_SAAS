@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { API_BASE_URL } from "../config";
 
-const API = "http://127.0.0.1:8000";
+const API = API_BASE_URL;
 
 function Tasks() {
   const [events, setEvents] = useState([]);
@@ -13,7 +14,7 @@ function Tasks() {
     fetch(`${API}/types_evenement/`).then(r => r.json()).then(setTypes).catch(() => setTypes([]));
   }, []);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     const p = new URLSearchParams();
     if (filters.statut) p.set("statut", filters.statut);
@@ -24,9 +25,9 @@ function Tasks() {
       .then(r => r.json())
       .then(setEvents)
       .finally(() => setLoading(false));
-  };
+  }, [filters]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const typesById = useMemo(() => Object.fromEntries(types.map(t => [t.id, t])), [types]);
 
@@ -103,4 +104,3 @@ function Tasks() {
 }
 
 export default Tasks;
-

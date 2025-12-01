@@ -205,9 +205,17 @@
         </table>
     </div>
 
+    {% set cur_page = page|default(1) %}
+    {% set max_pages = total_pages|default(1) %}
+    {% set total_affs = total_affaires|default(0) %}
+    {% set total_affs_filtered = total_affaires_filtered|default(total_affs) %}
     <div class="pagination-container">
-        <div id="results-info"></div>
-        <button class="btn btn-danger" onclick="clearFilters()">🗑️ Effacer</button>
+        <div id="results-info">Page {{ cur_page }}/{{ max_pages }} — {{ total_affs_filtered }} contrats affichés ({{ total_affs }} au total)</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" type="button" onclick="changePage(-1)" {% if cur_page <= 1 %}disabled{% endif %}>Précédent</button>
+          <button class="btn" type="button" onclick="changePage(1)" {% if cur_page >= max_pages %}disabled{% endif %}>Suivant</button>
+          <button class="btn btn-danger" onclick="clearFilters()">🗑️ Effacer</button>
+        </div>
     </div>
 </div>
 
@@ -228,10 +236,10 @@
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
 $(document).ready(function () {
     var table = $('#affairesTable').DataTable({
-        dom: 'rtip', // retire la barre de recherche et le sélecteur "show"
+        dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
+        paging: false,
+        info: false,
         order: [[3, "desc"]], // trier sur le montant (col 3)
-        pageLength: 25,
-        fixedHeader: true,
         columnDefs: [
           // Réduire Contrat/Client, élargir SRRI et Montant
           { targets: 0, width: '260px' },
@@ -265,6 +273,16 @@ $(document).ready(function () {
         table.search('');
         for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
         table.draw();
+    };
+
+    // Pagination côté serveur (préserve les autres paramètres de requête)
+    window.changePage = function(delta) {
+        var current = {{ cur_page }};
+        var target = current + delta;
+        if (target < 1 || target > {{ max_pages }}) return;
+        var params = new URLSearchParams(window.location.search);
+        params.set('page', target);
+        window.location.search = params.toString();
     };
 
     // Préfiltre via ?risk= (above/equal/below) ou emoji/icon

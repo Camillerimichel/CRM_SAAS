@@ -9,4 +9,4 @@ pip install --upgrade pip setuptools wheel -i https://pypi.org/simple
 pip install -r requirements.txt --cache-dir=.pip_cache -i https://mirror.inria.fr/pypi/web/simple
 
 # Lancer le serveur FastAPI
-uvicorn src.api.main:app --reload
+uvicorn src.api.main:app --host 0.0.0.0 --port 8100 --reload

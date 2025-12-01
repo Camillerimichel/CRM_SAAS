@@ -12,5 +12,6 @@ class Allocation(Base):
     perf_sicav_hebdo = Column("perf_sicav_hebdo", Integer, nullable=True)
     perf_sicav_52 = Column("perf_sicav_52", Integer, nullable=True)
     volat = Column("volat", Integer, nullable=True)
-    annee = Column("Année", Integer, nullable=True)   # ← mapping correct
+    annee = Column("anne", Integer, nullable=True)
     nom = Column("nom", String, nullable=True)
+    isin = Column("isin", String, nullable=True)
