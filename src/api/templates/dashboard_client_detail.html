@@ -247,9 +247,7 @@
     <button id="confToggleDetail" class="accordion-toggle" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
       <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Relation client et conformité</span>
     </button>
-    <button id="clientTasksToggle" class="accordion-toggle" data-tb-marker="CL_06" type="button" title="Définir une tâche" aria-label="Définir une tâche" onclick="setSectionToggleActive('clientTasksToggle'); openTaskPopup();">
-      <i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Définir une tâche</span>
-    </button>
+    {# Création de tâche désactivée (maintenance) #}
     <button id="invToggle" class="accordion-toggle" data-tb-marker="CL_14" type="button" title="Investissements" aria-label="Investissements" onclick="setSectionToggleActive('invToggle');">
       <i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Investissements</span>
     </button>
@@ -266,12 +264,11 @@
       <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
     </button>
   </div>
-  <div class="card" style="margin-bottom:0.5rem; padding:0;">
-    <div id="synthToggle" class="accordion-toggle" data-target="synthPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
-      <h3 style="margin:0;"><i class="fa-solid fa-rectangle-list" style="margin-right:6px;"></i> Synthèse</h3>
-      <span class="chevron">▾</span>
+  <div id="synthCard" class="card" style="margin-bottom:0.5rem; padding:0;">
+    <div id="synthToggle" class="accordion-toggle" data-target="synthPanel" style="margin:0; cursor:pointer; justify-content:center; text-align:center;">
+      <h3 style="margin:0;">Synthèse</h3>
     </div>
-    <div id="synthPanel" class="accordion-panel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+    <div id="synthPanel" class="accordion-panel" style="display:block; padding:1rem 1.25rem; border-top:1px solid var(--border);">
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
         <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('nonreg')" title="Messages en cours">
@@ -360,19 +357,6 @@
       setActive('confToggleDetail');
       document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
         btn.addEventListener('click', function(){ setActive(btn.id); });
-      });
-    })();
-  </script>
-  <script>
-    (function(){
-      const toggle = document.getElementById('synthToggle');
-      const panel = document.getElementById('synthPanel');
-      if (!toggle || !panel) return;
-      toggle.classList.add('collapsed');
-      toggle.addEventListener('click', function(){
-        const isOpen = panel.style.display !== 'none';
-        panel.style.display = isOpen ? 'none' : 'block';
-        toggle.classList.toggle('collapsed', isOpen);
       });
     })();
   </script>
@@ -866,11 +850,7 @@ function generateClientSynthese(){
           <thead>
             <tr>
               <th style="text-align:left;">Contrat</th>
-              <th style="text-align:left;">ISIN</th>
-              <th style="text-align:left;">Support</th>
               <th style="text-align:right;">Nb parts</th>
-              <th style="text-align:right;">Prix de revient</th>
-              <th style="text-align:right;">VL</th>
               <th style="text-align:right;">Valorisation</th>
             </tr>
           </thead>
@@ -879,6 +859,113 @@ function generateClientSynthese(){
       </div>
     </div>
   </div>
+  <script>
+    (function(){
+      function normalize(val){
+        if (val === null || val === undefined) return '';
+        return String(val);
+      }
+      function closeSupportContractsModal(){
+        var modal = document.getElementById('supportContractsModal');
+        if (modal) modal.style.display = 'none';
+      }
+      function openSupportContractsModal(data, label){
+        var modal = document.getElementById('supportContractsModal');
+        var labelEl = document.getElementById('supportContractsLabel');
+        var tbody = document.querySelector('#supportContractsTable tbody');
+        if (!modal || !tbody) return;
+        tbody.innerHTML = '';
+        if (labelEl) labelEl.textContent = label || 'Supports par contrat';
+        var rows = Array.isArray(data) ? data : [];
+        if (labelEl){
+          if (rows.length === 1){
+            labelEl.textContent = (label || '').trim() + " se trouve dans le contrat";
+          } else if (rows.length > 1){
+            labelEl.textContent = (label || '').trim() + " se trouve dans les contrats";
+          }
+        }
+        var totalParts = 0.0;
+        var totalValo = 0.0;
+        // regrouper par contrat et sommer
+        var grouped = {};
+        rows.forEach(function(r, idx){
+          var contratLabel = normalize(r.affaire_ref || r.contrat || r.contract || r.contrat_ref || r.reference || r.contract_ref || r.affaire_id || r.id);
+          var contrat_id = (r.affaire_id !== undefined && r.affaire_id !== null) ? r.affaire_id : (r.contract_id || r.id || idx);
+          var key = String(contrat_id);
+          var nb_raw = parseFloat(r.nb_parts || r.nbuc || r.parts || r.quantite || 0) || 0;
+          var valo_raw = parseFloat(r.valorisation || r.valo || r.valeur || 0) || 0;
+          if (!grouped[key]){
+            grouped[key] = { contrat_id: contrat_id, contratLabel: contratLabel, nb: 0, valo: 0 };
+          }
+          grouped[key].nb += nb_raw;
+          grouped[key].valo += valo_raw;
+        });
+        if (rows.length === 0){
+          var tr = document.createElement('tr');
+          var td = document.createElement('td');
+          td.colSpan = 7;
+          td.textContent = 'Aucun contrat lié';
+          td.className = 'muted';
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        } else {
+          Object.keys(grouped).forEach(function(k){
+            var r = grouped[k];
+            var tr = document.createElement('tr');
+            var contrat = normalize(r.contratLabel);
+            var contrat_id = r.contrat_id;
+            var nb_raw = r.nb || 0;
+            var valo_raw = r.valo || 0;
+            totalParts += nb_raw;
+            totalValo += valo_raw;
+            var nb = nb_raw ? nb_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+            var valo = valo_raw ? valo_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+            [contrat, nb, valo].forEach(function(val, idx){
+              var td = document.createElement('td');
+              if (idx === 0 && contrat_id){
+                var a = document.createElement('a');
+                a.href = '/dashboard/affaires/' + encodeURIComponent(contrat_id);
+                a.textContent = val || ('#' + contrat_id);
+                a.target = '_blank';
+                td.appendChild(a);
+              } else {
+                td.textContent = val || '-';
+              }
+              if (idx >= 1) td.style.textAlign = 'right';
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          });
+          // ligne total
+          var trTot = document.createElement('tr');
+          trTot.className = 'muted';
+          var td1 = document.createElement('td');
+          td1.textContent = 'Total';
+          var tdParts = document.createElement('td');
+          tdParts.style.textAlign = 'right';
+          tdParts.textContent = totalParts ? totalParts.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          var tdValo = document.createElement('td'); tdValo.style.textAlign = 'right'; tdValo.textContent = totalValo ? totalValo.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          [td1, tdParts, tdValo].forEach(function(td){ trTot.appendChild(td); });
+          tbody.appendChild(trTot);
+        }
+        modal.style.display = 'flex';
+      }
+      window.closeSupportContractsModal = closeSupportContractsModal;
+      // Bind hyperlinks on ISIN
+      document.addEventListener('click', function(e){
+        var el = e.target.closest('.support-contract-link');
+        if (!el) return;
+        e.preventDefault();
+        try {
+          var contracts = JSON.parse(el.getAttribute('data-contracts') || '[]');
+          var label = (el.getAttribute('data-support-code') || '') + ' ' + (el.getAttribute('data-support-name') || '');
+          openSupportContractsModal(contracts, label.trim());
+        } catch (err){
+          console.error('Support contracts modal error:', err);
+        }
+      }, false);
+    })();
+  </script>
 
   <div id="supportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeSupportMovementsModal()">
     <div class="modal-card" style="width:820px; max-width:97vw;">
@@ -903,459 +990,7 @@ function generateClientSynthese(){
     </div>
   </div>
 
-  <!-- Popup temporaire de création de tâche -->
-  <style>
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
-    .modal-card { background: #fff; border-radius: 12px; width: 640px; max-width: 92vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--primary); color: #fff; border-top-left-radius:12px; border-top-right-radius:12px; }
-    .modal-header h3 { margin: 0; font-size: 1.05rem; color:#fff; }
-    .modal-body { padding: 12px 14px; }
-    .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
-  </style>
-  <div id="taskModal" class="modal-overlay" data-tb-marker="CL_07" onclick="if(event.target===this) closeTaskPopup()">
-    <div class="modal-card" data-tb-marker="CL_08">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
-        <button class="modal-close" onclick="closeTaskPopup()">✕</button>
-      </div>
-      <div class="modal-body task-block">
-        <style>
-          #taskCreateForm select.select-choice { height: 36px; }
-        </style>
-        <div id="taskToast" class="badge success" style="display:none; margin-bottom:8px;">Tâche enregistrée.</div>
-        <form method="post" action="/dashboard/clients/{{ client.id }}/taches" id="taskCreateForm">
-          {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Client (Nom Prénom)</label>
-              <input type="text" name="client_fullname" list="clients_list_client_modal" placeholder="Nom Prénom" value="{{ client_fullname_default or '' }}" />
-            </div>
-            <div class="field">
-              <label>Affaire (Référence)</label>
-              <input type="text" name="affaire_ref" list="affaires_list_client_modal" placeholder="REF-0001" />
-            </div>
-            <div class="field">
-              <label>Affecter à (RH)</label>
-              <select class="select-choice" name="rh_id">
-                <option value="">-- aucun --</option>
-                {% for rh in rh_list %}
-                  {% set rid = rh.id if rh.id is not none else rh[0] %}
-                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-                  <option value="{{ rid }}">{{ rnom.strip() }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Catégorie</label>
-              <select class="select-choice" name="categorie" id="client_cat_select_modal">
-                <option value="">-- choisir --</option>
-                {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label>Type</label>
-              <select class="select-choice" name="type_libelle" id="client_type_select_modal">
-                <option value="">-- choisir une catégorie --</option>
-              </select>
-            </div>
-            <div class="field" style="align-self:center;">
-              <label>&nbsp;</label>
-              <button type="button" id="client_comm_btn_modal" class="btn btn-choice" onclick="toggleClientCommModal()">Préparer une communication</button>
-              <input type="hidden" id="client_comm_toggle_modal" name="comm_toggle" value="0" />
-            </div>
-          </div>
-
-          <div class="form-row" id="client_reclam_status_row_modal" style="margin-bottom:.6rem; display:none;">
-            <div class="field">
-              <label>Statut réclamation</label>
-              <select class="select-choice" name="statut_reclamation_id" id="client_reclam_status_select_modal">
-                <option value="">-- choisir --</option>
-                {% for st in reclam_statuses %}
-                  <option value="{{ st.id }}">{{ st.libelle }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-
-          <div id="client_comm_block_modal" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
-            <div class="form-row" style="margin-bottom:.6rem;">
-              <div class="field">
-                <label>Canal</label>
-                <select class="select-choice" name="comm_canal">
-                  <option value="email">email</option>
-                  <option value="courrier">courrier</option>
-                  <option value="sms">sms</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Destinataire</label>
-                <input class="input-large" type="text" name="comm_destinataire" placeholder="email ou adresse" />
-              </div>
-              <div class="field">
-                <label>Objet</label>
-                <input class="input-large" type="text" name="comm_objet" placeholder="Objet du message" />
-              </div>
-            </div>
-            <div>
-              <label>Contenu</label>
-              <textarea class="input-large" name="comm_contenu" rows="3" placeholder="Contenu du message..." style="width:100%;"></textarea>
-            </div>
-          </div>
-
-          <div style="margin-bottom:.6rem;">
-            <label>Commentaire</label>
-            <textarea name="commentaire" rows="3" placeholder="Détails / notes…"></textarea>
-          </div>
-
-          <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
-            <div style="flex:1 1 100%;">
-              <label>Statut initial</label>
-              <div id="client_initial_status_modal" style="display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;">
-                {% for s in status_ui %}
-                  <button type="button" class="btn btn-choice" data-sid="{{ s.id }}" data-key="{{ s.key }}" onclick="clientSelectStatusModal(this)">{{ s.label }}</button>
-                {% endfor %}
-                {% if en_cours_id %}
-                  <button type="button" id="client_en_cours_btn_modal" class="btn btn-choice" style="display:none; background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;" data-sid="{{ en_cours_id }}" onclick="clientSelectStatusModal(this)">en cours</button>
-                {% endif %}
-                <input type="hidden" name="statut_id" id="client_statut_id_modal" value="" />
-              </div>
-            </div>
-          </div>
-          <div class="create-btn-container">
-            <button class="btn btn-primary btn-choice" style="min-width:160px;" type="submit"><i class="fa-solid fa-plus"></i>Créer</button>
-          </div>
-
-          <datalist id="clients_list_client_modal">
-            {% for c in clients_suggest %}
-              <option value="{{ ((c.nom or '') ~ ' ' ~ (c.prenom or '')) | trim }}"></option>
-            {% endfor %}
-          </datalist>
-          <datalist id="affaires_list_client_modal"></datalist>
-        </form>
-      </div>
-    </div>
-  </div>
-  
-
-  <script>
-    // --- Messages header buttons & modal ---
-    const CLIENT_EVENTS_OPEN = {{ client_events_open | tojson }};
-    function _normCat(s){ if(!s) return ''; return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c'); }
-    function openClientMsgs(kind){
-      const modal = document.getElementById('clientMsgsModal');
-      const tbody = modal.querySelector('tbody');
-      tbody.innerHTML = '';
-      const isReg = (kind === 'reg');
-      const title = document.getElementById('clientMsgsTitle');
-      title.innerHTML = (isReg ? '<i class="fa-solid fa-envelope"></i>Messages réglementaires' : '<i class="fa-solid fa-envelope"></i>Messages non réglementaires');
-      const rows = (CLIENT_EVENTS_OPEN||[]).filter(ev => {
-        const cat = _normCat(ev.type_categorie);
-        const reg = (cat === 'reglementaire');
-        return isReg ? reg : !reg;
-      });
-      function statusStyle(label){
-        const s = (label||'').toLowerCase();
-        if (s === 'en cours') return 'background:#16a34a; color:#fff; border-color:#16a34a;';
-        if (s === 'en attente') return 'background:#f59e0b; color:#fff; border-color:#f59e0b;';
-        if (s === 'terminé' || s === 'termine') return 'background:#4b5563; color:#fff; border-color:#4b5563;';
-        if (s === 'annulé' || s === 'annule') return 'background:#b91c1c; color:#fff; border-color:#b91c1c;';
-        return '';
-      }
-      function openTaskEditPopup(id){
-        try {
-          var w = 1100, h = 800;
-          var left = Math.max(0, Math.floor(((screen.availWidth||screen.width||w) - w) / 2));
-          var top = Math.max(0, Math.floor(((screen.availHeight||screen.height||h) - h) / 2));
-          var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
-          var win = window.open('/dashboard/taches/'+id, 'taskEdit'+id, feat);
-          if (win && win.focus) { try { win.focus(); } catch(e){} }
-        } catch(e){}
-      }
-      rows.forEach(ev => {
-        const tr = document.createElement('tr');
-        // helpers
-        function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
-        function tdEl(el){ const td = document.createElement('td'); td.appendChild(el); return td; }
-        // date, type, catégorie
-        tr.appendChild(td(ev.date_evenement||''));
-        tr.appendChild(td(ev.type_libelle||''));
-        tr.appendChild(td(ev.type_categorie||''));
-        // statut cliquable -> nouvelle fenêtre d'édition
-        const sb = document.createElement('a');
-        sb.className = 'btn btn-choice';
-        sb.textContent = ev.statut || 'à faire';
-        sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
-        sb.href = '/dashboard/taches/' + (ev.id||'');
-        sb.target = '_blank';
-        sb.rel = 'noopener noreferrer';
-        const statTd = document.createElement('td'); statTd.appendChild(sb);
-        var rh = ev.rh_nom || ev.rh || ev.rhnom;
-        if (rh){ const b=document.createElement('span'); b.className='badge'; b.textContent='RH: '+rh; b.style.marginLeft='6px'; statTd.appendChild(b); }
-        if (ev.statut_reclamation_label){
-          const rec = document.createElement('div');
-          rec.className = 'muted';
-          rec.style.fontSize = '0.75rem';
-          rec.style.marginTop = '2px';
-          rec.textContent = 'Réclamation : ' + ev.statut_reclamation_label;
-          statTd.appendChild(rec);
-        }
-        tr.appendChild(statTd);
-        // contrat (ref)
-        tr.appendChild(td(ev.affaire_ref||''));
-        // commentaire avec voir plus/moins
-        const ctd = document.createElement('td');
-        const full = String(ev.commentaire||'');
-        const short = full.slice(0, 180);
-        const sid = 'ccli-short-' + (ev.id||Math.random());
-        const fid = 'ccli-full-' + (ev.id||Math.random());
-        const sdiv = document.createElement('div');
-        sdiv.id = sid; sdiv.style.whiteSpace='pre-wrap';
-        if (full.length <= 180) sdiv.style.display='none';
-        sdiv.textContent = short + (full.length>180 ? '…' : '');
-        const fdiv = document.createElement('div');
-        fdiv.id = fid; fdiv.style.whiteSpace='pre-wrap';
-        if (full.length > 180) fdiv.style.display='none';
-        fdiv.textContent = full;
-        ctd.appendChild(sdiv); ctd.appendChild(fdiv);
-        if (full.length > 180){
-          const a = document.createElement('a'); a.href='#'; a.style.fontSize='12px'; a.textContent='Voir plus';
-          a.addEventListener('click', function(e){ e.preventDefault(); const sh=document.getElementById(sid); const fl=document.getElementById(fid); const isShort = sh.style.display !== 'none'; sh.style.display = isShort? 'none':''; fl.style.display = isShort? '':'none'; this.textContent = isShort? 'Voir moins':'Voir plus'; });
-          const wrap = document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);
-        }
-        tr.appendChild(ctd);
-        // action Modifier
-        const actionTd = document.createElement('td');
-        const editBtn = document.createElement('button');
-        editBtn.type='button'; editBtn.className='btn btn-choice'; editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
-        editBtn.textContent = 'Modifier';
-        editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
-        actionTd.appendChild(editBtn);
-        tr.appendChild(actionTd);
-        // dblclick ligne
-        tr.addEventListener('dblclick', function(){ openTaskEditPopup(ev.id); });
-        tbody.appendChild(tr);
-      });
-      // DataTable avec export CSV
-      try {
-        if (window.clientMsgsDT) { window.clientMsgsDT.destroy(); }
-      } catch(e) {}
-      try {
-        window.clientMsgsDT = $('#clientMsgsTable').DataTable({
-          destroy: true,
-          paging: true,
-          pageLength: 25,
-          fixedHeader: false,
-          dom: 'Bfrtip',
-          buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'messages_client_{{ client.id }}', bom: true, charset: 'utf-8', fieldSeparator: ';' } ],
-          order: [[0,'desc']],
-          columnDefs: [ { targets: [0,1,2,3,4], className: 'nowrap' } ]
-        });
-      } catch(e) {}
-      modal.style.display = 'flex';
-    }
-    function closeClientMsgs(){ document.getElementById('clientMsgsModal').style.display = 'none'; }
-
-    function openSupportMovementsModal(code, name, contractLabel, movements){
-      const modal = document.getElementById('supportMovementsModal');
-      if (!modal) return;
-      const tbody = modal.querySelector('#supportMovementsTable tbody');
-      const labelEl = document.getElementById('supportMovementsLabel');
-      if (labelEl){
-        const parts = ['Mouvements du support'];
-        const detail = [contractLabel, name, code].filter(Boolean).join(' • ');
-        if (detail) parts.push(detail);
-        labelEl.textContent = parts.join(' — ');
-      }
-      if (tbody){
-        tbody.innerHTML = '';
-        const rows = Array.isArray(movements) ? movements : [];
-        rows.forEach(function(mv){
-          const tr = document.createElement('tr');
-          const cols = [
-            { value: mv.date || '-' },
-            { value: mv.regle || '-' },
-            { value: mv.montant || '-', align: 'right' },
-            { value: mv.vl || '-', align: 'right' },
-            { value: mv.nb_uc || '-', align: 'right' },
-          ];
-          cols.forEach(function(col){
-            const td = document.createElement('td');
-            td.textContent = col.value;
-            if (col.align === 'right') td.style.textAlign = 'right';
-            tr.appendChild(td);
-          });
-          tbody.appendChild(tr);
-        });
-        if (!rows.length){
-          const tr = document.createElement('tr');
-          const td = document.createElement('td');
-          td.colSpan = 5;
-          td.className = 'muted';
-          td.textContent = 'Aucun mouvement trouvé pour ce support.';
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-        }
-      }
-      modal.style.display = 'flex';
-    }
-    function closeSupportMovementsModal(){ const modal = document.getElementById('supportMovementsModal'); if (modal) modal.style.display = 'none'; }
-
-    function openSupportContractsModal(code, name, contracts){
-      const modal = document.getElementById('supportContractsModal');
-      if (!modal) return;
-      const tbody = modal.querySelector('#supportContractsTable tbody');
-      const labelEl = document.getElementById('supportContractsLabel');
-      if (labelEl){
-        const parts = ['Supports par contrat'];
-        const detail = [name, code].filter(Boolean).join(' – ');
-        if (detail) parts.push(detail);
-        labelEl.textContent = parts.join(' • ');
-      }
-      if (tbody){
-        tbody.innerHTML = '';
-        let rows = Array.isArray(contracts) ? contracts : [];
-        rows.forEach(function(item){
-          const tr = document.createElement('tr');
-          const cols = [
-            { key: 'contrat', value: item.affaire_ref || '' },
-            { key: 'isin', value: item.code_isin || code || '' },
-            { key: 'support', value: item.support_nom || name || '' },
-            { key: 'nb_parts', value: item.nb_parts_str || '-', align: 'right' },
-            { key: 'prix', value: item.prix_revient_str || '-', align: 'right' },
-            { key: 'vl', value: item.vl_str || '-', align: 'right' },
-            { key: 'valo', value: item.valorisation_str || '-', align: 'right' },
-          ];
-          cols.forEach(function(col){
-            const td = document.createElement('td');
-            if (col.key === 'isin' && col.value){
-              const link = document.createElement('a');
-              link.href = '#';
-              link.textContent = col.value;
-              link.className = 'support-movement-link';
-              link.style.color = '#111827';
-              link.dataset.supportCode = col.value;
-              link.dataset.supportName = item.support_nom || name || '';
-              link.dataset.affaireRef = item.affaire_ref || '';
-              link.__movements = Array.isArray(item.movements) ? item.movements : [];
-              link.addEventListener('click', function(e){
-                e.preventDefault();
-                openSupportMovementsModal(
-                  this.dataset.supportCode || '',
-                  this.dataset.supportName || '',
-                  this.dataset.affaireRef || '',
-                  this.__movements || []
-                );
-              });
-              td.appendChild(link);
-            } else {
-              td.textContent = col.value == null ? '' : col.value;
-            }
-            if (col.align === 'right') {
-              td.style.textAlign = 'right';
-            }
-            tr.appendChild(td);
-          });
-          tbody.appendChild(tr);
-        });
-        if (!rows.length){
-          const tr = document.createElement('tr');
-          const td = document.createElement('td');
-          td.colSpan = 7; td.className = 'muted';
-          td.textContent = 'Aucun contrat trouvé pour ce support.';
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-        }
-      }
-      modal.style.display = 'flex';
-    }
-    function closeSupportContractsModal(){ const modal = document.getElementById('supportContractsModal'); if(modal) modal.style.display = 'none'; }
-
-    document.addEventListener('DOMContentLoaded', function(){
-      document.querySelectorAll('.support-contract-link').forEach(function(link){
-        link.addEventListener('click', function(ev){
-          ev.preventDefault();
-          let contracts = [];
-          try {
-            contracts = this.dataset.contracts ? JSON.parse(this.dataset.contracts) : [];
-          } catch (e) {
-            console.warn('support-contract-link parse error', e);
-          }
-          openSupportContractsModal(this.dataset.supportCode || '', this.dataset.supportName || '', contracts);
-        });
-      });
-    });
-
-    function openTaskPopup(){ document.getElementById('taskModal').style.display='flex'; }
-    function closeTaskPopup(){ document.getElementById('taskModal').style.display='none'; }
-    function toggleClientCommModal(){ const h=document.getElementById('client_comm_toggle_modal'); const on=h.value==='1'?false:true; h.value=on?'1':'0'; document.getElementById('client_comm_block_modal').style.display=on?'block':'none'; document.getElementById('client_comm_btn_modal').classList.toggle('btn-choice-active', on); }
-    function normName(s){ return (s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
-    function updateClientAffairesModal(){ const inp=document.querySelector('#taskModal input[name="client_fullname"]'); const val=normName(inp?inp.value:''); const dl=document.getElementById('affaires_list_client_modal'); if(!dl) return; dl.innerHTML=''; const data = [
-      {% for a in affaires_suggest %}
-        { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
-      {% endfor %}
-    ]; (val? data.filter(a=>normName(a.client)===val): data).forEach(a=>{ const o=document.createElement('option'); o.value=a.ref; o.textContent=`${a.ref} — ${a.client}`; dl.appendChild(o); }); }
-    (function initTaskModal(){
-      const inp=document.querySelector('#taskModal input[name="client_fullname"]'); if(inp){ inp.addEventListener('input', updateClientAffairesModal); inp.addEventListener('change', updateClientAffairesModal); }
-      updateClientAffairesModal();
-      const types = [
-        {% for t in types %}
-          { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
-        {% endfor %}
-      ];
-      const cat=document.getElementById('client_cat_select_modal'); const typ=document.getElementById('client_type_select_modal');
-      const reclamRow = document.getElementById('client_reclam_status_row_modal');
-      const reclamSelect = document.getElementById('client_reclam_status_select_modal');
-      function updateReclamVisibility(){
-        if(!reclamRow) return;
-        const catVal = (cat && cat.value ? cat.value : '').trim().toLowerCase();
-        if(catVal === 'reclamation'){
-          reclamRow.style.display = 'flex';
-        } else {
-          reclamRow.style.display = 'none';
-          if(reclamSelect){ reclamSelect.value = ''; }
-        }
-      }
-      function sync(){
-        typ.innerHTML='';
-        if(!cat.value){
-          const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o);
-          updateReclamVisibility();
-          return;
-        }
-        const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle);
-        list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); });
-        if(list.length>0) typ.value=list[0];
-        updateReclamVisibility();
-      }
-      if (cat){
-        cat.addEventListener('change', function(){ sync(); });
-        if(cat.value) sync(); else updateReclamVisibility();
-      } else {
-        updateReclamVisibility();
-      }
-    })();
-    // Interception envoi tâche pour rester dans la modale
-    (function(){
-      try{
-        var tf = document.getElementById('taskCreateForm');
-        if (tf){
-          tf.addEventListener('submit', function(ev){
-            try{ ev.preventDefault(); }catch(e){}
-            var fd = new FormData(tf);
-            fetch(tf.getAttribute('action') || window.location.href, { method: 'POST', body: fd, credentials: 'same-origin' })
-              .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
-              .then(function(){ var t=document.getElementById('taskToast'); if(t){ t.style.display='inline-block'; setTimeout(function(){ t.style.display='none'; closeTaskPopup(); }, 1200); } })
-              .catch(function(err){ console.warn('Task save failed', err); });
-          });
-        }
-      }catch(e){}
-    })();
-    function clientSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('client_statut_id_modal').value=sid; const peers=document.getElementById('client_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('client_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
-
-  </script>
+  {# Bloc de création de tâche supprimé (maintenance) #}
 
   <style>
     /* Sélection visuelle des lignes dans la pop-up Messages */
@@ -1542,7 +1177,6 @@ function generateClientSynthese(){
   </div>
 
 <div id="graphsSection" style="display:none;">
-  <div class="muted" style="margin-bottom:6px; font-size:0.85rem;">{{ client_allocation_id if client_allocation_id is not none else '—' }}</div>
   <div class="card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="graphValoPanel" style="margin:0; justify-content:flex-start;">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-line"></i> Evolution des investissements et de la valorisation des placements</h3>
@@ -1567,7 +1201,6 @@ function generateClientSynthese(){
       <span class="chevron">▾</span>
     </div>
     <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-      <div class="muted" style="font-size:0.85rem; margin-bottom:6px;">Allocation DB (client): {{ client_allocation_id if client_allocation_id is not none else '—' }} — Nom allocation client: {{ client_allocation_name or '—' }} — Allocation de référence: {{ allocation_reference_name or '—' }}</div>
       <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
         <div>
           <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
@@ -1731,6 +1364,98 @@ function generateClientSynthese(){
 <script>
 // Chart.js: couleur par défaut (axes/labels) = bleu CSS
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+// Messages/tâches client (modale) — même logique que la page Affaires
+const CLIENT_EVENTS_OPEN = {{ client_events_open | tojson }};
+function _normCatCl(s){
+  if(!s) return '';
+  return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c');
+}
+function closeClientMsgs(){
+  var modal = document.getElementById('clientMsgsModal');
+  if (modal) modal.style.display = 'none';
+}
+function openClientMsgs(kind){
+  const modal = document.getElementById('clientMsgsModal');
+  const tbody = modal ? modal.querySelector('tbody') : null;
+  if (!modal || !tbody) return;
+  tbody.innerHTML = '';
+  const isReg = (kind === 'reg');
+  const title = document.getElementById('clientMsgsTitle');
+  title.innerHTML = (isReg ? '<i class="fa-solid fa-envelope"></i>Messages réglementaires' : '<i class="fa-solid fa-envelope"></i>Messages non réglementaires');
+  const rows = (CLIENT_EVENTS_OPEN||[]).filter(ev => {
+    const cat = _normCatCl(ev.type_categorie);
+    const reg = (cat === 'reglementaire');
+    return isReg ? reg : !reg;
+  });
+  function statusStyle(label){
+    const s = (label||'').toLowerCase();
+    if (s === 'en cours') return 'background:#16a34a; color:#fff; border-color:#16a34a;';
+    if (s === 'en attente') return 'background:#f59e0b; color:#fff; border-color:#f59e0b;';
+    if (s === 'terminé' || s === 'termine') return 'background:#4b5563; color:#fff; border-color:#4b5563;';
+    if (s === 'annulé' || s === 'annule') return 'background:#b91c1c; color:#fff; border-color:#b91c1c;';
+    return '';
+  }
+  function openTaskEditPopup(id){
+    try {
+      var w = 1100, h = 800;
+      var left = Math.max(0, Math.floor(((screen.availWidth||screen.width||w) - w) / 2));
+      var top = Math.max(0, Math.floor(((screen.availHeight||screen.height||h) - h) / 2));
+      var feat = 'scrollbars=yes,resizable=yes' + ',width=' + w + ',height=' + h + ',left=' + left + ',top=' + top;
+      var win = window.open(appendMarkers('/dashboard/taches/'+id), 'taskEdit'+id, feat);
+      if (win && win.focus) { try { win.focus(); } catch(e){} }
+    } catch(e){}
+  }
+  rows.forEach(ev => {
+    const tr = document.createElement('tr');
+    function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
+    tr.appendChild(td(ev.date_evenement||''));
+    tr.appendChild(td(ev.type_libelle||''));
+    tr.appendChild(td(ev.type_categorie||''));
+    const statTd = document.createElement('td');
+    const sb = document.createElement('a');
+    sb.className = 'btn btn-choice';
+    sb.textContent = ev.statut || 'à faire';
+    sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
+    sb.href = appendMarkers('/dashboard/taches/' + (ev.id||''));
+    sb.target = '_blank';
+    sb.rel = 'noopener noreferrer';
+    statTd.appendChild(sb);
+    if (ev.statut_reclamation_label){
+      const rec = document.createElement('div');
+      rec.className = 'muted';
+      rec.style.fontSize = '0.75rem';
+      rec.style.marginTop = '2px';
+      rec.textContent = 'Réclamation : ' + ev.statut_reclamation_label;
+      statTd.appendChild(rec);
+    }
+    tr.appendChild(statTd);
+    tr.appendChild(td(ev.affaire_ref || ''));
+    const ctd = document.createElement('td');
+    const full = String(ev.commentaire||'');
+    const short = full.slice(0, 180);
+    const sid = 'ccl-short-' + (ev.id||Math.random());
+    const fid = 'ccl-full-' + (ev.id||Math.random());
+    const sdiv = document.createElement('div'); sdiv.id=sid; sdiv.style.whiteSpace='pre-wrap'; if (full.length <= 180) sdiv.style.display='none'; sdiv.textContent = short + (full.length>180 ? '…' : '');
+    const fdiv = document.createElement('div'); fdiv.id=fid; fdiv.style.whiteSpace='pre-wrap'; if (full.length > 180) fdiv.style.display='none'; fdiv.textContent = full;
+    ctd.appendChild(sdiv); ctd.appendChild(fdiv);
+    if (full.length > 180){
+      const a=document.createElement('a'); a.href='#'; a.style.fontSize='12px'; a.textContent='Voir plus';
+      a.addEventListener('click', function(e){ e.preventDefault(); const sh=document.getElementById(sid); const fl=document.getElementById(fid); const isShort=sh.style.display!=='none'; sh.style.display=isShort?'none':''; fl.style.display=isShort?'':'none'; this.textContent=isShort?'Voir moins':'Voir plus'; });
+      const wrap=document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);
+    }
+    tr.appendChild(ctd);
+    const actionTd = document.createElement('td');
+    const editBtn = document.createElement('button');
+    editBtn.type='button'; editBtn.className='btn btn-choice';
+    editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
+    editBtn.innerHTML = '<i class=\"fa-solid fa-eye\"></i>';
+    editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
+    actionTd.appendChild(editBtn);
+    tr.appendChild(actionTd);
+    tbody.appendChild(tr);
+  });
+  modal.style.display = 'flex';
+}
 </script>
 <!-- jQuery + DataTables for client docs table and messages export -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -1769,23 +1494,30 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
       { key:'docs', toggleId:'docsToggle', sectionId:'docsSection' },
       { key:'conf', toggleId:'confToggleDetail', sectionId:'confSection' },
-      { key:'tasks', toggleId:'clientTasksToggle', sectionId:'taskSection' },
       { key:'invest', toggleId:'investToggle', sectionId:'investSection' },
     ];
     function byId(id){ return document.getElementById(id); }
+    var currentOpen = '';
     function setOpen(key){
       groups.forEach(function(g){
         var t = byId(g.toggleId), s = byId(g.sectionId);
         if (!t || !s) return;
-        if (key && g.key === key){ s.style.display = ''; t.classList.remove('collapsed'); }
-        else { s.style.display = 'none'; t.classList.add('collapsed'); }
+        var isTarget = key && g.key === key;
+        if (isTarget){
+          s.style.display = '';
+          t.classList.remove('collapsed');
+        } else {
+          s.style.display = 'none';
+          t.classList.add('collapsed');
+        }
       });
+      currentOpen = key || '';
       try { localStorage.setItem('client_detail_open', key || ''); } catch(e) {}
     }
     // Restore last open
     var saved = '';
     try { saved = localStorage.getItem('client_detail_open') || ''; } catch(e) {}
-    if (saved) setOpen(saved);
+    if (saved) { setOpen(saved); currentOpen = saved; }
     // Wire clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);
@@ -1796,6 +1528,8 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
         else { setOpen(g.key); }
       });
     });
+    // Header synthèse clique également
+    window.openSynthSection = function(){ return false; };
   })();
 
   // Auto-sélection du type selon catégorie (client)
@@ -2173,6 +1907,7 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))
     )|tojson }};
     let defaultAlloc = defaultAllocRaw ? String(defaultAllocRaw).trim() : '';
+    // Si le select des allocations est absent, ne pas bloquer le reste du script
     if (!sel) return;
     // Remplir le sélecteur
     let hasDefault = false;
@@ -2242,8 +1977,8 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
       let allVals = [];
       const name = selected[0];
       const allocMap = toMap(allocSeries[name]);
-      const allocData = normalize(allocMap, labels);
-      const clientData = normalize(clientMap, labels);
+    const allocData = normalize(allocMap, labels);
+    const clientData = normalize(clientMap, labels);
       allVals = allVals.concat(allocData.filter(v=> v!=null && isFinite(v)), clientData.filter(v=> v!=null && isFinite(v)));
       datasets.push({ label: name+' (base 100)', data: allocData, borderColor: allocColor, fill:false, pointRadius:0, pointHoverRadius:0 });
       datasets.push({
@@ -2289,12 +2024,51 @@ try { Chart.defaults.color = getComputedStyle(document.documentElement).getPrope
           ctx.restore();
         }
       };
-      chartAlloc = new Chart(ctxA, {
-        type: 'line',
-        plugins: [areaFillPlugin],
-        data: { labels, datasets },
-        options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{ y:{ suggestedMin: min - pad, suggestedMax: max + pad } }, plugins:{ legend:{ display:true }, tooltip:{ callbacks:{ label:function(ctx){ const y = ctx.parsed.y; const idx = ctx.dataIndex; const port = clientData[idx] || 0; const alloc = allocData[idx] || 0; const delta = port - alloc; if (ctx.datasetIndex === 0){ return ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''); } const tag = delta >= 0 ? 'Gain' : 'Perte'; return [ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''), tag+': '+(isFinite(delta)?delta.toFixed(2):'')]; } } } } }
-      });
+    const years = labels.map(d => d.slice(0,4));
+    const xIndexes = labels.map((_, i) => i);
+    const yearBlocks = [];
+    let startIdx = 0;
+    for (let i = 1; i <= years.length; i++) {
+      if (i === years.length || years[i] !== years[i-1]) {
+        const endIdx = i - 1;
+        const centerIdx = Math.floor((startIdx + endIdx) / 2);
+        yearBlocks.push({ year: years[i-1], start: startIdx, end: endIdx, center: centerIdx });
+        startIdx = i;
+      }
+    }
+    const yearLines = new Set(yearBlocks.map(b => b.start));
+    const yearCenters = new Map(yearBlocks.map(b => [b.center, b.year]));
+
+    chartAlloc = new Chart(ctxA, {
+      type: 'line',
+      plugins: [areaFillPlugin],
+      data: { labels: xIndexes, datasets },
+      options: {
+        responsive:true,
+        interaction:{ mode:'index', intersect:false },
+        scales:{
+          y:{ suggestedMin: min - pad, suggestedMax: max + pad },
+          x:{
+            type:'category',
+            labels: xIndexes,
+            ticks:{
+              autoSkip: false,
+              callback: function(val){ return yearCenters.has(val) ? yearCenters.get(val) : ''; },
+              maxRotation:0, minRotation:0, align:'center'
+            },
+            grid:{
+              drawOnChartArea:true,
+              color: function(ctx){ return yearLines.has(ctx.index) ? '#000' : 'rgba(0,0,0,0.05)'; },
+              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 2 : 1; }
+            }
+          }
+        },
+        plugins:{
+          legend:{ display:true },
+          tooltip:{ callbacks:{ label:function(ctx){ const y = ctx.parsed.y; const idx = ctx.dataIndex; const port = clientData[idx] || 0; const alloc = allocData[idx] || 0; const delta = port - alloc; if (ctx.datasetIndex === 0){ return ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''); } const tag = delta >= 0 ? 'Gain' : 'Perte'; return [ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''), tag+': '+(isFinite(delta)?delta.toFixed(2):'')]; } } }
+        }
+      }
+    });
     }
     sel.addEventListener('change', function(){
       const selected = this.value ? [this.value] : [];

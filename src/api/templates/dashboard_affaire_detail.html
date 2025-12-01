@@ -333,13 +333,8 @@
 </div>
 
 <!-- KPIs en tête -->
-  <!-- Définir une tâche (ouverture de pop-up, même stratégie que Détail Client) -->
+  <!-- Tâches désactivées (maintenance) -->
   <div class="section-toggle-row" style="margin-top:12px;">
-    <div id="affTasksToggle" class="card accordion-toggle" data-tb-marker="AF_06" title="Définir une tâche" aria-label="Définir une tâche" onclick="markAffToggleActive('affTasksToggle'); openAffTaskPopup()">
-      <h3 style="display:flex; align-items:center; gap:8px; margin:0; justify-content:flex-start;">
-        <i class="fa-solid fa-list-check" aria-hidden="true"></i>
-      </h3>
-    </div>
     <div id="invToggle" class="card accordion-toggle" title="Investissements" aria-label="Investissements">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
@@ -372,10 +367,10 @@
     </div>
   </div>
 <div class="card" style="margin-top:10px; margin-bottom:0.5rem; padding:0;">
-  <div id="affSynthToggle" class="accordion-toggle" data-target="affSynthPanel" style="margin:0; cursor:pointer; justify-content:flex-start;">
-    <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
-      <i class="fa-solid fa-rectangle-list" style="margin-right:6px;"></i>
-      <span>Synthèse</span>
+  <div id="affSynthToggle" class="accordion-toggle" data-target="affSynthPanel" style="margin:0; cursor:pointer; justify-content:center; text-align:center;">
+    <h3 style="margin:0; display:flex; align-items:center; justify-content:center; gap:8px; width:100%; text-align:center;">
+      <i class="fa-solid fa-rectangle-list" aria-hidden="true"></i>
+      <span style="flex:0 0 auto;">Synthèse</span>
       <span class="chevron" style="margin-left:4px;">▾</span>
     </h3>
   </div>
@@ -437,193 +432,12 @@
   </div>
 </div>
 
-  <!-- Pop-up de création de tâche pour l'affaire -->
-  <style>
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
-    .modal-card { background: #fff; border-radius: 12px; width: 640px; max-width: 92vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    .modal-header h3 { margin: 0; font-size: 1.05rem; }
-    .modal-body { padding: 12px 14px; }
-    .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
-  </style>
-  <div id="affTaskModal" class="modal-overlay" data-tb-marker="AF_07" onclick="if(event.target===this) closeAffTaskPopup()">
-    <div class="modal-card" data-tb-marker="AF_08">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-list-check" style="margin-right:8px;"></i>Définir une tâche</h3>
-        <button class="modal-close" onclick="closeAffTaskPopup()">✕</button>
-      </div>
-      <div class="modal-body task-block">
-        <style>
-          #affTaskModal select.select-choice { height: 36px; }
-        </style>
-        <form method="post" action="/dashboard/affaires/{{ affaire.id }}/taches">
-          {% if af_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Client (Nom Prénom)</label>
-              <input type="text" name="client_fullname" list="clients_list_aff_modal" placeholder="Nom Prénom" value="{{ client_fullname_default or '' }}" />
-            </div>
-            <div class="field">
-              <label>Affaire (Référence)</label>
-              <input type="text" name="affaire_ref" list="affaires_list_aff_modal" placeholder="REF-0001" value="{{ affaire_ref_default or '' }}" />
-            </div>
-            <div class="field">
-              <label>Affecter à (RH)</label>
-              <select class="select-choice" name="rh_id">
-                <option value="">-- aucun --</option>
-                {% for rh in rh_list %}
-                  {% set rid = rh.id if rh.id is not none else rh[0] %}
-                  {% set rnom = (rh.prenom if rh.prenom is defined else (rh[1] if rh|length>1 else '')) ~ ' ' ~ (rh.nom if rh.nom is defined else (rh[2] if rh|length>2 else '')) %}
-                  <option value="{{ rid }}">{{ rnom.strip() }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
+  {# Popup de création de tâche supprimé (maintenance) #}
 
-          <div class="form-row" style="margin-bottom:.6rem;">
-            <div class="field">
-              <label>Catégorie</label>
-              <select class="select-choice" name="categorie" id="aff_cat_select_modal">
-                <option value="">-- choisir --</option>
-                {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label>Type</label>
-              <select class="select-choice" name="type_libelle" id="aff_type_select_modal">
-                <option value="">-- choisir une catégorie --</option>
-              </select>
-            </div>
-            <div class="field" style="align-self:center;">
-              <label>&nbsp;</label>
-              <button type="button" id="aff_comm_btn_modal" class="btn btn-choice" onclick="toggleAffCommModal()">Préparer une communication</button>
-              <input type="hidden" id="aff_comm_toggle_modal" name="comm_toggle" value="0" />
-            </div>
-          </div>
-
-          <div class="form-row" id="aff_reclam_status_row_modal" style="margin-bottom:.6rem; display:none;">
-            <div class="field">
-              <label>Statut réclamation</label>
-              <select class="select-choice" name="statut_reclamation_id" id="aff_reclam_status_select_modal">
-                <option value="">-- choisir --</option>
-                {% for st in reclam_statuses %}
-                  <option value="{{ st.id }}">{{ st.libelle }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-
-          <div id="aff_comm_block_modal" style="display:none; border:1px dashed var(--border); padding:.8rem; border-radius:10px; margin-bottom:.6rem;">
-            <div class="form-row" style="margin-bottom:.6rem;">
-              <div class="field">
-                <label>Canal</label>
-                <select class="select-choice" name="comm_canal">
-                  <option value="email">email</option>
-                  <option value="courrier">courrier</option>
-                  <option value="sms">sms</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Destinataire</label>
-                <input class="input-large" type="text" name="comm_destinataire" placeholder="email ou adresse" />
-              </div>
-              <div class="field">
-                <label>Objet</label>
-                <input class="input-large" type="text" name="comm_objet" placeholder="Objet du message" />
-              </div>
-            </div>
-            <div>
-              <label>Contenu</label>
-              <textarea class="input-large" name="comm_contenu" rows="3" placeholder="Contenu du message..." style="width:100%;"></textarea>
-            </div>
-          </div>
-
-          <div style="margin-bottom:.6rem;">
-            <label>Commentaire</label>
-            <textarea name="commentaire" rows="3" placeholder="Détails / notes…"></textarea>
-          </div>
-
-          <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
-            <div style="flex:1 1 100%;">
-              <label>Statut initial</label>
-              <div id="aff_initial_status_modal" style="display:flex; gap:.4rem; flex-wrap:wrap; align-items:center;">
-                {% for s in status_ui %}
-                  <button type="button" class="btn btn-choice" data-sid="{{ s.id }}" data-key="{{ s.key }}" onclick="affSelectStatusModal(this)">{{ s.label }}</button>
-                {% endfor %}
-                {% if en_cours_id %}
-                  <button type="button" id="aff_en_cours_btn_modal" class="btn btn-choice" style="display:none; background:#16a34a; color:#fff; border-color:#16a34a; text-transform:none;" data-sid="{{ en_cours_id }}" onclick="affSelectStatusModal(this)">en cours</button>
-                {% endif %}
-                <input type="hidden" name="statut_id" id="aff_statut_id_modal" value="" />
-              </div>
-            </div>
-          </div>
-          <div class="create-btn-container">
-            <button class="btn btn-primary btn-choice" style="min-width:160px;" type="submit"><i class="fa-solid fa-plus"></i>Créer</button>
-          </div>
-
-          <datalist id="clients_list_aff_modal">
-            {% for c in clients_suggest %}
-              <option value="{{ ((c.nom or '') ~ ' ' ~ (c.prenom or '')) | trim }}"></option>
-            {% endfor %}
-          </datalist>
-          <datalist id="affaires_list_aff_modal"></datalist>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    function openAffTaskPopup(){ document.getElementById('affTaskModal').style.display='flex'; }
-    function closeAffTaskPopup(){ document.getElementById('affTaskModal').style.display='none'; }
-    function toggleAffCommModal(){ const h=document.getElementById('aff_comm_toggle_modal'); const on=h.value==='1'?false:true; h.value=on?'1':'0'; document.getElementById('aff_comm_block_modal').style.display=on?'block':'none'; document.getElementById('aff_comm_btn_modal').classList.toggle('btn-choice-active', on); }
-    function normName(s){ return (s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
-    function updateAffAffairesModal(){ const inp=document.querySelector('#affTaskModal input[name="client_fullname"]'); const val=normName(inp?inp.value:''); const dl=document.getElementById('affaires_list_aff_modal'); if(!dl) return; dl.innerHTML=''; const data = [
-      {% for a in affaires_suggest %}
-        { ref: {{ a.ref|tojson }}, client: {{ a.client|tojson }} },
-      {% endfor %}
-    ]; (val? data.filter(a=>normName(a.client)===val): data).forEach(a=>{ const o=document.createElement('option'); o.value=a.ref; o.textContent=`${a.ref} — ${a.client}`; dl.appendChild(o); }); }
-    (function initAffTaskModal(){
-      const inp=document.querySelector('#affTaskModal input[name="client_fullname"]'); if(inp){ inp.addEventListener('input', updateAffAffairesModal); inp.addEventListener('change', updateAffAffairesModal); }
-      updateAffAffairesModal();
-      const types = [
-        {% for t in types %}
-          { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
-        {% endfor %}
-      ];
-      const cat=document.getElementById('aff_cat_select_modal'); const typ=document.getElementById('aff_type_select_modal');
-      const reclamRow = document.getElementById('aff_reclam_status_row_modal');
-      const reclamSelect = document.getElementById('aff_reclam_status_select_modal');
-      function updateReclamVisibility(){
-        if(!reclamRow) return;
-        const catVal = (cat && cat.value ? cat.value : '').trim().toLowerCase();
-        if(catVal === 'reclamation'){
-          reclamRow.style.display = 'flex';
-        } else {
-          reclamRow.style.display = 'none';
-          if(reclamSelect){ reclamSelect.value=''; }
-        }
-      }
-      function sync(){
-        typ.innerHTML='';
-        if(!cat.value){
-          const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typ.appendChild(o);
-          updateReclamVisibility();
-          return;
-        }
-        const list=types.filter(t=>t.categorie===cat.value).map(t=>t.libelle);
-        list.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typ.appendChild(o); });
-        if(list.length>0) typ.value=list[0];
-        updateReclamVisibility();
-      }
-      if (cat){
-        cat.addEventListener('change', function(){ sync(); });
-        if(cat.value) sync(); else updateReclamVisibility();
-      } else {
-        updateReclamVisibility();
-      }
-    })();
-    function affSelectStatusModal(btn){ const sid=btn.getAttribute('data-sid'); const key=btn.getAttribute('data-key'); document.getElementById('aff_statut_id_modal').value=sid; const peers=document.getElementById('aff_initial_status_modal').querySelectorAll('button'); peers.forEach(b=>{ b.classList.remove('btn-primary'); b.classList.remove('btn-choice-active');}); btn.classList.add('btn-primary'); btn.classList.add('btn-choice-active'); const ec=document.getElementById('aff_en_cours_btn_modal'); if(ec){ ec.style.display=(key==='a faire'||key==='en attente')?'inline-block':'none'; } }
-  </script>
+  <!-- bloc tâches supprimé -->
+<script>
+    // Tâches désactivées (maintenance) : aucun script
+</script>
 
 <!-- Accordéon Investissements -->
 <div id="invSection" style="display:none;">
@@ -1213,6 +1027,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const annPerf = {{ ann_perf | tojson }};
   const annVol = {{ ann_vol | tojson }};
   const allocSeries = {{ alloc_series | tojson }};
+  const defaultAlloc = {{ default_alloc_name | tojson }};
   const affaireSicav = {{ affaire_sicav | tojson }};
   const supportsData = {{ supports | tojson }};
   const esgFieldLabels = {{ esg_field_labels | tojson }};
@@ -1594,13 +1409,19 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const colors = ['#ff6b6b']; // allocations en rouge
   let chart3;
   let currentRange3 = 'all';
-  function filterRangeByEnd(list, range){
+  function filterRangeByDays(list, range){
     if (range === 'all') return list;
     const n = parseInt(range, 10);
     if (!isFinite(n) || !list.length) return list;
-    const end = list.length;
-    const start = Math.max(0, end - n);
-    return list.slice(start);
+    const last = list[list.length - 1];
+    const lastDate = new Date(last);
+    if (isNaN(lastDate)) return list;
+    const cutoff = new Date(lastDate.getTime() - n * 24 * 3600 * 1000);
+    return list.filter(d => {
+      const dt = new Date(d);
+      if (isNaN(dt)) return false;
+      return dt >= cutoff;
+    });
   }
   function drawChart3(selected){
     if (chart3) chart3.destroy();
@@ -1624,7 +1445,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       allowed = intersect(affKeys, allAllocDates);
     }
     const allLabels = Array.from(allowed).sort();
-    const labels = filterRangeByEnd(allLabels, currentRange3);
+    const labels = filterRangeByDays(allLabels, currentRange3);
     if (!labels.length) {
       chart3 = new Chart(ctx3, { type:'line', data:{ labels: [], datasets: [] }, options:{ responsive:true } });
       return;
@@ -1673,35 +1494,73 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         ctx.restore();
       }
     };
+    // Construire les ticks par année
+    const years = labels.map(d => d.slice(0,4));
+    const xIndexes = labels.map((_, i) => i);
+    const yearBlocks = [];
+    let startIdx = 0;
+    for (let i = 1; i <= years.length; i++) {
+      if (i === years.length || years[i] !== years[i-1]) {
+        const endIdx = i - 1;
+        const centerIdx = Math.floor((startIdx + endIdx) / 2);
+        yearBlocks.push({ year: years[i-1], start: startIdx, end: endIdx, center: centerIdx });
+        startIdx = i;
+      }
+    }
+    const yearLines = new Set(yearBlocks.map(b => b.start));
+    const yearCenters = new Map(yearBlocks.map(b => [b.center, b.year]));
     chart3 = new Chart(ctx3, {
       type:'line',
       plugins: datasets.length>=2 ? [areaFillPluginCmp] : [],
-      data:{ labels, datasets },
+      data:{ labels: xIndexes, datasets },
       options:{
         responsive:true,
-        scales:{ y:{ ticks:{ callback:v=> v.toFixed(0) } } },
+        scales:{
+          y:{ ticks:{ callback:v=> v.toFixed(0) } },
+          x:{
+            type:'category',
+            labels: xIndexes,
+            ticks:{
+              autoSkip: false,
+              callback: function(val){
+                return yearCenters.has(val) ? yearCenters.get(val) : '';
+              },
+              maxRotation: 0, minRotation: 0, align: 'center'
+            },
+            grid:{
+              drawOnChartArea: true,
+              color: function(ctx){ return yearLines.has(ctx.index) ? '#000' : 'rgba(0,0,0,0.05)'; },
+              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 2 : 1; }
+            }
+          }
+        },
         plugins:{
           legend:{ display:true },
-          tooltip:{ callbacks:{
-            label:function(ctx){
-              const y = ctx.parsed.y;
-              const idx = ctx.dataIndex;
-              const port = portData[idx];
-              const allocVal = allocData[idx];
-              const baseLabel = ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):'');
-              if (!isFinite(port) || !isFinite(allocVal)) return baseLabel;
-              const delta = port - allocVal;
-              const tag = delta >= 0 ? 'Gain' : 'Perte';
-              return [baseLabel, tag+': '+delta.toFixed(2)];
+          tooltip:{
+            displayColors:false,
+            callbacks:{
+              label:function(){ return ''; },
+              beforeBody:function(ctx){
+                if (!ctx || !ctx.length) return [];
+                const idx = ctx[0].dataIndex;
+                const ds = ctx[0].chart.data.datasets || [];
+                const port = ds[0] && isFinite(ds[0].data[idx]) ? Number(ds[0].data[idx]) : null;
+                const alloc = ds[1] && isFinite(ds[1].data[idx]) ? Number(ds[1].data[idx]) : null;
+                const lines = [];
+                if (port !== null) lines.push('Affaire (base 100): ' + port.toFixed(2));
+                if (alloc !== null) lines.push('Offre (base 100): ' + alloc.toFixed(2));
+                if (port !== null && alloc !== null) lines.push('Écart: ' + (port - alloc).toFixed(2));
+                return lines;
+              }
             }
-          } }
+          }
         }
       }
     });
   }
   // Remplir le select d'allocations
   const sel = document.getElementById('allocSelect');
-  Object.keys(allocSeries).forEach(name=>{ const opt=document.createElement('option'); opt.value=name; opt.textContent=name; sel.appendChild(opt); });
+  Object.keys(allocSeries).forEach(name=>{ const opt=document.createElement('option'); opt.value=name; opt.textContent=name; if(defaultAlloc && name===defaultAlloc){ opt.selected=true; } sel.appendChild(opt); });
   sel.addEventListener('change', function(){ drawChart3(this.value ? [this.value] : []); });
   const rangeBtns = Array.from(document.querySelectorAll('.rangeBtnCmp'));
   function setActiveRangeBtn(val){
@@ -1716,8 +1575,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   setActiveRangeBtn('all');
   // Sélection par défaut : première allocation si disponible
   if (sel.options.length > 0) {
-    sel.selectedIndex = 0;
-    drawChart3([sel.value]);
+    if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
+    drawChart3(sel.value ? [sel.value] : []);
   } else {
     drawChart3([]);
   }

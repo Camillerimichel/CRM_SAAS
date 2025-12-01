@@ -3,12 +3,13 @@ import base64
 import re
 import secrets
 import math
+from time import perf_counter
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, bindparam
+from sqlalchemy import func, or_, bindparam, desc
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -99,6 +100,10 @@ KEYWORDS_VEILLE = [
     "directive",
     "règlement",
 ]
+
+FINANCE_CACHE: dict = {}
+HOME_CACHE: dict = {}
+ESG_FIELDS_CACHE: dict = {}
 
 
 def _matches_keywords(text: str) -> bool:
@@ -292,8 +297,7 @@ def _load_groupes_details(db: Session) -> list[dict]:
         rows = db.execute(
             text(
                 """
-                SELECT d.rowid AS __rid,
-                       d.id,
+                SELECT d.id,
                        d.type_groupe,
                        d.nom,
                        d.date_creation,
@@ -555,13 +559,19 @@ def _get_veille_context() -> dict:
 
     items: list[dict] = []
     now = datetime.now(timezone.utc)
+    # Cache only if non-empty
     try:
-        if VEILLE_CACHE["ts"] and (now - VEILLE_CACHE["ts"]).total_seconds() < 300:
+        if VEILLE_CACHE["ts"] and VEILLE_CACHE.get("items") and (now - VEILLE_CACHE["ts"]).total_seconds() < 300:
             items = VEILLE_CACHE["items"]
         else:
-            items = _collect_veille(insecure=True, proxy=None)
-            VEILLE_CACHE["items"] = items
-            VEILLE_CACHE["ts"] = now
+            fetched = _collect_veille(insecure=True, proxy=None)
+            if fetched:
+                items = fetched
+                VEILLE_CACHE["items"] = items
+                VEILLE_CACHE["ts"] = now
+            else:
+                VEILLE_CACHE["ts"] = None
+                VEILLE_CACHE["items"] = []
     except Exception:
         items = []
     if not items:
@@ -571,6 +581,18 @@ def _get_veille_context() -> dict:
                     items = json.load(f) or []
         except Exception:
             items = []
+    if not items:
+        # Dernier recours : quelques éléments statiques pour ne pas afficher une page vide
+        items = [
+            {
+                "source": "Mock Veille",
+                "tags": ["divers"],
+                "title": "Aucune donnée distante — affichage de secours",
+                "link": "#",
+                "published": now.strftime("%Y-%m-%d"),
+                "summary": "La collecte distante a échoué ou n'a rien renvoyé. Vérifiez l'accès réseau ou le fichier data/veille_reglementaire.json.",
+            }
+        ]
     grouped: dict = {}
     for it in items:
         tags = it.get("tags") or []
@@ -599,10 +621,439 @@ def _get_veille_context() -> dict:
     }
 
 
+def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
+    """Calcule les indicateurs de la section Tâches (vue_suivi_evenement)."""
+    from sqlalchemy import text as _text
+
+    if range_days not in (7, 14, 30):
+        range_days = 14
+    try:
+        tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
+        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM vue_suivi_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall()
+        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(categorie)), '(non défini)') as c, COUNT(1) FROM vue_suivi_evenement GROUP BY c ORDER BY COUNT(1) DESC")).fetchall()
+        open_count = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0
+        rows_days = db.execute(_text(
+            """
+            WITH RECURSIVE seq(x) AS (
+              SELECT 0
+              UNION ALL SELECT x+1 FROM seq WHERE x < :n
+            )
+            SELECT date(julianday('now') - x) AS day,
+                   COALESCE((SELECT COUNT(1) FROM vue_suivi_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
+            FROM seq
+            ORDER BY day ASC
+            """
+        ), {"n": range_days - 1}).fetchall()
+        tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
+        tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
+        tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
+
+        rows_avg = db.execute(_text(
+            """
+            WITH es AS (
+                SELECT es.evenement_id, es.statut_id, es.date_statut, se.libelle AS statut
+                FROM mariadb_evenement_statut es
+                JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+            ), nxt AS (
+                SELECT e1.evenement_id,
+                       e1.statut,
+                       e1.date_statut AS start_dt,
+                       (
+                         SELECT MIN(e2.date_statut)
+                         FROM es e2
+                         WHERE e2.evenement_id = e1.evenement_id AND e2.date_statut > e1.date_statut
+                       ) AS end_dt
+                FROM es e1
+            )
+            SELECT statut,
+                   AVG((julianday(end_dt) - julianday(start_dt))) AS avg_days
+            FROM nxt
+            WHERE end_dt IS NOT NULL
+            GROUP BY statut
+            ORDER BY (avg_days IS NULL), avg_days DESC
+            """
+        )).fetchall()
+        tasks_avg_by_statut = [ {"statut": r[0], "avg_days": float(r[1] or 0)} for r in rows_avg ]
+
+        row_close = db.execute(_text(
+            """
+            WITH close AS (
+              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
+              FROM mariadb_evenement_statut es
+              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
+              GROUP BY es.evenement_id
+            )
+            SELECT AVG(julianday(close.close_dt) - julianday(e.date_evenement))
+            FROM close
+            JOIN mariadb_evenement e ON e.id = close.evenement_id
+            """
+        )).scalar()
+        tasks_avg_close_days = float(row_close or 0)
+
+        rows_dist = db.execute(_text(
+            """
+            WITH close AS (
+              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
+              FROM mariadb_evenement_statut es
+              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
+              GROUP BY es.evenement_id
+            ), durations AS (
+              SELECT (julianday(c.close_dt) - julianday(e.date_evenement)) AS d, c.close_dt AS cd
+              FROM close c JOIN mariadb_evenement e ON e.id = c.evenement_id
+              WHERE date(c.close_dt) >= date('now', '-' || :rng || ' days')
+            )
+            SELECT bucket, COUNT(1) AS nb FROM (
+              SELECT CASE
+                WHEN d < 1 THEN '<1j'
+                WHEN d < 3 THEN '1–3j'
+                WHEN d < 7 THEN '3–7j'
+                WHEN d < 14 THEN '7–14j'
+                WHEN d < 30 THEN '14–30j'
+                ELSE '>=30j'
+              END AS bucket
+              FROM durations
+            ) x
+            GROUP BY bucket
+            ORDER BY CASE bucket
+              WHEN '<1j' THEN 0
+              WHEN '1–3j' THEN 1
+              WHEN '3–7j' THEN 2
+              WHEN '7–14j' THEN 3
+              WHEN '14–30j' THEN 4
+              ELSE 5 END
+            """
+        ), {"rng": range_days}).fetchall()
+        tasks_close_dist = [ {"bucket": r[0], "nb": int(r[1] or 0)} for r in rows_dist ]
+        rows_type_rh = db.execute(_text(
+            """
+            SELECT
+                v.rh_id AS rh_id,
+                COALESCE(r.prenom || ' ' || r.nom, r.mail, 'Sans responsable') AS rh_nom,
+                v.type_evenement AS type,
+                COUNT(*) AS nb
+            FROM vue_suivi_evenement v
+            LEFT JOIN administration_RH r ON r.id = v.rh_id
+            GROUP BY v.rh_id, rh_nom, v.type_evenement
+            ORDER BY rh_nom, v.type_evenement
+            """
+        )).fetchall()
+        tasks_type_by_rh = rows_to_dicts(rows_type_rh)
+        rows_type_total = db.execute(_text(
+            """
+            SELECT
+                v.type_evenement AS type,
+                COUNT(*) AS nb
+            FROM vue_suivi_evenement v
+            GROUP BY v.type_evenement
+            ORDER BY v.type_evenement
+            """
+        )).fetchall()
+        tasks_type_total = rows_to_dicts(rows_type_total)
+    except Exception:
+        tasks_total = 0
+        open_count = 0
+        tasks_statut = []
+        tasks_categorie = []
+        tasks_days = []
+        tasks_avg_by_statut = []
+        tasks_avg_close_days = 0.0
+        tasks_close_dist = []
+        tasks_type_by_rh = []
+        tasks_type_total = []
+
+    return {
+        "range": range_days,
+        "tasks_total": tasks_total,
+        "tasks_open": open_count,
+        "tasks_statut": tasks_statut,
+        "tasks_categorie": tasks_categorie,
+        "tasks_days": tasks_days,
+        "tasks_avg_by_statut": tasks_avg_by_statut,
+        "tasks_avg_close_days": tasks_avg_close_days,
+        "tasks_close_dist": tasks_close_dist,
+        "tasks_type_by_rh": tasks_type_by_rh,
+        "tasks_type_total": tasks_type_total,
+    }
+
+def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]:
+    """Retourne les champs ESG (colonnes de esg_fonds) avec cache (TTL 1h)."""
+    now = perf_counter()
+    cached = ESG_FIELDS_CACHE.get("fields")
+    if cached and (now - cached.get("ts", 0)) < 3600:
+        return cached["fields"], cached.get("debug", {}) if debug else {}
+
+    esg_fields: list[dict] = []
+    esg_fields_debug: dict = {"source": "", "raw_cols": [], "final": []}
+    try:
+        ok = False
+        # MariaDB/MySQL
+        try:
+            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            if rows_cols:
+                esg_fields_debug = {"source": "SHOW COLUMNS", "raw_cols": [str(getattr(getattr(rc, '_mapping', {}), 'get', lambda *_: rc[0])('Field')) if hasattr(rc, '_mapping') else str(rc[0]) for rc in rows_cols], "final": []}
+                for rc in rows_cols:
+                    col = rc[0]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    esg_fields.append({"col": col, "label": col})
+                ok = True
+        except Exception:
+            ok = False
+        # SQLite fallback
+        if not ok:
+            try:
+                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+                esg_fields_debug = {"source": "PRAGMA table_info(esg_fonds)", "raw_cols": [str(rc[1]) for rc in (rows_cols or [])], "final": []}
+                def _labelize(name: str) -> str:
+                    if not name:
+                        return name
+                    s = str(name).replace('_', ' ')
+                    import re as _re
+                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
+                    return s.strip().capitalize()
+                for rc in rows_cols or []:
+                    col = rc[1]
+                    if str(col).lower() in ("isin", "company name"):
+                        continue
+                    esg_fields.append({"col": col, "label": _labelize(col)})
+                ok = True
+            except Exception:
+                ok = False
+        # Generic fallback
+        if not ok:
+            try:
+                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
+                if row1 is not None:
+                    keys = list(getattr(row1, "_mapping", {}).keys())
+                    esg_fields_debug = {"source": "SELECT * LIMIT 1", "raw_cols": [str(k) for k in keys], "final": []}
+                    for k in keys:
+                        if str(k).lower() in ("isin", "company name"):
+                            continue
+                        esg_fields.append({"col": k, "label": k})
+                ok = True
+            except Exception:
+                ok = False
+    except Exception:
+        esg_fields = []
+        esg_fields_debug = {"source": "ERROR", "raw_cols": [], "final": []}
+
+    # Déduplique et trie
+    seen = set()
+    uniq = []
+    for it in esg_fields:
+        key = str(it.get("col"))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(it)
+    esg_fields = sorted(uniq, key=lambda x: str(x.get("label", "")).lower())
+    esg_fields_debug["final"] = esg_fields
+    ESG_FIELDS_CACHE["fields"] = {"ts": now, "fields": esg_fields, "debug": esg_fields_debug}
+    return esg_fields, (esg_fields_debug if debug else {})
+
+
+def _compute_conformite_summary(db: Session) -> dict:
+    """Calcule les indicateurs Conformité / Documents / Réclamations pour le dashboard (lazy)."""
+    try:
+        total_clients = db.query(func.count(Client.id)).scalar() or 0
+        total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
+
+        def _doc_stats(doc_name: str) -> tuple[int, int, float, float]:
+            total = (
+                db.query(func.count(DocumentClient.id))
+                .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+                .filter(func.lower(Document.documents) == doc_name)
+                .scalar()
+                or 0
+            )
+            obsolete = (
+                db.query(func.count(DocumentClient.id))
+                .join(Document, Document.id_document_base == DocumentClient.id_document_base)
+                .filter(func.lower(Document.documents) == doc_name)
+                .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
+                .scalar()
+                or 0
+            )
+            total_pct = (total / total_clients * 100.0) if total_clients else 0.0
+            obs_pct = (obsolete / total_clients * 100.0) if total_clients else 0.0
+            return total, obsolete, total_pct, obs_pct
+
+        der_total, der_obs, der_total_pct, der_obs_pct = _doc_stats('der')
+        cc_total, cc_obs, cc_total_pct, cc_obs_pct = _doc_stats("recueil d'informations")
+        esg_total, esg_obs, esg_total_pct, esg_obs_pct = _doc_stats('questionnaire esg')
+        lm_total, lm_obs, lm_total_pct, lm_obs_pct = _doc_stats('lettre de mission')
+        la_total, la_obs, la_total_pct, la_obs_pct = _doc_stats("lettre d'adéquation")
+
+        doc_table_name = _resolve_table_name(db, ["courtier_documents_officiels"])
+        orias_doc_found = orias_doc_valid = False
+        orias_doc_expiry_display = ""
+        assoc_doc_found = assoc_doc_valid = False
+        assoc_doc_expiry_display = ""
+        rcpro_doc_count = rcpro_doc_valid_count = rcpro_doc_expired_count = 0
+        rcpro_doc_valid = False
+        rcpro_doc_expiry_display = ""
+
+        if doc_table_name:
+            row = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 1},
+            ).fetchone()
+            if row:
+                orias_doc_found = True
+                expiry_raw = row._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    orias_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= _date.today():
+                        orias_doc_valid = True
+
+            row_assoc = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id = :act
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"act": 2},
+            ).fetchone()
+            if row_assoc:
+                assoc_doc_found = True
+                expiry_raw = row_assoc._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    assoc_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= _date.today():
+                        assoc_doc_valid = True
+
+            rc_rows = db.execute(
+                text(
+                    f"""
+                    SELECT id, date_validite
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                    ORDER BY
+                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
+                        date_validite DESC,
+                        id DESC
+                    LIMIT 1
+                    """
+                ),
+            ).fetchone()
+            count_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                    """
+                ),
+            ).fetchone()
+            expired_row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*) AS nb
+                    FROM {doc_table_name}
+                    WHERE activite_id IN (3, 10)
+                      AND (
+                        date_validite IS NULL
+                        OR TRIM(date_validite) = ''
+                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                      )
+                    """
+                ),
+                {"today": _date.today().isoformat()},
+            ).fetchone()
+            rcpro_doc_count = int(count_row[0]) if count_row else 0
+            rcpro_doc_expired_count = int(expired_row[0]) if expired_row else 0
+            rcpro_doc_valid_count = max(rcpro_doc_count - rcpro_doc_expired_count, 0)
+            if rc_rows:
+                expiry_raw = rc_rows._mapping.get("date_validite")
+                expiry_date = _parse_date_safe(expiry_raw)
+                if expiry_date:
+                    rcpro_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
+                    if expiry_date >= _date.today():
+                        rcpro_doc_valid = True
+
+        reclam_stats, reclam_pivot = _compute_reclamations_data(db)
+
+    except Exception:
+        total_documents = 0
+        der_total = der_obs = der_total_pct = der_obs_pct = 0.0
+        cc_total = cc_obs = cc_total_pct = cc_obs_pct = 0.0
+        esg_total = esg_obs = esg_total_pct = esg_obs_pct = 0.0
+        lm_total = lm_obs = lm_total_pct = lm_obs_pct = 0.0
+        la_total = la_obs = la_total_pct = la_obs_pct = 0.0
+        orias_doc_found = orias_doc_valid = False
+        orias_doc_expiry_display = ""
+        assoc_doc_found = assoc_doc_valid = False
+        assoc_doc_expiry_display = ""
+        rcpro_doc_count = rcpro_doc_valid_count = rcpro_doc_expired_count = 0
+        rcpro_doc_valid = False
+        rcpro_doc_expiry_display = ""
+        reclam_stats = {"total": 0, "by_status": []}
+        reclam_pivot = {"types": [], "statuses": []}
+
+    return {
+        "docs_total": total_documents,
+        "docs_der_total": der_total,
+        "docs_der_obsolete": der_obs,
+        "docs_der_total_pct": der_total_pct,
+        "docs_der_obsolete_pct": der_obs_pct,
+        "docs_cc_total": cc_total,
+        "docs_cc_obsolete": cc_obs,
+        "docs_cc_total_pct": cc_total_pct,
+        "docs_cc_obsolete_pct": cc_obs_pct,
+        "docs_esg_total": esg_total,
+        "docs_esg_obsolete": esg_obs,
+        "docs_esg_total_pct": esg_total_pct,
+        "docs_esg_obsolete_pct": esg_obs_pct,
+        "docs_lm_total": lm_total,
+        "docs_lm_obsolete": lm_obs,
+        "docs_lm_total_pct": lm_total_pct,
+        "docs_lm_obsolete_pct": lm_obs_pct,
+        "docs_la_total": la_total,
+        "docs_la_obsolete": la_obs,
+        "docs_la_total_pct": la_total_pct,
+        "docs_la_obsolete_pct": la_obs_pct,
+        "orias_doc_found": orias_doc_found,
+        "orias_doc_valid": orias_doc_valid,
+        "orias_doc_expiry_display": orias_doc_expiry_display,
+        "assoc_doc_found": assoc_doc_found,
+        "assoc_doc_valid": assoc_doc_valid,
+        "assoc_doc_expiry_display": assoc_doc_expiry_display,
+        "rcpro_doc_count": rcpro_doc_count,
+        "rcpro_doc_valid": rcpro_doc_valid,
+        "rcpro_doc_expiry_display": rcpro_doc_expiry_display,
+        "rcpro_doc_expired_count": rcpro_doc_expired_count,
+        "rcpro_doc_valid_count": rcpro_doc_valid_count,
+        "reclam_stats": reclam_stats,
+        "reclam_pivot": reclam_pivot,
+    }
+
+
 @router.get("/veille", response_class=HTMLResponse)
 def dashboard_veille(request: Request):
-    # Veille chargée à la demande (lazy)
-    veille_ctx = {"items": [], "recent": [], "grouped": {}, "markets": [], "markets_meta": {}}
+    # Veille dédiée (chargée directement pour cette page)
+    veille_ctx = _get_veille_context()
     return templates.TemplateResponse(
         "dashboard_veille.html",
         {
@@ -617,8 +1068,34 @@ def dashboard_veille(request: Request):
 
 @router.get("/veille/data", response_class=JSONResponse)
 def dashboard_veille_data():
-    veille_ctx = _get_veille_context()
-    return veille_ctx
+    # Veille non chargée sur la page principale pour réduire le temps de rendu ; chargée via /dashboard/veille
+    return _get_veille_context()
+
+@router.get("/tasks/summary", response_class=JSONResponse)
+def dashboard_tasks_summary(range: int = Query(14), db: Session = Depends(get_db)):
+    """Résumé des tâches (lazy load depuis le dashboard)."""
+    return _compute_tasks_summary(db, range)
+
+@router.get("/esg/fields", response_class=JSONResponse)
+def dashboard_esg_fields(db: Session = Depends(get_db)):
+    """Retourne les champs ESG disponibles + allocations (cache 1h)."""
+    try:
+        alloc_names = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
+    except Exception:
+        alloc_names = []
+    fields, debug = _get_esg_fields(db, debug=True)
+    return {
+        "status": "ok",
+        "esg_fields": fields,
+        "alloc_names": alloc_names,
+        "debug": debug,
+        "dates": [],  # placeholder (si dates spécifiques à renvoyer plus tard)
+    }
+
+@router.get("/conformite/summary", response_class=JSONResponse)
+def dashboard_conformite_summary(db: Session = Depends(get_db)):
+    """Résumé conformité/documents/réclamations pour lazy load."""
+    return _compute_conformite_summary(db)
 
 
 def _fmt_currency(value: float | int | None) -> str:
@@ -1442,42 +1919,65 @@ def _build_finance_analysis(
     finance_rh_id: int | None,
     finance_date_param: str | None,
     finance_valo_param: str | None = None,
+    force_refresh: bool = False,
+    allow_fallback: bool = True,
 ) -> dict:
     """Compute portfolio analysis figures (supports repartition) for dashboard views."""
-    base_finance_date = _parse_date_safe(finance_date_param)
-    if base_finance_date is None:
-        try:
-            sql_max = """
+    # Invalidate previous cache to ensure new params and date calculations are reflected immediately
+    FINANCE_CACHE.clear()
+    cache_key = (finance_rh_id, finance_date_param or "", finance_valo_param or "")
+    now_ts = perf_counter()
+    cached = FINANCE_CACHE.get(cache_key)
+    if cached and not force_refresh and (now_ts - cached.get("ts", 0)) < 600:
+        cached_data = cached.get("data") or {}
+        # If new fields (max date) are missing, recompute instead of serving stale cache.
+        if cached_data.get("finance_max_date_iso") is None:
+            pass
+        else:
+            return cached_data
+
+    # Date max disponible (pour affichage et fallback)
+    finance_max_date = None
+    try:
+        row_max = db.execute(
+            text(
+                """
                 SELECT MAX(date(h.date)) AS max_date
                 FROM mariadb_historique_support_w h
-                JOIN mariadb_affaires a ON a.id = h.id_source
-                LEFT JOIN mariadb_clients c ON c.id = a.id_personne
-            """
-            params_max: dict[str, int] = {}
-            if finance_rh_id is not None:
-                sql_max += " WHERE c.commercial_id = :rh_id"
-                params_max["rh_id"] = finance_rh_id
-            row_max = db.execute(text(sql_max), params_max).fetchone()
-            if row_max:
-                max_val = row_max[0] if not hasattr(row_max, "_mapping") else row_max._mapping.get("max_date")
-                base_finance_date = _parse_date_safe(max_val)
-        except Exception:
-            base_finance_date = None
+                """
+            )
+        ).fetchone()
+        if row_max:
+            max_val = row_max[0] if not hasattr(row_max, "_mapping") else row_max._mapping.get("max_date")
+            finance_max_date = _parse_date_safe(max_val)
+            logger.info("finance_max_date from mariadb_historique_support_w: %s", finance_max_date)
+    except Exception:
+        finance_max_date = None
+
+    base_finance_date = _parse_date_safe(finance_date_param)
+    if base_finance_date is None:
+        base_finance_date = finance_max_date
     if base_finance_date is None:
         base_finance_date = _date.today()
 
     finance_effective_date = _align_to_friday(base_finance_date) or base_finance_date
     finance_effective_date_iso = finance_effective_date.isoformat()
-    finance_date_input = base_finance_date.isoformat()
+    finance_date_input = finance_effective_date_iso
     finance_effective_date_display = finance_effective_date.strftime("%d/%m/%Y")
 
+    # Use YYYY-MM-DD to ensure a date-only ISO string for display and SQL literal
+    finance_max_date_iso = finance_max_date.strftime("%Y-%m-%d") if finance_max_date else None
+    finance_max_date_display = finance_max_date.strftime("%d/%m/%Y") if finance_max_date else None
     finance_supports: list[dict] = []
     finance_total_valo = 0.0
     finance_total_valo_str = "0"
     valo_filter = _parse_valo_filter_expression(finance_valo_param)
 
     try:
-        params = {"d": finance_effective_date_iso}
+        params = {
+            "d_date": finance_effective_date,
+        }
+        t_sql = perf_counter()
         sql = """
             SELECT
                 s.code_isin AS code_isin,
@@ -1490,7 +1990,7 @@ def _build_finance_analysis(
             JOIN mariadb_support s ON s.id = h.id_support
             JOIN mariadb_affaires a ON a.id = h.id_source
             LEFT JOIN mariadb_clients c ON c.id = a.id_personne
-            WHERE DATE(h.date) = DATE(:d)
+            WHERE h.date = :d_date
         """
         if finance_rh_id is not None:
             sql += " AND c.commercial_id = :rh_id"
@@ -1515,9 +2015,13 @@ def _build_finance_analysis(
             sql += " HAVING " + " AND ".join(having_clauses)
         sql += " ORDER BY total_valo DESC"
         rows_supports = db.execute(text(sql), params).fetchall()
+        logger.info("finance_analysis: supports fetched in %.3fs", perf_counter() - t_sql)
         clients_map: dict[str, list[dict]] = {}
         try:
-            params_clients = {"d": finance_effective_date_iso}
+            t_clients = perf_counter()
+            params_clients = {
+                "d_date": finance_effective_date,
+            }
             sql_clients = """
                 SELECT
                     s.code_isin AS code_isin,
@@ -1531,7 +2035,7 @@ def _build_finance_analysis(
                 JOIN mariadb_support s ON s.id = h.id_support
                 JOIN mariadb_affaires a ON a.id = h.id_source
                 LEFT JOIN mariadb_clients c ON c.id = a.id_personne
-                WHERE DATE(h.date) = DATE(:d)
+                WHERE h.date = :d_date
             """
             if finance_rh_id is not None:
                 sql_clients += " AND c.commercial_id = :rh_id"
@@ -1541,6 +2045,7 @@ def _build_finance_analysis(
                 HAVING SUM(h.valo) > 0
             """
             rows_clients = db.execute(text(sql_clients), params_clients).fetchall()
+            logger.info("finance_analysis: clients fetched in %.3fs", perf_counter() - t_clients)
             for r in rows_clients or []:
                 m = r._mapping if hasattr(r, "_mapping") else None
                 code_isin_client = (m.get("code_isin") if m else r[0]) or None
@@ -1597,15 +2102,37 @@ def _build_finance_analysis(
         finance_total_valo = 0.0
         finance_total_valo_str = "0"
 
-    return {
+    # Fallback: si aucune ligne, retenter sur la dernière date dispo (sans dépendre du paramètre fourni)
+    if allow_fallback and not finance_supports:
+        try:
+            fb_row = db.execute(text("SELECT MAX(date(h.date)) AS max_date FROM mariadb_historique_support_w h")).fetchone()
+            fb_date_raw = fb_row[0] if fb_row is not None and not hasattr(fb_row, "_mapping") else (fb_row._mapping.get("max_date") if fb_row else None)
+            fb_date = _parse_date_safe(fb_date_raw)
+            if fb_date and fb_date != finance_effective_date:
+                return _build_finance_analysis(
+                    db=db,
+                    finance_rh_id=finance_rh_id,
+                    finance_date_param=fb_date.isoformat(),
+                    finance_valo_param=finance_valo_param,
+                    force_refresh=True,
+                    allow_fallback=False,
+                )
+        except Exception:
+            pass
+
+    result = {
         "finance_supports": finance_supports,
         "finance_total_valo": finance_total_valo,
         "finance_total_valo_str": finance_total_valo_str,
         "finance_date_input": finance_date_input,
         "finance_effective_date_display": finance_effective_date_display,
         "finance_effective_date_iso": finance_effective_date_iso,
+        "finance_max_date_iso": finance_max_date_iso,
+        "finance_max_date_display": finance_max_date_display,
         "finance_valo_input": valo_filter.get("raw"),
     }
+    FINANCE_CACHE[cache_key] = {"ts": now_ts, "data": result}
+    return result
 
 
 def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
@@ -2398,7 +2925,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                 FROM KYC_Client_Situation_Matrimoniale m
                 LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
                 WHERE m.client_id = :cid
-                ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+                ORDER BY (m.date_saisie IS NULL), m.date_saisie DESC, m.id DESC
                 """
             ),
             {"cid": client_id},
@@ -2425,7 +2952,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                 SELECT nb_enfants
                 FROM KYC_Client_Situation_Matrimoniale
                 WHERE client_id = :cid
-                ORDER BY date_saisie DESC NULLS LAST, id DESC
+                ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
                 LIMIT 1
                 """
             ),
@@ -3348,7 +3875,17 @@ def dashboard_finance_export(request: Request, db: Session = Depends(get_db)) ->
         finance_rh_id=finance_rh_id,
         finance_date_param=request.query_params.get("finance_date"),
         finance_valo_param=request.query_params.get("finance_valo"),
+        force_refresh=True,
     )
+    # Si aucune donnée remontée (cache potentiellement obsolète), refaire un calcul frais
+    if not finance_ctx.get("finance_supports"):
+        finance_ctx = _build_finance_analysis(
+            db=db,
+            finance_rh_id=finance_rh_id,
+            finance_date_param=request.query_params.get("finance_date"),
+            finance_valo_param=request.query_params.get("finance_valo"),
+            force_refresh=True,
+        )
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     writer.writerow(["Code ISIN", "Support", "Catégorie principale", "Catégorie géo", "SRRI", "Valorisation (€)"])
@@ -3762,7 +4299,7 @@ async def dashboard_client_kyc_report(
         FROM KYC_Client_Adresse a
         LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
         WHERE a.client_id = :cid
-        ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+        ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
 
@@ -3774,7 +4311,7 @@ async def dashboard_client_kyc_report(
         LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
         LEFT JOIN ref_situation_matrimoniale_convention sc ON sc.id = m.convention_id
         WHERE m.client_id = :cid
-        ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+        ORDER BY (m.date_saisie IS NULL), m.date_saisie DESC, m.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
 
@@ -3786,7 +4323,7 @@ async def dashboard_client_kyc_report(
         LEFT JOIN ref_profession_secteur ps ON ps.id = p.secteur_id
         LEFT JOIN ref_statut_professionnel st ON st.id = p.statut_id
         WHERE p.client_id = :cid
-        ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+        ORDER BY (p.date_saisie IS NULL), p.date_saisie DESC, p.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
 
@@ -3795,14 +4332,14 @@ async def dashboard_client_kyc_report(
         """
         SELECT a.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
         FROM KYC_Client_Actif a LEFT JOIN ref_type_actif t ON t.id=a.type_actif_id
-        WHERE a.client_id=:cid ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+        WHERE a.client_id=:cid ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
     passifs = rows_to_dicts(db.execute(text(
         """
         SELECT p.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
         FROM KYC_Client_Passif p LEFT JOIN ref_type_passif t ON t.id=p.type_passif_id
-        WHERE p.client_id=:cid ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+        WHERE p.client_id=:cid ORDER BY (p.date_saisie IS NULL), p.date_saisie DESC, p.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
     # Revenus: joindre ref_type_revenu si la table existe
@@ -3815,7 +4352,7 @@ async def dashboard_client_kyc_report(
             """
             SELECT r.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
             FROM KYC_Client_Revenus r LEFT JOIN ref_type_revenu t ON t.id=r.type_revenu_id
-            WHERE r.client_id=:cid ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+            WHERE r.client_id=:cid ORDER BY (r.date_saisie IS NULL), r.date_saisie DESC, r.id DESC
             """
         ), {"cid": client_id}).fetchall() or [])
     else:
@@ -3823,14 +4360,14 @@ async def dashboard_client_kyc_report(
             """
             SELECT r.*, '' AS type_libelle
             FROM KYC_Client_Revenus r
-            WHERE r.client_id=:cid ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+            WHERE r.client_id=:cid ORDER BY (r.date_saisie IS NULL), r.date_saisie DESC, r.id DESC
             """
         ), {"cid": client_id}).fetchall() or [])
     charges = rows_to_dicts(db.execute(text(
         """
         SELECT c.*, COALESCE(t.libelle,'Non renseigné') AS type_libelle
         FROM KYC_Client_Charges c LEFT JOIN ref_type_charge t ON t.id=c.type_charge_id
-        WHERE c.client_id=:cid ORDER BY c.date_saisie DESC NULLS LAST, c.id DESC
+        WHERE c.client_id=:cid ORDER BY (c.date_saisie IS NULL), c.date_saisie DESC, c.id DESC
         """
     ), {"cid": client_id}).fetchall() or [])
     actif_total = sum([float(x.get("valeur") or 0) for x in actifs])
@@ -3959,7 +4496,7 @@ async def dashboard_client_kyc_report(
             FROM KYC_Client_Objectifs o
             LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
             WHERE o.client_id=:cid
-            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
             """
         ), {"cid": client_id}).fetchall() or [])
     elif has_risque_obj:
@@ -3969,7 +4506,7 @@ async def dashboard_client_kyc_report(
             FROM KYC_Client_Objectifs o
             LEFT JOIN risque_objectif_option r ON r.id = o.objectif_id
             WHERE o.client_id=:cid
-            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
             """
         ), {"cid": client_id}).fetchall() or [])
     else:
@@ -3978,7 +4515,7 @@ async def dashboard_client_kyc_report(
             SELECT o.id, o.objectif_id, NULL AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
             FROM KYC_Client_Objectifs o
             WHERE o.client_id=:cid
-            ORDER BY o.niveau_id ASC NULLS LAST, o.id DESC
+            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
             """
         ), {"cid": client_id}).fetchall() or [])
 
@@ -4916,20 +5453,55 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
     except Exception:
         total_affaires = 0
-    try:
-        finance_global_ctx = _build_finance_analysis(
-            db=db,
-            finance_rh_id=None,
-            finance_date_param=None,
-            finance_valo_param=None,
-        )
-        total_valo = finance_global_ctx.get("finance_total_valo") or 0.0
-    except Exception:
-        total_valo = 0.0
+    # Analyse finance retirée de la page Management pour accélérer le rendu
+    total_valo = 0.0
     try:
         total_valo_str = "{:,.0f}".format(float(total_valo or 0)).replace(",", " ")
     except Exception:
         total_valo_str = "0"
+
+    # Analyse financière (supports) pour Paramètres > Portefeuille
+    finance_rh_options: list[dict[str, str | int]] = []
+    try:
+        for rh in fetch_rh_list(db):
+            try:
+                rid = int(rh.get("id"))
+            except Exception:
+                continue
+            prenom = (rh.get("prenom") or "").strip()
+            nom = (rh.get("nom") or "").strip()
+            mail = (rh.get("mail") or "").strip()
+            label_parts = [p for p in [prenom, nom] if p]
+            if label_parts:
+                label = " ".join(label_parts)
+            elif mail:
+                label = mail
+            else:
+                label = f"RH #{rid}"
+            finance_rh_options.append({"id": rid, "label": label})
+    except Exception:
+        finance_rh_options = []
+    finance_rh_options.sort(key=lambda x: str(x.get("label", "")).lower())
+
+    finance_rh_param = request.query_params.get("finance_rh")
+    finance_rh_id: int | None = None
+    if finance_rh_param not in (None, ""):
+        try:
+            finance_rh_id = int(finance_rh_param)
+        except (TypeError, ValueError):
+            finance_rh_id = None
+
+    # Bloc finance neutralisé pour Management
+    finance_supports = []
+    finance_total_valo = 0.0
+    finance_total_valo_str = "0"
+    finance_date_input = None
+    finance_effective_date_display = None
+    finance_effective_date_iso = None
+    finance_max_date_display = None
+    finance_max_date_iso = None
+    finance_valo_input = None
+    finance_sql_literal = None
 
     def _load_admin_types_list() -> list[dict]:
         try:
@@ -5231,13 +5803,13 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         id_col, fk_ref_col, fk_cour_col, creation_col, modification_col = _courtier_activite_columns(db, act_table)
         try:
             from sqlalchemy import text as _text
-            # filter by current courtier if FK column exists and courtier present
             where_clause = ""
             params = {}
             if fk_cour_col and courtier and courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = courtier.get("id")
-            rows = db.execute(_text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            pk_expr = id_col or "id"
+            rows = db.execute(_text(f"SELECT {pk_expr} AS __pk, * FROM {act_table}{where_clause}"), params).fetchall()
             # detect statut column
             statut_col = None
             cols = _sqlite_table_columns(db, act_table)
@@ -5248,7 +5820,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                     break
             for r in rows:
                 m = r._mapping
-                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                rid = m.get("__pk") if "__pk" in m else (m.get(id_col) if id_col else m.get("id"))
                 ref_id = m.get(fk_ref_col)
                 ref_label = None
                 for ref in activite_refs:
@@ -5274,10 +5846,11 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             if fk_cour_col and courtier and courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = courtier.get("id")
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {rel_table}{where_clause}"), params).fetchall()
+            pk_expr = id_col or "id"
+            rows = db.execute(text(f"SELECT {pk_expr} AS __pk, * FROM {rel_table}{where_clause}"), params).fetchall()
             for r in rows:
                 m = r._mapping
-                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                rid = m.get("__pk") if "__pk" in m else (m.get(id_col) if id_col else m.get("id"))
                 sid = m.get(fk_soc_col)
                 # find label from societes already loaded
                 s_label = None
@@ -5346,10 +5919,11 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             if fk_cour_col and courtier and courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = courtier.get("id")
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {rem_table}{where_clause}"), params).fetchall()
+            pk_expr = id_col or "id"
+            rows = db.execute(text(f"SELECT {pk_expr} AS __pk, * FROM {rem_table}{where_clause}"), params).fetchall()
             for r in rows:
                 m = r._mapping
-                rid = m.get("__rid") if "__rid" in m else (m.get("id") if "id" in m else m.get(id_col))
+                rid = m.get("__pk") if "__pk" in m else (m.get(id_col) if id_col else m.get("id"))
                 # ref id direct si colonne présente
                 ref_id_fk = m.get(fk_ref_col) if fk_ref_col else None
                 # Dérive le domaine depuis 'type' en base
@@ -5421,11 +5995,15 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             c_ias = inv.get('ias') or 'IAS'
             c_iobsp = inv.get('iobsp') or 'IOBSP'
             c_immo = inv.get('immo') or 'IMMO'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            # determine primary key column if any
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             for r in rows:
                 m = r._mapping
                 garanties_normes.append({
-                    'id': m.get('__rid'),
+                    'id': m.get('__pk') if '__pk' in m else (m.get(id_col) if id_col else None),
                     'type_garantie': m.get(c_type),
                     'IAS': m.get(c_ias),
                     'IOBSP': m.get(c_iobsp),
@@ -5475,6 +6053,17 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "portfolio_total_affaires": total_affaires,
             "portfolio_total_valo": total_valo,
             "portfolio_total_valo_str": total_valo_str,
+            "finance_supports": finance_supports,
+            "finance_total_valo": finance_total_valo,
+            "finance_total_valo_str": finance_total_valo_str,
+            "finance_date_input": finance_date_input,
+            "finance_effective_date_display": finance_effective_date_display,
+            "finance_effective_date_iso": finance_effective_date_iso,
+            "finance_max_date_display": finance_max_date_display,
+            "finance_max_date_iso": finance_max_date_iso,
+            "finance_rh_options": finance_rh_options,
+            "finance_rh_selected": finance_rh_id,
+            "finance_valo_input": finance_valo_input,
         },
     )
 
@@ -5753,6 +6342,15 @@ async def update_courtier_garanties(row_id: str, request: Request, db: Session =
     table = _resolve_table_name(db, ["DER_courtier_garanties_normes"]) or "DER_courtier_garanties_normes"
     cols = _sqlite_table_columns(db, table)
     colnames = [c.get("name") for c in cols]
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+    if not id_col:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote('Impossible de déterminer la clé primaire des garanties.')}",
+            status_code=303,
+        )
     import unicodedata
     def _norm(s: str) -> str:
         s2 = unicodedata.normalize('NFKD', s or '')
@@ -5772,7 +6370,7 @@ async def update_courtier_garanties(row_id: str, request: Request, db: Session =
         except Exception:
             return None
     params = {
-        '__id__': row_id,
+        '__pk__': row_id,
         '___ias': _as_int_like(form.get(c_ias)),
         '___iobsp': _as_int_like(form.get(c_iobsp)),
         '___immo': _as_int_like(form.get(c_immo)),
@@ -5780,7 +6378,7 @@ async def update_courtier_garanties(row_id: str, request: Request, db: Session =
     # Build set clause with actual column names
     set_parts = [ f"{c_ias} = :___ias", f"{c_iobsp} = :___iobsp", f"{c_immo} = :___immo" ]
     try:
-        db.execute(text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.execute(text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE {id_col} = :__pk__"), params)
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -5790,13 +6388,94 @@ async def update_courtier_garanties(row_id: str, request: Request, db: Session =
         return RedirectResponse(url=f"/dashboard/parametres?open=courtierDetails&error=1&errmsg={quote(str(e))}", status_code=303)
 
 
+def _get_db_dialect(db: Session) -> str:
+    """Return the lower-cased SQLAlchemy dialect name (mysql, sqlite, etc.)."""
+    bind = None
+    try:
+        bind = db.get_bind()
+    except Exception:
+        bind = getattr(db, "bind", None)
+    if not bind:
+        return ""
+    dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+    return str(dialect).lower()
+
+
 def _sqlite_table_columns(db: Session, table: str) -> list[dict]:
+    """Return PRAGMA-like metadata for the target table on both SQLite and MariaDB/MySQL."""
     from sqlalchemy import text as _text
+
+    dialect = _get_db_dialect(db)
+    if dialect in ("mysql", "mariadb"):
+        sql = _text(
+            """
+            SELECT
+                ordinal_position AS cid,
+                column_name      AS name,
+                column_type      AS type,
+                CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull,
+                column_default   AS dflt_value,
+                CASE WHEN column_key = 'PRI' THEN 1 ELSE 0 END AS pk
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE() AND table_name = :tbl
+            ORDER BY ordinal_position
+            """
+        )
+        try:
+            rows = db.execute(sql, {"tbl": table}).fetchall()
+            return rows_to_dicts(rows)
+        except Exception:
+            return []
+
+    # SQLite (or unknown) fallback via PRAGMA
     try:
         cols = rows_to_dicts(db.execute(_text(f"PRAGMA table_info('{table}')")).fetchall())
         return cols
     except Exception:
         return []
+
+
+def _table_primary_key(db: Session, table: str) -> str | None:
+    """Return the first primary key column name or a sensible fallback (id/first column)."""
+    cols = _sqlite_table_columns(db, table)
+    if not cols:
+        return None
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    if pk_cols:
+        return pk_cols[0]
+    colnames = [c.get("name") for c in cols if c.get("name")]
+    if "id" in colnames:
+        return "id"
+    return colnames[0] if colnames else None
+
+
+def _last_insert_id(db: Session) -> int | None:
+    """Return the last inserted row identifier for the current session/connection."""
+    from sqlalchemy import text as _text
+
+    dialect = _get_db_dialect(db)
+    query = "SELECT LAST_INSERT_ID()" if dialect in ("mysql", "mariadb") else "SELECT last_insert_rowid()"
+    try:
+        row = db.execute(_text(query)).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    value = None
+    try:
+        value = row[0]
+    except Exception:
+        try:
+            mapping = getattr(row, "_mapping", {})
+            value = next(iter(mapping.values())) if mapping else None
+        except Exception:
+            value = None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return value
 
 
 def _coerce_value(raw: str | None, col_type: str) -> object | None:
@@ -5821,22 +6500,27 @@ def _coerce_value(raw: str | None, col_type: str) -> object | None:
 def _allowed_courtier_tables(db: Session) -> set[str]:
     from sqlalchemy import text as _text
     names = set()
+    dialect = _get_db_dialect(db)
+    if dialect in ("mysql", "mariadb"):
+        query = _text(
+            """
+            SELECT table_name AS name
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name LIKE 'DER_courtier%'
+            """
+        )
+    else:
+        query = _text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'DER_courtier%'"
+        )
     try:
-        rows = db.execute(
-            _text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'DER_courtier%'"
-            )
-        ).fetchall()
+        rows = db.execute(query).fetchall()
         for r in rows:
-            # r could be tuple or Row
             name = None
             try:
                 name = r[0]
             except Exception:
-                try:
-                    name = r._mapping.get("name")
-                except Exception:
-                    name = None
+                name = getattr(getattr(r, "_mapping", {}), "get", lambda *_: None)("name")
             if name:
                 names.add(name)
     except Exception:
@@ -5856,34 +6540,14 @@ def _fetch_ref_list(db: Session, candidates: list[str]) -> list[dict]:
         s2 = ''.join(ch for ch in s2 if not unicodedata.combining(ch))
         return s2.lower()
 
-    # Trouver une table (ou vue) existante – recherche insensible à la casse et tolère suffixes
-    table = None
-    for cand in candidates:
-        row = db.execute(
-            _text(
-                """
-                SELECT name
-                FROM sqlite_master
-                WHERE type IN ('table','view')
-                  AND (lower(name) = lower(:n) OR lower(name) LIKE lower(:n_like))
-                ORDER BY CASE WHEN lower(name) = lower(:n) THEN 0 ELSE 1 END, name
-                LIMIT 1
-                """
-            ),
-            {"n": cand, "n_like": f"{cand}%"},
-        ).fetchone()
-        if row:
-            try:
-                table = row[0]
-            except Exception:
-                table = row._mapping.get("name")
-            break
+    table = _resolve_table_name(db, candidates)
     if not table:
         return []
-    # Colonnes
-    cols = rows_to_dicts(db.execute(_text(f"PRAGMA table_info('{table}')")).fetchall())
+
+    cols = _sqlite_table_columns(db, table)
     if not cols:
         return []
+
     # Déterminer colonne id: priorité PK sinon 'id', sinon première
     pk_cols = [c.get("name") for c in cols if c.get("pk")]
     id_col = pk_cols[0] if pk_cols else None
@@ -5903,18 +6567,17 @@ def _fetch_ref_list(db: Session, candidates: list[str]) -> list[dict]:
     else:
         label_col = next((c.get("name") for c in cols if c.get("name") != id_col), id_col)
 
-    # Récupérer lignes; inclure rowid pour secours si pas d'ID exploitable
-    raw_rows = db.execute(_text(f"SELECT rowid AS __rid, * FROM {table}")).fetchall()
+    raw_rows = db.execute(_text(f"SELECT * FROM {table}")).fetchall()
     items = []
     for row in raw_rows:
         m = row._mapping
         try:
-            iid = m.get(id_col) if id_col in m else (m.get("id") if "id" in m else m.get("__rid"))
+            iid = m.get(id_col) if id_col and id_col in m else m.get("id")
             lbl = m.get(label_col)
             if lbl is None:
                 # Dernier secours: première colonne non id
                 for k in m.keys():
-                    if k not in (id_col, "id", "__rid"):
+                    if k not in (id_col, "id"):
                         lbl = m.get(k)
                         if lbl is not None:
                             break
@@ -5932,13 +6595,29 @@ def _fetch_ref_list(db: Session, candidates: list[str]) -> list[dict]:
 def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
     """Return the first existing table/view name matching one of candidates (case-insensitive)."""
     from sqlalchemy import text as _text
+
+    bind = db.get_bind()
+    dialect = (getattr(bind, "dialect", None).name or "").lower() if bind else ""
+    if dialect.startswith("sqlite"):
+        lookup_sql = (
+            "SELECT name FROM sqlite_master WHERE type IN ('table','view') "
+            "AND lower(name) = lower(:n) LIMIT 1"
+        )
+    elif dialect in ("mysql", "mariadb"):
+        lookup_sql = (
+            "SELECT table_name AS name FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND lower(table_name) = lower(:n) "
+            "LIMIT 1"
+        )
+    else:
+        # Fallback: try ANSI INFORMATION_SCHEMA if available
+        lookup_sql = (
+            "SELECT table_name AS name FROM information_schema.tables "
+            "WHERE lower(table_name) = lower(:n) LIMIT 1"
+        )
+
     for cand in candidates:
-        row = db.execute(
-            _text(
-                "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND lower(name) = lower(:n) LIMIT 1"
-            ),
-            {"n": cand},
-        ).fetchone()
+        row = db.execute(_text(lookup_sql), {"n": cand}).fetchone()
         if row:
             try:
                 return row[0]
@@ -6303,7 +6982,10 @@ def _build_der_context(db: Session) -> dict:
             c_type = inv.get("type_garantie") or inv.get("type") or inv.get("garantie") or (colnames[0] if colnames else None)
             c_ias = inv.get("ias") or "IAS"
             c_iobsp = inv.get("iobsp") or "IOBSP"
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             garanties = []
             for r in rows:
                 m = r._mapping
@@ -6679,16 +7361,16 @@ async def update_courtier_relation(row_id: str, request: Request, db: Session = 
         societe_id = None
     table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
     id_col, fk_soc_col, fk_cour_col, creation_col, modification_col = _courtier_relation_columns(db, table)
-    if not fk_soc_col:
+    if not fk_soc_col or not id_col:
         return _redirect_back(request, "courtierDetails")
-    params: dict = {fk_soc_col: societe_id, "__id__": row_id}
+    params: dict = {fk_soc_col: societe_id, "__pk__": row_id}
     set_parts = [f"{fk_soc_col} = :{fk_soc_col}"]
     if modification_col:
         params["__now__"] = datetime.now().isoformat(sep=" ", timespec="seconds")
         set_parts.append(f"{modification_col} = :__now__")
     from sqlalchemy import text as _text
     try:
-        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE {id_col} = :__pk__"), params)
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -6701,9 +7383,12 @@ async def update_courtier_relation(row_id: str, request: Request, db: Session = 
 @router.post("/parametres/courtier/relation/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_relation(row_id: str, request: Request, db: Session = Depends(get_db)):
     table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
+    id_col, *_rest = _courtier_relation_columns(db, table)
+    if not id_col:
+        return _redirect_back(request, "courtierDetails")
     from sqlalchemy import text as _text
     try:
-        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.execute(_text(f"DELETE FROM {table} WHERE {id_col} = :__pk__"), {"__pk__": row_id})
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -6793,7 +7478,7 @@ async def update_courtier_activite(row_id: str, request: Request, db: Session = 
     id_col, fk_ref_col, fk_cour_col, creation_col, modification_col = _courtier_activite_columns(db, table)
     if not fk_ref_col or not id_col:
         return _redirect_back(request, "courtierDetails")
-    params: dict = {fk_ref_col: ref_id, "__id__": row_id}
+    params: dict = {fk_ref_col: ref_id, "__pk__": row_id}
     from sqlalchemy import text as _text
     set_parts = [f"{fk_ref_col} = :{fk_ref_col}"]
     # statut update if column exists
@@ -6814,7 +7499,7 @@ async def update_courtier_activite(row_id: str, request: Request, db: Session = 
         params["__now__"] = datetime.now().isoformat(sep=" ", timespec="seconds")
         set_parts.append(f"{modification_col} = :__now__")
     try:
-        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE rowid = :__id__"), params)
+        db.execute(_text(f"UPDATE {table} SET {', '.join(set_parts)} WHERE {id_col} = :__pk__"), params)
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -6827,12 +7512,12 @@ async def update_courtier_activite(row_id: str, request: Request, db: Session = 
 @router.post("/parametres/courtier/activite/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_activite(row_id: str, request: Request, db: Session = Depends(get_db)):
     table = _resolve_table_name(db, ["DER_courtier_activite"]) or "DER_courtier_activite"
-    id_col, fk_col, creation_col, modification_col = _courtier_activite_columns(db, table)
+    id_col, *_rest = _courtier_activite_columns(db, table)
     if not id_col:
         return _redirect_back(request, "courtierDetails")
     from sqlalchemy import text as _text
     try:
-        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.execute(_text(f"DELETE FROM {table} WHERE {id_col} = :__pk__"), {"__pk__": row_id})
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -7021,6 +7706,10 @@ async def update_courtier_remuneration(row_id: str, request: Request, db: Sessio
     table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
     cols = _sqlite_table_columns(db, table)
     colnames = [c.get("name") for c in cols]
+    pk_cols = [c.get("name") for c in cols if c.get("pk")]
+    id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else (colnames[0] if colnames else None))
+    if not id_col:
+        return _redirect_back(request, "courtierDetails")
     # infer fk ref column name
     import unicodedata, re
     def norm(s: str) -> str:
@@ -7034,7 +7723,7 @@ async def update_courtier_remuneration(row_id: str, request: Request, db: Sessio
             fk_ref_col = inv_map[cand]
             break
     # Build params whitelisting montant/pourcentage only (avoid unexpected fields)
-    params: dict = {"__id__": row_id}
+    params: dict = {"__pk__": row_id}
     set_parts: list[str] = []
     if fk_ref_col is not None:
         params[fk_ref_col] = ref_id
@@ -7100,7 +7789,7 @@ async def update_courtier_remuneration(row_id: str, request: Request, db: Sessio
         clause = ', '.join(set_parts) or ''
         if not clause:
             return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
-        db.execute(_text(f"UPDATE {table} SET {clause} WHERE rowid = :__id__"), params)
+        db.execute(_text(f"UPDATE {table} SET {clause} WHERE {id_col} = :__pk__"), params)
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -7113,9 +7802,12 @@ async def update_courtier_remuneration(row_id: str, request: Request, db: Sessio
 @router.post("/parametres/courtier/remuneration/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_remuneration(row_id: str, request: Request, db: Session = Depends(get_db)):
     table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
+    id_col = _table_primary_key(db, table)
+    if not id_col:
+        return _redirect_back(request, "courtierDetails")
     try:
         from sqlalchemy import text as _text
-        db.execute(_text(f"DELETE FROM {table} WHERE rowid = :__id__"), {"__id__": row_id})
+        db.execute(_text(f"DELETE FROM {table} WHERE {id_col} = :__pk__"), {"__pk__": row_id})
         db.commit()
         return RedirectResponse(url="/dashboard/parametres?open=courtierDetails&saved=1", status_code=303)
     except Exception as e:
@@ -7462,14 +8154,13 @@ async def create_administration_group(request: Request, db: Session = Depends(ge
 @router.post("/parametres/administration/groupes/{group_key}", response_class=HTMLResponse)
 async def update_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    identifier = "rowid" if request.query_params.get("by") == "rowid" else "id"
     try:
         row = db.execute(
             text(
                 f"""
-                SELECT rowid AS __rid, id, type_groupe, nom, responsable_id, actif
+                SELECT id, type_groupe, nom, responsable_id, actif
                 FROM administration_groupe_detail
-                WHERE {identifier} = :gid
+                WHERE id = :gid
                 LIMIT 1
                 """
             ),
@@ -7512,7 +8203,7 @@ async def update_administration_group(group_key: int, request: Request, db: Sess
                     nom = :nom,
                     responsable_id = :responsable_id,
                     actif = :actif
-                WHERE {identifier} = :gid
+                WHERE id = :gid
                 """
             ),
             params,
@@ -7527,14 +8218,13 @@ async def update_administration_group(group_key: int, request: Request, db: Sess
 
 @router.post("/parametres/administration/groupes/{group_key}/delete", response_class=HTMLResponse)
 async def delete_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
-    identifier = "rowid" if request.query_params.get("by") == "rowid" else "id"
     try:
         row = db.execute(
             text(
                 f"""
-                SELECT rowid AS __rid, id
+                SELECT id
                 FROM administration_groupe_detail
-                WHERE {identifier} = :gid
+                WHERE id = :gid
                 LIMIT 1
                 """
             ),
@@ -7551,7 +8241,7 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
         if real_id is not None:
             db.execute(text("DELETE FROM administration_groupe WHERE groupe_id = :gid"), {"gid": real_id})
         db.execute(
-            text(f"DELETE FROM administration_groupe_detail WHERE {identifier} = :gid"),
+            text("DELETE FROM administration_groupe_detail WHERE id = :gid"),
             {"gid": group_key},
         )
         db.commit()
@@ -7910,6 +8600,14 @@ async def delete_contrat_support(row_id: int, request: Request, db: Session = De
 # ---------------- Accueil ----------------
 @router.get("/", response_class=HTMLResponse)
 def dashboard_home(request: Request, db: Session = Depends(get_db)):
+    t0 = perf_counter()
+    if not request.query_params:
+        cached = HOME_CACHE.get("default")
+        if cached and (t0 - cached.get("ts", 0)) < 300:
+            ctx = dict(cached["data"])
+            ctx["request"] = request
+            return templates.TemplateResponse("dashboard.html", ctx)
+
     tb_markers_visible = request.query_params.get("markers") == "1"
     # Totaux simples
     total_clients = db.query(func.count(Client.id)).scalar() or 0
@@ -7932,6 +8630,8 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         finance_valo_param=finance_valo_param,
     )
     total_valo = finance_global_ctx["finance_total_valo"]
+    t_finance = perf_counter()
+    logger.info("dashboard_home: finance_global_ctx computed in %.3fs", t_finance - t0)
 
     # Découpage du nombre de clients par intervalles de détention (basé sur la dernière valo par client)
     last_valos = (
@@ -8753,156 +9453,25 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     cli_under_pct = _format_pct(cli_amounts.get("above", 0.0), total_valo_safe)
     aff_under_pct = _format_pct(compare_amounts.get("above", 0.0), total_valo_safe)
 
-    # ------- Tâches / événements (vue_suivi_evenement) -------
+    # ------- Tâches / événements (lazy, chargées via /dashboard/tasks/summary) -------
     try:
-        from sqlalchemy import text as _text
-        # Période sélectionnée pour la section Tâches
-        try:
-            range_days = int(request.query_params.get("tasks_range", 14))
-            if range_days not in (7, 14, 30):
-                range_days = 14
-        except Exception:
+        range_days = int(request.query_params.get("tasks_range", 14))
+        if range_days not in (7, 14, 30):
             range_days = 14
-        # Compte total et par statut/catégorie
-        tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
-        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM vue_suivi_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall()
-        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(categorie)), '(non défini)') as c, COUNT(1) FROM vue_suivi_evenement GROUP BY c ORDER BY COUNT(1) DESC")).fetchall()
-        # Ouvertes: non terminé / non annulé
-        open_count = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0
-        # N derniers jours: créations par jour
-        rows_days = db.execute(_text(
-            """
-            WITH RECURSIVE seq(x) AS (
-              SELECT 0
-              UNION ALL SELECT x+1 FROM seq WHERE x < :n
-            )
-            SELECT date(julianday('now') - x) AS day,
-                   COALESCE((SELECT COUNT(1) FROM vue_suivi_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
-            FROM seq
-            ORDER BY day ASC
-            """
-        ), {"n": range_days - 1}).fetchall()
-        tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
-        tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
-        tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
-
-        # Durée moyenne passée dans chaque statut (en jours), basée sur historique
-        rows_avg = db.execute(_text(
-            """
-            WITH es AS (
-                SELECT es.evenement_id, es.statut_id, es.date_statut, se.libelle AS statut
-                FROM mariadb_evenement_statut es
-                JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-            ), nxt AS (
-                SELECT e1.evenement_id,
-                       e1.statut,
-                       e1.date_statut AS start_dt,
-                       (
-                         SELECT MIN(e2.date_statut)
-                         FROM es e2
-                         WHERE e2.evenement_id = e1.evenement_id AND e2.date_statut > e1.date_statut
-                       ) AS end_dt
-                FROM es e1
-            )
-            SELECT statut,
-                   AVG((julianday(end_dt) - julianday(start_dt))) AS avg_days
-            FROM nxt
-            WHERE end_dt IS NOT NULL
-            GROUP BY statut
-            ORDER BY avg_days DESC NULLS LAST
-            """
-        )).fetchall()
-        tasks_avg_by_statut = [ {"statut": r[0], "avg_days": float(r[1] or 0)} for r in rows_avg ]
-
-        # Durée moyenne de création -> clôture (terminé/annulé)
-        row_close = db.execute(_text(
-            """
-            WITH close AS (
-              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
-              FROM mariadb_evenement_statut es
-              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
-              GROUP BY es.evenement_id
-            )
-            SELECT AVG(julianday(close.close_dt) - julianday(e.date_evenement))
-            FROM close
-            JOIN mariadb_evenement e ON e.id = close.evenement_id
-            """
-        )).scalar()
-        tasks_avg_close_days = float(row_close or 0)
-
-        # Distribution des durées (création -> clôture) sur la période sélectionnée (par date de clôture)
-        rows_dist = db.execute(_text(
-            """
-            WITH close AS (
-              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
-              FROM mariadb_evenement_statut es
-              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
-              GROUP BY es.evenement_id
-            ), durations AS (
-              SELECT (julianday(c.close_dt) - julianday(e.date_evenement)) AS d, c.close_dt AS cd
-              FROM close c JOIN mariadb_evenement e ON e.id = c.evenement_id
-              WHERE date(c.close_dt) >= date('now', '-' || :rng || ' days')
-            )
-            SELECT bucket, COUNT(1) AS nb FROM (
-              SELECT CASE
-                WHEN d < 1 THEN '<1j'
-                WHEN d < 3 THEN '1–3j'
-                WHEN d < 7 THEN '3–7j'
-                WHEN d < 14 THEN '7–14j'
-                WHEN d < 30 THEN '14–30j'
-                ELSE '>=30j'
-              END AS bucket
-              FROM durations
-            ) x
-            GROUP BY bucket
-            ORDER BY CASE bucket
-              WHEN '<1j' THEN 0
-              WHEN '1–3j' THEN 1
-              WHEN '3–7j' THEN 2
-              WHEN '7–14j' THEN 3
-              WHEN '14–30j' THEN 4
-              ELSE 5 END
-            """
-        ), {"rng": range_days}).fetchall()
-        tasks_close_dist = [ {"bucket": r[0], "nb": int(r[1] or 0)} for r in rows_dist ]
-        rows_type_rh = db.execute(_text(
-            """
-            SELECT
-                v.rh_id AS rh_id,
-                COALESCE(r.prenom || ' ' || r.nom, r.mail, 'Sans responsable') AS rh_nom,
-                v.type_evenement AS type,
-                COUNT(*) AS nb
-            FROM vue_suivi_evenement v
-            LEFT JOIN administration_RH r ON r.id = v.rh_id
-            GROUP BY v.rh_id, rh_nom, v.type_evenement
-            ORDER BY rh_nom, v.type_evenement
-            """
-        )).fetchall()
-        tasks_type_by_rh = rows_to_dicts(rows_type_rh)
-        rows_type_total = db.execute(_text(
-            """
-            SELECT
-                v.type_evenement AS type,
-                COUNT(*) AS nb
-            FROM vue_suivi_evenement v
-            GROUP BY v.type_evenement
-            ORDER BY v.type_evenement
-            """
-        )).fetchall()
-        tasks_type_total = rows_to_dicts(rows_type_total)
     except Exception:
-        tasks_total = 0
-        open_count = 0
-        tasks_statut = []
-        tasks_categorie = []
-        tasks_days = []
-        tasks_avg_by_statut = []
-        tasks_avg_close_days = 0.0
-        tasks_close_dist = []
-        tasks_type_by_rh = []
-        tasks_type_total = []
+        range_days = 14
+    tasks_total = 0
+    open_count = 0
+    tasks_statut: list[dict] = []
+    tasks_categorie: list[dict] = []
+    tasks_days: list[dict] = []
+    tasks_avg_by_statut: list[dict] = []
+    tasks_avg_close_days = 0.0
+    tasks_close_dist: list[dict] = []
+    tasks_type_by_rh: list[dict] = []
+    tasks_type_total: list[dict] = []
+
+    logger.info("dashboard_home: tasks/veille/remu sections computed in %.3fs", perf_counter() - t_finance)
 
     veille_ctx = _get_veille_context()
 
@@ -9294,94 +9863,13 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             retro_error = "Impossible de calculer les rétrocessions pour la période demandée."
             logger.debug("Dashboard rétrocessions: erreur de calcul: %s", exc, exc_info=True)
 
-    # --- ESG (global) UI context: allocation names + ESG field labels ---
+    # --- ESG (global) UI context: allocation names + ESG field labels (cached) ---
     try:
         alloc_names_dash = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
     except Exception:
         alloc_names_dash = []
-    esg_fields_dash: list[dict] = []
-    esg_field_labels_dash: dict[str, str] = {}
-    try:
-        ok = False
-        # 1) MySQL/MariaDB via information_schema (plus fiable)
-        try:
-            rows_cols = db.execute(text("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'esg_fonds' ORDER BY ORDINAL_POSITION")).fetchall()
-            if rows_cols:
-                esg_fields_debug_dash = {"source": "information_schema.COLUMNS", "raw_cols": [str(rc[0]) for rc in rows_cols], "final": []}
-                for rc in rows_cols:
-                    col = rc[0]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
-                ok = True
-        except Exception:
-            ok = False
-        # 2) SHOW COLUMNS (MySQL)
-        if not ok:
-            try:
-                rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
-                if rows_cols:
-                    esg_fields_debug_dash = {"source": "SHOW COLUMNS", "raw_cols": [str(getattr(getattr(rc, '_mapping', {}), 'get', lambda *_: rc[0])('Field')) if hasattr(rc, '_mapping') else str(rc[0]) for rc in rows_cols], "final": []}
-                    for rc in rows_cols:
-                        col = None
-                        if hasattr(rc, '_mapping'):
-                            try:
-                                col = rc._mapping.get('Field')
-                            except Exception:
-                                col = None
-                        if col is None:
-                            col = rc[0]
-                        if str(col).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
-                    ok = True
-            except Exception:
-                ok = False
-        # 3) SQLite PRAGMA (sélection explicite du champ name)
-        if not ok:
-            try:
-                rows_cols = db.execute(text("SELECT name FROM pragma_table_info('esg_fonds')")).fetchall()
-                if rows_cols:
-                    names = [str(rc[0] if not hasattr(rc, '_mapping') else (rc._mapping.get('name') or rc[0])) for rc in rows_cols]
-                    esg_fields_debug_dash = {"source": "PRAGMA table_info (SELECT name)", "raw_cols": names, "final": []}
-                    for col in names:
-                        if not col:
-                            continue
-                        if str(col).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields_dash.append({"col": col, "label": str(col).replace('_',' ').title()})
-                    ok = True
-            except Exception:
-                ok = False
-        # 4) Fallback générique SELECT * LIMIT 1 (peut renvoyer des clés numériques)
-        if not ok:
-            try:
-                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
-                if row1 is not None:
-                    keys = list(getattr(row1, "_mapping", {} ).keys())
-                    esg_fields_debug_dash = {"source": "SELECT * LIMIT 1", "raw_cols": [str(k) for k in keys], "final": []}
-                    for k in keys:
-                        if str(k).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields_dash.append({"col": k, "label": str(k).replace('_',' ').title()})
-            except Exception:
-                pass
-        # Deduplicate and sort
-        seen = set(); uniq = []
-        for it in esg_fields_dash:
-            key = str(it.get('col'))
-            if key in seen: continue
-            seen.add(key); uniq.append(it)
-        esg_fields_dash = sorted(uniq, key=lambda x: str(x.get('label','')).lower())
-        esg_field_labels_dash = { it['col']: it['label'] for it in esg_fields_dash }
-        try:
-            esg_fields_debug_dash["final"] = esg_fields_dash
-        except Exception:
-            pass
-    except Exception:
-        esg_fields_dash = []
-        esg_field_labels_dash = {}
-        esg_fields_debug_dash = {"source": "ERROR", "raw_cols": [], "final": []}
+    esg_fields_dash, esg_fields_debug_dash = _get_esg_fields(db, debug=True)
+    esg_field_labels_dash = {it["col"]: it["label"] for it in esg_fields_dash}
 
     group_rows_dash = _load_groupes_details(db)
 
@@ -9423,172 +9911,174 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             entry["link_label"] = "Voir les affaires"
             dashboard_groups_affaires.append(entry)
 
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "total_valo": total_valo,
-            "total_clients": total_clients,
-            "total_affaires": total_affaires,
-            "clients_buckets": clients_buckets,
-            "srri_clients_count": srri_clients_count,
-            "srri_affaires_count": srri_affaires_count,
-            "srri_clients_amount": srri_clients_amount,
-            "srri_affaires_amount": srri_affaires_amount,
-            # Infos Documents pour la carte Risque Documents
-            "docs_total": total_documents,
-            "docs_der_total": der_total,
-            "docs_der_obsolete": der_obsolete,
-            "docs_der_total_pct": der_total_pct,
-            "docs_der_obsolete_pct": der_obsolete_pct,
-            "docs_cc_total": cc_total,
-            "docs_cc_obsolete": cc_obsolete,
-            "docs_cc_total_pct": cc_total_pct,
-            "docs_cc_obsolete_pct": cc_obsolete_pct,
-            "docs_esg_total": esg_total,
-            "docs_esg_obsolete": esg_obsolete,
-            "docs_esg_total_pct": esg_total_pct,
-            "docs_esg_obsolete_pct": esg_obsolete_pct,
-            "docs_lm_total": lm_total,
-            "docs_lm_obsolete": lm_obsolete,
-            "docs_lm_total_pct": lm_total_pct,
-            "docs_lm_obsolete_pct": lm_obsolete_pct,
-            "docs_la_total": la_total,
-            "docs_la_obsolete": la_obsolete,
-            "docs_la_total_pct": la_total_pct,
-            "docs_la_obsolete_pct": la_obsolete_pct,
-            "orias_doc_found": orias_doc_found,
-            "orias_doc_valid": orias_doc_valid,
-            "orias_doc_expiry_display": orias_doc_expiry_display,
-            "assoc_doc_found": assoc_doc_found,
-            "assoc_doc_valid": assoc_doc_valid,
-            "assoc_doc_expiry_display": assoc_doc_expiry_display,
-            "rcpro_doc_count": rcpro_doc_count,
-            "rcpro_doc_valid": rcpro_doc_valid,
-            "rcpro_doc_expiry_display": rcpro_doc_expiry_display,
-            "rcpro_doc_expired_count": rcpro_doc_expired_count,
-            "rcpro_doc_valid_count": rcpro_doc_valid_count,
-            "conditions_doc_count": conditions_doc_count,
-            "conditions_doc_valid": conditions_doc_valid,
-            "conditions_doc_expiry_display": conditions_doc_expiry_display,
-            "conditions_doc_expired_count": conditions_doc_expired_count,
-            "conditions_doc_valid_count": conditions_doc_valid_count,
-            "role_doc_count": role_doc_count,
-            "role_doc_valid": role_doc_valid,
-            "role_doc_expiry_display": role_doc_expiry_display,
-            "role_doc_expired_count": role_doc_expired_count,
-            "role_doc_valid_count": role_doc_valid_count,
-            "gouvernance_doc_count": gouvernance_doc_count,
-            "gouvernance_doc_valid": gouvernance_doc_valid,
-            "gouvernance_doc_expiry_display": gouvernance_doc_expiry_display,
-            "gouvernance_doc_expired_count": gouvernance_doc_expired_count,
-            "gouvernance_doc_valid_count": gouvernance_doc_valid_count,
-            "conclusion_doc_count": conclusion_doc_count,
-            "conclusion_doc_valid": conclusion_doc_valid,
-            "conclusion_doc_expiry_display": conclusion_doc_expiry_display,
-            "conclusion_doc_expired_count": conclusion_doc_expired_count,
-            "conclusion_doc_valid_count": conclusion_doc_valid_count,
-            "blanchiment_doc_count": blanchiment_doc_count,
-            "blanchiment_doc_valid": blanchiment_doc_valid,
-            "blanchiment_doc_expiry_display": blanchiment_doc_expiry_display,
-            "blanchiment_doc_expired_count": blanchiment_doc_expired_count,
-            "blanchiment_doc_valid_count": blanchiment_doc_valid_count,
-            "distribution_avg_obsolete_pct": distribution_avg_obsolete_pct,
-            "distribution_avg_valid_pct": distribution_avg_valid_pct,
-            "orias_detail": orias_detail,
-            "reclam_stats": reclam_stats,
-            "reclam_pivot": reclam_pivot,
-            "docs_obs_by_niveau": obs_by_niveau,
-            "docs_obs_by_risque": obs_by_risque,
-            # Infos contrats vs risque
-            "aff_risk_counts": compare_counts,
-            "aff_risk_amounts": compare_amounts,
-            "aff_risk_amounts_fmt": compare_amounts_fmt,
-            "aff_risk_under_pct": aff_under_pct,
-            # Infos clients vs risque
-            "cli_risk_counts": cli_counts,
-            "cli_risk_amounts": cli_amounts,
-            "cli_risk_amounts_fmt": cli_amounts_fmt,
-            "cli_risk_under_pct": cli_under_pct,
-            # Analyse financière (supports)
-            "finance_supports": finance_supports,
-            "finance_total_valo": finance_total_valo,
-            "finance_total_valo_str": finance_total_valo_str,
-            "finance_date_input": finance_date_input,
-            "finance_effective_date_display": finance_effective_date_display,
-            "finance_effective_date_iso": finance_effective_date_iso,
-            "finance_rh_options": finance_rh_options,
-            "finance_rh_selected": finance_rh_id,
-            "finance_valo_input": finance_ctx.get("finance_valo_input"),
-            # Tâches / événements
-            "tasks_total": tasks_total,
-            "tasks_open": open_count,
-            "tasks_statut": tasks_statut,
-            "tasks_categorie": tasks_categorie,
-            "tasks_days": tasks_days,
-            "tasks_avg_by_statut": tasks_avg_by_statut,
-            "tasks_avg_close_days": tasks_avg_close_days,
-            "tasks_close_dist": tasks_close_dist,
-            "tasks_range": range_days,
-            "tasks_type_by_rh": tasks_type_by_rh,
-            "tasks_type_total": tasks_type_total,
-            # Veille
-            "veille_items": veille_ctx.get("items"),
-            "veille_recent": veille_ctx.get("recent"),
-            "veille_grouped": veille_ctx.get("grouped"),
-            "veille_markets": veille_ctx.get("markets"),
-            "veille_markets_meta": veille_ctx.get("markets_meta"),
-            "rem_contracts": rem_contracts,
-            "rem_selected_contract": rem_selected_contract,
-            "rem_limit": rem_limit,
-            "rem_limit_options": rem_limit_options,
-            "rem_start_input": rem_start_input,
-            "rem_end_input": rem_end_input,
-            "rem_start_effective": rem_start_effective,
-            "rem_end_effective": rem_end_effective,
-            "rem_rows": rem_rows,
-            "rem_total_commission": rem_total_commission,
-            "rem_total_valorisation": rem_total_valorisation,
-            "rem_rows_count": rem_rows_count_total,
-            "rem_total_contracts": rem_total_contracts,
-            "rem_error": rem_error,
-            "rem_page": rem_page,
-            "rem_total_pages": rem_total_pages,
-            "rem_has_prev": rem_has_prev,
-            "rem_has_next": rem_has_next,
-            "rem_prev_url": rem_prev_url,
-            "rem_next_url": rem_next_url,
-            "rem_page_start": rem_page_start,
-            "rem_page_end": rem_page_end,
-            "retro_contracts": retro_contracts,
-            "retro_selected_contract": retro_selected_contract,
-            "retro_sort": retro_sort,
-            "retro_week_limit": retro_week_limit,
-            "retro_week_limit_options": retro_week_limit_options,
-            "retro_support_limit": retro_support_limit,
-            "retro_support_limit_options": retro_support_limit_options,
-            "retro_start_input": parsed_retro_start.isoformat(),
-            "retro_end_input": parsed_retro_end.isoformat(),
-            "retro_start_effective": retro_start_effective,
-            "retro_end_effective": retro_end_effective,
-            "retro_promoteur": retro_promoteur,
-            "retro_weeks": retro_weeks,
-            "retro_supports": retro_supports,
-            "retro_total_week": retro_total_week,
-            "retro_total_support": retro_total_support,
-            "retro_error": retro_error,
-            # ESG (global) UI context
-            "alloc_names": alloc_names_dash,
-            "esg_fields": esg_fields_dash,            # backwards compatibility
-            "esg_field_labels": esg_field_labels_dash, # backwards compatibility
-            "esg_fields_list": esg_fields_dash,        # explicit list of {col,label}
-            "esg_fields_debug": esg_fields_debug_dash,
-            "tb_markers_visible": tb_markers_visible,
-            "tb_markers_param": "markers=1" if tb_markers_visible else "",
-            "dashboard_groups_personnes": dashboard_groups_personnes,
-            "dashboard_groups_affaires": dashboard_groups_affaires,
-        }
-    )
+    ctx = {
+        "total_valo": total_valo,
+        "total_clients": total_clients,
+        "total_affaires": total_affaires,
+        "clients_buckets": clients_buckets,
+        "srri_clients_count": srri_clients_count,
+        "srri_affaires_count": srri_affaires_count,
+        "srri_clients_amount": srri_clients_amount,
+        "srri_affaires_amount": srri_affaires_amount,
+        # Infos Documents pour la carte Risque Documents
+        "docs_total": total_documents,
+        "docs_der_total": der_total,
+        "docs_der_obsolete": der_obsolete,
+        "docs_der_total_pct": der_total_pct,
+        "docs_der_obsolete_pct": der_obsolete_pct,
+        "docs_cc_total": cc_total,
+        "docs_cc_obsolete": cc_obsolete,
+        "docs_cc_total_pct": cc_total_pct,
+        "docs_cc_obsolete_pct": cc_obsolete_pct,
+        "docs_esg_total": esg_total,
+        "docs_esg_obsolete": esg_obsolete,
+        "docs_esg_total_pct": esg_total_pct,
+        "docs_esg_obsolete_pct": esg_obsolete_pct,
+        "docs_lm_total": lm_total,
+        "docs_lm_obsolete": lm_obsolete,
+        "docs_lm_total_pct": lm_total_pct,
+        "docs_lm_obsolete_pct": lm_obsolete_pct,
+        "docs_la_total": la_total,
+        "docs_la_obsolete": la_obsolete,
+        "docs_la_total_pct": la_total_pct,
+        "docs_la_obsolete_pct": la_obsolete_pct,
+        "orias_doc_found": orias_doc_found,
+        "orias_doc_valid": orias_doc_valid,
+        "orias_doc_expiry_display": orias_doc_expiry_display,
+        "assoc_doc_found": assoc_doc_found,
+        "assoc_doc_valid": assoc_doc_valid,
+        "assoc_doc_expiry_display": assoc_doc_expiry_display,
+        "rcpro_doc_count": rcpro_doc_count,
+        "rcpro_doc_valid": rcpro_doc_valid,
+        "rcpro_doc_expiry_display": rcpro_doc_expiry_display,
+        "rcpro_doc_expired_count": rcpro_doc_expired_count,
+        "rcpro_doc_valid_count": rcpro_doc_valid_count,
+        "conditions_doc_count": conditions_doc_count,
+        "conditions_doc_valid": conditions_doc_valid,
+        "conditions_doc_expiry_display": conditions_doc_expiry_display,
+        "conditions_doc_expired_count": conditions_doc_expired_count,
+        "conditions_doc_valid_count": conditions_doc_valid_count,
+        "role_doc_count": role_doc_count,
+        "role_doc_valid": role_doc_valid,
+        "role_doc_expiry_display": role_doc_expiry_display,
+        "role_doc_expired_count": role_doc_expired_count,
+        "role_doc_valid_count": role_doc_valid_count,
+        "gouvernance_doc_count": gouvernance_doc_count,
+        "gouvernance_doc_valid": gouvernance_doc_valid,
+        "gouvernance_doc_expiry_display": gouvernance_doc_expiry_display,
+        "gouvernance_doc_expired_count": gouvernance_doc_expired_count,
+        "gouvernance_doc_valid_count": gouvernance_doc_valid_count,
+        "conclusion_doc_count": conclusion_doc_count,
+        "conclusion_doc_valid": conclusion_doc_valid,
+        "conclusion_doc_expiry_display": conclusion_doc_expiry_display,
+        "conclusion_doc_expired_count": conclusion_doc_expired_count,
+        "conclusion_doc_valid_count": conclusion_doc_valid_count,
+        "blanchiment_doc_count": blanchiment_doc_count,
+        "blanchiment_doc_valid": blanchiment_doc_valid,
+        "blanchiment_doc_expiry_display": blanchiment_doc_expiry_display,
+        "blanchiment_doc_expired_count": blanchiment_doc_expired_count,
+        "blanchiment_doc_valid_count": blanchiment_doc_valid_count,
+        "distribution_avg_obsolete_pct": distribution_avg_obsolete_pct,
+        "distribution_avg_valid_pct": distribution_avg_valid_pct,
+        "orias_detail": orias_detail,
+        "reclam_stats": reclam_stats,
+        "reclam_pivot": reclam_pivot,
+        "docs_obs_by_niveau": obs_by_niveau,
+        "docs_obs_by_risque": obs_by_risque,
+        # Infos contrats vs risque
+        "aff_risk_counts": compare_counts,
+        "aff_risk_amounts": compare_amounts,
+        "aff_risk_amounts_fmt": compare_amounts_fmt,
+        "aff_risk_under_pct": aff_under_pct,
+        # Infos clients vs risque
+        "cli_risk_counts": cli_counts,
+        "cli_risk_amounts": cli_amounts,
+        "cli_risk_amounts_fmt": cli_amounts_fmt,
+        "cli_risk_under_pct": cli_under_pct,
+        # Analyse financière (supports)
+        "finance_supports": finance_supports,
+        "finance_total_valo": finance_total_valo,
+        "finance_total_valo_str": finance_total_valo_str,
+        "finance_date_input": finance_date_input,
+        "finance_effective_date_display": finance_effective_date_display,
+        "finance_effective_date_iso": finance_effective_date_iso,
+        "finance_rh_options": finance_rh_options,
+        "finance_rh_selected": finance_rh_id,
+        "finance_valo_input": finance_ctx.get("finance_valo_input"),
+        # Tâches / événements
+        "tasks_total": tasks_total,
+        "tasks_open": open_count,
+        "tasks_statut": tasks_statut,
+        "tasks_categorie": tasks_categorie,
+        "tasks_days": tasks_days,
+        "tasks_avg_by_statut": tasks_avg_by_statut,
+        "tasks_avg_close_days": tasks_avg_close_days,
+        "tasks_close_dist": tasks_close_dist,
+        "tasks_range": range_days,
+        "tasks_type_by_rh": tasks_type_by_rh,
+        "tasks_type_total": tasks_type_total,
+        # Veille
+        "veille_items": veille_ctx.get("items"),
+        "veille_recent": veille_ctx.get("recent"),
+        "veille_grouped": veille_ctx.get("grouped"),
+        "veille_markets": veille_ctx.get("markets"),
+        "veille_markets_meta": veille_ctx.get("markets_meta"),
+        "rem_contracts": rem_contracts,
+        "rem_selected_contract": rem_selected_contract,
+        "rem_limit": rem_limit,
+        "rem_limit_options": rem_limit_options,
+        "rem_start_input": rem_start_input,
+        "rem_end_input": rem_end_input,
+        "rem_start_effective": rem_start_effective,
+        "rem_end_effective": rem_end_effective,
+        "rem_rows": rem_rows,
+        "rem_total_commission": rem_total_commission,
+        "rem_total_valorisation": rem_total_valorisation,
+        "rem_rows_count": rem_rows_count_total,
+        "rem_total_contracts": rem_total_contracts,
+        "rem_error": rem_error,
+        "rem_page": rem_page,
+        "rem_total_pages": rem_total_pages,
+        "rem_has_prev": rem_has_prev,
+        "rem_has_next": rem_has_next,
+        "rem_prev_url": rem_prev_url,
+        "rem_next_url": rem_next_url,
+        "rem_page_start": rem_page_start,
+        "rem_page_end": rem_page_end,
+        "retro_contracts": retro_contracts,
+        "retro_selected_contract": retro_selected_contract,
+        "retro_sort": retro_sort,
+        "retro_week_limit": retro_week_limit,
+        "retro_week_limit_options": retro_week_limit_options,
+        "retro_support_limit": retro_support_limit,
+        "retro_support_limit_options": retro_support_limit_options,
+        "retro_start_input": parsed_retro_start.isoformat(),
+        "retro_end_input": parsed_retro_end.isoformat(),
+        "retro_start_effective": retro_start_effective,
+        "retro_end_effective": retro_end_effective,
+        "retro_promoteur": retro_promoteur,
+        "retro_weeks": retro_weeks,
+        "retro_supports": retro_supports,
+        "retro_total_week": retro_total_week,
+        "retro_total_support": retro_total_support,
+        "retro_error": retro_error,
+        # ESG (global) UI context
+        "alloc_names": alloc_names_dash,
+        "esg_fields": esg_fields_dash,            # backwards compatibility
+        "esg_field_labels": esg_field_labels_dash, # backwards compatibility
+        "esg_fields_list": esg_fields_dash,        # explicit list of {col,label}
+        "esg_fields_debug": esg_fields_debug_dash,
+        "tb_markers_visible": tb_markers_visible,
+        "tb_markers_param": "markers=1" if tb_markers_visible else "",
+        "dashboard_groups_personnes": dashboard_groups_personnes,
+        "dashboard_groups_affaires": dashboard_groups_affaires,
+    }
+    total_time = perf_counter() - t0
+    logger.info("dashboard_home: total context built in %.3fs", total_time)
+    if not request.query_params:
+        HOME_CACHE["default"] = {"ts": perf_counter(), "data": ctx}
+    ctx["request"] = request
+    return templates.TemplateResponse("dashboard.html", ctx)
 
 
 @router.get("/clients/kyc/{client_id}", response_class=HTMLResponse)
@@ -10997,7 +11487,7 @@ async def dashboard_client_kyc(
                             ),
                             base_params,
                         )
-                        qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                        qid = _last_insert_id(db)
                     # (ré)insérer les associations
                     for oid in excl_ids:
                         db.execute(
@@ -11218,7 +11708,7 @@ async def dashboard_client_kyc(
                     ),
                     params_main,
                 )
-                rqid = db.execute(_text("SELECT last_insert_rowid()" )).fetchone()[0]
+                rqid = _last_insert_id(db)
                 # insert children
                 for pid, nid in prod_levels.items():
                     db.execute(
@@ -11388,7 +11878,8 @@ async def dashboard_client_kyc(
                             payload,
                         )
                         try:
-                            risque_id = int(db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0])
+                            last_id = _last_insert_id(db)
+                            risque_id = int(last_id) if last_id is not None else None
                         except Exception:
                             risque_id = None
                     # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
@@ -11798,11 +12289,11 @@ async def dashboard_client_kyc(
                         ),
                         params,
                     )
-                    qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                    qid = _last_insert_id(db)
                 # Vigilance options
                 try:
-                    if not existing_q:
-                        qid = db.execute(_text("SELECT last_insert_rowid()")).fetchone()[0]
+                    if not existing_q and qid is None:
+                        qid = _last_insert_id(db)
                 except Exception:
                     pass
                 try:
@@ -11918,7 +12409,7 @@ async def dashboard_client_kyc(
                                             """
                                             SELECT id FROM KYC_Client_Adresse
                                             WHERE client_id = :cid
-                                            ORDER BY date_saisie DESC NULLS LAST, id DESC
+                                            ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
                                             LIMIT 1
                                             """
                                         ),
@@ -12023,7 +12514,7 @@ async def dashboard_client_kyc(
                 FROM KYC_Client_Actif a
                 LEFT JOIN ref_type_actif t ON t.id = a.type_actif_id
                 WHERE a.client_id = :cid
-                ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+                ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12070,7 +12561,7 @@ async def dashboard_client_kyc(
                 FROM KYC_Client_Passif p
                 LEFT JOIN ref_type_passif t ON t.id = p.type_passif_id
                 WHERE p.client_id = :cid
-                ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+                ORDER BY (p.date_saisie IS NULL), p.date_saisie DESC, p.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12116,7 +12607,7 @@ async def dashboard_client_kyc(
                 FROM KYC_Client_Revenus r
                 LEFT JOIN ref_type_revenu t ON t.id = r.type_revenu_id
                 WHERE r.client_id = :cid
-                ORDER BY r.date_saisie DESC NULLS LAST, r.id DESC
+                ORDER BY (r.date_saisie IS NULL), r.date_saisie DESC, r.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12161,7 +12652,7 @@ async def dashboard_client_kyc(
                 FROM KYC_Client_Charges c
                 LEFT JOIN ref_type_charge t ON t.id = c.type_charge_id
                 WHERE c.client_id = :cid
-                ORDER BY c.date_saisie DESC NULLS LAST, c.id DESC
+                ORDER BY (c.date_saisie IS NULL), c.date_saisie DESC, c.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12290,7 +12781,7 @@ async def dashboard_client_kyc(
                 FROM KYC_Client_Adresse a
                 LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
                 WHERE a.client_id = :cid
-                ORDER BY a.date_saisie DESC NULLS LAST, a.id DESC
+                ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12339,7 +12830,7 @@ async def dashboard_client_kyc(
                 LEFT JOIN ref_situation_matrimoniale sm ON sm.id = m.situation_id
                 LEFT JOIN ref_situation_matrimoniale_convention sc ON sc.id = m.convention_id
                 WHERE m.client_id = :cid
-                ORDER BY m.date_saisie DESC NULLS LAST, m.id DESC
+                ORDER BY (m.date_saisie IS NULL), m.date_saisie DESC, m.id DESC
                 """
             ),
             {"cid": client_id},
@@ -12380,7 +12871,7 @@ async def dashboard_client_kyc(
                 LEFT JOIN ref_profession_secteur ps ON ps.id = p.secteur_id
                 LEFT JOIN ref_statut_professionnel st ON st.id = p.statut_id
                 WHERE p.client_id = :cid
-                ORDER BY p.date_saisie DESC NULLS LAST, p.id DESC
+                ORDER BY (p.date_saisie IS NULL), p.date_saisie DESC, p.id DESC
                 """
             ),
             {"cid": client_id},
@@ -13210,7 +13701,10 @@ async def dashboard_client_kyc(
             c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
             c_ias = inv.get('ias') or 'IAS'
             c_iobsp = inv.get('iobsp') or 'IOBSP'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             for r in rows:
                 m = r._mapping
                 DER_courtier_garanties_normes.append({
@@ -13292,7 +13786,8 @@ async def dashboard_client_kyc(
             if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = DER_courtier.get("id")
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {act_table}{where_clause}"), params).fetchall()
             # Map ref id -> libellé
             ref_map: dict[str, str] = {}
             if ref_table:
@@ -13331,9 +13826,9 @@ async def dashboard_client_kyc(
                     where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
                     DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
                 else:
-                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                    DER_sql_activite = f"SELECT * FROM {act_table}"
             except Exception:
-                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                DER_sql_activite = f"SELECT * FROM {act_table}"
     except Exception:
         DER_courtier_activite = []
         DER_sql_activite = None
@@ -13356,7 +13851,8 @@ async def dashboard_client_kyc(
             if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = DER_courtier.get("id")
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {act_table}{where_clause}"), params).fetchall()
             # Map ref id -> libellé
             ref_map: dict[str, str] = {}
             if ref_table:
@@ -13395,9 +13891,9 @@ async def dashboard_client_kyc(
                     where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
                     DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
                 else:
-                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                    DER_sql_activite = f"SELECT * FROM {act_table}"
             except Exception:
-                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                DER_sql_activite = f"SELECT * FROM {act_table}"
     except Exception:
         DER_courtier_activite = []
         DER_sql_activite = None
@@ -13414,7 +13910,8 @@ async def dashboard_client_kyc(
             if fk_cour_col and DER_courtier and DER_courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = DER_courtier.get("id")
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {act_table}{where_clause}"), params).fetchall()
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {act_table}{where_clause}"), params).fetchall()
             # Map ref id -> libellé
             ref_map: dict[str, str] = {}
             if ref_table:
@@ -13456,9 +13953,9 @@ async def dashboard_client_kyc(
                     where_sql = f" WHERE a.{fk_cour_col} = :cid" if (fk_cour_col and where_clause) else ""
                     DER_sql_activite = f"SELECT a.*, r.{ref_label_col} AS ref_label FROM {act_table} a LEFT JOIN {ref_table} r ON r.{ref_pk} = a.{fk_ref_col}{where_sql} ORDER BY r.{ref_label_col}"
                 else:
-                    DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                    DER_sql_activite = f"SELECT * FROM {act_table}"
             except Exception:
-                DER_sql_activite = f"SELECT rowid AS __rid, * FROM {act_table}"
+                DER_sql_activite = f"SELECT * FROM {act_table}"
     except Exception:
         DER_courtier_activite = []
         DER_sql_activite = None
@@ -13496,7 +13993,10 @@ async def dashboard_client_kyc(
             c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
             c_ias = inv.get('ias') or 'IAS'
             c_iobsp = inv.get('iobsp') or 'IOBSP'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             for r in rows:
                 m = r._mapping
                 DER_courtier_garanties_normes.append({
@@ -13540,7 +14040,10 @@ async def dashboard_client_kyc(
             c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
             c_ias = inv.get('ias') or 'IAS'
             c_iobsp = inv.get('iobsp') or 'IOBSP'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             for r in rows:
                 m = r._mapping
                 DER_courtier_garanties_normes.append({
@@ -13585,7 +14088,10 @@ async def dashboard_client_kyc(
             c_type = inv.get('type_garantie') or inv.get('type') or inv.get('garantie') or (colnames[0] if colnames else None)
             c_ias = inv.get('ias') or 'IAS'
             c_iobsp = inv.get('iobsp') or 'IOBSP'
-            rows = db.execute(text(f"SELECT rowid AS __rid, * FROM {gar_table}")).fetchall()
+            pk_cols = [c.get("name") for c in cols if c.get("pk")]
+            id_col = pk_cols[0] if pk_cols else ("id" if "id" in colnames else None)
+            select_pk = f"{id_col} AS __pk, " if id_col else ""
+            rows = db.execute(text(f"SELECT {select_pk}* FROM {gar_table}")).fetchall()
             for r in rows:
                 m = r._mapping
                 DER_courtier_garanties_normes.append({
@@ -13670,7 +14176,7 @@ async def dashboard_client_kyc(
                        date_saisie, date_expiration, montant
                 FROM KYC_Client_Objectifs
                 WHERE client_id = :cid
-                ORDER BY date_saisie DESC NULLS LAST, id DESC
+                ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
                 """
             ),
             {"cid": client_id},
@@ -13958,90 +14464,42 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 
     func_re_num = re.compile(r"^([-+]?\d*\.?\d+)([km])?$")
 
-    def build_val_pred(expr: str | None):
+    def build_sql_range(expr: str | None, column):
+        """Parse a simple numeric expression into SQLAlchemy filters."""
         if not expr:
-            return lambda _x: True
-        expr = expr.strip()
+            return []
+        expr = expr.replace("%", "").strip()
+        # Range a-b
         range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
         if range_match:
             a = _num_token(range_match.group(1))
             b = _num_token(range_match.group(2))
             if a is not None and b is not None:
                 lo, hi = (a, b) if a <= b else (b, a)
-                return lambda x: x is not None and lo <= x <= hi
-        tokens = []
-        for op, num, suf in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*\.?\d+)\s*([km]?)", expr, flags=re.I):
+                return [column >= lo, column <= hi]
+        filters = []
+        for op, num, suf in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)", expr, flags=re.I):
             n = _num_token(num + suf)
-            if n is not None:
-                tokens.append((op, n))
-        if tokens:
-            def _pred(x):
-                if x is None:
-                    return False
-                for op, n in tokens:
-                    if op == ">" and not (x > n):
-                        return False
-                    if op == ">=" and not (x >= n):
-                        return False
-                    if op == "<" and not (x < n):
-                        return False
-                    if op == "<=" and not (x <= n):
-                        return False
-                    if op in ("=", "==") and not (x == n):
-                        return False
-                    if op == "!=" and not (x != n):
-                        return False
-                return True
-            return _pred
+            if n is None:
+                continue
+            if op == ">":
+                filters.append(column > n)
+            elif op == ">=":
+                filters.append(column >= n)
+            elif op == "<":
+                filters.append(column < n)
+            elif op == "<=":
+                filters.append(column <= n)
+            elif op in ("=", "=="):
+                filters.append(column == n)
+            elif op == "!=":
+                filters.append(column != n)
+        if filters:
+            return filters
         single = _num_token(expr)
         if single is not None:
-            return lambda x: x is not None and str(single) in str(x)
-        return lambda _x: True
-
-    def build_pct_pred(expr: str | None):
-        if not expr:
-            return lambda _x: True
-        expr = expr.replace("%", "").strip()
-        range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
-        if range_match:
-            try:
-                a = float(str(range_match.group(1)).replace(",", "."))
-                b = float(str(range_match.group(2)).replace(",", "."))
-                lo, hi = (a, b) if a <= b else (b, a)
-                return lambda x: x is not None and lo <= x <= hi
-            except Exception:
-                pass
-        tokens = []
-        for op, num in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)", expr):
-            try:
-                n = float(num.replace(",", "."))
-                tokens.append((op, n))
-            except Exception:
-                continue
-        if tokens:
-            def _pred(x):
-                if x is None:
-                    return False
-                for op, n in tokens:
-                    if op == ">" and not (x > n):
-                        return False
-                    if op == ">=" and not (x >= n):
-                        return False
-                    if op == "<" and not (x < n):
-                        return False
-                    if op == "<=" and not (x <= n):
-                        return False
-                    if op in ("=", "==") and not (x == n):
-                        return False
-                    if op == "!=" and not (x != n):
-                        return False
-                return True
-            return _pred
-        try:
-            single = float(expr.replace(",", "."))
-            return lambda x: x is not None and str(single) in str(x)
-        except Exception:
-            return lambda _x: True
+            return [column == single]
+        return []
 
     # Params filtres
     params = request.query_params
@@ -14052,13 +14510,14 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     q_valo = params.get("valo", "").strip()
     q_perf = params.get("perf", "").strip()
     q_vol = params.get("vol", "").strip()
-    # Ancien pagination côté serveur retirée : on renvoie la liste complète pour filtrage DataTables côté client
-    page = 1
-    page_size = None
-
-    pred_valo = build_val_pred(q_valo)
-    pred_perf = build_pct_pred(q_perf)
-    pred_vol = build_pct_pred(q_vol)
+    # Pagination côté serveur
+    page_size = 50
+    try:
+        page = int(params.get("page") or 1)
+    except Exception:
+        page = 1
+    if page < 1:
+        page = 1
 
     def fmt_money(val):
         try:
@@ -14074,7 +14533,71 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             return ""
         return f"{n*100:.2f} %"
 
-    clients_all = []
+    # Requête clients avec filtres SQL (limite/pagination)
+    subquery = (
+        db.query(
+            HistoriquePersonne.id.label("client_id"),
+            func.max(HistoriquePersonne.date).label("last_date"),
+        )
+        .group_by(HistoriquePersonne.id)
+        .subquery()
+    )
+    base_query = (
+        db.query(
+            Client.id.label("id"),
+            Client.nom,
+            Client.prenom,
+            Client.commercial_id,
+            Client.SRRI,
+            HistoriquePersonne.SRRI.label("srri_hist"),
+            HistoriquePersonne.valo.label("total_valo"),
+            HistoriquePersonne.perf_sicav_52.label("perf_52_sem"),
+            HistoriquePersonne.volat.label("volatilite"),
+        )
+        .join(subquery, subquery.c.client_id == Client.id)
+        .join(
+            HistoriquePersonne,
+            (HistoriquePersonne.id == subquery.c.client_id)
+            & (HistoriquePersonne.date == subquery.c.last_date),
+        )
+    )
+
+    # Filtres SQL
+    if group_filter_ids is not None:
+        if group_filter_ids:
+            base_query = base_query.filter(Client.id.in_(group_filter_ids))
+        else:
+            base_query = base_query.filter(text("0=1"))
+    if q_nom:
+        base_query = base_query.filter(Client.nom.ilike(f"%{q_nom}%"))
+    if q_prenom:
+        base_query = base_query.filter(Client.prenom.ilike(f"%{q_prenom}%"))
+    if q_resp:
+        try:
+            resp_id = int(q_resp)
+            base_query = base_query.filter(Client.commercial_id == resp_id)
+        except Exception:
+            pass
+    if q_srri_calc:
+        try:
+            srri_val = int(q_srri_calc)
+            base_query = base_query.filter(HistoriquePersonne.SRRI == srri_val)
+        except Exception:
+            pass
+    for cond in build_sql_range(q_valo, HistoriquePersonne.valo):
+        base_query = base_query.filter(cond)
+    for cond in build_sql_range(q_perf, HistoriquePersonne.perf_sicav_52):
+        base_query = base_query.filter(cond)
+    for cond in build_sql_range(q_vol, HistoriquePersonne.volat):
+        base_query = base_query.filter(cond)
+
+    total_filtered = base_query.count()
+    base_query = base_query.order_by(HistoriquePersonne.valo.desc(), Client.nom.asc())
+    offset = (page - 1) * page_size
+    rows = base_query.offset(offset).limit(page_size).all()
+    total_pages = max(1, (total_filtered + page_size - 1) // page_size)
+
+    clients = []
     for r in rows:
         comm_id = getattr(r, "commercial_id", None)
         responsable_label = None
@@ -14086,7 +14609,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         total_valo_num = _as_float(getattr(r, "total_valo", None))
         perf_num = _as_float(getattr(r, "perf_52_sem", None))
         vol_num = _as_float(getattr(r, "volatilite", None))
-        clients_all.append({
+        clients.append({
             "id": getattr(r, "id", None),
             "nom": getattr(r, "nom", None) or "",
             "prenom": getattr(r, "prenom", None) or "",
@@ -14103,39 +14626,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "responsable": responsable_label,
         })
 
-    # Options de filtrage SRRI calculé (srri_hist) et responsables
-    srri_options = sorted({c["srri_hist"] for c in clients_all if c["srri_hist"] is not None})
-
-    filtered = []
-    for c in clients_all:
-        if q_nom and q_nom.lower() not in c["nom"].lower():
-            continue
-        if q_prenom and q_prenom.lower() not in c["prenom"].lower():
-            continue
-        if q_resp:
-            try:
-                if int(q_resp) != (c["commercial_id"] or 0):
-                    continue
-            except Exception:
-                pass
-        if q_srri_calc:
-            try:
-                if int(q_srri_calc) != int(c["srri_hist"] or -1):
-                    continue
-            except Exception:
-                continue
-        # riskParam not re-applied (optionnel)
-        if q_valo and not pred_valo(c["total_valo"]):
-            continue
-        if q_perf and not pred_perf(c["perf_52_sem"]):
-            continue
-        if q_vol and not pred_vol(c["volatilite"]):
-            continue
-        filtered.append(c)
-
-    total_filtered = len(filtered)
-    total_pages = 1
-    clients = filtered
+    # Options de filtrage SRRI calculé (srri_hist) à partir du jeu paginé
+    srri_options = sorted({c["srri_hist"] for c in clients if c["srri_hist"] is not None})
 
     # ---------------- Analyse financière (supports) ----------------
     finance_rh_param = request.query_params.get("finance_rh")
@@ -14146,28 +14638,12 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         except (TypeError, ValueError):
             finance_rh_id = None
 
-    finance_date_param = request.query_params.get("finance_date")
-    finance_ctx = _build_finance_analysis(
-        db,
-        finance_rh_id,
-        finance_date_param,
-        request.query_params.get("finance_valo"),
-    )
-    finance_supports = finance_ctx["finance_supports"]
-    finance_total_valo = finance_ctx["finance_total_valo"]
-    finance_total_valo_str = finance_ctx["finance_total_valo_str"]
-    finance_effective_date_display = finance_ctx["finance_effective_date_display"]
-    finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
-    finance_date_input = finance_ctx["finance_date_input"]
-
-    # (Graphiques SRRI supprimés sur la page Clients — calcul montants par SRRI non nécessaire ici)
-
-
     return templates.TemplateResponse(
         "dashboard_clients.html",
         {
             "request": request,
             "total_clients": total_clients,
+            "total_clients_filtered": total_filtered,
             "srri_chart": srri_chart,
             "clients": clients,
             "page": page,
@@ -14182,16 +14658,16 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
                 "vol": q_vol,
             },
             "srri_options": srri_options,
-            # Analyse financière
-            "finance_supports": finance_supports,
-            "finance_total_valo": finance_total_valo,
-            "finance_total_valo_str": finance_total_valo_str,
-            "finance_date_input": finance_date_input,
-            "finance_effective_date_display": finance_effective_date_display,
-            "finance_rh_options": rh_options,
-            "finance_rh_selected": finance_rh_id,
-            "finance_effective_date_iso": finance_effective_date_iso,
-            "finance_valo_input": finance_ctx.get("finance_valo_input"),
+            # Analyse financière supprimée pour accélérer le chargement
+            "finance_supports": [],
+            "finance_total_valo": 0,
+            "finance_total_valo_str": "0",
+            "finance_date_input": None,
+            "finance_effective_date_display": None,
+            "finance_rh_options": [],
+            "finance_rh_selected": None,
+            "finance_effective_date_iso": None,
+            "finance_valo_input": None,
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "group_filter_label": group_filter_label if group_filter_ids is not None else None,
@@ -14206,6 +14682,13 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
     group_filter_param = request.query_params.get("group_id")
     group_filter_label: str | None = None
+    page_size = 50
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except Exception:
+        page = 1
+    if page < 1:
+        page = 1
 
     srri_data = (
         db.query(Affaire.SRRI, func.count(Affaire.id).label("nb"))
@@ -14223,29 +14706,25 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .group_by(HistoriqueAffaire.id)
         .subquery()
     )
-    affaires_rows = (
-        db.query(
-            Affaire.id.label("id"),
-            Affaire.ref,
-            Affaire.SRRI,
-            Affaire.date_debut,
-            Affaire.date_cle,
-            Affaire.frais_negocies,
-            Client.nom.label("client_nom"),
-            Client.prenom.label("client_prenom"),
-            HistoriqueAffaire.valo.label("last_valo"),
-            HistoriqueAffaire.perf_sicav_52.label("last_perf"),
-            HistoriqueAffaire.volat.label("last_volat"),
-        )
-        .join(subq, subq.c.affaire_id == Affaire.id)
-        .join(
-            HistoriqueAffaire,
-            (HistoriqueAffaire.id == subq.c.affaire_id) &
-            (HistoriqueAffaire.date == subq.c.last_date)
-        )
-        .outerjoin(Client, Client.id == Affaire.id_personne)
-        .all()
-    )
+    affaires_query = db.query(
+        Affaire.id.label("id"),
+        Affaire.ref,
+        Affaire.SRRI,
+        Affaire.date_debut,
+        Affaire.date_cle,
+        Affaire.frais_negocies,
+        Client.nom.label("client_nom"),
+        Client.prenom.label("client_prenom"),
+        HistoriqueAffaire.valo.label("last_valo"),
+        HistoriqueAffaire.perf_sicav_52.label("last_perf"),
+        HistoriqueAffaire.volat.label("last_volat"),
+    ).join(subq, subq.c.affaire_id == Affaire.id)
+    affaires_query = affaires_query.join(
+        HistoriqueAffaire,
+        (HistoriqueAffaire.id == subq.c.affaire_id) &
+        (HistoriqueAffaire.date == subq.c.last_date)
+    ).outerjoin(Client, Client.id == Affaire.id_personne)
+    filter_ids: set[int] | None = None
     if group_filter_param:
         try:
             gid = int(group_filter_param)
@@ -14269,10 +14748,22 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
                         {"gid": gid},
                     ).fetchall()
                     ids = {int(r[0]) for r in member_rows if r[0] is not None}
-                    affaires_rows = [r for r in affaires_rows if r.id in ids]
+                    filter_ids = ids
                     group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
         except Exception:
-            affaires_rows = []
+            filter_ids = set()
+
+    if filter_ids is not None:
+        if filter_ids:
+            affaires_query = affaires_query.filter(Affaire.id.in_(filter_ids))
+        else:
+            affaires_query = affaires_query.filter(text("0=1"))
+
+    total_filtered = affaires_query.count()
+    affaires_query = affaires_query.order_by(desc(HistoriqueAffaire.valo), Affaire.id)
+    offset = (page - 1) * page_size
+    affaires_rows = affaires_query.offset(offset).limit(page_size).all()
+    total_pages = max(1, (total_filtered + page_size - 1) // page_size)
 
     # SRRI calculé selon bandes standard à partir de la volat (valeurs <=1 interprétées comme fraction → %)
     def srri_from_vol(v: float | None) -> int | None:
@@ -14348,6 +14839,10 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "total_affaires": total_affaires,
+            "total_affaires_filtered": total_filtered,
+            "page": page,
+            "total_pages": total_pages,
+            "page_size": page_size,
             "srri_chart": srri_chart,
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
@@ -14596,6 +15091,31 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         except Exception:
             dd = str(d)[:10] if d else None
         arr.append({"date": dd, "sicav": float(s or 0)})
+    # Allocation par défaut suggérée via SRRI -> niveau risque -> allocation_risque
+    default_alloc_name = None
+    try:
+        srri_to_level = {2: 1, 3: 2, 4: 3, 5: 4, 6: 5}
+        srri_aff = getattr(affaire, "SRRI", None)
+        if srri_aff is not None:
+            level = srri_to_level.get(int(srri_aff))
+            if level:
+                row_alloc = db.execute(
+                    text(
+                        """
+                        SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+                        FROM allocation_risque ar
+                        LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                        WHERE ar.risque_id = :rid
+                        ORDER BY ar.date_attribution DESC, ar.id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"rid": int(level)},
+                ).fetchone()
+                if row_alloc:
+                    default_alloc_name = row_alloc[0]
+    except Exception:
+        default_alloc_name = None
 
     # Série SICAV affaire
     affaire_sicav = [ {"date": labels[i], "sicav": float(hist[i].sicav or 0)} for i in range(len(hist)) ]
@@ -15030,6 +15550,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         uniq.append(it)
     esg_fields = sorted(uniq, key=lambda x: str(x.get("label","" )).lower())
     esg_field_labels = { it["col"]: it["label"] for it in esg_fields }
+    # RH list pour affectation des tâches
+    rh_list = fetch_rh_list(db)
 
     return templates.TemplateResponse(
         "dashboard_affaire_detail.html",
@@ -15050,6 +15572,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "client_fullname_default": client_fullname_default,
             "affaire_ref_default": affaire_ref_default,
             "reclam_statuses": reclam_statuses,
+            "rh_list": rh_list,
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "avis_affaire": avis_affaire,
@@ -15071,6 +15594,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "ann_perf": ann_perf,
             "ann_vol": ann_vol,
             "alloc_series": alloc_series,
+            "default_alloc_name": default_alloc_name,
             "affaire_sicav": affaire_sicav,
             "supports": supports,
             "available_dates": avail,
@@ -16318,8 +16842,25 @@ def dashboard_taches(
         conds.append("(statut IS NULL OR lower(statut) != lower(:exclude_statut))")
         params["exclude_statut"] = exclude_statut
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
-    sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
-    items = db.execute(text(sql), params).fetchall()
+    sql_exists = text(
+        """
+        SELECT COUNT(*) AS nb
+        FROM information_schema.tables
+        WHERE table_schema = database() AND table_name = 'vue_suivi_evenement'
+        """
+    )
+    try:
+        exists = db.execute(sql_exists).scalar() or 0
+    except Exception:
+        exists = 0
+    items = []
+    if exists:
+        try:
+            sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
+            items = db.execute(text(sql), params).fetchall()
+        except Exception as exc:
+            logger.exception("vue_suivi_evenement indisponible", exc_info=exc)
+            items = []
 
     # Enrichir avec noms client, affaire et RH pour l'affichage
     rh_list = fetch_rh_list(db)
@@ -16918,6 +17459,8 @@ async def dashboard_taches_create(request: Request, db: Session = Depends(get_db
             statut_reclamation_id=statut_reclam_id,
         )
         ev = create_tache(db, payload)
+        if not ev:
+            continue
 
         # Statut initial si fourni
         try:
@@ -17109,6 +17652,11 @@ async def dashboard_taches_update(
 # ---------------- Création Tâche depuis Détail Client ----------------
 @router.post("/clients/{client_id}/taches", response_class=HTMLResponse)
 async def dashboard_client_create_tache(client_id: int, request: Request, db: Session = Depends(get_db)):
+    # Maintenance temporaire : création de tâche désactivée sur la fiche client
+    return HTMLResponse(
+        "<h3>Création de tâche indisponible (maintenance)</h3><p>Merci de réessayer plus tard.</p>",
+        status_code=200,
+    )
     form = await request.form()
 
     from sqlalchemy import func as _func
@@ -17183,7 +17731,14 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
             pass
     if not payload.type_libelle:
         payload.type_libelle = "tâche"
-    ev = create_tache(db, payload)
+    try:
+        ev = create_tache(db, payload)
+    except Exception as exc:
+        logger.exception("Création tâche (client) échouée", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur création tâche: {exc}")
+    if not ev:
+        logger.error("Création de tâche impossible (client) payload=%s", payload.dict() if hasattr(payload, "dict") else payload)
+        raise HTTPException(status_code=500, detail="Création de tâche impossible")
 
     # Statut initial
     sid = None
@@ -17192,7 +17747,12 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
     except Exception:
         sid = None
     if sid:
-        add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire="Création via client", utilisateur_responsable=payload.utilisateur_responsable))
+        try:
+            add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire="Création via client", utilisateur_responsable=payload.utilisateur_responsable))
+            logger.info("Statut initial appliqué (client) ev_id=%s sid=%s", getattr(ev, "id", None), sid)
+        except Exception as exc:
+            logger.exception("Ajout statut tâche (client) échoué ev_id=%s", getattr(ev, "id", None), exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Erreur statut tâche: {exc}")
 
     # Communication éventuelle
     if form.get("comm_toggle") == "1":
@@ -17209,6 +17769,11 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
 # ---------------- Création Tâche depuis Détail Affaire ----------------
 @router.post("/affaires/{affaire_id}/taches", response_class=HTMLResponse)
 async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    # Maintenance temporaire : création de tâche désactivée sur la fiche affaire
+    return HTMLResponse(
+        "<h3>Création de tâche indisponible (maintenance)</h3><p>Merci de réessayer plus tard.</p>",
+        status_code=200,
+    )
     form = await request.form()
 
     from sqlalchemy import func as _func
@@ -17278,7 +17843,14 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
             pass
     if not payload.type_libelle:
         payload.type_libelle = "tâche"
-    ev = create_tache(db, payload)
+    try:
+        ev = create_tache(db, payload)
+    except Exception as exc:
+        logger.exception("Création tâche (affaire) échouée", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur création tâche: {exc}")
+    if not ev:
+        logger.error("Création de tâche impossible (affaire) payload=%s", payload.dict() if hasattr(payload, "dict") else payload)
+        raise HTTPException(status_code=500, detail="Création de tâche impossible")
 
     # Statut initial
     sid = None
@@ -17287,7 +17859,12 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
     except Exception:
         sid = None
     if sid:
-        add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire="Création via affaire", utilisateur_responsable=payload.utilisateur_responsable))
+        try:
+            add_statut_to_evenement(db, ev.id, EvenementStatutCreateSchema(statut_id=sid, commentaire="Création via affaire", utilisateur_responsable=payload.utilisateur_responsable))
+            logger.info("Statut initial appliqué (affaire) ev_id=%s sid=%s", getattr(ev, "id", None), sid)
+        except Exception as exc:
+            logger.exception("Ajout statut tâche (affaire) échoué ev_id=%s", getattr(ev, "id", None), exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Erreur statut tâche: {exc}")
 
     # Communication éventuelle
     if form.get("comm_toggle") == "1":
@@ -17458,7 +18035,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                            date_saisie, date_expiration, montant
                     FROM KYC_Client_Objectifs
                     WHERE client_id = :cid
-                    ORDER BY date_saisie DESC NULLS LAST, id DESC
+                    ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
                     """
                 ),
                 {"cid": client_id},
@@ -18191,7 +18768,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         )
         .outerjoin(Document, Document.id_document_base == DocumentClient.id_document_base)
         .filter(DocumentClient.id_client == client_id)
-        .order_by(DocumentClient.date_creation.desc().nullslast())
+        .order_by(DocumentClient.date_creation.desc())
         .all()
     )
 
@@ -18634,64 +19211,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     esg_unmatched_fields: list[str] = []
     esg_default_fields: list[str] = []
     try:
-        ok = False
-        # MariaDB/MySQL
-        try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
-            if rows_cols:
-                for rc in rows_cols:
-                    col = rc[0]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    esg_fields_client.append({"col": col, "label": col})
-                ok = True
-        except Exception:
-            ok = False
-        # SQLite fallback
-        if not ok:
-            try:
-                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
-                def _labelize(name: str) -> str:
-                    if not name:
-                        return name
-                    s = str(name).replace('_', ' ')
-                    import re as _re
-                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
-                    return s.strip().capitalize()
-                for rc in rows_cols or []:
-                    # PRAGMA columns: (cid, name, type, notnull, dflt_value, pk)
-                    col = rc[1]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    label = _labelize(col)
-                    esg_fields_client.append({"col": col, "label": label})
-                ok = True
-            except Exception:
-                ok = False
-        # Generic fallback
-        if not ok:
-            try:
-                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
-                if row1 is not None:
-                    for k in row1._mapping.keys():
-                        if str(k).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields_client.append({"col": k, "label": k})
-                ok = True
-            except Exception:
-                ok = False
+        esg_fields_client, esg_fields_debug_tmp = _get_esg_fields(db, debug=False)
     except Exception:
-        pass
-    # Déduplique et trie par libellé
-    seen_cli = set()
-    uniq_cli = []
-    for it in esg_fields_client:
-        key = str(it.get("col"))
-        if key in seen_cli:
-            continue
-        seen_cli.add(key)
-        uniq_cli.append(it)
-    esg_fields_client = sorted(uniq_cli, key=lambda x: str(x.get("label", "")).lower())
+        esg_fields_client = []
     # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
     allocation_reference_name: str | None = None
     adequation_allocation_html = None
@@ -18894,7 +19416,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     nb_enfants_latest = None
     try:
-        row = db.execute(text("SELECT nb_enfants FROM KYC_Client_Situation_Matrimoniale WHERE client_id = :cid ORDER BY date_saisie DESC NULLS LAST, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+        row = db.execute(text("SELECT nb_enfants FROM KYC_Client_Situation_Matrimoniale WHERE client_id = :cid ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
         if row is not None:
             nb_enfants_latest = row[0]
     except Exception:
@@ -19468,6 +19990,16 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
                 return str(val)[:10]
             except Exception:
                 return None
+    def _col(row_obj, name: str):
+        try:
+            if hasattr(row_obj, "_mapping") and name in row_obj._mapping:
+                return row_obj._mapping.get(name)
+        except Exception:
+            pass
+        try:
+            return getattr(row_obj, name)
+        except Exception:
+            return None
     items: list[dict] = []
     for row in rows:
         rh_raw = getattr(row, "rh_id", None)
@@ -19481,20 +20013,20 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
         affaire_ref = affaires_map_ref.get(affaire_id_val) or getattr(row, "ref_affaire", None)
         items.append({
             "id": row.evenement_id if hasattr(row, "evenement_id") else row.id,
-            "title": row.type_evenement or row.commentaire or "Tâche",
+            "title": (_col(row, "type_evenement") or _col(row, "commentaire") or "Tâche"),
             "start": _to_iso_date(getattr(row, "date_evenement", None)),
             "end": _to_iso_date(getattr(row, "date_evenement", None)),
-            "statut": getattr(row, "statut", None),
-            "categorie": getattr(row, "categorie", None),
-            "type_evenement": getattr(row, "type_evenement", None),
-            "responsable": getattr(row, "utilisateur_responsable", None),
+            "statut": _col(row, "statut"),
+            "categorie": _col(row, "categorie"),
+            "type_evenement": _col(row, "type_evenement"),
+            "responsable": _col(row, "utilisateur_responsable"),
             "rh_id": rh_int,
             "rh_label": rh_lookup.get(rh_int),
             "client_id": client_id_val,
             "client_nom": client_nom,
             "affaire_id": affaire_id_val,
             "affaire_ref": affaire_ref,
-            "commentaire": getattr(row, "commentaire", None),
+            "commentaire": _col(row, "commentaire"),
         })
     return items
 

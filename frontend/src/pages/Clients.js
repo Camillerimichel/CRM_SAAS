@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { API_BASE_URL } from "../config";
 
 function Clients() {
   const [clients, setClients] = useState([]);
   const [srriData, setSrriData] = useState([]);
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/reporting/clients")
+    fetch(`${API_BASE_URL}/reporting/clients/`)
       .then((res) => res.json())
       .then((data) => {
         setClients(data);

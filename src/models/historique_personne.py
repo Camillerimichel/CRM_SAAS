@@ -12,5 +12,5 @@ class HistoriquePersonne(Base):
     perf_sicav_hebdo = Column(Float, nullable=True)
     perf_sicav_52 = Column(Float, nullable=True)
     volat = Column(Float, nullable=True)
-    SRRI = Column(Integer, nullable=True)
-    annee = Column("Année", Integer, nullable=True)
+    SRRI = Column("srri", Integer, nullable=True)
+    annee = Column("anne", Integer, nullable=True)

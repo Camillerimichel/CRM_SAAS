@@ -12,4 +12,4 @@ class HistoriqueAffaire(Base):
     perf_sicav_hebdo = Column(Float, nullable=True)
     perf_sicav_52 = Column(Float, nullable=True)
     volat = Column(Float, nullable=True)
-    annee = Column("Année", Integer, nullable=True)
+    annee = Column("anne", Integer, nullable=True)

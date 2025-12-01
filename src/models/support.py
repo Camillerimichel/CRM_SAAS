@@ -12,5 +12,5 @@ class Support(Base):
     cat_det = Column(String, nullable=True)
     cat_geo = Column(String, nullable=True)
     promoteur = Column(String, nullable=True)
-    taux_retro = Column("Taux rétro", Float, nullable=True)
-    SRRI = Column(Integer, nullable=True)
+    taux_retro = Column("taux_rtro", Float, nullable=True)
+    SRRI = Column("srri", Integer, nullable=True)

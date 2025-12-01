@@ -1762,11 +1762,15 @@
             {% if tg in ['client','clients','personne','personnes'] %}{% set typedisp = 'Personnes' %}
             {% elif tg in ['affaire','affaires','contrat','contrats'] %}{% set typedisp = 'Affaires' %}
             {% else %}{% set typedisp = g.type_groupe or '' %}{% endif %}
-            {% set rowkey = g.id if g.id is not none else g.__rid %}
-            {% set byrowid = 'rowid' if g.id is none else '' %}
+            {% set rowkey = g.id %}
+            {% if rowkey is none %}
+            <tr>
+              <td colspan="6" style="color:#b30000; font-weight:bold;">Groupe sans identifiant : mettre à jour la colonne id de administration_groupe_detail.</td>
+            </tr>
+            {% else %}
             <tr>
               <td>
-                <form id="grp-{{ rowkey }}" method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;"></form>
+                <form id="grp-{{ rowkey }}" method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}?open=administration_groupes" style="display:inline;"></form>
                 <span class="badge">{{ typedisp }}</span>
                 <input form="grp-{{ rowkey }}" type="hidden" name="type_groupe" value="{{ g.type_groupe or '' }}" />
               </td>
@@ -1787,13 +1791,14 @@
                 </select>
               </td>
               <td class="center actions-cell">
-                <button class="btn btn-list btn-list-primary" type="button" title="Voir" onclick="openGroupView({{ rowkey }}, '{{ byrowid }}')"><i class="fa-solid fa-eye"></i></button>
+                <button class="btn btn-list btn-list-primary" type="button" title="Voir" onclick="openGroupView({{ rowkey }})"><i class="fa-solid fa-eye"></i></button>
                 <button class="btn btn-list btn-list-primary" type="submit" form="grp-{{ rowkey }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
-                <form method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}/delete?open=administration_groupes{% if byrowid %}&by={{ byrowid }}{% endif %}" style="display:inline;" onsubmit="return confirm('Supprimer ce groupe ?\nLes liens d’adhésion seront aussi supprimés.');">
+                <form method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}/delete?open=administration_groupes" style="display:inline;" onsubmit="return confirm('Supprimer ce groupe ?\nLes liens d’adhésion seront aussi supprimés.');">
                   <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
                 </form>
               </td>
             </tr>
+            {% endif %}
             {% else %}
             <tr><td colspan="8" class="muted center">Aucun groupe défini.</td></tr>
             {% endfor %}
@@ -1893,6 +1898,150 @@
         <span class="chevron">▾</span>
       </div>
       <div class="accordion-panel" id="administrationPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" data-target="adminPortfolioPanel" data-group="adminSub">
+          <span><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i> Portefeuille</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel" id="adminPortfolioPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
+          <div class="card" style="margin:0; text-align:left;">
+            <h3 style="margin:0;">Portefeuille -13</h3>
+            <div class="muted" style="margin:6px 0 10px 0; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); font-size:0.9rem; white-space:pre; overflow:auto;">
+SELECT MAX(date(h.date)) AS max_date
+FROM mariadb_historique_support_w h;
+-- max_date = {{ finance_max_date_iso or '—' }}
+            </div>
+            <form id="financeForm" method="get" action="/dashboard/parametres#adminPortfolioPanel" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
+              <input type="hidden" name="open" value="administration_portefeuille" />
+              <div>
+                <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
+                <input type="date" name="finance_date" value="{{ finance_effective_date_iso or finance_date_input or 'YYYY-MM-DD' }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
+              </div>
+              <div>
+                <label class="muted" style="font-size:0.85rem;">Responsable commercial</label><br>
+                <select name="finance_rh" style="min-width:220px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;">
+                  <option value="">Tous</option>
+                  {% for rh in finance_rh_options %}
+                    <option value="{{ rh.id }}" {% if finance_rh_selected is not none and rh.id == finance_rh_selected %}selected{% endif %}>{{ rh.label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="muted" style="font-size:0.85rem;">Valorisation</label><br>
+                <input type="text" name="finance_valo" value="{{ finance_valo_input or '' }}" placeholder=">100k, 100k-500k" style="min-width:200px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
+              </div>
+              <div>
+                <button type="submit" class="btn-primary" style="height:36px;">Filtrer</button>
+              </div>
+              <div>
+                <button type="button" class="btn" id="finance_export_btn" style="height:36px;">Exporter CSV</button>
+              </div>
+            </form>
+            <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue (vendredi max mariadb_historique_support_w) : {{ finance_effective_date_display or finance_effective_date_iso or finance_max_date_display or finance_max_date_iso or 'YYYY-MM-DD' }}</div>
+            <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
+            <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); font-size:0.9rem; white-space:pre; overflow:auto;">
+SELECT
+    s.code_isin AS code_isin,
+    s.nom AS nom,
+    s.cat_principale AS cat_principale,
+    s.cat_geo AS cat_geo,
+    s.SRRI AS srri,
+    SUM(h.valo) AS total_valo
+FROM mariadb_historique_support_w h
+JOIN mariadb_support s ON s.id = h.id_support
+JOIN mariadb_affaires a ON a.id = h.id_source
+LEFT JOIN mariadb_clients c ON c.id = a.id_personne
+WHERE h.date = '{{ finance_effective_date_iso or finance_max_date_iso or 'YYYY-MM-DD' }}'
+GROUP BY s.code_isin, s.nom, s.cat_principale, s.cat_geo, s.SRRI
+HAVING SUM(h.valo) > 0
+ORDER BY total_valo DESC;
+            </div>
+            {% if finance_supports %}
+            <div style="margin-top:12px; overflow-x:auto;">
+          <table id="financeSupportsTable" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead>
+              <tr style="background:#f1f5f9; text-align:left; font-size:0.85rem;">
+                <th style="padding:4px 8px;">Code ISIN</th>
+                <th style="padding:4px 8px;">Support</th>
+                <th style="padding:4px 8px;">Catégorie principale</th>
+                <th style="padding:4px 8px;">Catégorie géo</th>
+                <th style="padding:4px 8px;">SRRI</th>
+                <th style="padding:4px 8px; text-align:right;">Valorisation</th>
+              </tr>
+            </thead>
+                <tbody>
+                  {% for sup in finance_supports %}
+                  <tr data-row-index="{{ loop.index0 }}"{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
+                    <td style="padding:6px 10px;">
+                      {% if sup.code_isin %}
+                        <a href="/dashboard/supports/details?code_isin={{ sup.code_isin }}" target="_blank" rel="noopener" class="finance-support-link" data-support-code="{{ sup.code_isin }}" data-support-name="{{ sup.nom or '' }}" data-clients='{{ sup.clients | tojson | safe }}'>{{ sup.code_isin }}</a>
+                      {% else %}
+                        {{ sup.code_isin or '—' }}
+                      {% endif %}
+                    </td>
+                    <td style="padding:6px 10px;">
+                      {% if sup.code_isin %}
+                        <a href="/dashboard/supports/details?code_isin={{ sup.code_isin }}" target="_blank" rel="noopener">{{ sup.nom or '—' }}</a>
+                      {% else %}
+                        {{ sup.nom or '—' }}
+                      {% endif %}
+                    </td>
+                    <td style="padding:6px 10px;">{{ sup.cat_principale or '—' }}</td>
+                    <td style="padding:6px 10px;">{{ sup.cat_geo or '—' }}</td>
+                    <td style="padding:6px 10px;">{{ sup.srri if sup.srri is not none else '—' }}</td>
+                    <td style="padding:6px 10px; text-align:right;">{{ sup.total_valo_str }} €</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap;">
+              <div style="font-weight:600;">Page <span id="financePageLabel">1</span></div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <button type="button" class="btn" id="financePrevBtn" onclick="financeGoPage(-1)">Précédent</button>
+                <button type="button" class="btn" id="financeNextBtn" onclick="financeGoPage(1)">Suivant</button>
+              </div>
+            </div>
+
+    <div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
+              <div class="modal-card">
+                <div class="modal-header">
+                  <h3><i class="fa-solid fa-users-line" style="margin-right:8px;"></i><span id="financeSupportModalLabel">Clients par support</span></h3>
+                  <button class="modal-close" onclick="closeFinanceSupportModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                  <div id="financeSupportGroupActions" style="display:none; margin-bottom:12px;">
+                    <div style="font-weight:600; margin-bottom:6px;">Ajouter ces clients à un groupe</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+                      <div>
+                        <label class="muted" style="font-size:0.85rem; display:block; margin-bottom:4px;">Groupe existant</label>
+                        <select id="financeSupportGroupSelect" style="min-width:240px; height:34px;"></select>
+                      </div>
+                      <div>
+                        <button type="button" class="btn btn-primary" id="financeSupportGroupAddBtn" style="height:34px;">
+                          <i class="fa-solid fa-user-group" style="margin-right:6px; color:#fff;"></i>Ajouter la liste
+                        </button>
+                      </div>
+                    </div>
+                    <div id="financeSupportGroupStatus" class="muted" style="margin-top:4px;"></div>
+                  </div>
+                  <table id="financeSupportModalTable">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th>Contrat</th>
+                        <th style="text-align:right;">Valorisation</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <div class="muted" style="margin-top:12px;">Aucune donnée pour les critères sélectionnés.</div>
+            {% endif %}
+          </div>
+        </div>
         <div class="accordion-toggle accordion-subtoggle" data-target="adminRelationsIntro" data-group="adminSub">
           <span><i class="fa-solid fa-circle-nodes" style="margin-right:6px;"></i> Gestion des relations</span>
           <span class="chevron">▾</span>
@@ -2243,6 +2392,264 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function(){
+  // Portefeuille: pagination simple
+  function financeGoPage(delta){
+    var rows = Array.from(document.querySelectorAll('#financeSupportsTable tbody tr'));
+    if (!rows.length) return;
+    var pageSize = 20;
+    var total = Math.ceil(rows.length / pageSize);
+    var label = document.getElementById('financePageLabel');
+    var prev = document.getElementById('financePrevBtn');
+    var next = document.getElementById('financeNextBtn');
+    var current = parseInt(label ? label.textContent : '1', 10);
+    if (!isFinite(current) || current < 1) current = 1;
+    var target = Math.min(Math.max(current + delta, 1), total);
+    rows.forEach(function(r){ r.style.display = 'none'; });
+    var start = (target - 1) * pageSize;
+    var end = start + pageSize;
+    rows.slice(start, end).forEach(function(r){ r.style.display = ''; });
+    if (label) label.textContent = String(target);
+    if (prev) prev.disabled = target <= 1;
+    if (next) next.disabled = target >= total;
+  }
+  window.financeGoPage = financeGoPage;
+  document.addEventListener('DOMContentLoaded', function(){ financeGoPage(0); });
+
+  // Portefeuille: export CSV
+  (function(){
+    var exportBtn = document.getElementById('finance_export_btn');
+    if (!exportBtn) return;
+    exportBtn.addEventListener('click', function(){
+      var params = new URLSearchParams();
+      var dateInput = document.querySelector('input[name="finance_date"]');
+      if (dateInput && dateInput.value) params.set('finance_date', dateInput.value);
+      var rhSelect = document.querySelector('select[name="finance_rh"]');
+      if (rhSelect && rhSelect.value) params.set('finance_rh', rhSelect.value);
+      var valoInput = document.querySelector('input[name="finance_valo"]');
+      if (valoInput && valoInput.value) params.set('finance_valo', valoInput.value);
+      params.set('open', 'administration_portefeuille');
+      var url = '/dashboard/finance/export';
+      var qs = params.toString();
+      if (qs) url += '?' + qs;
+      window.location.href = url;
+    });
+  })();
+
+  // Portefeuille: modal clients par support
+  function closeFinanceSupportModal(){
+    const modal = document.getElementById('financeSupportModal');
+    if (modal) modal.style.display = 'none';
+  }
+  let financeSupportCurrentClients = [];
+  let financeSupportGroupDetails = [];
+  let financeSupportGroupsLoaded = false;
+  let financeSupportGroupLoading = false;
+  function setFinanceSupportGroupStatus(message, isError){
+    const el = document.getElementById('financeSupportGroupStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.color = isError ? '#b91c1c' : '#475569';
+  }
+  function renderFinanceSupportGroupSelect(){
+    const sel = document.getElementById('financeSupportGroupSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (!financeSupportGroupsLoaded){
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Chargement des groupes…';
+      sel.appendChild(opt);
+      return;
+    }
+    if (!Array.isArray(financeSupportGroupDetails) || financeSupportGroupDetails.length === 0){
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Aucun groupe Personnes';
+      sel.appendChild(opt);
+      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
+      return;
+    }
+    financeSupportGroupDetails.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.nom + (g.actif === 0 ? ' (inactif)' : '');
+      sel.appendChild(opt);
+    });
+    setFinanceSupportGroupStatus('', false);
+  }
+  async function loadFinanceSupportGroups(){
+    if (financeSupportGroupLoading) return;
+    financeSupportGroupLoading = true;
+    setFinanceSupportGroupStatus('Chargement des groupes…', false);
+    try{
+      let details = [];
+      const res = await fetch('/api/groupes/details?type=client&actifs_only=true');
+      if (res.ok){
+        details = await res.json();
+      }
+      if (!Array.isArray(details) || details.length === 0){
+        const res2 = await fetch('/api/groupes/details?type=client&actifs_only=false');
+        if (res2.ok){
+          details = await res2.json();
+        }
+      }
+      financeSupportGroupDetails = Array.isArray(details) ? details : [];
+      financeSupportGroupsLoaded = true;
+      renderFinanceSupportGroupSelect();
+      if (financeSupportGroupDetails.length === 0){
+        setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
+      } else {
+        setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
+      }
+    } catch(err){
+      console.warn('finance support group load error', err);
+      setFinanceSupportGroupStatus('Erreur de chargement des groupes.', true);
+    } finally {
+      financeSupportGroupLoading = false;
+    }
+  }
+  function toggleFinanceSupportGroupActions(shouldShow){
+    const container = document.getElementById('financeSupportGroupActions');
+    if (!container) return;
+    if (!shouldShow){
+      container.style.display = 'none';
+      setFinanceSupportGroupStatus('', false);
+      return;
+    }
+    container.style.display = '';
+    renderFinanceSupportGroupSelect();
+    if (!financeSupportGroupsLoaded && !financeSupportGroupLoading){
+      loadFinanceSupportGroups();
+    } else if (financeSupportGroupDetails.length){
+      setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
+    }
+  }
+  async function addFinanceSupportClientsToGroup(){
+    const btn = document.getElementById('financeSupportGroupAddBtn');
+    const sel = document.getElementById('financeSupportGroupSelect');
+    if (!btn || !sel) return;
+    const gid = parseInt(sel.value, 10);
+    if (!gid){
+      setFinanceSupportGroupStatus('Sélectionnez un groupe valide.', true);
+      return;
+    }
+    const clients = Array.isArray(financeSupportCurrentClients) ? financeSupportCurrentClients.filter(c => c && c.client_id) : [];
+    if (!clients.length){
+      setFinanceSupportGroupStatus('Aucun client identifiable à ajouter.', true);
+      return;
+    }
+    btn.disabled = true;
+    setFinanceSupportGroupStatus('Ajout en cours…', false);
+    let success = 0;
+    let attempted = 0;
+    for (const client of clients){
+      attempted++;
+      try{
+        const resp = await fetch('/api/groupes/memberships', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupe_id: gid, client_id: client.client_id })
+        });
+        if (resp.ok){
+          success++;
+        } else {
+          console.warn('finance support group add error', resp.status);
+        }
+      } catch(err){
+        console.warn('finance support group add error', err);
+      }
+    }
+    btn.disabled = false;
+    if (!attempted){
+      setFinanceSupportGroupStatus('Aucun client valide pour l’ajout.', true);
+    } else if (success === attempted){
+      const plural = success > 1 ? 'clients' : 'client';
+      setFinanceSupportGroupStatus(`Liste ajoutée (${success} ${plural}).`, false);
+    } else {
+      setFinanceSupportGroupStatus(`Ajout partiel : ${success}/${attempted} clients.`, true);
+    }
+  }
+  function openFinanceSupportModal(code, name, clients){
+    const modal = document.getElementById('financeSupportModal');
+    if (!modal) return;
+    const tbody = modal.querySelector('#financeSupportModalTable tbody');
+    const labelEl = document.getElementById('financeSupportModalLabel');
+    if (labelEl){
+      const parts = ['Clients par support'];
+      const detail = [name, code].filter(Boolean).join(' • ');
+      if (detail) parts.push(detail);
+      labelEl.textContent = parts.join(' — ');
+    }
+    if (tbody){
+      tbody.innerHTML = '';
+      const rows = Array.isArray(clients) ? clients : [];
+      financeSupportCurrentClients = rows.filter(function(item){ return item && item.client_id; });
+      toggleFinanceSupportGroupActions(rows.length > 0);
+      rows.forEach(function(item){
+        const tr = document.createElement('tr');
+        const clientTd = document.createElement('td');
+        const fullname = item.client_fullname || item.client_nom || 'Client';
+        if (item.client_id){
+          const link = document.createElement('a');
+          link.href = `/dashboard/clients/${encodeURIComponent(item.client_id)}`;
+          link.textContent = fullname;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          clientTd.appendChild(link);
+        } else {
+          clientTd.textContent = fullname;
+        }
+        tr.appendChild(clientTd);
+        const contratTd = document.createElement('td');
+        if (item.affaire_id){
+          const link = document.createElement('a');
+          link.href = `/dashboard/affaires/${encodeURIComponent(item.affaire_id)}`;
+          link.textContent = item.affaire_ref || `Affaire ${item.affaire_id}`;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          contratTd.appendChild(link);
+        } else {
+          contratTd.textContent = item.affaire_ref || '-';
+        }
+        tr.appendChild(contratTd);
+        const valoTd = document.createElement('td');
+        valoTd.className = 'numeric';
+        valoTd.textContent = item.valorisation_str ? item.valorisation_str + ' €' : '-';
+        tr.appendChild(valoTd);
+        tbody.appendChild(tr);
+      });
+      if (!rows.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.className = 'muted';
+        td.textContent = 'Aucun client trouvé pour ce support.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+    modal.style.display = 'flex';
+  }
+  document.querySelectorAll('.finance-support-link').forEach(function(link){
+    link.addEventListener('click', function(ev){
+      ev.preventDefault();
+      let clients = [];
+      try{
+        clients = this.dataset.clients ? JSON.parse(this.dataset.clients) : [];
+      }catch(err){
+        console.warn('finance support clients parse error', err);
+      }
+      openFinanceSupportModal(this.dataset.supportCode || '', this.dataset.supportName || '', clients);
+    });
+  });
+  const addBtn = document.getElementById('financeSupportGroupAddBtn');
+  if (addBtn){
+    addBtn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      addFinanceSupportClientsToGroup();
+    });
+  }
+
   // Reorder: place Ressources humaines first under Administration
   try {
     const adminPanel = document.getElementById('administrationPanel');
@@ -2353,6 +2760,7 @@ document.addEventListener('DOMContentLoaded', function(){
       'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
       'supports': ['supportPanel'],
       'administration': ['administrationPanel'],
+      'administration_portefeuille': ['administrationPanel','adminPortfolioPanel'],
       'administration_types': ['administrationPanel','adminRelationsIntro'],
       'administration_intervenants': ['administrationPanel','adminIntervenantsPanel'],
       'administration_relations': ['administrationPanel','adminRelationsPanel'],

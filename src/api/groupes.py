@@ -17,7 +17,21 @@ from src.services.groupes import (
 router = APIRouter(prefix="/api/groupes", tags=["Groupes"])
 
 
+def _get_db_dialect(db: Session) -> str:
+    bind = None
+    try:
+        bind = db.get_bind()
+    except Exception:
+        bind = getattr(db, "bind", None)
+    if not bind:
+        return ""
+    dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+    return str(dialect).lower()
+
+
 def _ensure_group_ids(db: Session):
+    if not _get_db_dialect(db).startswith("sqlite"):
+        return
     try:
         missing = db.execute(_text("SELECT rowid FROM administration_groupe_detail WHERE id IS NULL")).fetchall()
     except Exception:
@@ -118,11 +132,15 @@ def api_group_overview(
     db: Session = Depends(get_db),
 ):
     """Retourne les métadonnées du groupe + la liste de ses membres (clients/affaires).
-    Supporte by=rowid si certaines lignes ont id NULL.
+    Supporte by=rowid sur SQLite si certaines lignes ont id NULL.
     """
+    _ensure_group_ids(db)
     # Détail groupe (par id ou rowid)
     try:
+        dialect = _get_db_dialect(db)
         if by == 'rowid':
+            if not dialect.startswith("sqlite"):
+                raise HTTPException(status_code=400, detail="Recherche par rowid indisponible sur ce SGBD.")
             row = db.execute(_text(
                 """
                 SELECT rowid AS __rid, id, type_groupe, nom, date_creation, date_fin, responsable_id, motif, actif
@@ -180,7 +198,7 @@ def api_group_overview(
                 LEFT JOIN mariadb_clients c ON c.id = g.client_id
                 LEFT JOIN mariadb_affaires a ON a.id = g.affaire_id
                 WHERE g.groupe_id = :gid
-                ORDER BY g.date_ajout DESC NULLS LAST, g.id DESC
+                ORDER BY (g.date_ajout IS NULL), g.date_ajout DESC, g.id DESC
                 """
             ), {"gid": real_id}).fetchall() or []
             for r in rows:

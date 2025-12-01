@@ -93,9 +93,17 @@
       </table>
     </div>
 
+    {% set cur_page = page|default(1) %}
+    {% set max_pages = total_pages|default(1) %}
+    {% set total_cli = total_clients|default(0) %}
+    {% set total_cli_filtered = total_clients_filtered|default(total_cli) %}
     <div class="pagination-container">
-      <div id="clients-results-info"></div>
-      <button class="btn btn-danger" onclick="clearClientFilters()">🗑️ Effacer</button>
+      <div id="clients-results-info">Page {{ cur_page }}/{{ max_pages }} — {{ total_cli_filtered }} clients affichés ({{ total_cli }} au total)</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn" type="button" onclick="changeClientPage(-1)" {% if cur_page <= 1 %}disabled{% endif %}>Précédent</button>
+        <button class="btn" type="button" onclick="changeClientPage(1)" {% if cur_page >= max_pages %}disabled{% endif %}>Suivant</button>
+        <button class="btn btn-danger" onclick="clearClientFilters()">🗑️ Effacer</button>
+      </div>
     </div>
   </div>
 </div>
@@ -110,10 +118,10 @@
 <script>
 $(document).ready(function () {
     var table = $('#clientsTable').DataTable({
-        dom: 'rtip',
+        dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
+        paging: false,
+        info: false,
         order: [[4, "desc"]],
-        pageLength: 25,
-        fixedHeader: true,
         columnDefs: [
           { targets: 0, width: '200px' },
           { targets: 1, width: '160px' },
@@ -124,14 +132,6 @@ $(document).ready(function () {
           { targets: 6, width: '120px' }
         ]
     });
-
-    function updateInfo(){
-      var info = table.page.info();
-      var el = document.getElementById('clients-results-info');
-      if (el) el.textContent = info ? `Résultats : ${info.recordsDisplay} (page ${info.page+1}/${info.pages || 1})` : '';
-    }
-    table.on('draw', updateInfo);
-    updateInfo();
 
     // Filtres texte
     $('#client-nom-filter').on('keyup change', function(){ table.column(0).search(this.value).draw(); });
@@ -244,6 +244,16 @@ $(document).ready(function () {
       for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
       $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
       table.draw();
+    };
+
+    // Pagination côté serveur (préserve les autres paramètres)
+    window.changeClientPage = function(delta){
+      var current = {{ cur_page }};
+      var target = current + delta;
+      if (target < 1 || target > {{ max_pages }}) return;
+      var params = new URLSearchParams(window.location.search);
+      params.set('page', target);
+      window.location.search = params.toString();
     };
 });
 </script>

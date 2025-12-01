@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "../config";
 import {
   LineChart,
   Line,
@@ -20,7 +21,7 @@ function Allocations() {
   const [yDomain, setYDomain] = useState([0, 120]);
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/allocations")
+    fetch(`${API_BASE_URL}/allocations/`)
       .then((res) => res.json())
       .then((data) => setAllocations(data))
       .catch((err) => console.error("Erreur API:", err));
