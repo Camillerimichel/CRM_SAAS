@@ -271,12 +271,14 @@
   .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
   /* Harmonisation colonnes pop-up Messages (affaire) */
   #affMsgsTable { table-layout: fixed; width: 100%; }
-  #affMsgsTable th:nth-child(1), #affMsgsTable td:nth-child(1) { width: 16%; }
-  #affMsgsTable th:nth-child(2), #affMsgsTable td:nth-child(2) { width: 18%; }
-  #affMsgsTable th:nth-child(3), #affMsgsTable td:nth-child(3) { width: 16%; }
-  #affMsgsTable th:nth-child(4), #affMsgsTable td:nth-child(4) { width: 12%; }
-  #affMsgsTable th:nth-child(5), #affMsgsTable td:nth-child(5) { width: 30%; }
-  #affMsgsTable th:nth-child(6), #affMsgsTable td:nth-child(6) { width: 8%; text-align:center; }
+  #affMsgsTable th:nth-child(1), #affMsgsTable td:nth-child(1) { width: 13%; }
+  #affMsgsTable th:nth-child(2), #affMsgsTable td:nth-child(2) { width: 15%; }
+  #affMsgsTable th:nth-child(3), #affMsgsTable td:nth-child(3) { width: 13%; }
+  #affMsgsTable th:nth-child(4), #affMsgsTable td:nth-child(4) { width: 10%; }
+  #affMsgsTable th:nth-child(5), #affMsgsTable td:nth-child(5) { width: 26%; }
+  #affMsgsTable th:nth-child(6), #affMsgsTable td:nth-child(6) { width: 7%; text-align:center; }
+  #affMsgsTable th:nth-child(7), #affMsgsTable td:nth-child(7) { width: 7%; text-align:center; }
+  #affMsgsTable th:nth-child(8), #affMsgsTable td:nth-child(8) { width: 9%; text-align:center; }
   #affMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #affMsgsTable td:nth-child(5) { white-space: normal; word-break: break-word; }
 </style>
@@ -295,6 +297,8 @@
             <th>Catégorie</th>
             <th>Statut</th>
             <th>Commentaire</th>
+            <th>ID (row.id)</th>
+            <th>ID (evenement_id)</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -384,6 +388,11 @@
       {% if msgs_reg_count and msgs_reg_count > 0 %}
         <button type="button" class="btn" style="background:#fff; color:#c62828; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('reg')" title="Messages réglementaires">
           <i class="fa-solid fa-triangle-exclamation"></i> {{ msgs_reg_count }}
+        </button>
+      {% endif %}
+      {% if affaire %}
+        <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="openAffTaskPage()" title="Créer une tâche pour ce contrat">
+          <i class="fa-solid fa-plus"></i> Créer une tâche
         </button>
       {% endif %}
       {% if affaire %}
@@ -732,6 +741,18 @@ function appendMarkers(url){
   if (url.indexOf('markers=') !== -1) return url;
   return url + (url.indexOf('?') >= 0 ? '&' : '?') + AF_MARKERS_PARAM;
 }
+function openAffTaskPage(){
+  var params = new URLSearchParams();
+  var fullname = '{{ (client_nom or "") ~ " " ~ (client_prenom or "") }}'.trim();
+  if (fullname) params.set('client_fullname', fullname);
+  var aref = '{{ affaire.ref if affaire and affaire.ref else "" }}';
+  if (aref) params.set('affaire_ref', aref);
+  var rhId = '{{ client_rh_id if client_rh_id is not none else "" }}';
+  if (rhId) params.set('rh_id', rhId);
+  if (AF_MARKERS_PARAM){ params.set('markers', '1'); }
+  var url = '/dashboard/taches' + (params.toString() ? ('?' + params.toString()) : '');
+  window.open(url, '_blank', 'noopener');
+}
 // Messages header buttons & modal (Affaire)
 const AFF_EVENTS_OPEN = {{ affaire_events_open | tojson }};
 function _normCatAff(s){ if(!s) return ''; return (s+'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replaceAll('ç','c').replaceAll('Ç','c'); }
@@ -766,6 +787,7 @@ function openAffMsgs(kind){
     } catch(e){}
   }
   rows.forEach(ev => {
+    const evId = ev.id_resolved ?? ev.id ?? ev.evenement_id ?? ev.event_id ?? ev.evenementId ?? ev.eventId;
     const tr = document.createElement('tr');
     function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
     function tdEl(el){ const td = document.createElement('td'); td.appendChild(el); return td; }
@@ -777,9 +799,16 @@ function openAffMsgs(kind){
     sb.className = 'btn btn-choice';
     sb.textContent = ev.statut || 'à faire';
     sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
-    sb.href = appendMarkers('/dashboard/taches/' + (ev.id||''));
-    sb.target = '_blank';
-    sb.rel = 'noopener noreferrer';
+    if (evId){
+      sb.href = appendMarkers('/dashboard/taches/' + ev.id);
+      sb.target = '_blank';
+      sb.rel = 'noopener noreferrer';
+    } else {
+      sb.href = '#';
+      sb.title = 'Tâche sans identifiant';
+      sb.style.opacity = '0.6';
+      sb.style.pointerEvents = 'none';
+    }
     const statTd = document.createElement('td'); statTd.appendChild(sb);
     // RH badge si présent
     var rh = ev.rh_nom || ev.rh || ev.rhnom;
@@ -797,8 +826,8 @@ function openAffMsgs(kind){
     const ctd = document.createElement('td');
     const full = String(ev.commentaire||'');
     const short = full.slice(0, 180);
-    const sid = 'caff-short-' + (ev.id||Math.random());
-    const fid = 'caff-full-' + (ev.id||Math.random());
+    const sid = 'caff-short-' + (evId||Math.random());
+    const fid = 'caff-full-' + (evId||Math.random());
     const sdiv = document.createElement('div'); sdiv.id=sid; sdiv.style.whiteSpace='pre-wrap'; if (full.length <= 180) sdiv.style.display='none'; sdiv.textContent = short + (full.length>180 ? '…' : '');
     const fdiv = document.createElement('div'); fdiv.id=fid; fdiv.style.whiteSpace='pre-wrap'; if (full.length > 180) fdiv.style.display='none'; fdiv.textContent = full;
     ctd.appendChild(sdiv); ctd.appendChild(fdiv);
@@ -806,13 +835,28 @@ function openAffMsgs(kind){
     tr.appendChild(ctd);
     // Action
     const actionTd = document.createElement('td');
-    const editBtn = document.createElement('button');
-    editBtn.type='button'; editBtn.className='btn btn-choice'; editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
-    editBtn.textContent = 'Modifier';
-    editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
-    actionTd.appendChild(editBtn);
+    const idRawTd = document.createElement('td');
+    idRawTd.textContent = (ev && ev.id != null && ev.id !== '') ? ev.id : '—';
+    const idAltTd = document.createElement('td');
+    idAltTd.textContent = (ev && ev.evenement_id != null && ev.evenement_id !== '') ? ev.evenement_id : '—';
+    tr.appendChild(idRawTd);
+    tr.appendChild(idAltTd);
+    if (evId){
+      const editLink = document.createElement('a');
+      editLink.className='btn btn-choice';
+      editLink.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
+      editLink.textContent = 'Modifier';
+      editLink.href = appendMarkers('/dashboard/taches/' + evId);
+      editLink.target = '_blank';
+      editLink.rel = 'noopener noreferrer';
+      editLink.addEventListener('click', function(e){ e.stopPropagation(); });
+      actionTd.appendChild(editLink);
+    } else {
+      actionTd.textContent = '—';
+      actionTd.style.textAlign = 'center';
+    }
     tr.appendChild(actionTd);
-    tr.addEventListener('dblclick', function(){ openTaskEditPopup(ev.id); });
+    tr.addEventListener('dblclick', function(){ if(evId){ openTaskEditPopup(evId); } });
     tbody.appendChild(tr);
   });
   // DataTable + export CSV (Buttons déjà chargés sur cette page)

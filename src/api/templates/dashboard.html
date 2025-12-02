@@ -1011,7 +1011,9 @@
           <span>Création</span><div>{{ grp.date_creation }}</div>
           <span>Fin</span><div>{{ grp.date_fin }}</div>
         </div>
-        <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
+          <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -1032,7 +1034,9 @@
           <span>Création</span><div>{{ grp.date_creation }}</div>
           <span>Fin</span><div>{{ grp.date_fin }}</div>
         </div>
-        <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
+          <a class="btn btn-primary" href="{{ grp.link }}">Voir</a>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -2059,7 +2063,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   })();
 </script>
 
-</div>
 <script>
   // Toggles horizontaux Risques
   (function(){
@@ -2076,24 +2079,22 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         else { btn.classList.remove('active'); }
       });
     }
-    // ouvrir Conformité par défaut
     openSection('complianceSection');
     buttons.forEach(function(btn){
       btn.addEventListener('click', function(){ openSection(btn.getAttribute('data-target')); });
     });
   })();
 
-    // Forcer l'affichage des deux blocs commissions au submit
-    const remForm = document.getElementById('remForm');
-    const retroForm = document.getElementById('retroForm');
-    function showCommBlocks(){
-      const remFraisSection = document.getElementById('remFraisSection');
-      const retroSection = document.getElementById('retroSection');
-      if (remFraisSection) remFraisSection.style.display = '';
-      if (retroSection) retroSection.style.display = '';
-    }
-    if (remForm){ remForm.addEventListener('submit', showCommBlocks); }
-    if (retroForm){ retroForm.addEventListener('submit', showCommBlocks); }
-
+  // Forcer l'affichage des deux blocs commissions au submit
+  const remForm = document.getElementById('remForm');
+  const retroForm = document.getElementById('retroForm');
+  function showCommBlocks(){
+    const remFraisSection = document.getElementById('remFraisSection');
+    const retroSection = document.getElementById('retroSection');
+    if (remFraisSection) remFraisSection.style.display = '';
+    if (retroSection) retroSection.style.display = '';
+  }
+  if (remForm){ remForm.addEventListener('submit', showCommBlocks); }
+  if (retroForm){ retroForm.addEventListener('submit', showCommBlocks); }
 </script>
 {% endblock %}

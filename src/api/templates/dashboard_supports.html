@@ -486,7 +486,7 @@ $(document).ready(function () {
           localStorage.setItem('sup_quick_open',o?'1':'');
         }
         var stored = localStorage.getItem('sup_quick_open');
-        var initial = stored === null ? true : (stored === '1');
+        var initial = stored === null ? false : (stored === '1');
         setOpen(initial);
         t.addEventListener('click',function(){setOpen(s.style.display==='none');});
       }catch(e){}
