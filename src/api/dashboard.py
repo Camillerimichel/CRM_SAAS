@@ -10,7 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, bindparam, desc
+from sqlalchemy import func, or_, bindparam, desc, case
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -14655,6 +14655,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     group_filter_param = request.query_params.get("group_id")
     group_filter_ids: set[int] | None = None
     group_filter_label: str | None = None
+    risk_filter = (request.query_params.get("risk") or "").lower().strip()
 
     # Données SRRI pour le graphique
     srri_data = (
@@ -14863,6 +14864,19 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             base_query = base_query.filter(Client.id.in_(group_filter_ids))
         else:
             base_query = base_query.filter(text("0=1"))
+    if risk_filter in ("above", "equal", "below"):
+        base_query = base_query.filter(
+            Client.SRRI.isnot(None),
+            HistoriquePersonne.SRRI.isnot(None),
+        )
+        if risk_filter == "above":
+            # Au-dessus du risque = SRRI historique (réalité) supérieur au SRRI cible client
+            base_query = base_query.filter(HistoriquePersonne.SRRI > Client.SRRI)
+        elif risk_filter == "equal":
+            base_query = base_query.filter(HistoriquePersonne.SRRI == Client.SRRI)
+        elif risk_filter == "below":
+            # En-dessous du risque = SRRI historique inférieur au SRRI cible client
+            base_query = base_query.filter(HistoriquePersonne.SRRI < Client.SRRI)
     if q_nom:
         base_query = base_query.filter(Client.nom.ilike(f"%{q_nom}%"))
     if q_prenom:
@@ -14992,6 +15006,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
     group_filter_param = request.query_params.get("group_id")
     group_filter_label: str | None = None
+    risk_filter = (request.query_params.get("risk") or "").lower().strip()
     page_size = 50
     try:
         page = int(request.query_params.get("page") or 1)
@@ -15016,6 +15031,16 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .group_by(HistoriqueAffaire.id)
         .subquery()
     )
+    norm_vol = case((func.abs(HistoriqueAffaire.volat) <= 1, HistoriqueAffaire.volat * 100.0), else_=HistoriqueAffaire.volat)
+    srri_calc_expr = case(
+        (norm_vol <= 0.5, 1),
+        (norm_vol <= 2, 2),
+        (norm_vol <= 5, 3),
+        (norm_vol <= 10, 4),
+        (norm_vol <= 15, 5),
+        (norm_vol <= 25, 6),
+        else_=7
+    )
     affaires_query = db.query(
         Affaire.id.label("id"),
         Affaire.ref,
@@ -15028,6 +15053,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         HistoriqueAffaire.valo.label("last_valo"),
         HistoriqueAffaire.perf_sicav_52.label("last_perf"),
         HistoriqueAffaire.volat.label("last_volat"),
+        srri_calc_expr.label("srri_calc_case"),
     ).join(subq, subq.c.affaire_id == Affaire.id)
     affaires_query = affaires_query.join(
         HistoriqueAffaire,
@@ -15068,6 +15094,19 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             affaires_query = affaires_query.filter(Affaire.id.in_(filter_ids))
         else:
             affaires_query = affaires_query.filter(text("0=1"))
+    if risk_filter in ("above", "equal", "below"):
+        affaires_query = affaires_query.filter(
+            Affaire.SRRI.isnot(None),
+            srri_calc_expr.isnot(None),
+        )
+        if risk_filter == "above":
+            # Au-dessus = SRRI déclaré supérieur au SRRI calculé
+            affaires_query = affaires_query.filter(Affaire.SRRI > srri_calc_expr)
+        elif risk_filter == "equal":
+            affaires_query = affaires_query.filter(srri_calc_expr == Affaire.SRRI)
+        elif risk_filter == "below":
+            # En-dessous = SRRI déclaré inférieur au SRRI calculé
+            affaires_query = affaires_query.filter(Affaire.SRRI < srri_calc_expr)
 
     total_filtered = affaires_query.count()
     affaires_query = affaires_query.order_by(desc(HistoriqueAffaire.valo), Affaire.id)
@@ -15108,16 +15147,22 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             k = int(calc_srri)
         except Exception:
             return None
-        # Mapping: Au‑dessus = 🔥, Identique = 🙏, En‑dessous = ❄️
+        # Au‑dessus = SRRI déclaré plus élevé que le SRRI calculé
         if c > k:
-            return "fire"           # supérieur
+            return "fire"           # déclaré supérieur
         if c == k:
             return "hands-praying"  # identique
-        return "snowflake"          # inférieur
+        return "snowflake"          # déclaré inférieur
 
     affaires = []
     for r in affaires_rows:
-        srri_calc = srri_from_vol(r.last_volat)
+        srri_calc = None
+        try:
+            srri_calc = getattr(r, "srri_calc_case", None)
+        except Exception:
+            srri_calc = None
+        if srri_calc is None:
+            srri_calc = srri_from_vol(r.last_volat)
         icon = icon_for_compare(r.SRRI, srri_calc)
         affaires.append({
             "id": r.id,
