@@ -185,8 +185,9 @@
     <div class="risk-toggle-row">
       <div class="risk-toggle" data-target="complianceSection">Conformité réglementaire</div>
       <div class="risk-toggle" data-target="rcpSection">Requis réglementaires</div>
-      <div class="risk-toggle" data-target="clienteleSection">Répartition par clientèle</div>
       <div class="risk-toggle" data-target="srriSection">Suivi du risque</div>
+      <div class="risk-toggle" data-target="clienteleSection">Répartition par clientèle</div>
+      <div class="risk-toggle" data-target="contractsSection">Répartition par contrats</div>
     </div>
     <div style="height:1px; background:var(--border); margin:10px 0;"></div>
   <!-- Sous-accordéon: Conformité réglementaire -->
@@ -199,7 +200,7 @@
         </button>
         <span id="conformiteStatus" class="muted" style="align-self:center; font-size:0.9rem;">(non chargé)</span>
       </div>
-      <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+      <div style="display:none; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;" aria-hidden="true">
         <div class="card" style="width:360px; padding:18px; border:1px solid var(--primary); border-radius:10px; box-shadow:0 4px 12px rgba(15,23,42,0.08); text-align:center;">
           <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
             <i class="fa-solid fa-users" style="color:var(--primary);"></i>
@@ -873,6 +874,14 @@
   </div>
 </div>
 
+<div id="contractsToggle" ></div>
+  <div id="contractsSection" data-tb-marker="TB_37" style="display:none;">
+    <div class="card" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+      <h3>Découpage contrat par détention</h3>
+      <canvas id="chartContractsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+    </div>
+  </div>
+
 <!-- Sous-accordéon: Répartitions SRRI -->
   <div id="srriToggle" ></div>
   <div id="srriSection" data-tb-marker="TB_38" >
@@ -898,6 +907,18 @@
           <a href="/dashboard/clients?risk=below" target="_blank" rel="noopener noreferrer">
             <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
           </a>
+        </div>
+        <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-coins" style="color:var(--primary);"></i>
+            <strong>{{ cli_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+          </span>
+        </div>
+        <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-percent" style="color:var(--primary);"></i>
+            <strong>{{ cli_risk_under_pct }}</strong> % — Part sous risque
+          </span>
         </div>
       </div>
     </div>
@@ -937,6 +958,18 @@
           <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
             <strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque
           </a>
+        </div>
+        <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-coins" style="color:#dc2626;"></i>
+            <strong>{{ aff_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+          </span>
+        </div>
+        <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
+          <span style="display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-percent" style="color:#dc2626;"></i>
+            <strong>{{ aff_risk_under_pct }}</strong> % — Part sous risque
+          </span>
         </div>
       </div>
     </div>
@@ -1326,6 +1359,9 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   const cb_labels = [{% for b in clients_buckets %}'{{ b.label }}'{% if not loop.last %}, {% endif %}{% endfor %}];
   const cb_data = [{% for b in clients_buckets %}{{ b.nb }}{% if not loop.last %}, {% endif %}{% endfor %}];
   if (cb_labels && cb_labels.length){ cb_labels[cb_labels.length-1] = 'Sup. 5M'; }
+  const ab_labels = [{% for b in affaires_buckets %}'{{ b.label }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+  const ab_data = [{% for b in affaires_buckets %}{{ b.nb }}{% if not loop.last %}, {% endif %}{% endfor %}];
+  if (ab_labels && ab_labels.length){ ab_labels[ab_labels.length-1] = 'Sup. 5M'; }
 
   function makeBar(id, labels, data, fmtEuro=false) {
     const ctx = document.getElementById(id).getContext('2d');
@@ -1359,6 +1395,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   makeBar('chartAffairesAmount', aa.labels, aa.data, true);
   // Buckets chart (first): height reduced above
   makeBarFill('chartClientsBuckets', cb_labels, cb_data, false);
+  makeBarFill('chartContractsBuckets', ab_labels, ab_data, false);
 
   // ------- Conformité: lazy load -------
   (function(){
@@ -2067,7 +2104,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Toggles horizontaux Risques
   (function(){
     var buttons = document.querySelectorAll('.risk-toggle-row .risk-toggle');
-    var sections = ['complianceSection','rcpSection','clienteleSection','srriSection'];
+    var sections = ['complianceSection','rcpSection','srriSection','clienteleSection','contractsSection'];
     function openSection(id){
       sections.forEach(function(sec){
         var el = document.getElementById(sec);
