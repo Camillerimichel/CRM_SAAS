@@ -51,6 +51,7 @@ from src.models.evenement import Evenement
 from src.models.type_evenement import TypeEvenement
 from src.models.evenement_statut_reclamation import EvenementStatutReclamation
 from src.models.administration_groupe_detail import AdministrationGroupeDetail
+from src.models.administration_groupe import AdministrationGroupe
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -627,140 +628,206 @@ def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
 
     if range_days not in (7, 14, 30):
         range_days = 14
+    start_date = _date.today() - timedelta(days=range_days - 1)
     try:
         tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
-        rows_statut = db.execute(_text("SELECT COALESCE(TRIM(LOWER(statut)), '(non défini)') as s, COUNT(1) FROM vue_suivi_evenement GROUP BY s ORDER BY COUNT(1) DESC")).fetchall()
-        rows_cat = db.execute(_text("SELECT COALESCE(TRIM(LOWER(categorie)), '(non défini)') as c, COUNT(1) FROM vue_suivi_evenement GROUP BY c ORDER BY COUNT(1) DESC")).fetchall()
-        open_count = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')")).scalar() or 0
-        rows_days = db.execute(_text(
-            """
-            WITH RECURSIVE seq(x) AS (
-              SELECT 0
-              UNION ALL SELECT x+1 FROM seq WHERE x < :n
-            )
-            SELECT date(julianday('now') - x) AS day,
-                   COALESCE((SELECT COUNT(1) FROM vue_suivi_evenement v WHERE date(v.date_evenement) = date(julianday('now') - x)), 0) AS nb
-            FROM seq
-            ORDER BY day ASC
-            """
-        ), {"n": range_days - 1}).fetchall()
-        tasks_statut = [ {"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut ]
-        tasks_categorie = [ {"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat ]
-        tasks_days = [ {"day": r[0], "nb": int(r[1] or 0)} for r in rows_days ]
-
-        rows_avg = db.execute(_text(
-            """
-            WITH es AS (
-                SELECT es.evenement_id, es.statut_id, es.date_statut, se.libelle AS statut
-                FROM mariadb_evenement_statut es
-                JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-            ), nxt AS (
-                SELECT e1.evenement_id,
-                       e1.statut,
-                       e1.date_statut AS start_dt,
-                       (
-                         SELECT MIN(e2.date_statut)
-                         FROM es e2
-                         WHERE e2.evenement_id = e1.evenement_id AND e2.date_statut > e1.date_statut
-                       ) AS end_dt
-                FROM es e1
-            )
-            SELECT statut,
-                   AVG((julianday(end_dt) - julianday(start_dt))) AS avg_days
-            FROM nxt
-            WHERE end_dt IS NOT NULL
-            GROUP BY statut
-            ORDER BY (avg_days IS NULL), avg_days DESC
-            """
-        )).fetchall()
-        tasks_avg_by_statut = [ {"statut": r[0], "avg_days": float(r[1] or 0)} for r in rows_avg ]
-
-        row_close = db.execute(_text(
-            """
-            WITH close AS (
-              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
-              FROM mariadb_evenement_statut es
-              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
-              GROUP BY es.evenement_id
-            )
-            SELECT AVG(julianday(close.close_dt) - julianday(e.date_evenement))
-            FROM close
-            JOIN mariadb_evenement e ON e.id = close.evenement_id
-            """
-        )).scalar()
-        tasks_avg_close_days = float(row_close or 0)
-
-        rows_dist = db.execute(_text(
-            """
-            WITH close AS (
-              SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
-              FROM mariadb_evenement_statut es
-              JOIN mariadb_statut_evenement se ON se.id = es.statut_id
-              WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
-              GROUP BY es.evenement_id
-            ), durations AS (
-              SELECT (julianday(c.close_dt) - julianday(e.date_evenement)) AS d, c.close_dt AS cd
-              FROM close c JOIN mariadb_evenement e ON e.id = c.evenement_id
-              WHERE date(c.close_dt) >= date('now', '-' || :rng || ' days')
-            )
-            SELECT bucket, COUNT(1) AS nb FROM (
-              SELECT CASE
-                WHEN d < 1 THEN '<1j'
-                WHEN d < 3 THEN '1–3j'
-                WHEN d < 7 THEN '3–7j'
-                WHEN d < 14 THEN '7–14j'
-                WHEN d < 30 THEN '14–30j'
-                ELSE '>=30j'
-              END AS bucket
-              FROM durations
-            ) x
-            GROUP BY bucket
-            ORDER BY CASE bucket
-              WHEN '<1j' THEN 0
-              WHEN '1–3j' THEN 1
-              WHEN '3–7j' THEN 2
-              WHEN '7–14j' THEN 3
-              WHEN '14–30j' THEN 4
-              ELSE 5 END
-            """
-        ), {"rng": range_days}).fetchall()
-        tasks_close_dist = [ {"bucket": r[0], "nb": int(r[1] or 0)} for r in rows_dist ]
-        rows_type_rh = db.execute(_text(
-            """
-            SELECT
-                v.rh_id AS rh_id,
-                COALESCE(r.prenom || ' ' || r.nom, r.mail, 'Sans responsable') AS rh_nom,
-                v.type_evenement AS type,
-                COUNT(*) AS nb
-            FROM vue_suivi_evenement v
-            LEFT JOIN administration_RH r ON r.id = v.rh_id
-            GROUP BY v.rh_id, rh_nom, v.type_evenement
-            ORDER BY rh_nom, v.type_evenement
-            """
-        )).fetchall()
-        tasks_type_by_rh = rows_to_dicts(rows_type_rh)
-        rows_type_total = db.execute(_text(
-            """
-            SELECT
-                v.type_evenement AS type,
-                COUNT(*) AS nb
-            FROM vue_suivi_evenement v
-            GROUP BY v.type_evenement
-            ORDER BY v.type_evenement
-            """
-        )).fetchall()
-        tasks_type_total = rows_to_dicts(rows_type_total)
     except Exception:
         tasks_total = 0
-        open_count = 0
+
+    try:
+        rows_statut = db.execute(
+            _text(
+                """
+                SELECT COALESCE(NULLIF(TRIM(LOWER(statut)), ''), '(non défini)') AS s, COUNT(1) AS nb
+                FROM vue_suivi_evenement
+                GROUP BY s
+                ORDER BY nb DESC
+                """
+            )
+        ).fetchall()
+        tasks_statut = [{"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut]
+    except Exception:
         tasks_statut = []
+
+    try:
+        rows_cat = db.execute(
+            _text(
+                """
+                SELECT COALESCE(NULLIF(TRIM(LOWER(categorie)), ''), '(non défini)') AS c, COUNT(1) AS nb
+                FROM vue_suivi_evenement
+                GROUP BY c
+                ORDER BY nb DESC
+                """
+            )
+        ).fetchall()
+        tasks_categorie = [{"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat]
+    except Exception:
         tasks_categorie = []
+
+    try:
+        open_count = (
+            db.execute(
+                _text(
+                    """
+                    SELECT COUNT(1)
+                    FROM vue_suivi_evenement
+                    WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')
+                    """
+                )
+            ).scalar()
+            or 0
+        )
+    except Exception:
+        open_count = 0
+
+    try:
+        rows_days = db.execute(
+            _text(
+                """
+                SELECT DATE(date_evenement) AS d, COUNT(1) AS nb
+                FROM vue_suivi_evenement
+                WHERE date_evenement >= :start_dt
+                GROUP BY d
+                ORDER BY d ASC
+                """
+            ),
+            {"start_dt": start_date},
+        ).fetchall()
+        by_day = {str(r[0])[:10]: int(r[1] or 0) for r in rows_days}
         tasks_days = []
+        cur = start_date
+        today = _date.today()
+        while cur <= today:
+            key = cur.isoformat()
+            tasks_days.append({"day": key, "nb": by_day.get(key, 0)})
+            cur += timedelta(days=1)
+    except Exception:
+        tasks_days = []
+
+    try:
+        rows_avg = db.execute(
+            _text(
+                """
+                WITH ordered AS (
+                    SELECT
+                        es.evenement_id,
+                        se.libelle AS statut,
+                        es.date_statut,
+                        LEAD(es.date_statut) OVER(PARTITION BY es.evenement_id ORDER BY es.date_statut) AS next_dt
+                    FROM mariadb_evenement_statut es
+                    JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+                )
+                SELECT statut, AVG(DATEDIFF(next_dt, date_statut)) AS avg_days
+                FROM ordered
+                WHERE next_dt IS NOT NULL
+                GROUP BY statut
+                ORDER BY avg_days DESC
+                """
+            )
+        ).fetchall()
+        tasks_avg_by_statut = [{"statut": r[0], "avg_days": float(r[1] or 0)} for r in rows_avg]
+    except Exception:
         tasks_avg_by_statut = []
+
+    try:
+        row_close = db.execute(
+            _text(
+                """
+                WITH close AS (
+                  SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
+                  FROM mariadb_evenement_statut es
+                  JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+                  WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
+                  GROUP BY es.evenement_id
+                )
+                SELECT AVG(DATEDIFF(close.close_dt, e.date_evenement)) AS avg_close
+                FROM close
+                JOIN mariadb_evenement e ON e.id = close.evenement_id
+                """
+            )
+        ).scalar()
+        tasks_avg_close_days = float(row_close or 0.0)
+    except Exception:
         tasks_avg_close_days = 0.0
+
+    try:
+        dist_start = _date.today() - timedelta(days=range_days)
+        rows_dist = db.execute(
+            _text(
+                """
+                WITH close AS (
+                  SELECT es.evenement_id, MIN(es.date_statut) AS close_dt
+                  FROM mariadb_evenement_statut es
+                  JOIN mariadb_statut_evenement se ON se.id = es.statut_id
+                  WHERE LOWER(se.libelle) IN ('termine','terminé','annule','annulé')
+                  GROUP BY es.evenement_id
+                ), durations AS (
+                  SELECT DATEDIFF(c.close_dt, e.date_evenement) AS d, c.close_dt AS cd
+                  FROM close c JOIN mariadb_evenement e ON e.id = c.evenement_id
+                  WHERE DATE(c.close_dt) >= :dist_start
+                )
+                SELECT bucket, COUNT(1) AS nb FROM (
+                  SELECT CASE
+                    WHEN d < 1 THEN '<1j'
+                    WHEN d < 3 THEN '1–3j'
+                    WHEN d < 7 THEN '3–7j'
+                    WHEN d < 14 THEN '7–14j'
+                    WHEN d < 30 THEN '14–30j'
+                    ELSE '>=30j'
+                  END AS bucket
+                  FROM durations
+                ) x
+                GROUP BY bucket
+                ORDER BY CASE bucket
+                  WHEN '<1j' THEN 0
+                  WHEN '1–3j' THEN 1
+                  WHEN '3–7j' THEN 2
+                  WHEN '7–14j' THEN 3
+                  WHEN '14–30j' THEN 4
+                  ELSE 5 END
+                """
+            ),
+            {"dist_start": dist_start},
+        ).fetchall()
+        tasks_close_dist = [{"bucket": r[0], "nb": int(r[1] or 0)} for r in rows_dist]
+    except Exception:
         tasks_close_dist = []
+
+    try:
+        rows_type_rh = db.execute(
+            _text(
+                """
+                SELECT
+                    v.rh_id AS rh_id,
+                    COALESCE(NULLIF(TRIM(CONCAT_WS(' ', r.prenom, r.nom)), ''), r.mail, 'Sans responsable') AS rh_nom,
+                    v.type_evenement AS type,
+                    COUNT(*) AS nb
+                FROM vue_suivi_evenement v
+                LEFT JOIN administration_RH r ON r.id = v.rh_id
+                GROUP BY v.rh_id, rh_nom, v.type_evenement
+                ORDER BY rh_nom, v.type_evenement
+                """
+            )
+        ).fetchall()
+        tasks_type_by_rh = rows_to_dicts(rows_type_rh)
+    except Exception:
         tasks_type_by_rh = []
+
+    try:
+        rows_type_total = db.execute(
+            _text(
+                """
+                SELECT
+                    v.type_evenement AS type,
+                    COUNT(*) AS nb
+                FROM vue_suivi_evenement v
+                GROUP BY v.type_evenement
+                ORDER BY v.type_evenement
+                """
+            )
+        ).fetchall()
+        tasks_type_total = rows_to_dicts(rows_type_total)
+    except Exception:
         tasks_type_total = []
 
     return {
@@ -6015,6 +6082,20 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"load garanties normes failed: {e}")
 
+    # Types/Statuts pour tâches groupées (onglet Groupes)
+    try:
+        evt_types_rows = db.execute(text("SELECT libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
+        evt_types = rows_to_dicts(evt_types_rows)
+        evt_categories = sorted({(r.get("categorie") or "").strip() for r in evt_types if r.get("categorie")})
+    except Exception:
+        evt_types = []
+        evt_categories = []
+    try:
+        evt_statuts_rows = db.execute(text("SELECT id, libelle FROM mariadb_statut_evenement ORDER BY libelle")).fetchall()
+        evt_statuts = rows_to_dicts(evt_statuts_rows)
+    except Exception:
+        evt_statuts = []
+
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
@@ -6064,6 +6145,9 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "finance_rh_options": finance_rh_options,
             "finance_rh_selected": finance_rh_id,
             "finance_valo_input": finance_valo_input,
+            "evt_types": evt_types,
+            "evt_categories": evt_categories,
+            "evt_statuts": evt_statuts,
         },
     )
 
@@ -8104,6 +8188,171 @@ def _group_error_redirect(message: str) -> RedirectResponse:
     )
 
 
+# ---- Group tasks (logs + run/simulate) ----
+@router.get("/parametres/administration/groupes/{group_id}/tasks/logs", response_class=JSONResponse)
+def group_tasks_logs(group_id: int):
+    # Aucun stockage de log implémenté : retourne vide
+    return {"logs": [], "active": False}
+
+
+@router.post("/parametres/administration/groupes/{group_id}/tasks/{mode}", response_class=JSONResponse)
+def group_tasks_run(
+    group_id: int,
+    mode: str,
+    payload: dict = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Crée (mode=run) ou simule (mode=simulate) des tâches pour les membres du groupe.
+    Payload JSON: {categorie, type_libelle, statut_id, commentaire, actifs_only, rh_id}
+    """
+    if mode not in ("run", "simulate"):
+        raise HTTPException(status_code=400, detail="Mode invalide (run|simulate).")
+    payload = payload or {}
+    cat = (payload.get("categorie") or "").strip() or None
+    typ = (payload.get("type_libelle") or "").strip() or None
+    statut_id = payload.get("statut_id", None)
+    try:
+        statut_id = int(statut_id) if statut_id not in (None, "") else None
+    except Exception:
+        statut_id = None
+    comm = (payload.get("commentaire") or "").strip() or None
+    actifs_only = bool(payload.get("actifs_only", False))
+    rh_id_payload = payload.get("rh_id", None)
+    try:
+        rh_id_payload = int(rh_id_payload) if rh_id_payload not in (None, "") else None
+    except Exception:
+        rh_id_payload = None
+
+    # Infos groupe (responsable + type)
+    detail = db.execute(
+        text(
+            """
+            SELECT id, type_groupe, responsable_id
+            FROM administration_groupe_detail
+            WHERE id = :gid
+            """
+        ),
+        {"gid": group_id},
+    ).fetchone()
+    if not detail:
+        raise HTTPException(status_code=404, detail="Groupe introuvable")
+    type_grp = (detail._mapping.get("type_groupe") or "").lower()
+    resp_id = detail._mapping.get("responsable_id")
+
+    members = _list_group_members(db, group_id, actifs_only=actifs_only)
+    total = len(members)
+    created = 0
+    ignored = 0
+
+    for m in members:
+        client_id = m.get("client_id")
+        affaire_id = m.get("affaire_id")
+        # Si type groupe ne correspond pas à l'entité, ignorer
+        if type_grp in ("client", "clients", "personne", "personnes") and client_id is None:
+            ignored += 1
+            continue
+        if type_grp in ("affaire", "affaires", "contrat", "contrats") and affaire_id is None:
+            ignored += 1
+            continue
+        # Résoudre client depuis affaire le cas échéant
+        aff_ref = None
+        if client_id is None and affaire_id is not None:
+            client_id, aff_ref = _resolve_affaire_client(db, affaire_id)
+        # RH
+        rh_id = _resolve_rh_for_member(db, client_id, resp_id, rh_id_payload)
+        if mode == "simulate":
+            created += 1
+            continue
+        # Création
+        try:
+            t_payload = TacheCreateSchema(
+                type_libelle=typ or "tâche",
+                categorie=cat or "tache",
+                client_id=client_id,
+                affaire_id=affaire_id,
+                commentaire=comm,
+                utilisateur_responsable=None,
+                rh_id=rh_id,
+            )
+            ev = create_tache(db, t_payload)
+            if statut_id:
+                try:
+                    add_statut_to_evenement(
+                        db,
+                        ev.id,
+                        EvenementStatutCreateSchema(
+                            statut_id=statut_id,
+                            commentaire=comm or None,
+                            utilisateur_responsable=None,
+                        ),
+                    )
+                except Exception:
+                    pass
+            created += 1
+        except Exception:
+            ignored += 1
+
+    return {"total": total, "created": created, "ignored": ignored, "mode": mode}
+
+def _resolve_rh_for_member(db: Session, client_id: int | None, group_resp_id: int | None, payload_rh: int | None) -> int | None:
+    """Détermine le RH à affecter (priorité: RH choisi > responsable de groupe > commercial du client)."""
+    if payload_rh:
+        return payload_rh
+    if group_resp_id:
+        return group_resp_id
+    if client_id is None:
+        return None
+    try:
+        cli = db.query(Client).filter(Client.id == client_id).first()
+        if cli and getattr(cli, "commercial_id", None) is not None:
+            return int(cli.commercial_id)
+    except Exception:
+        return None
+    return None
+
+
+def _list_group_members(db: Session, group_id: int, actifs_only: bool = False) -> list[dict]:
+    """Retourne les membres d'un groupe (clients/affaires) avec leur statut actif."""
+    rows = db.execute(
+        text(
+            """
+            SELECT id, client_id, affaire_id, actif
+            FROM administration_groupe
+            WHERE groupe_id = :gid
+            """
+        ),
+        {"gid": group_id},
+    ).fetchall()
+    members = []
+    for r in rows:
+        m = r._mapping
+        if actifs_only and not (m.get("actif") in (1, True, "1", "true")):
+            continue
+        members.append(
+            {
+                "id": m.get("id"),
+                "client_id": m.get("client_id"),
+                "affaire_id": m.get("affaire_id"),
+                "actif": m.get("actif"),
+            }
+        )
+    return members
+
+
+def _resolve_affaire_client(db: Session, affaire_id: int | None) -> tuple[int | None, str | None]:
+    """Pour une affaire, retourne (client_id, ref) si possible."""
+    if affaire_id is None:
+        return None, None
+    try:
+        aff = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+        if not aff:
+            return None, None
+        return getattr(aff, "id_personne", None), getattr(aff, "ref", None)
+    except Exception:
+        return None, None
+
+
 # ---- Administration : Groupes ----
 @router.post("/parametres/administration/groupes", response_class=HTMLResponse)
 async def create_administration_group(request: Request, db: Session = Depends(get_db)):
@@ -8601,12 +8850,7 @@ async def delete_contrat_support(row_id: int, request: Request, db: Session = De
 @router.get("/", response_class=HTMLResponse)
 def dashboard_home(request: Request, db: Session = Depends(get_db)):
     t0 = perf_counter()
-    if not request.query_params:
-        cached = HOME_CACHE.get("default")
-        if cached and (t0 - cached.get("ts", 0)) < 300:
-            ctx = dict(cached["data"])
-            ctx["request"] = request
-            return templates.TemplateResponse("dashboard.html", ctx)
+    # Pas de cache afin d'assurer le chargement des derniers assets/templates
 
     tb_markers_visible = request.query_params.get("markers") == "1"
     # Totaux simples
@@ -8748,6 +8992,19 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     finance_date_input = finance_ctx["finance_date_input"]
     finance_effective_date_display = finance_ctx["finance_effective_date_display"]
     finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
+    # Types/statuts pour tâches groupées (dashboard Groupes)
+    try:
+        evt_types_rows = db.execute(text("SELECT libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
+        evt_types = rows_to_dicts(evt_types_rows)
+        evt_categories = sorted({(r.get("categorie") or "").strip() for r in evt_types if r.get("categorie")})
+    except Exception:
+        evt_types = []
+        evt_categories = []
+    try:
+        evt_statuts_rows = db.execute(text("SELECT id, libelle FROM mariadb_statut_evenement ORDER BY libelle")).fetchall()
+        evt_statuts = rows_to_dicts(evt_statuts_rows)
+    except Exception:
+        evt_statuts = []
 
     # Informations Documents (comme sur la page Documents)
     orias_doc_found = False
@@ -10072,6 +10329,9 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "tb_markers_param": "markers=1" if tb_markers_visible else "",
         "dashboard_groups_personnes": dashboard_groups_personnes,
         "dashboard_groups_affaires": dashboard_groups_affaires,
+        "evt_types": evt_types if 'evt_types' in locals() else [],
+        "evt_categories": evt_categories if 'evt_categories' in locals() else [],
+        "evt_statuts": evt_statuts if 'evt_statuts' in locals() else [],
     }
     total_time = perf_counter() - t0
     logger.info("dashboard_home: total context built in %.3fs", total_time)
@@ -14871,6 +15131,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     client_nom = None
     client_prenom = None
     client_id = None
+    client_rh_id = None
     try:
         if getattr(affaire, 'id_personne', None) is not None:
             cli = db.query(Client).filter(Client.id == affaire.id_personne).first()
@@ -14878,6 +15139,10 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 client_id = cli.id
                 client_nom = getattr(cli, 'nom', None)
                 client_prenom = getattr(cli, 'prenom', None)
+                try:
+                    client_rh_id = getattr(cli, "commercial_id", None)
+                except Exception:
+                    client_rh_id = None
     except Exception:
         pass
 
@@ -15378,33 +15643,39 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     from src.models.evenement import Evenement
     from src.models.type_evenement import TypeEvenement
     OPEN_STATES = ("termine", "terminé", "cloture", "clôturé", "cloturé", "clôture", "annule", "annulé")
-    q = (
-        db.query(
-            Evenement.id,
-            Evenement.date_evenement,
-            Evenement.statut,
-            Evenement.commentaire,
-            Evenement.type_id,
-            TypeEvenement.libelle.label("type_libelle"),
-            TypeEvenement.categorie.label("type_categorie"),
-            Evenement.statut_reclamation_id,
-            EvenementStatutReclamation.libelle.label("statut_reclamation_libelle"),
-        )
-        .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
-        .outerjoin(
-            EvenementStatutReclamation,
-            EvenementStatutReclamation.id == Evenement.statut_reclamation_id,
-        )
-        .filter(Evenement.affaire_id == affaire_id)
-        .filter(
-            or_(
-                Evenement.statut.is_(None),
-                func.lower(Evenement.statut).notin_(OPEN_STATES),
-            )
-        )
-        .order_by(Evenement.date_evenement.desc())
-    )
-    aff_events_open = q.all()
+    try:
+        aff_events_open = db.execute(
+            text(
+                """
+                SELECT
+                    e.id AS id,
+                    e.id AS evenement_id,
+                    e.client_id,
+                    e.affaire_id,
+                    e.date_evenement,
+                    e.statut,
+                    e.commentaire,
+                    e.utilisateur_responsable,
+                    e.rh_id,
+                    e.statut_reclamation_id,
+                    te.libelle AS type_libelle,
+                    te.categorie AS type_categorie,
+                    esr.libelle AS statut_reclamation_libelle
+                FROM mariadb_evenement e
+                JOIN mariadb_type_evenement te ON te.id = e.type_id
+                LEFT JOIN mariadb_evenement_statut_reclamation esr ON esr.id = e.statut_reclamation_id
+                WHERE e.affaire_id = :aid
+                  AND (
+                    e.statut IS NULL OR LOWER(e.statut) NOT IN ('termine','terminé','cloture','clôturé','cloturé','clôture','annule','annulé')
+                  )
+                ORDER BY e.date_evenement DESC
+                """
+            ),
+            {"aid": affaire_id},
+        ).fetchall()
+    except Exception as exc:
+        logger.exception("affaire_events_open query failed", exc_info=exc)
+        aff_events_open = []
     def _norm_cat(s: str | None) -> str:
         if not s:
             return ""
@@ -15422,12 +15693,28 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             msgs_reg_count += 1
         else:
             msgs_nonreg_count += 1
+        mp = getattr(r, "_mapping", {})
+        eid_raw = mp.get("id") if isinstance(mp, dict) else None
+        eid_alt = mp.get("evenement_id") if isinstance(mp, dict) else None
+        if eid_raw is None:
+            try:
+                eid_raw = getattr(r, "id", None)
+            except Exception:
+                eid_raw = None
+        if eid_alt is None:
+            try:
+                eid_alt = getattr(r, "evenement_id", None)
+            except Exception:
+                eid_alt = None
+        eid_int = eid_raw if eid_raw is not None else eid_alt
         try:
             dstr = r.date_evenement.strftime("%Y-%m-%d %H:%M") if getattr(r, 'date_evenement', None) else None
         except Exception:
             dstr = str(getattr(r, 'date_evenement', None))[:16] if getattr(r, 'date_evenement', None) else None
         affaire_events_open.append({
-            "id": getattr(r, 'id', None),
+            "id": eid_raw,
+            "evenement_id": eid_alt,
+            "id_resolved": eid_int,
             "date_evenement": dstr,
             "statut": getattr(r, 'statut', None),
             "commentaire": getattr(r, 'commentaire', None),
@@ -15561,6 +15848,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "client_id": client_id,
             "client_nom": client_nom,
             "client_prenom": client_prenom,
+            "client_rh_id": client_rh_id,
             # Tâches: assistance création locale
             "types": types,
             "categories": cats,
@@ -16914,6 +17202,15 @@ def dashboard_taches(
     possible_rh_keys = ('rh_id', 'rhId', 'responsable_id', 'responsableId', 'responsable_rh_id', 'responsableRhId')
     for r in items:
         base = dict(getattr(r, '_mapping', r))
+        # Assure un identifiant numérique pour les liens /dashboard/taches/<id>; skip sinon
+        eid_raw = base.get('evenement_id') if 'evenement_id' in base else base.get('id')
+        try:
+            eid_int = int(eid_raw)
+        except Exception:
+            eid_int = None
+        if eid_int is None:
+            continue
+        base['evenement_id'] = eid_int
         base['nom_client'] = clients_map_full.get(base.get('client_id'))
         base['affaire_ref'] = affaires_map_ref.get(base.get('affaire_id'))
         rh_id_val = None
@@ -18870,34 +19167,39 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     from src.models.type_evenement import TypeEvenement
     # Statuts ouverts: différent de terminé/annulé/clos
     OPEN_STATES = ("termine", "terminé", "cloture", "clôturé", "cloturé", "clôture", "annule", "annulé")
-    q = (
-        db.query(
-            Evenement.id,
-            Evenement.date_evenement,
-            Evenement.statut,
-            Evenement.commentaire,
-            Evenement.type_id,
-            Evenement.affaire_id,
-            Evenement.statut_reclamation_id,
-            TypeEvenement.libelle.label("type_libelle"),
-            TypeEvenement.categorie.label("type_categorie"),
-            EvenementStatutReclamation.libelle.label("statut_reclamation_libelle"),
-        )
-        .join(TypeEvenement, TypeEvenement.id == Evenement.type_id)
-        .outerjoin(
-            EvenementStatutReclamation,
-            EvenementStatutReclamation.id == Evenement.statut_reclamation_id,
-        )
-        .filter(Evenement.client_id == client_id)
-        .filter(
-            or_(
-                Evenement.statut.is_(None),
-                func.lower(Evenement.statut).notin_(OPEN_STATES),
-            )
-        )
-        .order_by(Evenement.date_evenement.desc())
-    )
-    events_open = q.all()
+    try:
+        events_open = db.execute(
+            text(
+                """
+                SELECT
+                    e.id AS id,
+                    e.id AS evenement_id,
+                    e.client_id,
+                    e.affaire_id,
+                    e.date_evenement,
+                    e.statut,
+                    e.commentaire,
+                    e.utilisateur_responsable,
+                    e.rh_id,
+                    e.statut_reclamation_id,
+                    te.libelle AS type_libelle,
+                    te.categorie AS type_categorie,
+                    esr.libelle AS statut_reclamation_libelle
+                FROM mariadb_evenement e
+                JOIN mariadb_type_evenement te ON te.id = e.type_id
+                LEFT JOIN mariadb_evenement_statut_reclamation esr ON esr.id = e.statut_reclamation_id
+                WHERE e.client_id = :cid
+                  AND (
+                    e.statut IS NULL OR LOWER(e.statut) NOT IN ('termine','terminé','cloture','clôturé','cloturé','clôture','annule','annulé')
+                  )
+                ORDER BY e.date_evenement DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+    except Exception as exc:
+        logger.exception("client_events_open query failed", exc_info=exc)
+        events_open = []
     # Map affaire_id -> ref
     _aff_ref = {a.id: getattr(a, 'ref', None) for a in aff_rows}
     def _norm_cat(s: str | None) -> str:
@@ -18917,13 +19219,29 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             msgs_reg_count += 1
         else:
             msgs_nonreg_count += 1
+        mp = getattr(r, "_mapping", {})
+        eid_raw = mp.get("id") if isinstance(mp, dict) else None
+        eid_alt = mp.get("evenement_id") if isinstance(mp, dict) else None
+        if eid_raw is None:
+            try:
+                eid_raw = getattr(r, "id", None)
+            except Exception:
+                eid_raw = None
+        if eid_alt is None:
+            try:
+                eid_alt = getattr(r, "evenement_id", None)
+            except Exception:
+                eid_alt = None
+        eid_int = eid_raw if eid_raw is not None else eid_alt
         # Safe date formatting
         try:
             dstr = r.date_evenement.strftime("%Y-%m-%d %H:%M") if getattr(r, 'date_evenement', None) else None
         except Exception:
             dstr = str(getattr(r, 'date_evenement', None))[:16] if getattr(r, 'date_evenement', None) else None
         client_events_open.append({
-            "id": getattr(r, 'id', None),
+            "id": eid_raw,
+            "evenement_id": eid_alt,
+            "id_resolved": eid_int,
             "date_evenement": dstr,
             "statut": getattr(r, 'statut', None),
             "commentaire": getattr(r, 'commentaire', None),
@@ -20002,6 +20320,18 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
             return None
     items: list[dict] = []
     for row in rows:
+        # Identifiant obligatoire pour le clic calendrier : ignorer les entrées sans id
+        eid_raw = None
+        if hasattr(row, "evenement_id"):
+            eid_raw = getattr(row, "evenement_id", None)
+        if eid_raw is None and hasattr(row, "id"):
+            eid_raw = getattr(row, "id", None)
+        try:
+            eid_int = int(eid_raw)
+        except Exception:
+            eid_int = None
+        if eid_int is None:
+            continue
         rh_raw = getattr(row, "rh_id", None)
         try:
             rh_int = int(rh_raw) if rh_raw is not None else None
@@ -20012,7 +20342,7 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
         client_nom = clients_map_full.get(client_id_val) or getattr(row, "nom_client", None)
         affaire_ref = affaires_map_ref.get(affaire_id_val) or getattr(row, "ref_affaire", None)
         items.append({
-            "id": row.evenement_id if hasattr(row, "evenement_id") else row.id,
+            "id": eid_int,
             "title": (_col(row, "type_evenement") or _col(row, "commentaire") or "Tâche"),
             "start": _to_iso_date(getattr(row, "date_evenement", None)),
             "end": _to_iso_date(getattr(row, "date_evenement", None)),

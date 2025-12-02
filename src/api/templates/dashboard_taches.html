@@ -413,6 +413,32 @@
         }
         updateAffairesDatalist();
       })();
+      // Prefill from URL ?client_fullname=...&affaire_ref=...&rh_id=...
+      (function prefillFromUrl(){
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const clientVal = params.get('client_fullname');
+          const affaireVal = params.get('affaire_ref');
+          const rhVal = params.get('rh_id');
+          const clientInput = document.querySelector('input[name="client_fullname"]');
+          const affaireInput = document.querySelector('input[name="affaire_ref"]');
+          const rhSelect = document.querySelector('select[name="rh_id"]');
+          if (clientVal && clientInput){
+            clientInput.value = clientVal;
+          }
+          if (affaireVal && affaireInput){
+            affaireInput.value = affaireVal;
+          }
+          if (rhVal && rhSelect){
+            rhSelect.value = rhVal;
+          }
+          updateAffairesDatalist();
+          // Si prérempli depuis une fiche, ouvrir directement la section création
+          if (clientVal || affaireVal || rhVal){
+            window.__prefillOpenTacheForm = true;
+          }
+        } catch(e){}
+      })();
       function selectInitialStatus(btn){
         const sid = btn.getAttribute('data-sid');
         const key = btn.getAttribute('data-key');
@@ -1428,6 +1454,15 @@
     window.toggleCalendarAccordion = function(){ setSectionOpen('calendarCard'); };
     window.toggleReclamPivot = function(){ setSectionOpen('reclamCard'); };
     // Section par défaut au chargement
-    document.addEventListener('DOMContentLoaded', function(){ setSectionOpen('tasksSummaryCard'); });
+    document.addEventListener('DOMContentLoaded', function(){
+      if (window.__prefillOpenTacheForm){
+        setSectionOpen('tacheFormCard');
+        try {
+          document.getElementById('tache_accordion_body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch(e){}
+      } else {
+        setSectionOpen('tasksSummaryCard');
+      }
+    });
   </script>
 {% endblock %}

@@ -280,6 +280,11 @@
           <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_reg_count }}</span>
         </button>
       {% endif %}
+      {% if client %}
+        <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientTaskPage()" title="Créer une tâche pour ce client">
+          <i class="fa-solid fa-plus"></i><span>Créer une tâche</span>
+        </button>
+      {% endif %}
       <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientAdminGroups()" title="Groupes">
         <i class="fa-solid fa-gear"></i>
       </button>
@@ -428,6 +433,20 @@ function openClientAdminGroups(){
   console.log('[Admin][Client] open modal for client_id=', CLIENT_ID);
   loadClientGroups();
 }
+function openClientTaskPage(){
+  if (!CLIENT_ID){
+    alert('Client introuvable.');
+    return;
+  }
+  var params = new URLSearchParams();
+  var fullname = '{{ (client.nom or "") ~ " " ~ (client.prenom or "") if client else "" }}'.trim();
+  if (fullname) params.set('client_fullname', fullname);
+  var rhId = '{{ client.commercial_id if client and client.commercial_id is not none else "" }}';
+  if (rhId) params.set('rh_id', rhId);
+  if (CL_MARKERS_PARAM){ params.set('markers', '1'); }
+  var url = '/dashboard/taches' + (params.toString() ? ('?' + params.toString()) : '');
+  window.open(url, '_blank', 'noopener');
+}
 
 function generateClientSynthese(){
   if (!CLIENT_ID){
@@ -544,6 +563,7 @@ function generateClientSynthese(){
     }
   </script>
 </div>
+
 
 <!-- Modale dédiée: Lettre de Mission -->
 <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
@@ -803,13 +823,15 @@ function generateClientSynthese(){
     .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
     /* Harmonisation colonnes pop-up Messages */
     #clientMsgsTable { table-layout: fixed; width: 100%; }
-    #clientMsgsTable th:nth-child(1), #clientMsgsTable td:nth-child(1) { width: 12%; }
-    #clientMsgsTable th:nth-child(2), #clientMsgsTable td:nth-child(2) { width: 16%; }
-    #clientMsgsTable th:nth-child(3), #clientMsgsTable td:nth-child(3) { width: 14%; }
-    #clientMsgsTable th:nth-child(4), #clientMsgsTable td:nth-child(4) { width: 12%; }
+    #clientMsgsTable th:nth-child(1), #clientMsgsTable td:nth-child(1) { width: 13%; }
+    #clientMsgsTable th:nth-child(2), #clientMsgsTable td:nth-child(2) { width: 15%; }
+    #clientMsgsTable th:nth-child(3), #clientMsgsTable td:nth-child(3) { width: 12%; }
+    #clientMsgsTable th:nth-child(4), #clientMsgsTable td:nth-child(4) { width: 10%; }
     #clientMsgsTable th:nth-child(5), #clientMsgsTable td:nth-child(5) { width: 12%; }
-    #clientMsgsTable th:nth-child(6), #clientMsgsTable td:nth-child(6) { width: 26%; }
-    #clientMsgsTable th:nth-child(7), #clientMsgsTable td:nth-child(7) { width: 8%; text-align:center; }
+    #clientMsgsTable th:nth-child(6), #clientMsgsTable td:nth-child(6) { width: 24%; }
+    #clientMsgsTable th:nth-child(7), #clientMsgsTable td:nth-child(7) { width: 10%; text-align:center; }
+    #clientMsgsTable th:nth-child(8), #clientMsgsTable td:nth-child(8) { width: 10%; text-align:center; }
+    #clientMsgsTable th:nth-child(9), #clientMsgsTable td:nth-child(9) { width: 10%; text-align:center; }
     #clientMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #clientMsgsTable td:nth-child(6) { white-space: normal; word-break: break-word; }
   </style>
@@ -822,15 +844,17 @@ function generateClientSynthese(){
       <div class="modal-body">
         <table id="clientMsgsTable">
           <thead>
-            <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Catégorie</th>
-              <th>Statut</th>
-              <th>Contrat</th>
-              <th>Commentaire</th>
-              <th>Action</th>
-            </tr>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Catégorie</th>
+            <th>Statut</th>
+            <th>Contrat</th>
+            <th>Commentaire</th>
+            <th>ID (row.id)</th>
+            <th>ID (evenement_id)</th>
+            <th>Action</th>
+          </tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -1406,6 +1430,7 @@ function openClientMsgs(kind){
     } catch(e){}
   }
   rows.forEach(ev => {
+    const evId = ev.id_resolved ?? ev.id ?? ev.evenement_id ?? ev.event_id ?? ev.evenementId ?? ev.eventId;
     const tr = document.createElement('tr');
     function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
     tr.appendChild(td(ev.date_evenement||''));
@@ -1416,9 +1441,16 @@ function openClientMsgs(kind){
     sb.className = 'btn btn-choice';
     sb.textContent = ev.statut || 'à faire';
     sb.style.cssText = 'padding:2px 6px; font-size:11px; border-radius:4px; ' + statusStyle(ev.statut||'');
-    sb.href = appendMarkers('/dashboard/taches/' + (ev.id||''));
-    sb.target = '_blank';
-    sb.rel = 'noopener noreferrer';
+    if (ev.id){
+      sb.href = appendMarkers('/dashboard/taches/' + ev.id);
+      sb.target = '_blank';
+      sb.rel = 'noopener noreferrer';
+    } else {
+      sb.href = '#';
+      sb.title = 'Tâche sans identifiant';
+      sb.style.opacity = '0.6';
+      sb.style.pointerEvents = 'none';
+    }
     statTd.appendChild(sb);
     if (ev.statut_reclamation_label){
       const rec = document.createElement('div');
@@ -1433,8 +1465,8 @@ function openClientMsgs(kind){
     const ctd = document.createElement('td');
     const full = String(ev.commentaire||'');
     const short = full.slice(0, 180);
-    const sid = 'ccl-short-' + (ev.id||Math.random());
-    const fid = 'ccl-full-' + (ev.id||Math.random());
+    const sid = 'ccl-short-' + (evId||Math.random());
+    const fid = 'ccl-full-' + (evId||Math.random());
     const sdiv = document.createElement('div'); sdiv.id=sid; sdiv.style.whiteSpace='pre-wrap'; if (full.length <= 180) sdiv.style.display='none'; sdiv.textContent = short + (full.length>180 ? '…' : '');
     const fdiv = document.createElement('div'); fdiv.id=fid; fdiv.style.whiteSpace='pre-wrap'; if (full.length > 180) fdiv.style.display='none'; fdiv.textContent = full;
     ctd.appendChild(sdiv); ctd.appendChild(fdiv);
@@ -1444,13 +1476,28 @@ function openClientMsgs(kind){
       const wrap=document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);
     }
     tr.appendChild(ctd);
+    const idRawTd = document.createElement('td');
+    idRawTd.textContent = (ev && ev.id != null && ev.id !== '') ? ev.id : '—';
+    const idAltTd = document.createElement('td');
+    idAltTd.textContent = (ev && ev.evenement_id != null && ev.evenement_id !== '') ? ev.evenement_id : '—';
+    tr.appendChild(idRawTd);
+    tr.appendChild(idAltTd);
+
     const actionTd = document.createElement('td');
-    const editBtn = document.createElement('button');
-    editBtn.type='button'; editBtn.className='btn btn-choice';
-    editBtn.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
-    editBtn.innerHTML = '<i class=\"fa-solid fa-eye\"></i>';
-    editBtn.addEventListener('click', function(){ openTaskEditPopup(ev.id); });
-    actionTd.appendChild(editBtn);
+    if (evId){
+      const editLink = document.createElement('a');
+      editLink.className='btn btn-choice';
+      editLink.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
+      editLink.innerHTML = '<i class=\"fa-solid fa-eye\"></i>';
+      editLink.href = appendMarkers('/dashboard/taches/' + evId);
+      editLink.target = '_blank';
+      editLink.rel = 'noopener noreferrer';
+      editLink.addEventListener('click', function(e){ e.stopPropagation(); });
+      actionTd.appendChild(editLink);
+    } else {
+      actionTd.textContent = '—';
+      actionTd.style.textAlign = 'center';
+    }
     tr.appendChild(actionTd);
     tbody.appendChild(tr);
   });

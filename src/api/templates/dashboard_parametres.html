@@ -1518,7 +1518,8 @@
           #groupViewMembers th:nth-child(2), #groupViewMembers td:nth-child(2) {
             max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
           }
-          #groupViewMembers th:nth-child(3), #groupViewMembers td:nth-child(3) { text-align: center; }
+  #groupViewMembers th:nth-child(3), #groupViewMembers td:nth-child(3) { text-align: center; }
+  #gt_run_btn i { color: #fff; }
         </style>
         <div id="groupViewModal" onclick="if(event.target===this) this.style.display='none'">
           <div class="modal-card">
@@ -1604,7 +1605,7 @@
           </div>
         </div>
         <script>
-          async function openGroupView(key, by){
+          async function openGroupView(key, by, focusTasks){
             const modal = document.getElementById('groupViewModal');
             if (!key){ return; }
             try {
@@ -1619,6 +1620,11 @@
               const fin = document.getElementById('gv_fin'); fin.setAttribute('data-iso', d.date_fin || ''); fin.textContent = d.date_fin || '';
               document.getElementById('gv_actif').textContent = (String(d.actif) === '1' || String(d.actif).toLowerCase()==='true') ? 'Oui' : 'Non';
               document.getElementById('gv_motif').textContent = d.motif || '';
+              try {
+                var rhSel = document.getElementById('gt_rh');
+                if (rhSel && d.responsable_id){ rhSel.value = d.responsable_id; }
+                else if (rhSel){ rhSel.value = ''; }
+              } catch(e){}
               // Préselection type list en fonction de la catégorie
               try {
                 const catSel = document.getElementById('gt_cat');
@@ -1628,15 +1634,24 @@
                     { libelle: {{ t.libelle|tojson }}, categorie: {{ t.categorie|tojson }} },
                   {% endfor %}
                 ];
+                // Remplir les catégories
+                (function fillCategories(){
+                  catSel.innerHTML = '';
+                  const o0=document.createElement('option'); o0.value=''; o0.textContent='-- choisir --'; catSel.appendChild(o0);
+                  const cats = [...new Set(TYPES.map(t=>t.categorie).filter(Boolean))].sort();
+                  cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; catSel.appendChild(o); });
+                })();
+                // Sync types selon catégorie
                 function syncTypes(){
                   typeSel.innerHTML = '';
-                  if (!catSel.value){ const o=document.createElement('option'); o.value=''; o.textContent='-- choisir une catégorie --'; typeSel.appendChild(o); return; }
+                  const o0=document.createElement('option'); o0.value=''; o0.textContent='-- choisir une catégorie --'; typeSel.appendChild(o0);
+                  if (!catSel.value){ return; }
                   const opts = TYPES.filter(t=>t.categorie===catSel.value).map(t=>t.libelle);
                   opts.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; typeSel.appendChild(o); });
                 }
                 catSel.removeEventListener('change', catSel.__syncTypes || (()=>{}));
                 catSel.__syncTypes = syncTypes; catSel.addEventListener('change', syncTypes);
-                if (catSel.value) syncTypes();
+                syncTypes();
               } catch(e){}
 
               // Charger le journal + état actif
@@ -1682,6 +1697,9 @@
                 });
               })(); } catch(e){}
               modal.style.display = 'flex';
+              if (focusTasks){
+                try { document.getElementById('gt_cat')?.focus(); } catch(e){}
+              }
             } catch (e) {
               console.error(e);
               alert('Erreur lors du chargement des données du groupe');
@@ -1718,13 +1736,16 @@
                 const rh = document.getElementById('gt_rh').value || '';
                 const payload = { categorie: cat||null, type_libelle: typ||null, statut_id: sid? Number(sid): null, commentaire: comm||null, actifs_only: !!activeOnly, rh_id: rh? Number(rh): null };
                 const ep = sim ? '/simulate' : '/run';
-                btn.disabled = true; resSpan.textContent = sim? 'Simulation…' : 'Création…';
+                btn.disabled = true;
+                resSpan.textContent = sim ? 'Simulation en cours…' : 'Création en cours…';
+                try { console.log('[GroupTasks] envoi', payload); } catch(e){}
                 try{
                   const r = await fetch('/dashboard/parametres/administration/groupes/'+encodeURIComponent(key)+'/tasks'+ep+(by?('?by='+encodeURIComponent(by)):'') , { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
                   const out = await r.json();
                   if (!r.ok) throw new Error(out.detail || ('HTTP '+r.status));
                   resSpan.textContent = (sim? 'Simulé: ' : 'Créé: ') + (out.created||0) + ' / ' + (out.total||0) + (out.ignored? (' (ignorés: '+out.ignored+')') : '');
                   loadGroupTaskLogs(key, by);
+                  try { document.getElementById('groupViewModal').style.display='none'; } catch(e){}
                 } catch(e){ resSpan.textContent = 'Erreur: ' + (e.message||e); }
                 finally { btn.disabled = false; }
               };
@@ -1792,6 +1813,7 @@
               </td>
               <td class="center actions-cell">
                 <button class="btn btn-list btn-list-primary" type="button" title="Voir" onclick="openGroupView({{ rowkey }})"><i class="fa-solid fa-eye"></i></button>
+                <button class="btn btn-list btn-list-primary" type="button" title="Tâches groupées" onclick="openGroupView({{ rowkey }}, null, true)"><i class="fa-solid fa-list-check"></i></button>
                 <button class="btn btn-list btn-list-primary" type="submit" form="grp-{{ rowkey }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
                 <form method="post" action="/dashboard/parametres/administration/groupes/{{ rowkey }}/delete?open=administration_groupes" style="display:inline;" onsubmit="return confirm('Supprimer ce groupe ?\nLes liens d’adhésion seront aussi supprimés.');">
                   <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
