@@ -1,0 +1,303 @@
+<div id="groupedTasksModalBackdrop" class="grouped-tasks-backdrop" style="display:none;">
+  <div class="grouped-tasks-dialog">
+    <div class="grouped-tasks-header">
+      <h3 id="groupedTasksTitle" style="margin:0;">Créer des tâches groupées</h3>
+      <button type="button" class="grouped-tasks-close" aria-label="Fermer" onclick="GroupedTasksModal.close()">×</button>
+    </div>
+    <div class="grouped-tasks-body">
+      <div id="groupedTasksContext" class="grouped-tasks-context">
+        <div class="gt-row">
+          <span class="gt-label">Population ciblée</span>
+          <span class="gt-badge" id="groupedTasksScope">—</span>
+        </div>
+        <div class="gt-row">
+          <span class="gt-label">Filtres actifs</span>
+          <div class="gt-filters" id="groupedTasksFilters">—</div>
+        </div>
+        <div class="gt-row">
+          <span class="gt-label">Éléments concernés</span>
+          <div id="groupedTasksCounter" class="gt-counter">?</div>
+        </div>
+        <div class="gt-alert" id="groupedTasksAlert" style="display:none;"></div>
+      </div>
+
+      <form id="groupedTasksForm" onsubmit="return false;" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+        <div class="gt-field">
+          <label for="gtCategory">Catégorie</label>
+          <select id="gtCategory">
+            <option value="tache" selected>Tâche</option>
+          </select>
+        </div>
+        <div class="gt-field">
+          <label for="gtType">Type de tâche</label>
+          <select id="gtType" required></select>
+        </div>
+        <div class="gt-field">
+          <label for="gtResp">Responsable</label>
+          <select id="gtResp">
+            <option value="">Choisir…</option>
+          </select>
+        </div>
+        <div class="gt-row-inline">
+          <div class="gt-field">
+            <label for="gtDeadline">Échéance</label>
+            <input id="gtDeadline" type="date" />
+          </div>
+          <div class="gt-field">
+            <label for="gtPriority">Priorité</label>
+            <select id="gtPriority">
+              <option value="">Standard</option>
+              <option value="haute">Haute</option>
+              <option value="basse">Basse</option>
+            </select>
+          </div>
+        </div>
+        <div class="gt-field">
+          <label for="gtComment">Description</label>
+          <textarea id="gtComment" rows="3" placeholder="Contexte / instructions (optionnel)"></textarea>
+        </div>
+        <label class="gt-checkbox">
+          <input id="gtNotify" type="checkbox" />
+          <span>Notifier par email (si applicable)</span>
+        </label>
+      </form>
+    </div>
+    <div class="grouped-tasks-footer">
+      <button type="button" class="btn" onclick="GroupedTasksModal.close()">Annuler</button>
+      <button type="button" class="btn btn-primary" id="groupedTasksSubmit">Créer les tâches groupées</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .grouped-tasks-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    z-index: 2200;
+  }
+  .grouped-tasks-dialog {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    width: min(640px, 95vw);
+    max-width: 640px;
+    box-shadow: 0 15px 30px rgba(15,23,42,0.2);
+    position: relative;
+  }
+  .grouped-tasks-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .grouped-tasks-close {
+    border: none;
+    background: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: var(--muted, #475569);
+  }
+  .grouped-tasks-body { margin-top: 8px; }
+  .grouped-tasks-context {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gt-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .gt-row-inline { display:flex; gap:12px; flex-wrap:wrap; }
+  .gt-label { font-weight:700; color:#0f172a; min-width:120px; }
+  .gt-badge {
+    display:inline-flex; align-items:center; padding:4px 10px;
+    border-radius:999px; background:#eef2ff; color:#1d4ed8;
+    border:1px solid #c7d2fe; font-weight:700; font-size:.9rem;
+  }
+  .gt-filters { color:#1f2937; font-size:.95rem; }
+  .gt-counter { font-weight:800; color:#0f172a; }
+  .gt-alert {
+    background:#fef2f2; color:#b91c1c; border:1px solid #fecdd3;
+    border-radius:8px; padding:8px 10px; font-size:.9rem;
+  }
+  .gt-field { display:flex; flex-direction:column; gap:4px; flex:1 1 0; min-width:200px; }
+  .gt-field input, .gt-field select, .gt-field textarea {
+    border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; font-size:14px; width:100%;
+  }
+  .gt-checkbox { display:flex; align-items:center; gap:8px; font-size:.95rem; color:#0f172a; }
+  .grouped-tasks-footer { margin-top:12px; display:flex; justify-content:flex-end; gap:10px; }
+</style>
+
+<script>
+(function(){
+  if (window.GroupedTasksModal) return;
+  const LOG_PREFIX = "[GroupedTasks]";
+  function log(){ try{ console.info.apply(console, [LOG_PREFIX, ...arguments]); }catch(e){} }
+  function logError(){ try{ console.error.apply(console, [LOG_PREFIX, ...arguments]); }catch(e){} }
+
+  const modal = document.getElementById('groupedTasksModalBackdrop');
+  const titleEl = document.getElementById('groupedTasksTitle');
+  const scopeEl = document.getElementById('groupedTasksScope');
+  const filtersEl = document.getElementById('groupedTasksFilters');
+  const counterEl = document.getElementById('groupedTasksCounter');
+  const alertEl = document.getElementById('groupedTasksAlert');
+  const selectType = document.getElementById('gtType');
+  const selectCategory = document.getElementById('gtCategory');
+  const selectResp = document.getElementById('gtResp');
+  const inputDeadline = document.getElementById('gtDeadline');
+  const selectPriority = document.getElementById('gtPriority');
+  const inputComment = document.getElementById('gtComment');
+  const inputNotify = document.getElementById('gtNotify');
+  const submitBtn = document.getElementById('groupedTasksSubmit');
+
+  const state = { scope: null, ids: [], taskTypes: [], responsables: [], filtersSummary: "" };
+
+  function setAlert(msg){ if(!alertEl) return; alertEl.textContent = msg || ""; alertEl.style.display = msg ? "" : "none"; }
+  function setCounter(text){ if(counterEl) counterEl.textContent = text; }
+  function setLoadingCounter(){ setCounter("…"); }
+  function close(){
+    if (!modal) return;
+    modal.style.display = "none";
+    document.body.style.overflow = "";
+  }
+  function fillSelect(select, options, placeholder){
+    if (!select) return;
+    select.innerHTML = "";
+    if (placeholder) {
+      const opt = document.createElement('option');
+      opt.value = "";
+      opt.textContent = placeholder;
+      select.appendChild(opt);
+    }
+    (options || []).forEach(function(o){
+      const opt = document.createElement('option');
+      opt.value = (o && o.value !== undefined && o.value !== null) ? o.value : ((o && o.id !== undefined && o.id !== null) ? o.id : "");
+      opt.textContent = (o && o.label !== undefined && o.label !== null) ? o.label : "";
+      select.appendChild(opt);
+    });
+  }
+  function previewCount(){
+    if (!state.ids || !state.ids.length){
+      setAlert("Aucune ligne filtrée.");
+      return;
+    }
+    setAlert("");
+    setLoadingCounter();
+    log("preview: start", { scope: state.scope, ids: state.ids.length });
+    fetch('/dashboard/grouped_tasks/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: state.scope, ids: state.ids })
+    }).then(function(resp){
+      if (!resp.ok) throw new Error('HTTP '+resp.status);
+      return resp.json();
+    }).then(function(payload){
+      const c = payload && payload.count;
+      setCounter(typeof c === 'number' ? (c + " éléments") : "?");
+      log("preview: success", payload);
+    }).catch(function(err){
+      setAlert("Impossible de récupérer le compteur.");
+      setCounter("?");
+      logError("preview: error", err);
+    });
+  }
+  function submit(){
+    if (!state.ids || !state.ids.length){
+      setAlert("Aucune ligne filtrée.");
+      return;
+    }
+    setAlert("");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Création...";
+    const payload = {
+      scope: state.scope,
+      ids: state.ids,
+      type_libelle: selectType ? selectType.value || "tâche" : "tâche",
+      categorie: selectCategory ? (selectCategory.value || "tache") : "tache",
+      responsable_id: selectResp ? (selectResp.value ? Number(selectResp.value) : null) : null,
+      deadline: inputDeadline && inputDeadline.value ? inputDeadline.value : null,
+      priorite: selectPriority ? (selectPriority.value || null) : null,
+      commentaire: inputComment ? (inputComment.value || null) : null,
+      notify_email: inputNotify ? !!inputNotify.checked : false
+    };
+    log("create: start", payload);
+    fetch('/dashboard/grouped_tasks/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(resp){
+      if (!resp.ok) throw new Error('HTTP '+resp.status);
+      return resp.json();
+    }).then(function(data){
+      log("create: success", data);
+      setAlert("");
+      submitBtn.textContent = "Créé ✔";
+      setTimeout(close, 600);
+    }).catch(function(err){
+      logError("create: error", err);
+      setAlert("Erreur lors de la création des tâches groupées.");
+      submitBtn.textContent = "Créer les tâches groupées";
+    }).finally(function(){
+      submitBtn.disabled = false;
+    });
+  }
+
+  function open(opts){
+    state.scope = opts && opts.scope || "clients";
+    state.ids = (opts && opts.ids) ? opts.ids.slice() : [];
+    state.taskTypes = opts && opts.taskTypes || [];
+    state.responsables = opts && opts.responsables || [];
+    state.filtersSummary = opts && opts.filtersSummary || "Filtres appliqués";
+    if (titleEl) titleEl.textContent = opts && opts.title ? opts.title : "Créer des tâches groupées";
+    if (scopeEl) scopeEl.textContent = state.scope === "affaires" ? "Affaires filtrées" : "Clients filtrés";
+    if (filtersEl) filtersEl.textContent = state.filtersSummary || "—";
+    // Catégories en premier, puis filtrage des types selon catégorie
+    var catSet = {};
+    (state.taskTypes || []).forEach(function(t){
+      var c = t && t.categorie ? String(t.categorie) : 'tache';
+      catSet[c] = true;
+    });
+    var cats = Object.keys(catSet).map(function(c){ return { value: c, label: c || 'tache' }; });
+    if (!cats.length) cats = [{ value: 'tache', label: 'tache' }];
+    fillSelect(selectCategory, cats, null);
+    // Types filtrés par catégorie sélectionnée
+    var selectedCat = (selectCategory && selectCategory.value) || (cats[0] && cats[0].value) || 'tache';
+    var filteredTypes = (state.taskTypes || []).filter(function(t){
+      var c = t && t.categorie ? String(t.categorie) : 'tache';
+      return c === selectedCat;
+    }).map(function(t){ return { value: t.label, label: t.label, categorie: t.categorie }; });
+    if (!filteredTypes.length) filteredTypes = [{ value: 'tâche', label: 'tâche', categorie: selectedCat }];
+    fillSelect(selectType, filteredTypes, null);
+    if (selectCategory){
+      selectCategory.onchange = function(){
+        var cat = selectCategory.value || 'tache';
+        var typesForCat = (state.taskTypes || []).filter(function(t){
+          var c = t && t.categorie ? String(t.categorie) : 'tache';
+          return c === cat;
+        }).map(function(t){ return { value: t.label, label: t.label, categorie: t.categorie }; });
+        if (!typesForCat.length) typesForCat = [{ value: 'tâche', label: 'tâche', categorie: cat }];
+        fillSelect(selectType, typesForCat, null);
+      };
+    }
+    fillSelect(selectResp, (state.responsables || []).map(function(r){ return { value: r.id, label: r.label }; }), "Choisir…");
+    if (inputComment) inputComment.value = "";
+    if (inputDeadline) inputDeadline.value = "";
+    if (selectPriority) selectPriority.value = "";
+    if (inputNotify) inputNotify.checked = false;
+    if (modal) {
+      modal.style.display = "flex";
+      document.body.style.overflow = "hidden";
+    }
+    previewCount();
+  }
+
+  if (submitBtn) submitBtn.addEventListener('click', submit);
+  window.GroupedTasksModal = { open, close, log };
+})();
+</script>

@@ -123,6 +123,10 @@
         </div>
       {% endif %}
     </div>
+    <div class="toolbar" id="affairesGroupActions" style="display:none; margin-bottom:8px;">
+      <div class="muted">Créer des tâches groupées sur la sélection filtrée.</div>
+      <button class="btn btn-primary" type="button" id="btnGroupedTasksAffaires">Créer des tâches groupées</button>
+    </div>
 
     <!-- Accordéon: Risque rapide -->
     <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
@@ -219,6 +223,8 @@
     </div>
 </div>
 
+{% include "fragments/grouped_tasks_modal.html" %}
+
 <!-- jQuery + DataTables -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
@@ -234,6 +240,17 @@
 <script>
 // Chart.js: couleur par défaut (axes/labels) = bleu CSS
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+
+const groupedTasksCfgAff = {
+  scope: 'affaires',
+  taskTypes: {{ grouped_task_types | tojson }},
+  responsables: {{ responsables | tojson }},
+  hasServerFilter: {{ 'true' if (total_affaires_filtered|default(0)) < (total_affaires|default(0)) else 'false' }},
+  groupFilterActive: {{ 'true' if group_filter_label else 'false' }}
+};
+const actionsBarAff = document.getElementById('affairesGroupActions');
+const btnGroupedAff = document.getElementById('btnGroupedTasksAffaires');
+
 $(document).ready(function () {
     var table = $('#affairesTable').DataTable({
         dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
@@ -272,7 +289,9 @@ $(document).ready(function () {
         $('#srri-icon-filter').val('');
         table.search('');
         for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
+        $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__aff_advanced; });
         table.draw();
+        updateGroupedButtonVisibilityAff();
     };
 
     // Pagination côté serveur (préserve les autres paramètres de requête)
@@ -438,7 +457,79 @@ $(document).ready(function () {
       if (last) last.__aff_advanced = true;
       table.draw();
     }
+
+    function gatherFiltersSummaryAff(){
+      var parts = [];
+      var vRef = $('#contrat-filter').val();
+      var vSrri = $('#srri-icon-filter').val();
+      var vDate = $('#date-debut-filter').val();
+      var vMontant = $('#montant-filter').val();
+      var vPerf = $('#perf-filter').val();
+      var vVol = $('#volat-filter').val();
+      if (vRef) parts.push('Contrat: ' + vRef);
+      if (vSrri) parts.push('SRRI: ' + vSrri);
+      if (vDate) parts.push('Date: ' + vDate);
+      if (vMontant) parts.push('Montant: ' + vMontant);
+      if (vPerf) parts.push('Perf: ' + vPerf);
+      if (vVol) parts.push('Vol: ' + vVol);
+      if (groupedTasksCfgAff.groupFilterActive) parts.push('Groupe filtré');
+      if (groupedTasksCfgAff.hasServerFilter && !parts.length) parts.push('Filtre serveur');
+      return parts.join(' · ');
+    }
+
+    function hasActiveFiltersAff(){
+      return ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter','#perf-filter','#volat-filter'].some(function(sel){ return $(sel).val(); });
+    }
+
+    function updateGroupedButtonVisibilityAff(){
+      var hasDtFilter = false;
+      try {
+        var filtered = table.rows({ search: 'applied' }).count();
+        var total = table.rows({ search: 'none' }).count();
+        hasDtFilter = filtered < total;
+      } catch(e){}
+      var active = hasActiveFiltersAff() || hasDtFilter || groupedTasksCfgAff.hasServerFilter || groupedTasksCfgAff.groupFilterActive;
+      if (actionsBarAff) actionsBarAff.style.display = active ? 'flex' : 'none';
+      if (actionsBarAff) actionsBarAff.style.alignItems = 'center';
+    }
     $('#montant-filter, #perf-filter, #volat-filter').on('keyup change', applyAdvancedFilters);
+
+    ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter','#perf-filter','#volat-filter'].forEach(function(sel){
+      var el = document.querySelector(sel);
+      if (!el) return;
+      el.addEventListener('input', updateGroupedButtonVisibilityAff);
+      el.addEventListener('change', updateGroupedButtonVisibilityAff);
+    });
+    updateGroupedButtonVisibilityAff();
+
+    if (btnGroupedAff){
+      btnGroupedAff.addEventListener('click', function(){
+        try { console.info('[GroupedTasks][affaires] click open'); } catch(e){}
+        var ids = [];
+        table.rows({ filter: 'applied' }).every(function(){
+          var node = this.node();
+          if (!node) return;
+          var aid = node.getAttribute('data-affaire-id');
+          if (aid) { var n = Number(aid); if (Number.isFinite(n)) ids.push(n); }
+        });
+        if (!ids.length){
+          alert('Aucune ligne filtrée (tableau).');
+          return;
+        }
+        if (!window.GroupedTasksModal){
+          alert('Module de tâches groupées indisponible.');
+          return;
+        }
+        window.GroupedTasksModal.open({
+          scope: 'affaires',
+          ids: ids,
+          taskTypes: groupedTasksCfgAff.taskTypes,
+          responsables: groupedTasksCfgAff.responsables,
+          filtersSummary: gatherFiltersSummaryAff() || 'Filtres appliqués',
+          title: 'Créer des tâches groupées (affaires)'
+        });
+      });
+    }
 
 });
 </script>

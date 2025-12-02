@@ -43,6 +43,10 @@
         </div>
       {% endif %}
     </div>
+    <div class="toolbar" id="clientsGroupActions" style="display:none; margin-bottom:8px;">
+      <div class="muted">Créer des tâches groupées sur la sélection filtrée.</div>
+      <button class="btn btn-primary" type="button" id="btnGroupedTasksClients">Créer des tâches groupées</button>
+    </div>
 
     <div class="table-container">
       <table id="clientsTable" class="display nowrap" style="width:100%">
@@ -108,6 +112,8 @@
   </div>
 </div>
 
+{% include "fragments/grouped_tasks_modal.html" %}
+
 <!-- jQuery + DataTables -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
@@ -117,6 +123,15 @@
 
 <script>
 $(document).ready(function () {
+    const groupedTasksCfgClients = {
+        scope: 'clients',
+        taskTypes: {{ grouped_task_types | tojson }},
+        responsables: {{ responsables | tojson }},
+        hasServerFilter: {{ 'true' if (total_clients_filtered|default(0)) < (total_clients|default(0)) else 'false' }},
+        groupFilterActive: {{ 'true' if group_filter_label else 'false' }}
+    };
+    const actionsBar = document.getElementById('clientsGroupActions');
+    const btnGrouped = document.getElementById('btnGroupedTasksClients');
     var table = $('#clientsTable').DataTable({
         dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
         paging: false,
@@ -211,12 +226,18 @@ $(document).ready(function () {
       $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
         if (settings.nTable !== document.getElementById('clientsTable')) return true;
         var rowNode = table.row(dataIndex).node();
-        var valoRaw = rowNode?.querySelector('[data-valo]')?.dataset?.valo;
-        var perfRaw = rowNode?.querySelector('[data-perf]')?.dataset?.perf;
-        var volRaw = rowNode?.querySelector('[data-vol]')?.dataset?.vol;
-        var valoNum = toNum(valoRaw ?? data[4]);
-        var perfNum = normalizePct(toNum(perfRaw ?? data[5]));
-        var volNum = normalizePct(toNum(volRaw ?? data[6]));
+        var valoRaw = null, perfRaw = null, volRaw = null;
+        if (rowNode){
+          var elValo = rowNode.querySelector ? rowNode.querySelector('[data-valo]') : null;
+          var elPerf = rowNode.querySelector ? rowNode.querySelector('[data-perf]') : null;
+          var elVol = rowNode.querySelector ? rowNode.querySelector('[data-vol]') : null;
+          valoRaw = elValo && elValo.dataset ? elValo.dataset.valo : null;
+          perfRaw = elPerf && elPerf.dataset ? elPerf.dataset.perf : null;
+          volRaw = elVol && elVol.dataset ? elVol.dataset.vol : null;
+        }
+        var valoNum = toNum(valoRaw !== null && valoRaw !== undefined ? valoRaw : data[4]);
+        var perfNum = normalizePct(toNum(perfRaw !== null && perfRaw !== undefined ? perfRaw : data[5]));
+        var volNum = normalizePct(toNum(volRaw !== null && volRaw !== undefined ? volRaw : data[6]));
         var ok = true;
         if (qValo){
           if (!Number.isFinite(valoNum)) return false;
@@ -236,14 +257,98 @@ $(document).ready(function () {
       if (last) last.__cli_advanced = true;
       table.draw();
     }
+
+    function gatherFiltersSummary(){
+      var parts = [];
+      var vNom = $('#client-nom-filter').val();
+      var vPrenom = $('#client-prenom-filter').val();
+      var vResp = $('#client-resp-filter').val();
+      var vSrri = $('#client-srri-filter').val();
+      var vValo = $('#client-valo-filter').val();
+      var vPerf = $('#client-perf-filter').val();
+      var vVol = $('#client-vol-filter').val();
+      if (vNom) parts.push('Nom: ' + vNom);
+      if (vPrenom) parts.push('Prénom: ' + vPrenom);
+      if (vResp) parts.push('Resp: ' + vResp);
+      if (vSrri) parts.push('SRRI: ' + vSrri);
+      if (vValo) parts.push('Valo: ' + vValo);
+      if (vPerf) parts.push('Perf: ' + vPerf);
+      if (vVol) parts.push('Vol: ' + vVol);
+      if (groupedTasksCfgClients.groupFilterActive) parts.push('Groupe filtré');
+      if (groupedTasksCfgClients.hasServerFilter && !parts.length) parts.push('Filtre serveur');
+      return parts.join(' · ');
+    }
+
+    function hasActiveFiltersLocal(){
+      return ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].some(function(sel){ return $(sel).val(); });
+    }
+
+    function updateGroupedButtonVisibility(){
+      var hasDtFilter = false;
+      try {
+        var filtered = table.rows({ search: 'applied' }).count();
+        var total = table.rows({ search: 'none' }).count();
+        hasDtFilter = filtered < total;
+      } catch(e){}
+      var active = hasActiveFiltersLocal() || hasDtFilter || groupedTasksCfgClients.hasServerFilter || groupedTasksCfgClients.groupFilterActive;
+      if (actionsBar) actionsBar.style.display = active ? 'flex' : 'none';
+      if (actionsBar) actionsBar.style.alignItems = 'center';
+    }
     $('#client-valo-filter, #client-perf-filter, #client-vol-filter').on('keyup change', applyAdvancedFilters);
+
+    ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
+      var el = document.querySelector(sel);
+      if (!el) return;
+      el.addEventListener('input', updateGroupedButtonVisibility);
+      el.addEventListener('change', updateGroupedButtonVisibility);
+    });
+    table.on('draw', updateGroupedButtonVisibility);
+    updateGroupedButtonVisibility();
+
+    if (btnGrouped){
+      btnGrouped.addEventListener('click', function(){
+        try { console.info('[GroupedTasks][clients] click open'); } catch(e){}
+        var ids = [];
+        table.rows({ filter: 'applied' }).every(function(){
+          var node = this.node();
+          if (!node) return;
+          var cid = node.getAttribute('data-client-id');
+          if (cid) { var n = Number(cid); if (Number.isFinite(n)) ids.push(n); }
+        });
+        if (!ids.length){
+          alert('Aucune ligne filtrée (tableau).');
+          return;
+        }
+        if (!window.GroupedTasksModal){
+          alert('Module de tâches groupées indisponible.');
+          return;
+        }
+        window.GroupedTasksModal.open({
+          scope: 'clients',
+          ids: ids,
+          taskTypes: groupedTasksCfgClients.taskTypes,
+          responsables: groupedTasksCfgClients.responsables,
+          filtersSummary: gatherFiltersSummary() || 'Filtres appliqués',
+          title: 'Créer des tâches groupées (clients)'
+        });
+      });
+    }
 
     window.clearClientFilters = function(){
       $('#client-nom-filter, #client-prenom-filter, #client-resp-filter, #client-srri-filter, #client-valo-filter, #client-perf-filter, #client-vol-filter').val('');
+      // Déclenche les handlers existants pour nettoyer les recherches colonne
+      $('#client-nom-filter').trigger('change');
+      $('#client-prenom-filter').trigger('change');
+      $('#client-resp-filter').trigger('change');
+      $('#client-srri-filter').trigger('change');
+      $('#client-valo-filter').trigger('change');
+      $('#client-perf-filter').trigger('change');
+      $('#client-vol-filter').trigger('change');
       table.search('');
-      for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
+      table.columns().search('');
       $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
       table.draw();
+      updateGroupedButtonVisibility();
     };
 
     // Pagination côté serveur (préserve les autres paramètres)

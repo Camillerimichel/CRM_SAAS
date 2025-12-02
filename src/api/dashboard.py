@@ -5,6 +5,7 @@ import secrets
 import math
 from time import perf_counter
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
@@ -21,6 +22,7 @@ import ssl
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin
+from pydantic import BaseModel
 
 
 from src.database import get_db
@@ -28,6 +30,7 @@ from src.api.main import templates
 from src.services.clients import get_clients
 from src.services.evenements import (
     create_tache,
+    list_types,
     list_statuts,
     add_statut_to_evenement,
     create_envoi,
@@ -58,6 +61,21 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 logger = logging.getLogger("uvicorn.error")
+
+
+class GroupedTaskBase(BaseModel):
+    scope: Literal["clients", "affaires"]
+    ids: list[int]
+
+
+class GroupedTaskCreatePayload(GroupedTaskBase):
+    type_libelle: str = "tâche"
+    categorie: str | None = "tache"
+    responsable_id: int | None = None
+    deadline: datetime | _date | None = None
+    priorite: str | None = None
+    commentaire: str | None = None
+    notify_email: bool | None = False
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DOCUMENTS_DIR = BASE_DIR / "documents"
@@ -8936,6 +8954,22 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         .group_by(HistoriqueAffaire.id)
         .subquery()
     )
+    # Découpage du nombre de contrats par intervalles de détention (basé sur la dernière valo par contrat)
+    last_aff_valos = (
+        db.query(HistoriqueAffaire.valo)
+        .join(sub_aff, sub_aff.c.affaire_id == HistoriqueAffaire.id)
+        .filter(HistoriqueAffaire.date == sub_aff.c.last_date)
+        .all()
+    )
+    last_aff_vals = [float(v or 0) for (v,) in last_aff_valos]
+    affaires_buckets: list[dict[str, float | int | str]] = []
+    for label, lo, hi in buckets:
+        if hi is None:
+            cnt = sum(1 for v in last_aff_vals if v is not None and v >= lo)
+        else:
+            cnt = sum(1 for v in last_aff_vals if v is not None and lo <= v < hi)
+        affaires_buckets.append({"label": label, "nb": cnt})
+
     srri_affaires_amount = (
         db.query(
             Affaire.SRRI,
@@ -10173,6 +10207,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "total_clients": total_clients,
         "total_affaires": total_affaires,
         "clients_buckets": clients_buckets,
+        "affaires_buckets": affaires_buckets,
         "srri_clients_count": srri_clients_count,
         "srri_affaires_count": srri_affaires_count,
         "srri_clients_amount": srri_clients_amount,
@@ -14898,6 +14933,19 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         except (TypeError, ValueError):
             finance_rh_id = None
 
+    task_types = []
+    categories = []
+    try:
+        for t in list_types(db) or []:
+            task_types.append({
+                "label": getattr(t, "libelle", None) or "tâche",
+                "categorie": (getattr(t, "categorie", None) or "tache").lower(),
+            })
+        categories = sorted({ t["categorie"] for t in task_types if t.get("categorie") })
+    except Exception:
+        task_types = [{"label": "tâche", "categorie": "tache"}]
+        categories = ["tache"]
+
     return templates.TemplateResponse(
         "dashboard_clients.html",
         {
@@ -14932,6 +14980,8 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "group_filter_label": group_filter_label if group_filter_ids is not None else None,
             "responsables": rh_options,
+            "grouped_task_types": task_types,
+            "grouped_task_categories": categories,
         }
     )
 
@@ -15094,6 +15144,32 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         elif a["srri_icon"] == "snowflake":
             compare_counts["below"] += 1
 
+    rh_entries = fetch_rh_list(db)
+    rh_options: list[dict[str, str | int]] = []
+    for rh in rh_entries or []:
+        try:
+            rid_raw = rh.get("id")
+            rid = int(rid_raw)
+        except Exception:
+            continue
+        label_parts = [p for p in [(rh.get("prenom") or "").strip(), (rh.get("nom") or "").strip()] if p]
+        label = " ".join(label_parts) if label_parts else ((rh.get("mail") or "").strip() or f"RH #{rid}")
+        rh_options.append({"id": rid, "label": label})
+    rh_options.sort(key=lambda x: str(x["label"] or "").lower())
+
+    task_types = []
+    categories = []
+    try:
+        for t in list_types(db) or []:
+            task_types.append({
+                "label": getattr(t, "libelle", None) or "tâche",
+                "categorie": (getattr(t, "categorie", None) or "tache").lower(),
+            })
+        categories = sorted({ t["categorie"] for t in task_types if t.get("categorie") })
+    except Exception:
+        task_types = [{"label": "tâche", "categorie": "tache"}]
+        categories = ["tache"]
+
     return templates.TemplateResponse(
         "dashboard_affaires.html",
         {
@@ -15107,8 +15183,92 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
             "group_filter_label": group_filter_label,
+            "responsables": rh_options,
+            "grouped_task_types": task_types,
+            "grouped_task_categories": categories,
         }
     )
+
+
+@router.post("/grouped_tasks/preview")
+def grouped_tasks_preview(payload: GroupedTaskBase):
+    ids = []
+    for raw in payload.ids or []:
+        try:
+            ids.append(int(raw))
+        except Exception:
+            continue
+    uniq = sorted(set(i for i in ids if i is not None))
+    logger.info(
+        "grouped_tasks_preview scope=%s ids_requested=%s ids_unique=%s",
+        payload.scope,
+        len(ids),
+        len(uniq),
+    )
+    if not uniq:
+        raise HTTPException(status_code=400, detail="Aucun élément sélectionné pour la tâche groupée.")
+    return {"count": len(uniq)}
+
+
+@router.post("/grouped_tasks/create")
+def grouped_tasks_create(payload: GroupedTaskCreatePayload, db: Session = Depends(get_db)):
+    ids = []
+    for raw in payload.ids or []:
+        try:
+            ids.append(int(raw))
+        except Exception:
+            continue
+    uniq = [i for i in sorted(set(ids)) if i is not None]
+    logger.info(
+        "grouped_tasks_create start scope=%s ids=%s type=%s cat=%s deadline=%s resp=%s priorite=%s notify=%s",
+        payload.scope,
+        len(uniq),
+        payload.type_libelle,
+        payload.categorie,
+        payload.deadline,
+        payload.responsable_id,
+        payload.priorite,
+        payload.notify_email,
+    )
+    if not uniq:
+        raise HTTPException(status_code=400, detail="Aucun élément sélectionné pour la tâche groupée.")
+    created = 0
+    errors: list[int] = []
+    for item_id in uniq:
+        try:
+            commentaire = payload.commentaire or ""
+            if payload.priorite:
+                commentaire = f"[Priorité: {payload.priorite}] {commentaire}".strip()
+            event_dt = payload.deadline
+            if isinstance(event_dt, _date) and not isinstance(event_dt, datetime):
+                try:
+                    event_dt = datetime.combine(event_dt, datetime.min.time())
+                except Exception:
+                    event_dt = None
+            t_payload = TacheCreateSchema(
+                type_libelle=payload.type_libelle or "tâche",
+                categorie=payload.categorie or "tache",
+                date_evenement=event_dt,
+                client_id=item_id if payload.scope == "clients" else None,
+                affaire_id=item_id if payload.scope == "affaires" else None,
+                statut="à faire",
+                commentaire=commentaire or None,
+                rh_id=payload.responsable_id,
+            )
+            ev = create_tache(db, t_payload)
+            created += 1 if ev else 0
+        except Exception:
+            errors.append(item_id)
+            logger.exception("grouped_tasks_create failed for id=%s scope=%s", item_id, payload.scope)
+            continue
+    logger.info(
+        "grouped_tasks_create done scope=%s created=%s/%s errors=%s",
+        payload.scope,
+        created,
+        len(uniq),
+        len(errors),
+    )
+    return {"created": created, "requested": len(uniq), "errors": errors}
 
 
 # ---------------- Détail Affaire ----------------
