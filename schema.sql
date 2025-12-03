@@ -295,6 +295,81 @@ CREATE TABLE `mariadb_clients` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `mariadb_societe_gestion`
+--
+
+DROP TABLE IF EXISTS `mariadb_societe_gestion`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `mariadb_societe_gestion` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `nom` varchar(255) NOT NULL,
+  `nature` varchar(50) NOT NULL,
+  `siret` varchar(50) DEFAULT NULL,
+  `rcs` varchar(50) DEFAULT NULL,
+  `contact` varchar(255) DEFAULT NULL,
+  `telephone` varchar(50) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `adresse` text DEFAULT NULL,
+  `actif` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mariadb_client_societe`
+--
+
+DROP TABLE IF EXISTS `mariadb_client_societe`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `mariadb_client_societe` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `client_id` int(11) NOT NULL,
+  `societe_id` int(11) NOT NULL,
+  `role` varchar(50) NOT NULL,
+  `date_debut` date DEFAULT NULL,
+  `date_fin` date DEFAULT NULL,
+  `commentaire` text DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_client_societe_societe` (`societe_id`),
+  KEY `idx_client_societe_active` (`client_id`,`date_fin`),
+  CONSTRAINT `fk_client_societe_client` FOREIGN KEY (`client_id`) REFERENCES `mariadb_clients` (`id`),
+  CONSTRAINT `fk_client_societe_societe` FOREIGN KEY (`societe_id`) REFERENCES `mariadb_societe_gestion` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mariadb_affaire_societe`
+--
+
+DROP TABLE IF EXISTS `mariadb_affaire_societe`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `mariadb_affaire_societe` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `affaire_id` int(11) NOT NULL,
+  `societe_id` int(11) NOT NULL,
+  `role` varchar(50) NOT NULL,
+  `date_debut` date DEFAULT NULL,
+  `date_fin` date DEFAULT NULL,
+  `commentaire` text DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_affaire_societe_societe` (`societe_id`),
+  KEY `idx_affaire_societe_active` (`affaire_id`,`date_fin`),
+  CONSTRAINT `fk_affaire_societe_affaire` FOREIGN KEY (`affaire_id`) REFERENCES `mariadb_affaires` (`id`),
+  CONSTRAINT `fk_affaire_societe_societe` FOREIGN KEY (`societe_id`) REFERENCES `mariadb_societe_gestion` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Seed data for gestion company
+--
+INSERT INTO `mariadb_societe_gestion` (`nom`, `nature`, `actif`) VALUES ('Majors Courtage', 'courtier', 1);
+
+--
 -- Table structure for table `mariadb_evenement`
 --
 

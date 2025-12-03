@@ -392,7 +392,8 @@
         .footer-modal-body h3 { margin-top: 0; }
     </style>
 </head>
-<body>
+{% set _role_hint = (request.headers.get('X-User-Role') or request.headers.get('X-User-Type') or request.cookies.get('user_role') or request.cookies.get('user_type') or request.query_params.get('role') or 'staff') | lower %}
+<body data-user-role="{{ _role_hint }}">
     <!-- Header global -->
     <div class="topbar">
       <div class="topbar-inner">
@@ -404,21 +405,40 @@
             {% block header_subtitle %}{% endblock %}
           </div>
         </div>
-        <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
+          <form method="post" action="/logout" style="display:inline;">
+            <button type="submit" style="background:transparent; border:1px solid rgba(0,0,0,0.08); color:var(--text); padding:6px 10px; border-radius:8px; cursor:pointer;">
+              <i class="fa-solid fa-right-from-bracket"></i> Déconnexion
+            </button>
+          </form>
+        </div>
       </div>
       <!-- Navigation unifiée -->
       <nav>
         <div class="nav-inner">
             {% set path = request.url.path if request and request.url else '' %}
+            {% set _is_client = _role_hint == 'client' %}
+            {% set _is_backoffice = _role_hint == 'back_office' %}
+            {% if not _is_client %}
             <a href="/dashboard/clients" class="nav-compact {% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
+            {% endif %}
+            {% if not _is_client %}
             <a href="/dashboard/affaires" class="nav-compact {% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
+            {% endif %}
+            {% if not _is_client and not _is_backoffice %}
             <a href="/dashboard/supports" class="nav-compact {% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
             <a href="/dashboard/allocations" class="nav-compact {% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
+            {% endif %}
+            {% if not _is_client %}
             <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
             <a href="/dashboard/taches" class="nav-compact {% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
-            <a href="/dashboard/veille" class="nav-compact {% if path.startswith('/dashboard/veille') %}active{% endif %}"><i class="fa-solid fa-newspaper"></i>Veille</a>
+            {% endif %}
             <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
+            {% if not _is_client and not _is_backoffice %}
             <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
+            <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+            {% endif %}
         </div>
       </nav>
     </div>

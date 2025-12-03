@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Superadministration{% endblock %}
+{% block header_title %}Superadministration{% endblock %}
+{% block header_subtitle %}Sociétés, utilisateurs et outils d'import{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:1rem;">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0; font-size:1.4rem;">Sociétés de gestion / courtage</h2>
+      <p class="muted" style="margin:4px 0 0 0;">Pilotage global des entités (courtier, wealth, banque privée), utilisateurs et imports.</p>
+    </div>
+  </div>
+</div>
+
+{% if superadmin_user %}
+<div class="card" style="margin-bottom:1rem; border:1px solid #dbeafe; background:linear-gradient(135deg,#f8fbff 0%,#eef4ff 100%); box-shadow:0 10px 30px rgba(37,99,235,0.08);">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#2563eb,#0ea5e9); color:#fff; display:grid; place-items:center; font-weight:800; letter-spacing:0.04em;">
+        SA
+      </div>
+      <div>
+        <h3 style="margin:0;">Superadmin</h3>
+        <p class="muted" style="margin:2px 0 0 0;">Accès global à toutes les sociétés</p>
+      </div>
+    </div>
+    <span class="status-pill" style="font-size:11px; padding:8px 12px; background:#dcfce7; color:#166534;">
+      Identifié
+    </span>
+  </div>
+  <div style="display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top:14px;">
+    <div class="kpi-mini kpi-line"><span>Nom</span><span class="kv">{{ superadmin_user.nom or '—' }}</span></div>
+    <div class="kpi-mini kpi-line"><span>Prénom</span><span class="kv">{{ superadmin_user.prenom or '—' }}</span></div>
+    <div class="kpi-mini kpi-line"><span>Email</span><span class="kv">{{ superadmin_user.mail or '—' }}</span></div>
+    <div class="kpi-mini kpi-line"><span>Téléphone</span><span class="kv">{{ superadmin_user.telephone or '—' }}</span></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem;">
+  <h3 style="margin:0 0 8px 0;">Sociétés (liste)</h3>
+  {% if societes_gestion %}
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+        <thead>
+          <tr style="text-align:left; border-bottom:1px solid var(--border);">
+            <th style="padding:6px 4px;">Nom</th>
+            <th style="padding:6px 4px;">Contact</th>
+            <th style="padding:6px 4px;">Téléphone</th>
+            <th style="padding:6px 4px;">Courriel</th>
+            <th style="padding:6px 4px; text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in societes_gestion %}
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 4px;">{{ s.nom }}</td>
+            <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
+            <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
+            <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
+            <td style="padding:6px 4px; text-align:right;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}">Gérer</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
+  {% endif %}
+</div>
+
+{% if selected_societe %}
+  <div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+      <div>
+        <h3 style="margin:0;">{{ selected_societe.nom }}</h3>
+        <p class="muted" style="margin:4px 0 0 0;">{{ selected_societe.nature|capitalize if selected_societe.nature else '—' }}</p>
+      </div>
+      <a class="btn btn-secondary" href="/dashboard/superadmin">Fermer</a>
+    </div>
+    <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top:12px;">
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Contact</span>
+        <span class="kv">{{ selected_societe.contact or '—' }}</span>
+      </div>
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Téléphone</span>
+        <span class="kv">{{ selected_societe.telephone or '—' }}</span>
+      </div>
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Courriel</span>
+        <span class="kv">{{ selected_societe.email or '—' }}</span>
+      </div>
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Adresse</span>
+        <span class="kv">{{ selected_societe.adresse or '—' }}</span>
+      </div>
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Clients actifs</span>
+        <span class="kv">{{ selected_societe.clients_actifs or 0 }}</span>
+      </div>
+      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+        <span>Affaires actives</span>
+        <span class="kv">{{ selected_societe.affaires_actives or 0 }}</span>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if selected_societe %}
+  <div class="card" style="margin-bottom:1rem;">
+    <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Utilisateurs de la société</h2>
+    <div class="muted" style="margin-bottom:8px; font-size:0.9rem;">Gestion des comptes (création, rôles, activation) à venir. Bouton ci-dessous pour préparer la gestion des droits.</div>
+    {% if not utilisateurs_societes %}
+      <div class="muted" style="font-size:0.95rem;">Aucun utilisateur renseigné.</div>
+    {% else %}
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:6px 4px;">Nom</th>
+              <th style="padding:6px 4px;">Prénom</th>
+              <th style="padding:6px 4px;">Email</th>
+              <th style="padding:6px 4px;">Téléphone</th>
+              <th style="padding:6px 4px;">Superadmin</th>
+              <th style="padding:6px 4px; text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in utilisateurs_societes %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px 4px;">{{ u.nom or '—' }}</td>
+              <td style="padding:6px 4px;">{{ u.prenom or '—' }}</td>
+              <td style="padding:6px 4px;">{{ u.mail or '—' }}</td>
+              <td style="padding:6px 4px;">{{ u.telephone or '—' }}</td>
+              <td style="padding:6px 4px;">{% if u.superadmin %}<span class="status-pill" style="background:#dcfce7; color:#166534; padding:4px 8px; font-size:11px;">Oui</span>{% else %}Non{% endif %}</td>
+              <td style="padding:6px 4px; text-align:right;">
+                <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}&user_id={{ u.id }}" title="Gérer les droits et comptes">
+                  Gestion des droits
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card" style="margin-bottom:1rem;">
+    <p class="muted" style="margin:0;">Sélectionnez une société pour afficher ses détails et ses utilisateurs.</p>
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Outils d'import</h2>
+  <p class="muted" style="margin:0 0 10px 0;">Point d’entrée pour les imports (clients, affaires, historiques) et leurs journaux. À compléter dans les prochaines étapes.</p>
+  <div class="muted" style="font-size:0.95rem;">Placeholder — non implémenté pour le moment.</div>
+</div>
+{% endblock %}

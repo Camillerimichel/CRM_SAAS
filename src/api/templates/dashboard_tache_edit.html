@@ -3,6 +3,12 @@
 {% block header_title %}<i class="fa-solid fa-pen-to-square" style="margin-right:8px;"></i>Modifier la tâche{% if evenement_id %} #{{ evenement_id }}{% endif %}{% endblock %}
 
 {% block content %}
+<style>
+  /* RBAC UI hides */
+  body[data-user-role="client"] .client-hide { display: none !important; }
+  body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+  body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
+</style>
   {% if error %}
     <div class="card">{{ error }}</div>
   {% else %}
@@ -27,7 +33,7 @@
           {% else %}-{% endif %}
         </div>
         <div><strong>Assigné (RH):</strong>
-          <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
+          <form class="client-hide" method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
             <select name="rh_id" onchange="this.form.submit()">
               <option value="">-- aucun --</option>
               {% for rh in rh_list %}
@@ -50,7 +56,7 @@
         </div>
         <div><strong>Statut réclamation:</strong>
           {% if ev.type_categorie and ev.type_categorie|lower == 'reclamation' %}
-            <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
+            <form class="client-hide" method="post" action="/dashboard/taches/{{ evenement_id }}/statut" style="display:inline;">
               <select name="statut_reclamation_id" onchange="this.form.submit()">
                 <option value="">-- aucun --</option>
                 {% for st in reclam_statuses %}
@@ -105,7 +111,7 @@
 
     <div class="card">
       <h3 style="margin:0 0 8px 0;">Changer le statut</h3>
-      <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" class="status-actions" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+      <form method="post" action="/dashboard/taches/{{ evenement_id }}/statut" class="status-actions client-hide" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
         {% for s in status_ui %}
           <button name="statut_id" value="{{ s.id }}" class="btn btn-choice {% if s.label == ev.statut %}btn-primary btn-choice-active{% endif %}">{{ s.label }}</button>
         {% endfor %}
@@ -119,7 +125,7 @@
 
     <div class="card">
       <h3 style="margin:0 0 8px 0;">Ajouter un commentaire</h3>
-      <form id="commentForm" method="post" action="/dashboard/taches/{{ evenement_id }}/statut">
+      <form id="commentForm" method="post" action="/dashboard/taches/{{ evenement_id }}/statut" class="client-hide">
         <textarea name="commentaire" rows="3" placeholder="Votre commentaire..." style="width:100%;">{{ prefill_comment or '' }}</textarea>
         <div class="create-btn-container" style="margin-top:.6rem;">
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i>Mise à jour</button>

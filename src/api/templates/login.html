@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Connexion</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #fff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --border: #e2e8f0;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      font-family: "Inter","Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      width: min(380px, 90vw);
+      box-shadow: 0 16px 40px rgba(15,23,42,0.12);
+    }
+    h1 { margin: 0 0 8px 0; font-size: 1.3rem; }
+    p.muted { margin: 0 0 14px 0; color: var(--muted); font-size: 0.95rem; }
+    label { display:block; margin:12px 0 6px; font-weight:600; }
+    input[type="email"], input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.95rem;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 16px;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(37,99,235,0.2);
+    }
+    button:hover { filter: brightness(1.05); }
+    .note { margin-top:10px; font-size:0.9rem; color: var(--muted); text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Connexion</h1>
+    <p class="muted">Identifiez-vous avec votre email et mot de passe.</p>
+    <form method="post" action="/login">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Mot de passe</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Se connecter</button>
+    </form>
+    <div class="note">Clients et salariés utilisent le même formulaire.</div>
+  </div>
+</body>
+</html>

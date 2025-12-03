@@ -27,6 +27,10 @@
     .veille-item a:hover { text-decoration: underline; }
     .veille-item .meta { font-size:0.85rem; color: var(--muted); margin-top:2px; }
     .veille-item .summary { font-size:0.9rem; color: var(--muted); margin-top:4px; }
+    /* RBAC UI hides */
+    body[data-user-role="client"] .client-hide { display: none !important; }
+    body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+    body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
   </style>
 
   <div id="veilleLoading" class="veille-loader">

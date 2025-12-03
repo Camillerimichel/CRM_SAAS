@@ -50,6 +50,13 @@
     box-shadow: none;
   }
   .param-tab.active i { color: var(--primary-600); }
+  /* RBAC UI hides */
+  body[data-user-role="client"] .client-hide { display: none !important; }
+  body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+  body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
+  .rbac-warning { display: none; padding:12px 14px; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; border-radius:10px; margin:12px 0; }
+  body[data-user-role="client"] .rbac-warning,
+  body[data-user-role="back_office"] .rbac-warning { display:block; }
   #paramContainer #assureursPanel > .accordion-subtoggle,
   #paramContainer #contratsPanel > .accordion-subtoggle,
   #paramContainer #courtierPanel > .accordion-subtoggle,
@@ -383,6 +390,9 @@
   /* Assurances & garanties: conserver la même police d'en-tête que les autres tableaux */
   /* (aucun override de font-size sur th) */
 </style>
+<div class="rbac-warning">
+  Accès restreint : cette section est réservée aux utilisateurs habilités (administration ou édition). Certaines actions peuvent être masquées ou verrouillées.
+</div>
 <div class="container" id="paramContainer">
   <div id="toastSaved" style="display:none; position: fixed; right: 16px; bottom: 16px; background: #16a34a; color: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 14px rgba(0,0,0,.15); z-index: 9999;">
     <i class="fa-solid fa-circle-check" style="margin-right:6px;"></i> Enregistré
@@ -524,6 +534,10 @@
                 {% if form_errors and form_errors.get('courriel') %}
                   <div class="muted" style="color:#b91c1c;">{{ form_errors.get('courriel') }}</div>
                 {% endif %}
+              </div>
+              <div class="field">
+                <label>Téléphone</label>
+                <input type="text" name="telephone" value="{{ (form_courtier.telephone if form_courtier else (courtier.telephone if courtier else '')) }}" />
               </div>
               <div class="field">
                 <label>Association professionnelle</label>
