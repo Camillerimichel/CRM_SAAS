@@ -55,12 +55,83 @@ from src.models.type_evenement import TypeEvenement
 from src.models.evenement_statut_reclamation import EvenementStatutReclamation
 from src.models.administration_groupe_detail import AdministrationGroupeDetail
 from src.models.administration_groupe import AdministrationGroupe
+from src.security.rbac import (
+    load_access,
+    require_permission,
+    ensure_client_ownership,
+    extract_user_context,
+    pick_scope,
+)
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 logger = logging.getLogger("uvicorn.error")
+
+
+def _require_client_read(request: Request, db: Session, client_id: int):
+    """Autorise lecture: client propriétaire ou staff avec data:read."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    if user_type == "client":
+        ensure_client_ownership(access, owner_id=client_id)
+    else:
+        require_permission(access, "data", "read", societe_id=scope)
+    return access, scope
+
+
+def _require_client_write(request: Request, db: Session, client_id: int):
+    """Autorise écriture: staff avec data:write; interdit aux clients."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    if user_type == "client":
+        raise HTTPException(status_code=403, detail="Action interdite pour un client")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "write", societe_id=scope)
+    return access, scope
+
+
+def _require_affaire_read(request: Request, db: Session, affaire_id: int):
+    """Autorise lecture d'une affaire : client propriétaire ou staff data:read."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    if user_type == "client":
+        # récupérer le propriétaire de l'affaire
+        owner_id = None
+        try:
+            row = db.execute(text("SELECT id_personne FROM mariadb_affaires WHERE id = :id"), {"id": affaire_id}).fetchone()
+            if row:
+                owner_id = row[0] if not hasattr(row, "_mapping") else row._mapping.get("id_personne")
+        except Exception:
+            owner_id = None
+        if owner_id is None:
+            raise HTTPException(status_code=404, detail="Affaire introuvable")
+        ensure_client_ownership(access, owner_id=int(owner_id))
+    else:
+        require_permission(access, "data", "read", societe_id=scope)
+    return access, scope
+
+
+def _require_affaire_write(request: Request, db: Session, affaire_id: int):
+    """Autorise écriture sur une affaire : staff avec data:write."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    if user_type == "client":
+        raise HTTPException(status_code=403, detail="Action interdite pour un client")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "write", societe_id=scope)
+    return access, scope
 
 
 class GroupedTaskBase(BaseModel):
@@ -4131,6 +4202,7 @@ def dashboard_api_synthese(
 
 @router.get("/affaires/{affaire_id}/synthese/pdf")
 def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_affaire_read(request, db, affaire_id)
     ctx = _build_affaire_synthese_context(db, affaire_id)
     if not ctx:
         raise HTTPException(status_code=404, detail="Affaire introuvable.")
@@ -4244,6 +4316,7 @@ def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Sessio
 
 @router.get("/clients/{client_id}/der/pdf")
 async def dashboard_client_der_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable.")
@@ -4274,6 +4347,7 @@ async def dashboard_client_der_pdf(client_id: int, request: Request, db: Session
 
 @router.get("/clients/{client_id}/mission/pdf")
 async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable.")
@@ -4304,6 +4378,7 @@ async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Ses
 
 @router.get("/clients/{client_id}/adequation/pdf")
 async def dashboard_client_adequation_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
     ctx = _build_client_adequation_context(db, client_id)
     if not ctx:
         raise HTTPException(status_code=404, detail="Client introuvable.")
@@ -4353,6 +4428,7 @@ async def dashboard_client_kyc_report(
     engine: str | None = None,
     db: Session = Depends(get_db),
 ):
+    _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
 
     if not client:
@@ -5478,6 +5554,19 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     (/dashboard/parametres/...) ne sont pas encore implémentées ici. Cette route
     permet au moins d'accéder à la page, en attendant les endpoints POST.
     """
+    # Accès réservé (pas client / pas back office) : nécessite administration ou data:write
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client" or user_type == "back_office":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    try:
+        require_permission(access, "administration", "access", societe_id=scope)
+    except HTTPException:
+        require_permission(access, "data", "write", societe_id=scope)
+
     open_section = request.query_params.get("open") or None
     saved_success = True if (request.query_params.get("saved") in ("1", "true", "yes")) else False
     saved_error = True if (request.query_params.get("error") in ("1", "true", "yes")) else False
@@ -5931,12 +6020,18 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             if fk_cour_col and courtier and courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = courtier.get("id")
-            pk_expr = id_col or "id"
-            rows = db.execute(text(f"SELECT {pk_expr} AS __pk, * FROM {rel_table}{where_clause}"), params).fetchall()
+            # Sélection explicite pour éviter alias + wildcard incompatibles
+            cols = [id_col] if id_col else []
+            # collecter d'autres colonnes usuelles
+            extra_cols = [fk_soc_col, fk_cour_col, creation_col, modification_col]
+            cols += [c for c in extra_cols if c]
+            cols_unique = [c for c in dict.fromkeys(cols) if c]
+            select_cols = ", ".join(cols_unique) if cols_unique else "*"
+            rows = db.execute(text(f"SELECT {select_cols} FROM {rel_table}{where_clause}"), params).fetchall()
             for r in rows:
                 m = r._mapping
-                rid = m.get("__pk") if "__pk" in m else (m.get(id_col) if id_col else m.get("id"))
-                sid = m.get(fk_soc_col)
+                rid = m.get(id_col) if id_col else m.get("id")
+                sid = m.get(fk_soc_col) if fk_soc_col else None
                 # find label from societes already loaded
                 s_label = None
                 for s in societes:
@@ -6004,11 +6099,18 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             if fk_cour_col and courtier and courtier.get("id") is not None:
                 where_clause = f" WHERE {fk_cour_col} = :cid"
                 params["cid"] = courtier.get("id")
+            # Sélection explicite pour éviter alias + wildcard
             pk_expr = id_col or "id"
-            rows = db.execute(text(f"SELECT {pk_expr} AS __pk, * FROM {rem_table}{where_clause}"), params).fetchall()
+            cols_sel = [pk_expr]
+            if fk_ref_col:
+                cols_sel.append(fk_ref_col)
+            if fk_cour_col:
+                cols_sel.append(fk_cour_col)
+            select_cols = ", ".join(dict.fromkeys(cols_sel))
+            rows = db.execute(text(f"SELECT {select_cols} FROM {rem_table}{where_clause}"), params).fetchall()
             for r in rows:
                 m = r._mapping
-                rid = m.get("__pk") if "__pk" in m else (m.get(id_col) if id_col else m.get("id"))
+                rid = m.get(id_col) if id_col else m.get("id")
                 # ref id direct si colonne présente
                 ref_id_fk = m.get(fk_ref_col) if fk_ref_col else None
                 # Dérive le domaine depuis 'type' en base
@@ -6172,6 +6274,19 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/parametres/courtier/documents", response_class=HTMLResponse)
 async def upload_courtier_document(request: Request, db: Session = Depends(get_db)):
+    # Accès restreint admin/data:write
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client" or user_type == "back_office":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    try:
+        require_permission(access, "administration", "access", societe_id=scope)
+    except HTTPException:
+        require_permission(access, "data", "write", societe_id=scope)
+
     form = await request.form()
     raw_doc_id = form.get("doc_id")
     raw_activite = form.get("activite_id") or form.get("activite")
@@ -6385,6 +6500,7 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/courtier/documents/{doc_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     table_name = _ensure_courtier_documents_table(db)
     if not table_name:
         from urllib.parse import quote
@@ -6430,17 +6546,20 @@ async def delete_courtier_document(doc_id: int, request: Request, db: Session = 
 
 
 @router.get("/parametres/courtier/documents/{doc_id}/download")
-def download_courtier_document(doc_id: int, db: Session = Depends(get_db)):
+def download_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     return _serve_courtier_document(doc_id, inline=False, db=db)
 
 
 @router.get("/parametres/courtier/documents/{doc_id}/view")
-def view_courtier_document(doc_id: int, db: Session = Depends(get_db)):
+def view_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     return _serve_courtier_document(doc_id, inline=True, db=db)
 
 
 @router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
 async def update_courtier_garanties(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     table = _resolve_table_name(db, ["DER_courtier_garanties_normes"]) or "DER_courtier_garanties_normes"
     cols = _sqlite_table_columns(db, table)
     colnames = [c.get("name") for c in cols]
@@ -7396,6 +7515,7 @@ def _courtier_relation_columns(db: Session, table: str) -> tuple[str | None, str
 # ---- Courtier > Relation commerciale ----
 @router.post("/parametres/courtier/relation", response_class=HTMLResponse)
 async def create_courtier_relation(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     soc_id_raw = form.get("societe_id")
     try:
@@ -7455,6 +7575,7 @@ async def create_courtier_relation(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/courtier/relation/{row_id}", response_class=HTMLResponse)
 async def update_courtier_relation(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     soc_id_raw = form.get("societe_id")
     try:
@@ -7484,6 +7605,7 @@ async def update_courtier_relation(row_id: str, request: Request, db: Session = 
 
 @router.post("/parametres/courtier/relation/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_relation(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     table = _resolve_table_name(db, ["DER_courtier_relation_commerciale"]) or "DER_courtier_relation_commerciale"
     id_col, *_rest = _courtier_relation_columns(db, table)
     if not id_col:
@@ -7503,6 +7625,7 @@ async def delete_courtier_relation(row_id: str, request: Request, db: Session = 
 # ---- Courtier > Activité ----
 @router.post("/parametres/courtier/activite", response_class=HTMLResponse)
 async def create_courtier_activite(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     ref_id_raw = form.get("ref_id")
     try:
@@ -7570,6 +7693,7 @@ async def create_courtier_activite(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/courtier/activite/{row_id}", response_class=HTMLResponse)
 async def update_courtier_activite(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     ref_id_raw = form.get("ref_id")
     try:
@@ -7613,6 +7737,7 @@ async def update_courtier_activite(row_id: str, request: Request, db: Session = 
 
 @router.post("/parametres/courtier/activite/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_activite(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     table = _resolve_table_name(db, ["DER_courtier_activite"]) or "DER_courtier_activite"
     id_col, *_rest = _courtier_activite_columns(db, table)
     if not id_col:
@@ -7646,6 +7771,7 @@ def _int_from_thousands(value: str | None) -> int | None:
 # ---- Courtier > Rémunération (mode de facturation) ----
 @router.post("/parametres/courtier/remuneration", response_class=HTMLResponse)
 async def create_courtier_remuneration(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     ref_raw = form.get("ref_id")
     try:
@@ -7799,6 +7925,7 @@ async def create_courtier_remuneration(request: Request, db: Session = Depends(g
 
 @router.post("/parametres/courtier/remuneration/{row_id}", response_class=HTMLResponse)
 async def update_courtier_remuneration(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     ref_raw = form.get("ref_id")
     try:
@@ -7903,6 +8030,7 @@ async def update_courtier_remuneration(row_id: str, request: Request, db: Sessio
 
 @router.post("/parametres/courtier/remuneration/{row_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_remuneration(row_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     table = _resolve_table_name(db, ["DER_courtier_mode_facturation"]) or "DER_courtier_mode_facturation"
     id_col = _table_primary_key(db, table)
     if not id_col:
@@ -7921,6 +8049,7 @@ async def delete_courtier_remuneration(row_id: str, request: Request, db: Sessio
 
 @router.post("/parametres/der_courtier", response_class=HTMLResponse)
 async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     # Sanitize / normalize
     nom_cabinet = (form.get("nom_cabinet") or "").strip()
@@ -7934,6 +8063,7 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
     adresse_cp = _digits_only(form.get("adresse_cp")) or ""
     adresse_ville = (form.get("adresse_ville") or "").strip()
     courriel = (form.get("courriel") or "").strip()
+    telephone = (form.get("telephone") or "").strip()
     association_prof = _as_int(form.get("association_prof"))
     num_adh_assoc = (form.get("num_adh_assoc") or "").strip()
     categorie_courtage = (form.get("categorie_courtage") or "").strip().upper() or None
@@ -7959,6 +8089,11 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
     if courriel:
         if not is_email(courriel):
             errors["courriel"] = "Veuillez saisir une adresse courriel valide."
+    # Téléphone: contrôle simple (au moins 6 chiffres)
+    if telephone:
+        digits_tel = _digits_only(telephone)
+        if digits_tel and len(digits_tel) < 6:
+            errors["telephone"] = "Le téléphone doit comporter au moins 6 chiffres."
     # Emails médiateurs: séparés par virgule/point-virgule/espace
     if mail_mediators:
         import re
@@ -7997,6 +8132,7 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
         "adresse_cp": adresse_cp or None,
         "adresse_ville": adresse_ville,
         "courriel": courriel,
+        "telephone": telephone,
         "association_prof": association_prof,
         "num_adh_assoc": num_adh_assoc,
         "categorie_courtage": categorie_courtage,
@@ -8026,6 +8162,9 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
             {
                 "request": request,
                 "open_section": "courtier",
+                "saved_success": False,
+                "saved_error": True,
+                "saved_error_msg": None,
                 # Garder le contexte principal pour les autres panneaux
                 "contrats_generiques": rows_to_dicts(db.execute(_text("SELECT g.id, g.nom_contrat, g.id_societe, g.id_ctg, g.frais_gestion_assureur, g.frais_gestion_courtier, s.nom AS societe_nom FROM mariadb_affaires_generique g LEFT JOIN mariadb_societe s ON s.id = g.id_societe WHERE COALESCE(g.actif, 1) = 1 ORDER BY s.nom, g.nom_contrat")).fetchall()) if db else [],
                 "societes": rows_to_dicts(db.execute(_text("SELECT id, nom, id_ctg, contact, telephone, email, commentaire FROM mariadb_societe ORDER BY nom")).fetchall()) if db else [],
@@ -8033,8 +8172,8 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
                 "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
-                "admin_types": _load_admin_types_list(),
-                "admin_intervenants": _load_admin_intervenants_list(),
+                "admin_types": [],
+                "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
                 "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 # Contexte courtier avec erreur
@@ -8104,14 +8243,17 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
             {
                 "request": request,
                 "open_section": "courtier",
+                "saved_success": False,
+                "saved_error": True,
+                "saved_error_msg": errors.get("__global__"),
                 "contrats_generiques": rows_to_dicts(db.execute(_text("SELECT g.id, g.nom_contrat, g.id_societe, g.id_ctg, g.frais_gestion_assureur, g.frais_gestion_courtier, s.nom AS societe_nom FROM mariadb_affaires_generique g LEFT JOIN mariadb_societe s ON s.id = g.id_societe WHERE COALESCE(g.actif, 1) = 1 ORDER BY s.nom, g.nom_contrat")).fetchall()) if db else [],
                 "societes": rows_to_dicts(db.execute(_text("SELECT id, nom, id_ctg, contact, telephone, email, commentaire FROM mariadb_societe ORDER BY nom")).fetchall()) if db else [],
                 "contrat_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_affaires_generique_ctg ORDER BY libelle")).fetchall()) if db else [],
                 "societe_categories": rows_to_dicts(db.execute(_text("SELECT id, libelle, description FROM mariadb_societe_ctg ORDER BY libelle")).fetchall()) if db else [],
                 "contrat_supports": rows_to_dicts(db.execute(_text("SELECT cs.id, cs.id_affaire_generique, cs.id_support, cs.taux_retro, s.nom AS support_nom, s.code_isin, s.cat_gene, s.cat_geo, s.promoteur, g.nom_contrat AS contrat_nom, so.nom AS societe_nom FROM mariadb_contrat_supports cs JOIN mariadb_support s ON s.id = cs.id_support JOIN mariadb_affaires_generique g ON g.id = cs.id_affaire_generique LEFT JOIN mariadb_societe so ON so.id = g.id_societe ORDER BY g.nom_contrat, s.nom")).fetchall()) if db else [],
                 "supports": rows_to_dicts(db.execute(_text("SELECT id, nom, code_isin FROM mariadb_support ORDER BY nom")).fetchall()) if db else [],
-                "admin_types": _load_admin_types_list(),
-                "admin_intervenants": _load_admin_intervenants_list(),
+                "admin_types": [],
+                "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
                 "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
                 "courtier": None,
@@ -8208,7 +8350,13 @@ def _group_error_redirect(message: str) -> RedirectResponse:
 
 # ---- Group tasks (logs + run/simulate) ----
 @router.get("/parametres/administration/groupes/{group_id}/tasks/logs", response_class=JSONResponse)
-def group_tasks_logs(group_id: int):
+def group_tasks_logs(group_id: int, request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "groups", "manage", societe_id=scope)
     # Aucun stockage de log implémenté : retourne vide
     return {"logs": [], "active": False}
 
@@ -8217,13 +8365,20 @@ def group_tasks_logs(group_id: int):
 def group_tasks_run(
     group_id: int,
     mode: str,
-    payload: dict = None,
+    payload: dict | None = None,
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
     """
     Crée (mode=run) ou simule (mode=simulate) des tâches pour les membres du groupe.
     Payload JSON: {categorie, type_libelle, statut_id, commentaire, actifs_only, rh_id}
     """
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "groups", "manage", societe_id=scope)
     if mode not in ("run", "simulate"):
         raise HTTPException(status_code=400, detail="Mode invalide (run|simulate).")
     payload = payload or {}
@@ -8371,9 +8526,26 @@ def _resolve_affaire_client(db: Session, affaire_id: int | None) -> tuple[int | 
         return None, None
 
 
+def _require_admin_or_write(request: Request, db: Session):
+    """Helper commun : refuse clients/back_office, exige administration ou data:write."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    if user_type in ("client", "back_office"):
+        raise HTTPException(status_code=403, detail="Interdit")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    try:
+        require_permission(access, "administration", "access", societe_id=scope)
+    except HTTPException:
+        require_permission(access, "data", "write", societe_id=scope)
+    return access, scope
+
+
 # ---- Administration : Groupes ----
 @router.post("/parametres/administration/groupes", response_class=HTMLResponse)
 async def create_administration_group(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     type_value = _normalize_group_type(form.get("type_groupe"))
     nom = (form.get("nom") or "").strip()
@@ -8420,6 +8592,7 @@ async def create_administration_group(request: Request, db: Session = Depends(ge
 
 @router.post("/parametres/administration/groupes/{group_key}", response_class=HTMLResponse)
 async def update_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     try:
         row = db.execute(
@@ -8485,6 +8658,7 @@ async def update_administration_group(group_key: int, request: Request, db: Sess
 
 @router.post("/parametres/administration/groupes/{group_key}/delete", response_class=HTMLResponse)
 async def delete_administration_group(group_key: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     try:
         row = db.execute(
             text(
@@ -8522,6 +8696,7 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
 # ---- Contrats génériques ----
 @router.post("/parametres/contrats_generiques", response_class=HTMLResponse)
 async def create_contrat_generique(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "nom_contrat": (form.get("nom_contrat") or "").strip(),
@@ -8565,6 +8740,7 @@ async def create_contrat_generique(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/contrats_generiques/{contrat_id}", response_class=HTMLResponse)
 async def update_contrat_generique(contrat_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "id": contrat_id,
@@ -8610,6 +8786,7 @@ async def update_contrat_generique(contrat_id: int, request: Request, db: Sessio
 
 @router.post("/parametres/contrats_generiques/{contrat_id}/delete", response_class=HTMLResponse)
 async def delete_contrat_generique(contrat_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     from sqlalchemy import text as _text
     try:
         db.execute(_text("DELETE FROM mariadb_affaires_generique WHERE id = :id"), {"id": contrat_id})
@@ -8624,6 +8801,7 @@ async def delete_contrat_generique(contrat_id: int, request: Request, db: Sessio
 # ---- Catégories de contrats génériques ----
 @router.post("/parametres/contrats_generiques_ctg", response_class=HTMLResponse)
 async def create_contrat_ctg(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "libelle": (form.get("libelle") or "").strip(),
@@ -8643,6 +8821,7 @@ async def create_contrat_ctg(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/parametres/contrats_generiques_ctg/{ctg_id}", response_class=HTMLResponse)
 async def update_contrat_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "id": ctg_id,
@@ -8663,6 +8842,7 @@ async def update_contrat_ctg(ctg_id: int, request: Request, db: Session = Depend
 
 @router.post("/parametres/contrats_generiques_ctg/{ctg_id}/delete", response_class=HTMLResponse)
 async def delete_contrat_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     from sqlalchemy import text as _text
     try:
         db.execute(_text("DELETE FROM mariadb_affaires_generique_ctg WHERE id = :id"), {"id": ctg_id})
@@ -8675,6 +8855,7 @@ async def delete_contrat_ctg(ctg_id: int, request: Request, db: Session = Depend
 # ---- Sociétés (assureurs) ----
 @router.post("/parametres/societes", response_class=HTMLResponse)
 async def create_societe(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "nom": (form.get("nom") or "").strip(),
@@ -8716,6 +8897,7 @@ async def create_societe(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/parametres/societes/{soc_id}", response_class=HTMLResponse)
 async def update_societe(soc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "id": soc_id,
@@ -8751,6 +8933,7 @@ async def update_societe(soc_id: int, request: Request, db: Session = Depends(ge
 
 @router.post("/parametres/societes/{soc_id}/delete", response_class=HTMLResponse)
 async def delete_societe(soc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     from sqlalchemy import text as _text
     try:
         db.execute(_text("DELETE FROM mariadb_societe WHERE id = :id"), {"id": soc_id})
@@ -8763,6 +8946,7 @@ async def delete_societe(soc_id: int, request: Request, db: Session = Depends(ge
 # ---- Catégories de sociétés ----
 @router.post("/parametres/societe_ctg", response_class=HTMLResponse)
 async def create_societe_ctg(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "libelle": (form.get("libelle") or "").strip(),
@@ -8782,6 +8966,7 @@ async def create_societe_ctg(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/parametres/societe_ctg/{ctg_id}", response_class=HTMLResponse)
 async def update_societe_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     params = {
         "id": ctg_id,
@@ -8802,6 +8987,7 @@ async def update_societe_ctg(ctg_id: int, request: Request, db: Session = Depend
 
 @router.post("/parametres/societe_ctg/{ctg_id}/delete", response_class=HTMLResponse)
 async def delete_societe_ctg(ctg_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     from sqlalchemy import text as _text
     try:
         db.execute(_text("DELETE FROM mariadb_societe_ctg WHERE id = :id"), {"id": ctg_id})
@@ -8814,6 +9000,7 @@ async def delete_societe_ctg(ctg_id: int, request: Request, db: Session = Depend
 # ---- Supports par contrat (mapping + taux) ----
 @router.post("/parametres/contrat_supports", response_class=HTMLResponse)
 async def create_contrat_support(request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     id_affaire_generique = _as_int(form.get("id_affaire_generique"))
     id_support = _as_int(form.get("id_support"))
@@ -8838,6 +9025,7 @@ async def create_contrat_support(request: Request, db: Session = Depends(get_db)
 
 @router.post("/parametres/contrat_supports/{row_id}", response_class=HTMLResponse)
 async def update_contrat_support(row_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     form = await request.form()
     taux_percent = _as_float(form.get("taux_retro"), 0.0) or 0.0
     taux_value = taux_percent / 100.0
@@ -8855,6 +9043,7 @@ async def update_contrat_support(row_id: int, request: Request, db: Session = De
 
 @router.post("/parametres/contrat_supports/{row_id}/delete", response_class=HTMLResponse)
 async def delete_contrat_support(row_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
     from sqlalchemy import text as _text
     try:
         db.execute(_text("DELETE FROM mariadb_contrat_supports WHERE id = :id"), {"id": row_id})
@@ -10369,6 +10558,7 @@ async def dashboard_client_kyc(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    _require_client_write(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         return templates.TemplateResponse(
@@ -14636,6 +14826,16 @@ async def dashboard_client_kyc(
 # ---------------- Clients ----------------
 @router.get("/clients", response_class=HTMLResponse)
 def dashboard_clients(request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    if user_type == "client":
+        ensure_client_ownership(access, owner_id=user_id)
+    else:
+        require_permission(access, "data", "read", societe_id=scope)
+
     tb_markers_visible = request.query_params.get("markers") == "1"
     total_clients = db.query(func.count(Client.id)).scalar() or 0
     group_filter_param = request.query_params.get("group_id")
@@ -15305,6 +15505,10 @@ def grouped_tasks_create(payload: GroupedTaskCreatePayload, db: Session = Depend
 # ---------------- Détail Affaire ----------------
 @router.get("/affaires/{affaire_id}", response_class=HTMLResponse)
 def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    try:
+        _require_affaire_read(request, db, affaire_id)
+    except HTTPException as exc:
+        return PlainTextResponse(exc.detail, status_code=exc.status_code)
     tb_markers_visible = request.query_params.get("markers") == "1"
     affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
     if not affaire:
@@ -15323,6 +15527,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     client_prenom = None
     client_id = None
     client_rh_id = None
+    societe_gestion_nom = None
+    societe_gestion_role = None
     try:
         if getattr(affaire, 'id_personne', None) is not None:
             cli = db.query(Client).filter(Client.id == affaire.id_personne).first()
@@ -15334,6 +15540,27 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                     client_rh_id = getattr(cli, "commercial_id", None)
                 except Exception:
                     client_rh_id = None
+                # Société de gestion/courtage active pour le client
+                try:
+                    row_soc = db.execute(
+                        text(
+                            """
+                            SELECT sg.nom AS societe_nom, cs.role AS role
+                            FROM mariadb_client_societe cs
+                            JOIN mariadb_societe_gestion sg ON sg.id = cs.societe_id
+                            WHERE cs.client_id = :cid AND cs.date_fin IS NULL
+                            ORDER BY cs.date_debut DESC, cs.id DESC
+                            LIMIT 1
+                            """
+                        ),
+                        {"cid": cli.id},
+                    ).fetchone()
+                    if row_soc:
+                        societe_gestion_nom = row_soc._mapping.get("societe_nom") if hasattr(row_soc, "_mapping") else row_soc[0]
+                        societe_gestion_role = row_soc._mapping.get("role") if hasattr(row_soc, "_mapping") else (row_soc[1] if len(row_soc) > 1 else None)
+                except Exception:
+                    societe_gestion_nom = None
+                    societe_gestion_role = None
     except Exception:
         pass
 
@@ -16092,8 +16319,148 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "alloc_names": alloc_names,
             "esg_fields": esg_fields,
             "esg_field_labels": esg_field_labels,
+            "societe_gestion_nom": societe_gestion_nom,
+            "societe_gestion_role": societe_gestion_role,
         }
     )
+
+# ---------------- Superadministration ----------------
+@router.get("/superadmin", response_class=HTMLResponse)
+def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
+    """Page de supervision globale (sociétés, utilisateurs, imports)."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    current_scope = pick_scope(access, req_scope)
+
+    # Accès réservé : administration + logs (dirigeant/superadmin)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+    is_superadmin = access.has_permission("logs", "view", societe_id=current_scope)
+
+    # Société sélectionnée (affichage détaillé)
+    selected_societe_id: int | None = None
+    raw_soc = request.query_params.get("societe_id")
+    if raw_soc not in (None, ""):
+        try:
+            selected_societe_id = int(raw_soc)
+        except Exception:
+            selected_societe_id = None
+    superadmin_user: dict | None = None
+    try:
+        row_sa = db.execute(
+            text(
+                """
+                SELECT id, nom, prenom, mail, telephone
+                FROM administration_RH
+                WHERE superadmin = 1
+                ORDER BY id
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+        if row_sa:
+            m = row_sa._mapping if hasattr(row_sa, "_mapping") else None
+            superadmin_user = {
+                "id": m.get("id") if m else row_sa[0],
+                "nom": m.get("nom") if m else (row_sa[1] if len(row_sa) > 1 else None),
+                "prenom": m.get("prenom") if m else (row_sa[2] if len(row_sa) > 2 else None),
+                "mail": m.get("mail") if m else (row_sa[3] if len(row_sa) > 3 else None),
+                "telephone": m.get("telephone") if m else (row_sa[4] if len(row_sa) > 4 else None),
+            }
+    except Exception:
+        superadmin_user = None
+
+    societes_gestion: list[dict] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    sg.id,
+                    sg.nom,
+                    sg.nature,
+                    sg.contact,
+                    sg.telephone,
+                    sg.email,
+                    sg.adresse,
+                    sg.actif,
+                    sg.created_at,
+                    sg.updated_at,
+                    (SELECT COUNT(*) FROM mariadb_client_societe cs WHERE cs.societe_id = sg.id AND cs.date_fin IS NULL) AS clients_actifs,
+                    (SELECT COUNT(*) FROM mariadb_affaire_societe afs WHERE afs.societe_id = sg.id AND afs.date_fin IS NULL) AS affaires_actives
+                FROM mariadb_societe_gestion sg
+                ORDER BY sg.nom
+                """
+            )
+        ).fetchall()
+        societes_gestion = [dict(r._mapping) for r in rows]
+    except Exception:
+        societes_gestion = []
+    selected_societe = None
+    if selected_societe_id is not None:
+        for sg in societes_gestion:
+            try:
+                if int(sg.get("id")) == selected_societe_id:
+                    selected_societe = sg
+                    break
+            except Exception:
+                continue
+
+    # Placeholder pour la gestion des utilisateurs (dépendra du modèle utilisateur)
+    utilisateurs_societes: list[dict] = []
+    try:
+        rows_users = db.execute(
+            text(
+                """
+                SELECT
+                    rh.id,
+                    rh.nom,
+                    rh.prenom,
+                    rh.mail,
+                    rh.telephone,
+                    rh.superadmin,
+                    rh.societe_gestion_id,
+                    sg.nom AS societe_nom
+                FROM administration_RH rh
+                LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                ORDER BY rh.superadmin DESC, rh.nom, rh.prenom
+                """
+            )
+        ).fetchall()
+        for r in rows_users:
+            m = r._mapping if hasattr(r, "_mapping") else {}
+            utilisateurs_societes.append({
+                "id": m.get("id"),
+                "nom": m.get("nom"),
+                "prenom": m.get("prenom"),
+                "mail": m.get("mail"),
+                "telephone": m.get("telephone"),
+                "superadmin": bool(m.get("superadmin")),
+                "societe_gestion_id": m.get("societe_gestion_id"),
+                "societe_nom": m.get("societe_nom"),
+            })
+    except Exception:
+        utilisateurs_societes = []
+    if selected_societe_id is not None:
+        utilisateurs_societes = [
+            u for u in utilisateurs_societes
+            if u.get("societe_gestion_id") == selected_societe_id
+        ]
+
+    return templates.TemplateResponse(
+        "dashboard_superadmin.html",
+        {
+            "request": request,
+            "societes_gestion": societes_gestion,
+            "superadmin_user": superadmin_user,
+            "utilisateurs_societes": utilisateurs_societes,
+            "is_superadmin": is_superadmin,
+            "selected_societe": selected_societe,
+        },
+    )
+
 
 # ---------------- ESG data API (Affaire) ----------------
 from fastapi import Query
@@ -16108,8 +16475,13 @@ def dashboard_affaire_esg(
     as_of: str | None = Query(None, description="Date d'analyse YYYY-MM-DD pour l'affaire"),
     alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
     debug: int = Query(0, description="Activer la sortie debug"),
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+    try:
+        _require_affaire_read(request, db, affaire_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     # Parse fields
     sel_fields: list[str] = []
     if fields:
@@ -16347,8 +16719,10 @@ def dashboard_client_esg(
     as_of: str | None = Query(None, description="Date d'analyse YYYY-MM-DD pour le client (supports consolidés)"),
     alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
     debug: int = Query(0, description="Activer la sortie debug"),
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+    _require_client_read(request, db, client_id)
     sel_fields: list[str] = []
     if fields:
         sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
@@ -17284,6 +17658,15 @@ def dashboard_taches(
     late: int | None = None,
     exclude_statut: str | None = None,
 ):
+    # Accès interdit aux clients ; back office selon data:read
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
     from sqlalchemy import text
     from src.models.evenement import Evenement as EvenementModel
     conds = []
@@ -17731,6 +18114,15 @@ def dashboard_tache_edit(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # Accès interdit aux clients ; back office selon data:read
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
     # Charger l'évènement et ses métadonnées
     from src.models.evenement import Evenement
     from src.models.type_evenement import TypeEvenement
@@ -18140,6 +18532,7 @@ async def dashboard_taches_update(
 # ---------------- Création Tâche depuis Détail Client ----------------
 @router.post("/clients/{client_id}/taches", response_class=HTMLResponse)
 async def dashboard_client_create_tache(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_write(request, db, client_id)
     # Maintenance temporaire : création de tâche désactivée sur la fiche client
     return HTMLResponse(
         "<h3>Création de tâche indisponible (maintenance)</h3><p>Merci de réessayer plus tard.</p>",
@@ -18257,6 +18650,7 @@ async def dashboard_client_create_tache(client_id: int, request: Request, db: Se
 # ---------------- Création Tâche depuis Détail Affaire ----------------
 @router.post("/affaires/{affaire_id}/taches", response_class=HTMLResponse)
 async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_affaire_write(request, db, affaire_id)
     # Maintenance temporaire : création de tâche désactivée sur la fiche affaire
     return HTMLResponse(
         "<h3>Création de tâche indisponible (maintenance)</h3><p>Merci de réessayer plus tard.</p>",
@@ -18369,6 +18763,7 @@ async def dashboard_affaire_create_tache(affaire_id: int, request: Request, db: 
 # ---------------- Mise à jour SRRI Affaire ----------------
 @router.post("/affaires/{affaire_id}/srri", response_class=HTMLResponse)
 async def dashboard_affaire_update_srri(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_affaire_write(request, db, affaire_id)
     form = await request.form()
     srri_raw = form.get("srri")
     try:
@@ -18399,6 +18794,8 @@ async def dashboard_affaire_update_srri(affaire_id: int, request: Request, db: S
 # ---------------- Détail Client ----------------
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+
     tb_markers_visible = request.query_params.get("markers") == "1"
     # Ensure DER context variables always exist to avoid NameError in templates
     DER_courtier = None
@@ -18412,6 +18809,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     client_allocation_id = None
     client_allocation_name = None
     allocations_lookup: dict[int, str] = {}
+    societe_gestion_nom = None
+    societe_gestion_role = None
     try:
         row_cli_alloc = db.execute(text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
         if row_cli_alloc:
@@ -18436,6 +18835,27 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     continue
         except Exception:
             allocations_lookup = {}
+        # Société de gestion/courtage active
+        try:
+            row_soc = db.execute(
+                text(
+                    """
+                    SELECT sg.nom AS societe_nom, cs.role AS role
+                    FROM mariadb_client_societe cs
+                    JOIN mariadb_societe_gestion sg ON sg.id = cs.societe_id
+                    WHERE cs.client_id = :cid AND cs.date_fin IS NULL
+                    ORDER BY cs.date_debut DESC, cs.id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id},
+            ).fetchone()
+            if row_soc:
+                societe_gestion_nom = row_soc._mapping.get("societe_nom") if hasattr(row_soc, "_mapping") else row_soc[0]
+                societe_gestion_role = row_soc._mapping.get("role") if hasattr(row_soc, "_mapping") else (row_soc[1] if len(row_soc) > 1 else None)
+        except Exception:
+            societe_gestion_nom = None
+            societe_gestion_role = None
     except Exception:
         client_allocation_id = getattr(client, "allocation_id", None) if client else None
 
@@ -20102,6 +20522,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "reclam_statuses": reclam_statuses,
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
+            "societe_gestion_nom": societe_gestion_nom,
+            "societe_gestion_role": societe_gestion_role,
             # Messages/alertes en-tête
             "msgs_reg_count": msgs_reg_count,
             "msgs_nonreg_count": msgs_nonreg_count,
@@ -20163,6 +20585,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 @router.post("/clients/{client_id}/commercial", response_class=HTMLResponse)
 async def dashboard_client_update_commercial(client_id: int, request: Request, db: Session = Depends(get_db)):
     """Met à jour le responsable (commercial) associé à un client depuis la fiche détail."""
+    _require_client_write(request, db, client_id)
     form = await request.form()
     raw_id = (form.get("commercial_id") or "").strip()
     new_id: int | None
@@ -20190,6 +20613,7 @@ async def dashboard_client_update_commercial(client_id: int, request: Request, d
 
 @router.post("/clients/{client_id}/actifs", response_class=HTMLResponse)
 async def dashboard_client_add_actif(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_write(request, db, client_id)
     form = await request.form()
     # Récupérer champs
     id_type_actif = form.get("id_type_actif")
@@ -20232,6 +20656,7 @@ async def dashboard_client_add_actif(client_id: int, request: Request, db: Sessi
 
 @router.post("/clients/{client_id}/actifs/delete", response_class=HTMLResponse)
 async def dashboard_client_delete_actif(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_write(request, db, client_id)
     form = await request.form()
     actif_id = form.get("actif_id")
     if not actif_id:
@@ -20250,6 +20675,14 @@ async def dashboard_client_delete_actif(client_id: int, request: Request, db: Se
 # ---------------- Allocations ----------------
 @router.get("/allocations", response_class=HTMLResponse)
 def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
+    # Offres/allocations : restreint aux rôles autorisés (pas clients/back-office)
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "offres", "access", societe_id=scope)
+
     # Dernière valeur par nom (pour le tableau)
     sub_last = (
         db.query(
@@ -20317,6 +20750,16 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
 # ---------------- Documents ----------------
 @router.get("/documents", response_class=HTMLResponse)
 def dashboard_documents(request: Request, db: Session = Depends(get_db)):
+    # Pas d'accès pour les clients ; staff lecture requise
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+
     # Documents liés aux clients avec metadata de type
     rows = (
         db.query(
@@ -20393,7 +20836,22 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
     )
 # List allocation dates for a given name (distinct)
 @router.get("/allocations/dates", response_class=JSONResponse)
-def list_allocation_dates(name: str | None = None, isin: str | None = None, db: Session = Depends(get_db)):
+def list_allocation_dates(
+    name: str | None = None,
+    isin: str | None = None,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    # Offres/allocations : restreint aux rôles autorisés
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    try:
+        require_permission(access, "offres", "access", societe_id=scope)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     try:
         if isin:
             rows = db.execute(text("SELECT DISTINCT date FROM allocations WHERE ISIN = :i ORDER BY date DESC"), {"i": isin}).fetchall()

@@ -1,17 +1,27 @@
 # ---------------- Imports principaux ----------------
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates   # <-- ajoute ceci
 from fastapi.staticfiles import StaticFiles
 import threading
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from src.database import get_db
+from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope
 from fastapi import Query
 from datetime import date
 from pathlib import Path
+import os
+from src.security.auth import (
+    hash_password,
+    verify_password,
+    encode_token,
+    decode_token,
+    encode_reset_token,
+    decode_reset_token,
+)
 
 
 # ---------------- Définition app FastAPI ----------------
@@ -84,6 +94,212 @@ if FRONTEND_BUILD_PATH.exists():
 
 logger = logging.getLogger("uvicorn.error")
 
+
+def _require_feature(request: Request, db: Session, feature: str, action: str):
+    """Charge l'utilisateur courant et vérifie la permission demandée."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, feature, action, societe_id=scope)
+    return access, scope
+
+
+# ---------------- Auth simple (login/logout) ----------------
+@app.post("/login")
+def login(
+    request: Request,
+    response: Response,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    # Chercher l'utilisateur par login
+    row = db.execute(
+        text(
+            """
+            SELECT id, user_type, password_hash, actif, client_id, rh_id
+            FROM auth_users
+            WHERE login = :login
+            LIMIT 1
+            """
+        ),
+        {"login": email},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="Identifiants invalides")
+    m = row._mapping if hasattr(row, "_mapping") else None
+    uid = m.get("id") if m else row[0]
+    utype = m.get("user_type") if m else row[1]
+    pwd_hash = m.get("password_hash") if m else row[2]
+    actif = m.get("actif") if m else row[3]
+    if not actif:
+        raise HTTPException(status_code=403, detail="Compte désactivé")
+    if not verify_password(password, pwd_hash):
+        raise HTTPException(status_code=401, detail="Identifiants invalides")
+    # societe_id facultatif via auth_user_roles (on prend NULL par défaut)
+    societe_id = None
+    role_codes: list[str] = []
+    try:
+        rows_roles = db.execute(
+            text(
+                """
+                SELECT ar.code
+                FROM auth_user_roles aur
+                JOIN auth_roles ar ON ar.id = aur.role_id
+                WHERE aur.user_type = :ut AND aur.user_id = :uid
+                """
+            ),
+            {"ut": utype, "uid": uid},
+        ).fetchall()
+        role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
+        row_scope = db.execute(
+            text(
+                """
+                SELECT societe_id
+                FROM auth_user_roles
+                WHERE user_type = :ut AND user_id = :uid
+                ORDER BY (societe_id IS NULL) DESC, societe_id ASC
+                LIMIT 1
+                """
+            ),
+            {"ut": utype, "uid": uid},
+        ).fetchone()
+        if row_scope:
+            societe_id = row_scope[0] if not hasattr(row_scope, "_mapping") else row_scope._mapping.get("societe_id")
+    except Exception:
+        societe_id = None
+    # Générer token et cookies
+    token = encode_token(user_id=uid, user_type=utype, societe_id=societe_id)
+    max_age = 60 * 60 * 8
+    def _with_cookies(response):
+        response.set_cookie("auth_token", token, httponly=True, max_age=max_age, path="/")
+        # Cookies de compatibilité pour les templates/anciens contrôles
+        response.set_cookie("user_id", str(uid), max_age=max_age, path="/")
+        response.set_cookie("user_type", utype, max_age=max_age, path="/")
+        if societe_id is not None:
+            response.set_cookie("societe_id", str(societe_id), max_age=max_age, path="/")
+        if role_codes:
+            response.set_cookie("user_role", role_codes[0], max_age=max_age, path="/")
+        return response
+
+    # Redirection implicite côté UI : si Accept: text/html, renvoyer une redirection
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        target = "/dashboard/clients"
+        if "superadmin" in role_codes:
+            target = "/dashboard/superadmin"
+        elif "dirigeant" in role_codes:
+            target = "/dashboard/"
+        return _with_cookies(
+            HTMLResponse(
+                content=f'<meta http-equiv="refresh" content="0; url={target}" />',
+                status_code=303,
+                headers={"Location": target},
+            )
+        )
+    return _with_cookies(JSONResponse({"detail": "ok"}))
+
+
+@app.post("/logout")
+def logout(request: Request):
+    accept = request.headers.get("accept", "")
+    target = "/login"
+    if "text/html" in accept:
+        resp = RedirectResponse(target, status_code=303)
+    else:
+        resp = JSONResponse({"detail": "logged out"})
+    resp.delete_cookie("auth_token", path="/")
+    resp.delete_cookie("user_id", path="/")
+    resp.delete_cookie("user_type", path="/")
+    resp.delete_cookie("user_role", path="/")
+    resp.delete_cookie("societe_id", path="/")
+    return resp
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    """Formulaire simple de connexion (staff/clients)."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+# ---------------- Mot de passe oublié / reset ----------------
+@app.get("/password/forgot", response_class=HTMLResponse)
+def password_forgot_form(request: Request):
+    return templates.TemplateResponse("password_forgot.html", {"request": request})
+
+
+@app.post("/password/forgot", response_class=HTMLResponse)
+def password_forgot(request: Request, email: str = Form(...), db: Session = Depends(get_db)):
+    # Lookup user
+    row = db.execute(
+        text("SELECT id, user_type FROM auth_users WHERE login = :login AND actif = 1 LIMIT 1"),
+        {"login": email},
+    ).fetchone()
+    if not row:
+        msg = "Si ce compte existe, un lien de réinitialisation a été généré."
+        return templates.TemplateResponse("password_forgot.html", {"request": request, "message": msg})
+    m = row._mapping if hasattr(row, "_mapping") else None
+    uid = m.get("id") if m else row[0]
+    utype = m.get("user_type") if m else row[1]
+    token = encode_reset_token(uid, utype, ttl_seconds=3600)
+    # NOTE: en production, envoyer par email; ici on l'affiche pour test
+    msg = "Lien de réinitialisation généré (valide 1h)."
+    return templates.TemplateResponse(
+        "password_forgot.html",
+        {
+            "request": request,
+            "message": msg,
+            "reset_url": f"/password/reset?token={token}",
+            "token": token,
+        },
+    )
+
+
+@app.get("/password/reset", response_class=HTMLResponse)
+def password_reset_form(request: Request, token: str):
+    data = decode_reset_token(token, max_age=3600)
+    if not data:
+        return templates.TemplateResponse(
+            "password_reset.html",
+            {"request": request, "error": "Lien invalide ou expiré.", "token": None},
+        )
+    return templates.TemplateResponse(
+        "password_reset.html",
+        {"request": request, "token": token},
+    )
+
+
+@app.post("/password/reset", response_class=HTMLResponse)
+def password_reset(
+    request: Request,
+    token: str = Form(...),
+    new_password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    data = decode_reset_token(token, max_age=3600)
+    if not data:
+        return templates.TemplateResponse(
+            "password_reset.html",
+            {"request": request, "error": "Lien invalide ou expiré.", "token": None},
+        )
+    uid = data.get("uid")
+    pwd_hash = hash_password(new_password)
+    try:
+        db.execute(text("UPDATE auth_users SET password_hash = :p WHERE id = :uid"), {"p": pwd_hash, "uid": uid})
+        db.commit()
+    except Exception:
+        db.rollback()
+        return templates.TemplateResponse(
+            "password_reset.html",
+            {"request": request, "error": "Erreur lors de la mise à jour.", "token": token},
+        )
+    return templates.TemplateResponse(
+        "password_reset.html",
+        {"request": request, "message": "Mot de passe réinitialisé. Vous pouvez vous connecter.", "token": None},
+    )
+
 # Préchauffage du cache finance au démarrage pour éviter le premier chargement lent
 def _warm_finance_cache():
     try:
@@ -100,8 +316,45 @@ def _warm_finance_cache():
 
 @app.on_event("startup")
 def _on_startup():
+    if os.getenv("FASTAPI_SKIP_WARM") or os.getenv("PYTEST_CURRENT_TEST"):
+        return
     # Préchauffage synchrone pour éviter le premier hit très lent (peut prendre ~40s)
     _warm_finance_cache()
+
+
+# ---------------- Middleware auth cookie -> headers/state ----------------
+@app.middleware("http")
+async def auth_cookie_middleware(request: Request, call_next):
+    token = request.cookies.get("auth_token")
+    if token:
+        data = decode_token(token)
+        if data:
+            request.state.user_ctx = {
+                "user_id": data.get("uid"),
+                "user_type": data.get("utype"),
+                "societe_id": data.get("sid"),
+            }
+    # Fallback si pas de token mais cookies explicites (compat ancien front)
+    if not getattr(request.state, "user_ctx", None):
+        uid = request.cookies.get("user_id")
+        utype = request.cookies.get("user_type")
+        soc = request.cookies.get("societe_id")
+        try:
+            uid_int = int(uid) if uid not in (None, "") else None
+        except Exception:
+            uid_int = None
+        try:
+            soc_int = int(soc) if soc not in (None, "") else None
+        except Exception:
+            soc_int = None
+        if uid_int is not None and utype:
+            request.state.user_ctx = {
+                "user_id": uid_int,
+                "user_type": utype,
+                "societe_id": soc_int,
+            }
+    response = await call_next(request)
+    return response
 
 # ---------------- Middleware CORS ----------------
 app.add_middleware(
@@ -308,18 +561,21 @@ def remove_document_client(doc_client_id: int, db: Session = Depends(get_db)):
 
 # ---------------- Supports ----------------
 @app.get("/supports/", response_model=list[SupportSchema])
-def read_supports(db: Session = Depends(get_db)):
+def read_supports(request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "supports", "access")
     return get_supports(db)
 
 @app.get("/supports/{support_id}/", response_model=SupportSchema)
-def read_support(support_id: int, db: Session = Depends(get_db)):
+def read_support(support_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "supports", "access")
     db_support = get_support(db, support_id)
     if not db_support:
         raise HTTPException(status_code=404, detail="Support not found")
     return db_support
 
 @app.post("/supports/", response_model=SupportSchema)
-def create_new_support(payload: SupportCreateSchema, db: Session = Depends(get_db)):
+def create_new_support(payload: SupportCreateSchema, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "supports", "access")
     return create_support(
         db,
         payload.code_isin,
@@ -334,7 +590,8 @@ def create_new_support(payload: SupportCreateSchema, db: Session = Depends(get_d
     )
 
 @app.delete("/supports/{support_id}/", response_model=SupportSchema)
-def delete_support(support_id: int, db: Session = Depends(get_db)):
+def delete_support(support_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "supports", "access")
     support = get_support(db, support_id)
     if not support:
         raise HTTPException(status_code=404, detail="Support not found")
@@ -344,15 +601,18 @@ def delete_support(support_id: int, db: Session = Depends(get_db)):
 
 # ---------------- Historiques Personne ----------------
 @app.get("/historiques/personne/", response_model=list[HistoriquePersonneSchema])
-def read_historiques_personne(db: Session = Depends(get_db)):
+def read_historiques_personne(request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "read")
     return get_historiques_personne(db)
 
 @app.get("/historiques/personne/{hist_id}/", response_model=HistoriquePersonneSchema)
-def read_historique_personne(hist_id: int, db: Session = Depends(get_db)):
+def read_historique_personne(hist_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "read")
     return get_historique_personne(db, hist_id)
 
 @app.post("/historiques/personne/", response_model=HistoriquePersonneSchema)
-def create_new_historique_personne(payload: HistoriquePersonneCreateSchema, db: Session = Depends(get_db)):
+def create_new_historique_personne(payload: HistoriquePersonneCreateSchema, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "write")
     return create_historique_personne(
         db,
         payload.date,
@@ -364,15 +624,18 @@ def create_new_historique_personne(payload: HistoriquePersonneCreateSchema, db: 
 
 # ---------------- Historiques Affaire ----------------
 @app.get("/historiques/affaire/", response_model=list[HistoriqueAffaireSchema])
-def read_historiques_affaire(db: Session = Depends(get_db)):
+def read_historiques_affaire(request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "read")
     return get_historiques_affaire(db)
 
 @app.get("/historiques/affaire/{hist_id}/", response_model=HistoriqueAffaireSchema)
-def read_historique_affaire(hist_id: int, db: Session = Depends(get_db)):
+def read_historique_affaire(hist_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "read")
     return get_historique_affaire(db, hist_id)
 
 @app.post("/historiques/affaire/", response_model=HistoriqueAffaireSchema)
-def create_new_historique_affaire(payload: HistoriqueAffaireCreateSchema, db: Session = Depends(get_db)):
+def create_new_historique_affaire(payload: HistoriqueAffaireCreateSchema, request: Request, db: Session = Depends(get_db)):
+    _require_feature(request, db, "data", "write")
     return create_historique_affaire(
         db,
         payload.date,

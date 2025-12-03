@@ -37,6 +37,10 @@
   .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
   .badge-obsolete { color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; }
   .badge-ok { color:#155724; background:#d4edda; border:1px solid #c3e6cb; }
+  /* RBAC UI hides */
+  body[data-user-role="client"] .client-hide { display: none !important; }
+  body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+  body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
 </style>
 
 <div class="main-container">
@@ -59,7 +63,7 @@
         <a class="chip" href="#" onclick="return quickFilterAll('niveau')">Niveau: Tous</a>
         <a class="chip" href="#" onclick="return quickFilterAll('risque')">Risque: Tous</a>
       </div>
-      <div class="toolbar-actions">
+      <div class="toolbar-actions client-hide">
         <input id="doc-quick-search" class="quick-search" type="text" placeholder="Rechercher un document..." />
         <button class="btn btn-primary" onclick="exportDocsCSV()">⬇️ Export CSV</button>
         <button class="btn btn-danger" onclick="clearDocsFilters()">🗑️ Effacer</button>

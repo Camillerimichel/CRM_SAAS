@@ -118,6 +118,10 @@
     background:transparent !important;
     border-color:transparent !important;
   }
+  /* RBAC UI hides */
+  body[data-user-role="client"] .client-hide { display: none !important; }
+  body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+  body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
   /* Ensure accordion sections take full row under any grid */
   #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
   /* Reportings pluriannuels toggle full width */
@@ -317,7 +321,7 @@
     </div>
     <div class="modal-body">
       <p class="muted" style="margin-bottom:10px;">Modifier le SRRI impacte le profil de risque. Veillez à obtenir la validation du client avant de confirmer.</p>
-      <form method="post" action="/dashboard/affaires/{{ affaire.id }}/srri" onsubmit="return confirm('Changer le niveau de risque (SRRI) impacte le profil de l\'affaire. Confirmer la modification ?');">
+      <form class="client-hide" method="post" action="/dashboard/affaires/{{ affaire.id }}/srri" onsubmit="return confirm('Changer le niveau de risque (SRRI) impacte le profil de l\'affaire. Confirmer la modification ?');">
         {% if af_markers_param %}<input type="hidden" name="markers" value="1"/>{% endif %}
         <label for="srriSelect">SRRI (1 à 7)</label>
         <select id="srriSelect" name="srri" style="margin:6px 0 12px 0; width:100%;">
@@ -354,7 +358,7 @@
         <i class="fa-solid fa-file-contract" aria-hidden="true"></i>
       </h3>
     </div>
-    <div id="riskToggle" class="card accordion-toggle" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()">
+    <div id="riskToggle" class="card accordion-toggle client-hide" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
       </h3>
@@ -391,7 +395,7 @@
         </button>
       {% endif %}
       {% if affaire %}
-        <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="openAffTaskPage()" title="Créer une tâche pour ce contrat">
+        <button type="button" class="btn client-hide" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="openAffTaskPage()" title="Créer une tâche pour ce contrat">
           <i class="fa-solid fa-plus"></i> Créer une tâche
         </button>
       {% endif %}
@@ -415,6 +419,13 @@
           {% endif %}
         </div>
         <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
+        <div class="kpi-mini"><strong>Société (gestion/courtage):</strong>
+          {% if societe_gestion_nom %}
+            {{ societe_gestion_nom }}{% if societe_gestion_role %} — {{ societe_gestion_role }}{% endif %}
+          {% else %}
+            —
+          {% endif %}
+        </div>
       </div>
       <div class="card" data-tb-marker="AF_04">
         <div class="kpi-heading">Investissement</div>

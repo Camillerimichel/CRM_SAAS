@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional, Literal
 from sqlalchemy import text as _text
 
 from src.database import get_db
+from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope
 from src.schemas.groupes import GroupeDetailSchema, GroupeLinkSchema, GroupeLinkCreateSchema
 from src.services.groupes import (
     list_group_details,
@@ -56,12 +57,25 @@ def _ensure_group_ids(db: Session):
         db.rollback()
 
 
+def _assert_group_permission(request: Request, db: Session):
+    """Vérifie que l'utilisateur peut gérer les groupes."""
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "groups", "manage", societe_id=scope)
+    return access, scope
+
+
 @router.get("/details", response_model=list[GroupeDetailSchema])
 def api_list_group_details(
     type: Optional[Literal['client','affaire']] = Query(default=None, alias="type"),
     actifs_only: bool = Query(default=True),
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+    _assert_group_permission(request, db)
     _ensure_group_ids(db)
     return list_group_details(db, type_groupe=type, actifs_only=actifs_only)
 
@@ -70,8 +84,10 @@ def api_list_group_details(
 def api_list_memberships(
     client_id: Optional[int] = None,
     affaire_id: Optional[int] = None,
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+    _assert_group_permission(request, db)
     if not client_id and not affaire_id:
         raise HTTPException(status_code=400, detail="Fournir client_id ou affaire_id")
     try:
@@ -105,7 +121,8 @@ def api_list_memberships(
 
 
 @router.post("/memberships", response_model=GroupeLinkSchema)
-def api_add_membership(payload: GroupeLinkCreateSchema, db: Session = Depends(get_db)):
+def api_add_membership(payload: GroupeLinkCreateSchema, request: Request = None, db: Session = Depends(get_db)):
+    _assert_group_permission(request, db)
     if not payload.client_id and not payload.affaire_id:
         raise HTTPException(status_code=400, detail="Fournir client_id ou affaire_id")
     return add_membership(
@@ -118,7 +135,8 @@ def api_add_membership(payload: GroupeLinkCreateSchema, db: Session = Depends(ge
 
 
 @router.delete("/memberships/{link_id}", response_model=GroupeLinkSchema)
-def api_delete_membership(link_id: int, db: Session = Depends(get_db)):
+def api_delete_membership(link_id: int, request: Request = None, db: Session = Depends(get_db)):
+    _assert_group_permission(request, db)
     link = soft_delete_membership(db, link_id)
     if not link:
         raise HTTPException(status_code=404, detail="Lien introuvable")
@@ -129,11 +147,13 @@ def api_delete_membership(link_id: int, db: Session = Depends(get_db)):
 def api_group_overview(
     groupe_key: int,
     by: Optional[str] = Query(default=None),
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
     """Retourne les métadonnées du groupe + la liste de ses membres (clients/affaires).
     Supporte by=rowid sur SQLite si certaines lignes ont id NULL.
     """
+    _assert_group_permission(request, db)
     _ensure_group_ids(db)
     # Détail groupe (par id ou rowid)
     try:

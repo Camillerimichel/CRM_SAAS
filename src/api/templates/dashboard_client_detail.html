@@ -130,6 +130,10 @@
   /* Contrats table */
   #contractsTable { border-collapse: collapse; }
   #contractsTable .badge-closed { padding: 1px 6px; font-size: 10px; }
+  /* RBAC UI hides */
+  body[data-user-role="client"] .client-hide { display: none !important; }
+  body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
+  body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
   /* Alignements d'en-têtes */
   #contractsTable thead th:nth-child(2),
   #contractsTable thead th:nth-child(3) { text-align: center; }
@@ -244,7 +248,7 @@
 {% if client %}
   <!-- Actions rapides -->
   <div class="section-toggle-row" style="margin-top:6px;">
-    <button id="confToggleDetail" class="accordion-toggle" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
+    <button id="confToggleDetail" class="accordion-toggle client-hide" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
       <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Relation client et conformité</span>
     </button>
     {# Création de tâche désactivée (maintenance) #}
@@ -260,7 +264,7 @@
     <button id="reportToggle" class="accordion-toggle" type="button" title="Reportings annuels" aria-label="Reportings annuels" onclick="setSectionToggleActive('reportToggle');">
       <i class="fa-solid fa-file-lines" aria-hidden="true"></i><span>Reportings annuels</span>
     </button>
-    <button id="docsToggle" class="accordion-toggle" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
+    <button id="docsToggle" class="accordion-toggle client-hide" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
       <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
     </button>
   </div>
@@ -271,21 +275,21 @@
     <div id="synthPanel" class="accordion-panel" style="display:block; padding:1rem 1.25rem; border-top:1px solid var(--border);">
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
-        <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('nonreg')" title="Messages en cours">
+        <button type="button" class="btn client-hide" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('nonreg')" title="Messages en cours">
           <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_nonreg_count }}</span>
         </button>
       {% endif %}
       {% if msgs_reg_count and msgs_reg_count > 0 %}
-        <button type="button" class="btn" style="background:#fff; color:#c62828; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('reg')" title="Messages réglementaires">
+        <button type="button" class="btn client-hide" style="background:#fff; color:#c62828; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('reg')" title="Messages réglementaires">
           <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_reg_count }}</span>
         </button>
       {% endif %}
       {% if client %}
-        <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientTaskPage()" title="Créer une tâche pour ce client">
+        <button type="button" class="btn client-hide" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientTaskPage()" title="Créer une tâche pour ce client">
           <i class="fa-solid fa-plus"></i><span>Créer une tâche</span>
         </button>
       {% endif %}
-      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientAdminGroups()" title="Groupes">
+      <button type="button" class="btn client-hide" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientAdminGroups()" title="Groupes">
         <i class="fa-solid fa-gear"></i>
       </button>
       <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="generateClientSynthese()" title="Edition de synthèse">
@@ -313,6 +317,16 @@
                 </select>
               </span>
             </form>
+          </span>
+        </div>
+        <div class="kpi-mini kpi-line">
+          <span>Société (gestion/courtage)</span>
+          <span class="kv">
+            {% if societe_gestion_nom %}
+              {{ societe_gestion_nom }}{% if societe_gestion_role %} — {{ societe_gestion_role }}{% endif %}
+            {% else %}
+              —
+            {% endif %}
           </span>
         </div>
       </div>

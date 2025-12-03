@@ -18,6 +18,9 @@ from .evenement_envoi import EvenementEnvoi
 from .modele_document import ModeleDocument
 from .administration_groupe_detail import AdministrationGroupeDetail
 from .administration_groupe import AdministrationGroupe
+from .societe_gestion import SocieteGestion
+from .client_societe import ClientSociete
+from .affaire_societe import AffaireSociete
 
 
 __all__ = [
@@ -41,4 +44,7 @@ __all__ = [
     "ModeleDocument",
     "AdministrationGroupeDetail",
     "AdministrationGroupe",
+    "SocieteGestion",
+    "ClientSociete",
+    "AffaireSociete",
 ]
