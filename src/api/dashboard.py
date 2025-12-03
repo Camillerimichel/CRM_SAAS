@@ -9614,11 +9614,24 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             .group_by(HistoriqueAffaire.id)
             .subquery()
         )
-        rows = (
+        norm_vol = case((func.abs(HistoriqueAffaire.volat) <= 1, HistoriqueAffaire.volat * 100.0), else_=HistoriqueAffaire.volat)
+        srri_calc_expr = case(
+            (norm_vol <= 0.5, 1),
+            (norm_vol <= 2, 2),
+            (norm_vol <= 5, 3),
+            (norm_vol <= 10, 4),
+            (norm_vol <= 15, 5),
+            (norm_vol <= 25, 6),
+            else_=7
+        )
+        agg = (
             db.query(
-                Affaire.SRRI,
-                HistoriqueAffaire.volat,
-                HistoriqueAffaire.valo
+                func.sum(case((Affaire.SRRI > srri_calc_expr, 1), else_=0)).label("cnt_above"),
+                func.sum(case((Affaire.SRRI == srri_calc_expr, 1), else_=0)).label("cnt_equal"),
+                func.sum(case((Affaire.SRRI < srri_calc_expr, 1), else_=0)).label("cnt_below"),
+                func.sum(case((Affaire.SRRI > srri_calc_expr, HistoriqueAffaire.valo), else_=0)).label("amt_above"),
+                func.sum(case((Affaire.SRRI == srri_calc_expr, HistoriqueAffaire.valo), else_=0)).label("amt_equal"),
+                func.sum(case((Affaire.SRRI < srri_calc_expr, HistoriqueAffaire.valo), else_=0)).label("amt_below"),
             )
             .join(subq_aff, subq_aff.c.affaire_id == Affaire.id)
             .join(
@@ -9626,49 +9639,22 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
                 (HistoriqueAffaire.id == subq_aff.c.affaire_id) &
                 (HistoriqueAffaire.date == subq_aff.c.last_date)
             )
-            .all()
+            .filter(
+                Affaire.SRRI.isnot(None),
+                srri_calc_expr.isnot(None),
+            )
+            .one()
         )
-        def _srri_from_vol(v):
-            if v is None:
-                return None
-            try:
-                x = float(v)
-            except Exception:
-                return None
-            if abs(x) <= 1:
-                x *= 100.0
-            if x <= 0.5: return 1
-            if x <= 2: return 2
-            if x <= 5: return 3
-            if x <= 10: return 4
-            if x <= 15: return 5
-            if x <= 25: return 6
-            return 7
-        compare_counts = {"above": 0, "equal": 0, "below": 0}
-        compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
-        for srri_contract, vol, valo in rows:
-            calc = _srri_from_vol(vol)
-            if srri_contract is None or calc is None:
-                continue
-            try:
-                c = int(srri_contract)
-                k = int(calc)
-            except Exception:
-                continue
-            try:
-                amount = float(valo or 0.0)
-            except Exception:
-                amount = 0.0
-            # Règle cohérente avec les icônes: Au-dessus = c > k, En-dessous = c < k
-            if c > k:
-                compare_counts["above"] += 1
-                compare_amounts["above"] += amount
-            elif c == k:
-                compare_counts["equal"] += 1
-                compare_amounts["equal"] += amount
-            else:
-                compare_counts["below"] += 1
-                compare_amounts["below"] += amount
+        compare_counts = {
+            "above": int(agg.cnt_above or 0),
+            "equal": int(agg.cnt_equal or 0),
+            "below": int(agg.cnt_below or 0),
+        }
+        compare_amounts = {
+            "above": float(agg.amt_above or 0.0),
+            "equal": float(agg.amt_equal or 0.0),
+            "below": float(agg.amt_below or 0.0),
+        }
     except Exception:
         compare_counts = {"above": 0, "equal": 0, "below": 0}
         compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}

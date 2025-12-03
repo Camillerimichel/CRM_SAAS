@@ -885,105 +885,105 @@
 <!-- Sous-accordéon: Répartitions SRRI -->
   <div id="srriToggle" ></div>
   <div id="srriSection" data-tb-marker="TB_38" >
-    <div class="card" data-tb-marker="TB_38" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
-      <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:center; gap:8px;">
-        <h3 class="risk-card-title">Clients</h3>
+    <div class="charts" data-tb-marker="TB_44" style="display:grid; grid-template-columns: minmax(260px, 320px) repeat(2, minmax(260px, 1fr)); gap:12px; max-width:1200px; margin:0 auto 12px auto; align-items:stretch;">
+      <div class="card" data-tb-marker="TB_38" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
+        <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%;">
+          <h3 class="risk-card-title" style="margin:0;">Clients</h3>
+        </div>
+        <div data-tb-marker="TB_40" style="margin-top:8px; width:100%;">
+          <div class="risk-stat-row" data-tb-marker="TB_41" style="justify-content:flex-start;">
+            <span class="risk-dot red"></span>
+            <a href="/dashboard/clients?risk=above" target="_blank" rel="noopener noreferrer">
+              <strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
+            </a>
+          </div>
+          <div class="risk-stat-row" data-tb-marker="TB_42" style="justify-content:flex-start;">
+            <span class="risk-dot green"></span>
+            <a href="/dashboard/clients?risk=equal" target="_blank" rel="noopener noreferrer">
+              <strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
+            </a>
+          </div>
+          <div class="risk-stat-row" data-tb-marker="TB_43" style="justify-content:flex-start;">
+            <span class="risk-dot blue"></span>
+            <a href="/dashboard/clients?risk=below" target="_blank" rel="noopener noreferrer">
+              <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
+            </a>
+          </div>
+          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:6px;">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-coins" style="color:var(--primary);"></i>
+              <strong>{{ cli_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+            </span>
+          </div>
+          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:4px;">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-percent" style="color:var(--primary);"></i>
+              <strong>{{ cli_risk_under_pct }}</strong> % — Part sous risque
+            </span>
+          </div>
+        </div>
       </div>
-      <div data-tb-marker="TB_40" style="margin-top:8px; text-align:center;">
-        <div class="risk-stat-row" data-tb-marker="TB_41">
-          <span class="risk-dot red"></span>
-          <a href="/dashboard/clients?risk=above" target="_blank" rel="noopener noreferrer">
-            <strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
-          </a>
-        </div>
-        <div class="risk-stat-row" data-tb-marker="TB_42">
-          <span class="risk-dot green"></span>
-          <a href="/dashboard/clients?risk=equal" target="_blank" rel="noopener noreferrer">
-            <strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
-          </a>
-        </div>
-        <div class="risk-stat-row" data-tb-marker="TB_43">
-          <span class="risk-dot blue"></span>
-          <a href="/dashboard/clients?risk=below" target="_blank" rel="noopener noreferrer">
-            <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
-          </a>
-        </div>
-        <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
-          <span style="display:inline-flex; align-items:center; gap:6px;">
-            <i class="fa-solid fa-coins" style="color:var(--primary);"></i>
-            <strong>{{ cli_risk_amounts_fmt.above }}</strong> € — Montant sous risque
-          </span>
-        </div>
-        <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
-          <span style="display:inline-flex; align-items:center; gap:6px;">
-            <i class="fa-solid fa-percent" style="color:var(--primary);"></i>
-            <strong>{{ cli_risk_under_pct }}</strong> % — Part sous risque
-          </span>
-        </div>
-      </div>
-    </div>
-    <div class="charts" data-tb-marker="TB_44" style="display:flex; flex-wrap:wrap; gap:12px; max-width:1100px; margin:0 auto;">
-      <div class="card" data-tb-marker="TB_45" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+      <div class="card" data-tb-marker="TB_45" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Clients par SRRI</h3>
         <div style="flex:1 1 auto; min-height:0;">
-          <canvas id="chartClientsCount" style="height:200px; max-height:200px;"></canvas>
+          <canvas id="chartClientsCount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_46" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+      <div class="card" data-tb-marker="TB_46" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Montant par SRRI (Clients)</h3>
         <div style="flex:1 1 auto; min-height:0;">
-          <canvas id="chartClientsAmount" style="height:200px; max-height:200px;"></canvas>
+          <canvas id="chartClientsAmount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
     </div>
-    <div class="card" data-tb-marker="TB_47" style="max-width:360px; margin: 0 auto 1rem auto; text-align:center;">
-      <div data-tb-marker="TB_48" style="display:flex; align-items:center; justify-content:center; gap:8px;">
-        <h3 class="risk-card-title">Affaires</h3>
+    <div class="charts" data-tb-marker="TB_53" style="display:grid; grid-template-columns: minmax(260px, 320px) repeat(2, minmax(260px, 1fr)); gap:12px; max-width:1200px; margin:0 auto; align-items:stretch;">
+      <div class="card" data-tb-marker="TB_47" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
+        <div data-tb-marker="TB_48" style="display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%;">
+          <h3 class="risk-card-title" style="margin:0;">Affaires</h3>
+        </div>
+        <div data-tb-marker="TB_49" style="margin-top:8px; width:100%;">
+          <div class="risk-stat-row" data-tb-marker="TB_50" style="justify-content:flex-start;">
+            <span class="risk-dot blue"></span>
+            <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
+              <strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque
+            </a>
+          </div>
+          <div class="risk-stat-row" data-tb-marker="TB_51" style="justify-content:flex-start;">
+            <span class="risk-dot green"></span>
+            <a href="/dashboard/affaires?risk=equal" target="_blank" rel="noopener noreferrer">
+              <strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
+            </a>
+          </div>
+          <div class="risk-stat-row" data-tb-marker="TB_52" style="justify-content:flex-start;">
+            <span class="risk-dot red"></span>
+            <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
+              <strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque
+            </a>
+          </div>
+          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:6px;">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-coins" style="color:#dc2626;"></i>
+              <strong>{{ aff_risk_amounts_fmt.above }}</strong> € — Montant sous risque
+            </span>
+          </div>
+          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:4px;">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-percent" style="color:#dc2626;"></i>
+              <strong>{{ aff_risk_under_pct }}</strong> % — Part sous risque
+            </span>
+          </div>
+        </div>
       </div>
-      <div data-tb-marker="TB_49" style="margin-top:8px; text-align:center;">
-        <div class="risk-stat-row" data-tb-marker="TB_50">
-          <span class="risk-dot blue"></span>
-          <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
-            <strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque
-          </a>
-        </div>
-        <div class="risk-stat-row" data-tb-marker="TB_51">
-          <span class="risk-dot green"></span>
-          <a href="/dashboard/affaires?risk=equal" target="_blank" rel="noopener noreferrer">
-            <strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
-          </a>
-        </div>
-        <div class="risk-stat-row" data-tb-marker="TB_52">
-          <span class="risk-dot red"></span>
-          <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
-            <strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque
-          </a>
-        </div>
-        <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
-          <span style="display:inline-flex; align-items:center; gap:6px;">
-            <i class="fa-solid fa-coins" style="color:#dc2626;"></i>
-            <strong>{{ aff_risk_amounts_fmt.above }}</strong> € — Montant sous risque
-          </span>
-        </div>
-        <div class="risk-stat-row" style="justify-content:center; margin-top:4px;">
-          <span style="display:inline-flex; align-items:center; gap:6px;">
-            <i class="fa-solid fa-percent" style="color:#dc2626;"></i>
-            <strong>{{ aff_risk_under_pct }}</strong> % — Part sous risque
-          </span>
-        </div>
-      </div>
-    </div>
-    <div class="charts" data-tb-marker="TB_53" style="display:flex; flex-wrap:wrap; gap:12px; max-width:1100px; margin:0 auto;">
-      <div class="card" data-tb-marker="TB_54" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+      <div class="card" data-tb-marker="TB_54" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Affaires par SRRI</h3>
         <div style="flex:1 1 auto; min-height:0;">
-          <canvas id="chartAffairesCount" style="height:200px; max-height:200px;"></canvas>
+          <canvas id="chartAffairesCount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_55" style="flex:1 1 300px; max-width:480px; display:flex; flex-direction:column; gap:6px;">
+      <div class="card" data-tb-marker="TB_55" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Montant par SRRI (Affaires)</h3>
         <div style="flex:1 1 auto; min-height:0;">
-          <canvas id="chartAffairesAmount" style="height:200px; max-height:200px;"></canvas>
+          <canvas id="chartAffairesAmount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
     </div>
