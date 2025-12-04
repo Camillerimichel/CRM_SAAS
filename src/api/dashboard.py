@@ -14833,7 +14833,12 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     access = load_access(db, user_type=user_type, user_id=user_id)
     scope = pick_scope(access, req_scope)
     if user_type == "client":
-        ensure_client_ownership(access, owner_id=user_id)
+        ensure_client_ownership(access, owner_id=access.client_id or -1)
+        target_id = access.client_id
+        if target_id:
+            # Rediriger le client vers sa fiche détaillée
+            return RedirectResponse(f"/dashboard/clients/{target_id}", status_code=303)
+        raise HTTPException(status_code=403, detail="Compte client non rattaché")
     else:
         require_permission(access, "data", "read", societe_id=scope)
 
@@ -16351,6 +16356,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     search_term = request.query_params.get("q") or None
     per_page = 25
     user_per_page = 25
+    client_per_page = 25
     try:
         page = int(request.query_params.get("page") or 1)
         if page < 1:
@@ -16364,8 +16370,31 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             user_page = 1
     except Exception:
         user_page = 1
+    try:
+        client_page = int(request.query_params.get("cpage") or 1)
+        if client_page < 1:
+            client_page = 1
+    except Exception:
+        client_page = 1
     user_offset = (user_page - 1) * user_per_page
+    client_offset = (client_page - 1) * client_per_page
     user_search_term = request.query_params.get("uq") or None
+    client_search_term = request.query_params.get("cq") or None
+    # Sélection d'un compte client pour édition/création
+    selected_client_id: int | None = None
+    raw_client_id = request.query_params.get("client_id")
+    if raw_client_id not in (None, ""):
+        try:
+            selected_client_id = int(raw_client_id)
+        except Exception:
+            selected_client_id = None
+    selected_client_account_id: int | None = None
+    raw_client_acc = request.query_params.get("client_account_id")
+    if raw_client_acc not in (None, ""):
+        try:
+            selected_client_account_id = int(raw_client_acc)
+        except Exception:
+            selected_client_account_id = None
     # Utilisateur sélectionné (gestion des droits)
     selected_user_id: int | None = None
     raw_user = request.query_params.get("user_id")
@@ -16481,6 +16510,9 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     # Gestion des utilisateurs (filtrage/pagination)
     utilisateurs_societes: list[dict] = []
     total_users = 0
+    client_accounts: list[dict] = []
+    total_client_accounts = 0
+    selected_client_form: dict | None = None
     if selected_societe_id is not None:
         try:
             rows_users = db.execute(
@@ -16541,6 +16573,128 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         except Exception:
             utilisateurs_societes = []
             total_users = 0
+        try:
+            rows_clients = db.execute(
+                text(
+                    """
+                    SELECT
+                        cu.id,
+                        cu.login,
+                        cu.client_id,
+                        cu.broker_id,
+                        cu.last_login,
+                        cu.status,
+                        c.nom,
+                        c.prenom,
+                        c.email AS client_email,
+                        COALESCE(
+                            cu.last_login,
+                            (SELECT MAX(l.created_at) FROM auth_client_login_logs l WHERE l.client_user_id = cu.id)
+                        ) AS last_seen
+                    FROM auth_client_users cu
+                    LEFT JOIN mariadb_clients c ON c.id = cu.client_id
+                    WHERE cu.broker_id = :sid
+                      AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR cu.login LIKE :pat OR c.email LIKE :pat)
+                    ORDER BY c.nom IS NULL, c.nom, c.prenom, cu.id DESC
+                    LIMIT :lim OFFSET :off
+                    """
+                ),
+                {
+                    "sid": selected_societe_id,
+                    "cq": client_search_term,
+                    "pat": f"%{client_search_term}%" if client_search_term else None,
+                    "lim": client_per_page,
+                    "off": client_offset,
+                },
+            ).fetchall()
+            for r in rows_clients:
+                m = r._mapping if hasattr(r, "_mapping") else {}
+                last_seen = m.get("last_seen")
+                cid = m.get("client_id")
+                status = m.get("status")
+                client_accounts.append(
+                    {
+                        "id": m.get("id"),
+                        "login": m.get("login"),
+                        "client_id": cid,
+                        "broker_id": m.get("broker_id"),
+                        "nom": m.get("nom"),
+                        "prenom": m.get("prenom"),
+                        "email": m.get("client_email") or m.get("login"),
+                        "last_login": m.get("last_login"),
+                        "last_seen": last_seen,
+                        "has_account": True,
+                        "status": status,
+                    }
+                )
+            existing_client_ids = {c.get("client_id") for c in client_accounts if c.get("client_id") is not None}
+            total_client_accounts = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM auth_client_users cu
+                    LEFT JOIN mariadb_clients c ON c.id = cu.client_id
+                    WHERE cu.broker_id = :sid
+                      AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR cu.login LIKE :pat OR c.email LIKE :pat)
+                    """
+                ),
+                {
+                    "sid": selected_societe_id,
+                    "cq": client_search_term,
+                    "pat": f"%{client_search_term}%" if client_search_term else None,
+                },
+            ).scalar() or 0
+            # Clients liés à la société avec email mais sans compte portail
+            rows_missing = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT c.id, c.nom, c.prenom, c.email
+                    FROM mariadb_clients c
+                    JOIN mariadb_client_societe cs ON cs.client_id = c.id
+                    WHERE cs.societe_id = :sid
+                      AND c.email IS NOT NULL AND TRIM(c.email) <> ''
+                      AND c.id NOT IN :existing
+                      AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR c.email LIKE :pat)
+                    ORDER BY c.nom, c.prenom, c.id
+                    """
+                ).bindparams(bindparam("existing", expanding=True)),
+                {
+                    "sid": selected_societe_id,
+                    "existing": tuple(existing_client_ids or {-1}),
+                    "cq": client_search_term,
+                    "pat": f"%{client_search_term}%" if client_search_term else None,
+                },
+            ).fetchall()
+            for r in rows_missing or []:
+                m = r._mapping if hasattr(r, "_mapping") else {}
+                cid_missing = m.get("id")
+                client_accounts.append(
+                    {
+                        "id": None,
+                        "login": m.get("email"),
+                        "client_id": cid_missing,
+                        "broker_id": selected_societe_id,
+                        "nom": m.get("nom"),
+                        "prenom": m.get("prenom"),
+                        "email": m.get("email"),
+                        "last_login": None,
+                        "last_seen": None,
+                        "has_account": False,
+                        "status": "pending_reset",
+                    }
+                )
+            # Préparer le formulaire sélectionné (création/édition)
+            if selected_client_id or selected_client_account_id:
+                for c in client_accounts:
+                    if selected_client_account_id and c.get("id") == selected_client_account_id:
+                        selected_client_form = c
+                        break
+                    if selected_client_id and c.get("client_id") == selected_client_id:
+                        selected_client_form = c
+                        break
+        except Exception:
+            client_accounts = []
+            total_client_accounts = 0
 
     # Enrichir avec rôle associé (priorité périmètre société, sinon global)
     if utilisateurs_societes:
@@ -16763,6 +16917,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     # Pagination sociétés
     page_count = math.ceil(total_societes / per_page) if per_page else 1
     user_page_count = math.ceil(total_users / user_per_page) if user_per_page else 1
+    client_page_count = math.ceil(total_client_accounts / client_per_page) if client_per_page else 1
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -16791,6 +16946,13 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "user_page_count": user_page_count,
             "total_users": total_users,
             "user_per_page": user_per_page,
+            "client_accounts": client_accounts,
+            "total_client_accounts": total_client_accounts,
+            "client_page": client_page,
+            "client_page_count": client_page_count,
+            "client_per_page": client_per_page,
+            "client_search_term": client_search_term,
+            "selected_client_form": selected_client_form,
         },
     )
 
@@ -17078,6 +17240,134 @@ def dashboard_superadmin_toggle_auth(
     qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
     target_url = "/dashboard/superadmin"
     target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/client-auth", response_class=RedirectResponse)
+def dashboard_superadmin_client_auth(
+    request: Request,
+    societe_id: int = Form(..., description="Courtier concerné"),
+    client_id: int = Form(..., description="ID client"),
+    client_account_id: int | None = Form(None, description="ID compte portail (si existant)"),
+    login: str = Form(..., description="Login / email"),
+    password: str | None = Form(None, description="Mot de passe (optionnel)"),
+    status: str = Form("active", description="Statut du compte"),
+    db: Session = Depends(get_db),
+):
+    """Crée ou met à jour un compte portail client pour le courtier courant."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    final_login = (login or "").strip()
+    if not final_login:
+        raise HTTPException(status_code=400, detail="Login requis")
+    if status not in ("active", "disabled", "pending_reset"):
+        status = "active"
+
+    role_client_id = db.execute(text("SELECT id FROM auth_roles WHERE code = 'client' LIMIT 1")).scalar()
+    if role_client_id is None:
+        raise HTTPException(status_code=400, detail="Rôle client introuvable")
+
+    plain_password: str | None = None
+    try:
+        if client_account_id:
+            # Mise à jour
+            existing = db.execute(
+                text("SELECT id FROM auth_client_users WHERE id = :id AND broker_id = :bid"),
+                {"id": client_account_id, "bid": societe_id},
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Compte client introuvable")
+            # Vérifier unicité login
+            dup = db.execute(
+                text("SELECT id FROM auth_client_users WHERE broker_id = :bid AND login = :l AND id != :id LIMIT 1"),
+                {"bid": societe_id, "l": final_login, "id": client_account_id},
+            ).fetchone()
+            if dup:
+                raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
+            params = {"id": client_account_id, "login": final_login, "status": status}
+            if password:
+                plain_password = password[:24]
+                params["pwd"] = hash_password(plain_password)
+                db.execute(
+                    text(
+                        """
+                        UPDATE auth_client_users
+                        SET login = :login, status = :status, password_hash = :pwd, updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    params,
+                )
+            else:
+                db.execute(
+                    text(
+                        """
+                        UPDATE auth_client_users
+                        SET login = :login, status = :status, updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    params,
+                )
+            db.commit()
+            account_id = client_account_id
+        else:
+            # Création
+            dup = db.execute(
+                text("SELECT id FROM auth_client_users WHERE broker_id = :bid AND login = :l LIMIT 1"),
+                {"bid": societe_id, "l": final_login},
+            ).fetchone()
+            if dup:
+                raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
+            plain_password = (password or secrets.token_urlsafe(8))[:24]
+            pwd_hash = hash_password(plain_password)
+            db.execute(
+                text(
+                    """
+                    INSERT INTO auth_client_users (client_id, broker_id, login, password_hash, status)
+                    VALUES (:cid, :bid, :login, :pwd, :status)
+                    """
+                ),
+                {"cid": client_id, "bid": societe_id, "login": final_login, "pwd": pwd_hash, "status": status},
+            )
+            account_id = db.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+            # Rôle client par défaut
+            try:
+                db.execute(
+                    text(
+                        """
+                        INSERT IGNORE INTO auth_client_user_roles (client_user_id, role_id, societe_id)
+                        VALUES (:uid, :rid, :sid)
+                        """
+                    ),
+                    {"uid": account_id, "rid": role_client_id, "sid": societe_id},
+                )
+            except Exception:
+                pass
+            db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    target_params = {
+        "societe_id": societe_id,
+        "client_id": client_id,
+        "client_account_id": account_id,
+    }
+    if plain_password:
+        target_params["tmp_pwd"] = plain_password
+        target_params["tmp_action"] = "client"
+    qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
+    target_url = "/dashboard/superadmin"
+    target_url = f"{target_url}?{qs}#client-auth" if qs else f"{target_url}#client-auth"
     return RedirectResponse(url=target_url, status_code=303)
 
 

@@ -33,7 +33,7 @@
     h1 { margin: 0 0 8px 0; font-size: 1.3rem; }
     p.muted { margin: 0 0 14px 0; color: var(--muted); font-size: 0.95rem; }
     label { display:block; margin:12px 0 6px; font-weight:600; }
-    input[type="email"], input[type="password"] {
+    input[type="email"], input[type="password"], select {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid var(--border);
@@ -65,11 +65,18 @@
     <form method="post" action="/login">
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="broker_id">Courtier</label>
+      <select id="broker_id" name="broker_id">
+        <option value="">Sélectionnez votre courtier (si client)</option>
+        {% for c in courtiers or [] %}
+        <option value="{{ c.id }}">{{ c.nom }}</option>
+        {% endfor %}
+      </select>
       <label for="password">Mot de passe</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button type="submit">Se connecter</button>
     </form>
-    <div class="note">Clients et salariés utilisent le même formulaire.</div>
+    <div class="note">Clients et salariés utilisent le même formulaire. Le courtier est requis si votre email existe chez plusieurs courtiers.</div>
     <div class="note"><a href="/password/forgot" style="color:var(--primary); text-decoration:none;">Mot de passe oublié ?</a></div>
   </div>
 </body>
