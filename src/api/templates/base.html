@@ -405,7 +405,11 @@
             {% block header_subtitle %}{% endblock %}
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="text-align:right; line-height:1.2;">
+            <div style="font-weight:700;">{{ request.cookies.get('user_name') or request.cookies.get('user_login') or 'Utilisateur' }}</div>
+            <div class="muted" style="font-size:0.9rem;">Rôle : {{ _role_hint }}</div>
+          </div>
           <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
           <form method="post" action="/logout" style="display:inline;">
             <button type="submit" style="background:transparent; border:1px solid rgba(0,0,0,0.08); color:var(--text); padding:6px 10px; border-radius:8px; cursor:pointer;">
@@ -420,6 +424,10 @@
             {% set path = request.url.path if request and request.url else '' %}
             {% set _is_client = _role_hint == 'client' %}
             {% set _is_backoffice = _role_hint == 'back_office' %}
+            {% set _is_dirigeant = _role_hint == 'dirigeant' %}
+            {% set _is_directeur = _role_hint == 'directeur_commercial' %}
+            {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
+            {% set _is_commercial = _role_hint == 'commercial' %}
             {% if not _is_client %}
             <a href="/dashboard/clients" class="nav-compact {% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
             {% endif %}
@@ -434,10 +442,14 @@
             <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
             <a href="/dashboard/taches" class="nav-compact {% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
             {% endif %}
+            {% if not _is_responsable_bo %}
             <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
-            {% if not _is_client and not _is_backoffice %}
+            {% endif %}
+            {% if not _is_client and not _is_backoffice and not _is_commercial %}
             <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
+            {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
             <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+            {% endif %}
             {% endif %}
         </div>
       </nav>

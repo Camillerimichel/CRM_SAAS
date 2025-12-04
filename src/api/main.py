@@ -14,6 +14,8 @@ from fastapi import Query
 from datetime import date
 from pathlib import Path
 import os
+import time
+from collections import deque, defaultdict
 from src.security.auth import (
     hash_password,
     verify_password,
@@ -22,6 +24,7 @@ from src.security.auth import (
     encode_reset_token,
     decode_reset_token,
 )
+from src.services.mailer import send_email
 
 
 # ---------------- Définition app FastAPI ----------------
@@ -40,8 +43,8 @@ app.include_router(groupes.router)
 # ---------------- Route d'accueil ----------------
 @app.get("/", response_class=HTMLResponse)
 def read_root(request: Request):
-    """Page d'accueil publique avant redirection vers le dashboard."""
-    return templates.TemplateResponse("home.html", {"request": request})
+    """Redirection par défaut vers la page de connexion."""
+    return RedirectResponse(url="/login", status_code=303)
 
 _THIS_FILE = Path(__file__).resolve()
 BASE_DIR = _THIS_FILE.parents[2]
@@ -93,6 +96,24 @@ if FRONTEND_BUILD_PATH.exists():
     app.mount("/dashboard", frontend_app)
 
 logger = logging.getLogger("uvicorn.error")
+
+_forgot_rate_limit = defaultdict(deque)
+_FORGOT_MAX = 5
+_FORGOT_WINDOW_SEC = 600
+
+
+def _check_forgot_rate(request: Request):
+    """Limiter les requêtes /password/forgot par IP pour limiter le spam."""
+    ip = request.client.host if request and request.client else "unknown"
+    now = time.time()
+    dq = _forgot_rate_limit[ip]
+    # purge
+    while dq and dq[0] < now - _FORGOT_WINDOW_SEC:
+        dq.popleft()
+    if len(dq) >= _FORGOT_MAX:
+        return False
+    dq.append(now)
+    return True
 
 
 def _require_feature(request: Request, db: Session, feature: str, action: str):
@@ -173,11 +194,41 @@ def login(
     # Générer token et cookies
     token = encode_token(user_id=uid, user_type=utype, societe_id=societe_id)
     max_age = 60 * 60 * 8
+    # Récupérer nom/prénom pour affichage topbar
+    user_name = None
+    try:
+        if utype == "staff" and m and m.get("rh_id"):
+            rh_row = db.execute(
+                text("SELECT prenom, nom FROM administration_RH WHERE id = :rid LIMIT 1"),
+                {"rid": m.get("rh_id")},
+            ).fetchone()
+            if rh_row:
+                _m = rh_row._mapping if hasattr(rh_row, "_mapping") else None
+                prenom = _m.get("prenom") if _m else (rh_row[0] if len(rh_row) > 0 else "")
+                nom = _m.get("nom") if _m else (rh_row[1] if len(rh_row) > 1 else "")
+                user_name = f"{prenom or ''} {nom or ''}".strip()
+        elif utype == "client" and m and m.get("client_id"):
+            c_row = db.execute(
+                text("SELECT prenom, nom FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+                {"cid": m.get("client_id")},
+            ).fetchone()
+            if c_row:
+                _m = c_row._mapping if hasattr(c_row, "_mapping") else None
+                prenom = _m.get("prenom") if _m else (c_row[0] if len(c_row) > 0 else "")
+                nom = _m.get("nom") if _m else (c_row[1] if len(c_row) > 1 else "")
+                user_name = f"{prenom or ''} {nom or ''}".strip()
+    except Exception:
+        user_name = None
+
     def _with_cookies(response):
         response.set_cookie("auth_token", token, httponly=True, max_age=max_age, path="/")
         # Cookies de compatibilité pour les templates/anciens contrôles
         response.set_cookie("user_id", str(uid), max_age=max_age, path="/")
         response.set_cookie("user_type", utype, max_age=max_age, path="/")
+        if user_name:
+            response.set_cookie("user_name", user_name, max_age=max_age, path="/")
+        else:
+            response.delete_cookie("user_name", path="/")
         if societe_id is not None:
             response.set_cookie("societe_id", str(societe_id), max_age=max_age, path="/")
         if role_codes:
@@ -232,6 +283,9 @@ def password_forgot_form(request: Request):
 
 @app.post("/password/forgot", response_class=HTMLResponse)
 def password_forgot(request: Request, email: str = Form(...), db: Session = Depends(get_db)):
+    if not _check_forgot_rate(request):
+        msg = "Trop de demandes. Réessayez dans quelques minutes."
+        return templates.TemplateResponse("password_forgot.html", {"request": request, "error": msg})
     # Lookup user
     row = db.execute(
         text("SELECT id, user_type FROM auth_users WHERE login = :login AND actif = 1 LIMIT 1"),
@@ -244,17 +298,25 @@ def password_forgot(request: Request, email: str = Form(...), db: Session = Depe
     uid = m.get("id") if m else row[0]
     utype = m.get("user_type") if m else row[1]
     token = encode_reset_token(uid, utype, ttl_seconds=3600)
-    # NOTE: en production, envoyer par email; ici on l'affiche pour test
-    msg = "Lien de réinitialisation généré (valide 1h)."
-    return templates.TemplateResponse(
-        "password_forgot.html",
-        {
-            "request": request,
-            "message": msg,
-            "reset_url": f"/password/reset?token={token}",
-            "token": token,
-        },
+    reset_url = f"{str(request.base_url).rstrip('/')}/password/reset?token={token}"
+
+    # Envoi email si configuré
+    sent = send_email(
+        to_email=email,
+        subject="Réinitialisation de mot de passe",
+        body=f"Bonjour,\n\nCliquez sur le lien suivant pour réinitialiser votre mot de passe (valide 1h) :\n{reset_url}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.",
     )
+    msg = "Si ce compte existe, un lien de réinitialisation a été généré."
+    ctx = {
+        "request": request,
+        "message": msg,
+    }
+    # Si l'envoi a échoué, afficher le lien pour tests
+    if not sent:
+        ctx["reset_url"] = reset_url
+        ctx["token"] = token
+        ctx["warning"] = "Envoi email indisponible (SMTP non configuré) — utilisez ce lien pour tester."
+    return templates.TemplateResponse("password_forgot.html", ctx)
 
 
 @app.get("/password/reset", response_class=HTMLResponse)

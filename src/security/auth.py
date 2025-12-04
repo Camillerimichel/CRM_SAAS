@@ -41,7 +41,8 @@ def decode_token(token: str) -> Optional[dict]:
 
 def encode_reset_token(user_id: int, user_type: str, ttl_seconds: int = 3600) -> str:
     payload = {"uid": user_id, "utype": user_type}
-    return _timed_serializer().dumps(payload, salt="pwd-reset", max_age=ttl_seconds)
+    # Timed serializer embarque l'horodatage; la limite est appliquée à la lecture.
+    return _timed_serializer().dumps(payload, salt="pwd-reset")
 
 
 def decode_reset_token(token: str, max_age: int = 3600) -> Optional[dict]:
