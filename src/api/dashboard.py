@@ -7,8 +7,8 @@ from time import perf_counter
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
+from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile, Form
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam, desc, case
 from sqlalchemy import text
@@ -62,6 +62,7 @@ from src.security.rbac import (
     extract_user_context,
     pick_scope,
 )
+from src.security.auth import hash_password
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -16339,7 +16340,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     require_permission(access, "logs", "view", societe_id=current_scope)
     is_superadmin = access.has_permission("logs", "view", societe_id=current_scope)
 
-    # Société sélectionnée (affichage détaillé)
+    # Société sélectionnée (affichage détaillé) + pagination/filtre
     selected_societe_id: int | None = None
     raw_soc = request.query_params.get("societe_id")
     if raw_soc not in (None, ""):
@@ -16347,6 +16348,32 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             selected_societe_id = int(raw_soc)
         except Exception:
             selected_societe_id = None
+    search_term = request.query_params.get("q") or None
+    per_page = 25
+    user_per_page = 25
+    try:
+        page = int(request.query_params.get("page") or 1)
+        if page < 1:
+            page = 1
+    except Exception:
+        page = 1
+    offset = (page - 1) * per_page
+    try:
+        user_page = int(request.query_params.get("upage") or 1)
+        if user_page < 1:
+            user_page = 1
+    except Exception:
+        user_page = 1
+    user_offset = (user_page - 1) * user_per_page
+    user_search_term = request.query_params.get("uq") or None
+    # Utilisateur sélectionné (gestion des droits)
+    selected_user_id: int | None = None
+    raw_user = request.query_params.get("user_id")
+    if raw_user not in (None, ""):
+        try:
+            selected_user_id = int(raw_user)
+        except Exception:
+            selected_user_id = None
     superadmin_user: dict | None = None
     try:
         row_sa = db.execute(
@@ -16373,6 +16400,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         superadmin_user = None
 
     societes_gestion: list[dict] = []
+    total_societes = 0
     try:
         rows = db.execute(
             text(
@@ -16391,13 +16419,26 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     (SELECT COUNT(*) FROM mariadb_client_societe cs WHERE cs.societe_id = sg.id AND cs.date_fin IS NULL) AS clients_actifs,
                     (SELECT COUNT(*) FROM mariadb_affaire_societe afs WHERE afs.societe_id = sg.id AND afs.date_fin IS NULL) AS affaires_actives
                 FROM mariadb_societe_gestion sg
+                WHERE (:q IS NULL OR sg.nom LIKE :pat)
                 ORDER BY sg.nom
+                LIMIT :lim OFFSET :off
                 """
-            )
+            ),
+            {"q": search_term, "pat": f"%{search_term}%" if search_term else None, "lim": per_page, "off": offset},
         ).fetchall()
         societes_gestion = [dict(r._mapping) for r in rows]
+        total_societes = db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM mariadb_societe_gestion sg
+                WHERE (:q IS NULL OR sg.nom LIKE :pat)
+                """
+            ),
+            {"q": search_term, "pat": f"%{search_term}%" if search_term else None},
+        ).scalar() or 0
     except Exception:
         societes_gestion = []
+        total_societes = 0
     selected_societe = None
     if selected_societe_id is not None:
         for sg in societes_gestion:
@@ -16407,47 +16448,321 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     break
             except Exception:
                 continue
+        if selected_societe is None:
+            try:
+                row_sel = db.execute(
+                    text(
+                        """
+                        SELECT
+                            sg.id,
+                            sg.nom,
+                            sg.nature,
+                            sg.contact,
+                            sg.telephone,
+                            sg.email,
+                            sg.adresse,
+                            sg.actif,
+                            sg.created_at,
+                            sg.updated_at,
+                            (SELECT COUNT(*) FROM mariadb_client_societe cs WHERE cs.societe_id = sg.id AND cs.date_fin IS NULL) AS clients_actifs,
+                            (SELECT COUNT(*) FROM mariadb_affaire_societe afs WHERE afs.societe_id = sg.id AND afs.date_fin IS NULL) AS affaires_actives
+                        FROM mariadb_societe_gestion sg
+                        WHERE sg.id = :sid
+                        LIMIT 1
+                        """
+                    ),
+                    {"sid": selected_societe_id},
+                ).fetchone()
+                if row_sel:
+                    selected_societe = dict(row_sel._mapping) if hasattr(row_sel, "_mapping") else dict(row_sel)
+            except Exception:
+                selected_societe = None
 
-    # Placeholder pour la gestion des utilisateurs (dépendra du modèle utilisateur)
+    # Gestion des utilisateurs (filtrage/pagination)
     utilisateurs_societes: list[dict] = []
+    total_users = 0
+    if selected_societe_id is not None:
+        try:
+            rows_users = db.execute(
+                text(
+                    """
+                    SELECT
+                        rh.id,
+                        rh.nom,
+                        rh.prenom,
+                        rh.mail,
+                        rh.telephone,
+                        rh.superadmin,
+                        rh.societe_gestion_id,
+                        sg.nom AS societe_nom
+                    FROM administration_RH rh
+                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                    WHERE rh.societe_gestion_id = :sid
+                      AND (:uq IS NULL OR rh.nom LIKE :pat OR rh.prenom LIKE :pat OR rh.mail LIKE :pat)
+                    ORDER BY rh.superadmin DESC, rh.nom, rh.prenom
+                    LIMIT :lim OFFSET :off
+                    """
+                ),
+                {
+                    "sid": selected_societe_id,
+                    "uq": user_search_term,
+                    "pat": f"%{user_search_term}%" if user_search_term else None,
+                    "lim": user_per_page,
+                    "off": user_offset,
+                },
+            ).fetchall()
+            for r in rows_users:
+                m = r._mapping if hasattr(r, "_mapping") else {}
+                utilisateurs_societes.append({
+                    "id": m.get("id"),
+                    "nom": m.get("nom"),
+                    "prenom": m.get("prenom"),
+                    "mail": m.get("mail"),
+                    "telephone": m.get("telephone"),
+                    "superadmin": bool(m.get("superadmin")),
+                    "societe_gestion_id": m.get("societe_gestion_id"),
+                    "societe_nom": m.get("societe_nom"),
+                })
+            total_users = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM administration_RH rh
+                    WHERE rh.societe_gestion_id = :sid
+                      AND (:uq IS NULL OR rh.nom LIKE :pat OR rh.prenom LIKE :pat OR rh.mail LIKE :pat)
+                    """
+                ),
+                {
+                    "sid": selected_societe_id,
+                    "uq": user_search_term,
+                    "pat": f"%{user_search_term}%" if user_search_term else None,
+                },
+            ).scalar() or 0
+        except Exception:
+            utilisateurs_societes = []
+            total_users = 0
+
+    # Enrichir avec rôle associé (priorité périmètre société, sinon global)
+    if utilisateurs_societes:
+        rh_ids = [u.get("id") for u in utilisateurs_societes if u.get("id") is not None]
+        auth_map: dict[int, int] = {}
+        if rh_ids:
+            try:
+                rows_auth = db.execute(
+                    text(
+                        """
+                        SELECT rh_id, id
+                        FROM auth_users
+                        WHERE user_type = 'staff' AND rh_id IN :rids
+                        ORDER BY id DESC
+                        """
+                    ).bindparams(bindparam("rids", expanding=True)),
+                    {"rids": tuple(rh_ids)},
+                ).fetchall()
+                for r in rows_auth:
+                    m = r._mapping if hasattr(r, "_mapping") else {}
+                    rh_id = m.get("rh_id") if m else r[0]
+                    auid = m.get("id") if m else (r[1] if len(r) > 1 else None)
+                    if rh_id is not None and auid is not None and rh_id not in auth_map:
+                        auth_map[rh_id] = auid
+            except Exception:
+                auth_map = {}
+        role_map: dict[int, str] = {}
+        if auth_map and selected_societe_id is not None:
+            try:
+                rows_roles = db.execute(
+                    text(
+                        """
+                        SELECT aur.user_id, aur.societe_id, ar.label, ar.code
+                        FROM auth_user_roles aur
+                        JOIN auth_roles ar ON ar.id = aur.role_id
+                        WHERE aur.user_type = 'staff' AND aur.user_id IN :uids
+                        """
+                    ).bindparams(bindparam("uids", expanding=True)),
+                    {"uids": tuple(auth_map.values())},
+                ).fetchall()
+                tmp_roles: dict[int, list[tuple[int | None, str]]] = {}
+                for r in rows_roles:
+                    m = r._mapping if hasattr(r, "_mapping") else {}
+                    uid = m.get("user_id") if m else r[0]
+                    sid = m.get("societe_id") if m else (r[1] if len(r) > 1 else None)
+                    label = m.get("label") if m else (r[2] if len(r) > 2 else None)
+                    code = m.get("code") if m else (r[3] if len(r) > 3 else None)
+                    tmp_roles.setdefault(uid, []).append((sid, label or code or "—"))
+                for rh_id, auid in auth_map.items():
+                    roles = tmp_roles.get(auid) or []
+                    chosen = None
+                    for sid, lbl in roles:
+                        if sid == selected_societe_id:
+                            chosen = lbl
+                            break
+                    if chosen is None:
+                        for sid, lbl in roles:
+                            if sid is None:
+                                chosen = lbl
+                                break
+                    if chosen is None and roles:
+                        chosen = roles[0][1]
+                    if chosen:
+                        role_map[rh_id] = chosen
+            except Exception:
+                role_map = {}
+        for u in utilisateurs_societes:
+            rid = u.get("id")
+            u["role_label"] = role_map.get(rid, "—")
+
+    roles_disponibles: list[dict] = []
     try:
-        rows_users = db.execute(
+        rows_roles = db.execute(
             text(
                 """
-                SELECT
-                    rh.id,
-                    rh.nom,
-                    rh.prenom,
-                    rh.mail,
-                    rh.telephone,
-                    rh.superadmin,
-                    rh.societe_gestion_id,
-                    sg.nom AS societe_nom
-                FROM administration_RH rh
-                LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
-                ORDER BY rh.superadmin DESC, rh.nom, rh.prenom
+                SELECT id, code, label
+                FROM auth_roles
+                ORDER BY label
                 """
             )
         ).fetchall()
-        for r in rows_users:
-            m = r._mapping if hasattr(r, "_mapping") else {}
-            utilisateurs_societes.append({
-                "id": m.get("id"),
-                "nom": m.get("nom"),
-                "prenom": m.get("prenom"),
-                "mail": m.get("mail"),
-                "telephone": m.get("telephone"),
-                "superadmin": bool(m.get("superadmin")),
-                "societe_gestion_id": m.get("societe_gestion_id"),
-                "societe_nom": m.get("societe_nom"),
-            })
+        roles_disponibles = [dict(r._mapping) for r in rows_roles]
     except Exception:
-        utilisateurs_societes = []
-    if selected_societe_id is not None:
-        utilisateurs_societes = [
-            u for u in utilisateurs_societes
-            if u.get("societe_gestion_id") == selected_societe_id
-        ]
+        roles_disponibles = []
+
+    # Informations détaillées pour l'utilisateur sélectionné (bouton "Gestion des droits")
+    selected_user: dict | None = None
+    selected_user_roles: list[dict] = []
+    selected_auth_user_id: int | None = None
+    current_role_societe: int | None = None
+    current_role_global: int | None = None
+    if selected_user_id is not None:
+        try:
+            selected_user = next(
+                (dict(u) for u in utilisateurs_societes if u.get("id") == selected_user_id),
+                None,
+            )
+        except Exception:
+            selected_user = None
+    if selected_user:
+        try:
+            row_auth = db.execute(
+                text(
+                    """
+                    SELECT id, login, actif
+                    FROM auth_users
+                    WHERE user_type = 'staff' AND rh_id = :rid
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"rid": selected_user_id},
+            ).fetchone()
+            if row_auth:
+                m = row_auth._mapping if hasattr(row_auth, "_mapping") else None
+                selected_auth_user_id = m.get("id") if m else row_auth[0]
+                selected_user["auth_user_id"] = selected_auth_user_id
+                selected_user["auth_login"] = m.get("login") if m else (row_auth[1] if len(row_auth) > 1 else None)
+                selected_user["auth_actif"] = bool(m.get("actif")) if m else bool(row_auth[2] if len(row_auth) > 2 else 0)
+        except Exception:
+            selected_auth_user_id = None
+        if selected_auth_user_id:
+            try:
+                rows_roles = db.execute(
+                    text(
+                        """
+                        SELECT ar.id AS role_id, ar.code, ar.label, aur.societe_id, sg.nom AS societe_nom
+                        FROM auth_user_roles aur
+                        JOIN auth_roles ar ON ar.id = aur.role_id
+                        LEFT JOIN mariadb_societe_gestion sg ON sg.id = aur.societe_id
+                        WHERE aur.user_type = 'staff' AND aur.user_id = :uid
+                        ORDER BY ar.label ASC
+                        """
+                    ),
+                    {"uid": selected_auth_user_id},
+                ).fetchall()
+                for r in rows_roles:
+                    m = r._mapping if hasattr(r, "_mapping") else {}
+                    selected_user_roles.append(
+                        {
+                            "code": m.get("code"),
+                            "label": m.get("label"),
+                            "role_id": m.get("role_id"),
+                            "societe_id": m.get("societe_id"),
+                            "societe_nom": m.get("societe_nom"),
+                        }
+                    )
+            except Exception:
+                selected_user_roles = []
+    elif selected_user_id is not None and selected_societe_id is not None:
+        # Si l'utilisateur sélectionné n'est pas dans la page courante (pagination), récupérer ses infos minimales
+        try:
+            r = db.execute(
+                text(
+                    """
+                    SELECT
+                        rh.id,
+                        rh.nom,
+                        rh.prenom,
+                        rh.mail,
+                        rh.telephone,
+                        rh.superadmin,
+                        rh.societe_gestion_id,
+                        sg.nom AS societe_nom
+                    FROM administration_RH rh
+                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                    WHERE rh.id = :rid AND rh.societe_gestion_id = :sid
+                    LIMIT 1
+                    """
+                ),
+                {"rid": selected_user_id, "sid": selected_societe_id},
+            ).fetchone()
+            if r:
+                m = r._mapping if hasattr(r, "_mapping") else {}
+                selected_user = {
+                    "id": m.get("id"),
+                    "nom": m.get("nom"),
+                    "prenom": m.get("prenom"),
+                    "mail": m.get("mail"),
+                    "telephone": m.get("telephone"),
+                    "superadmin": bool(m.get("superadmin")),
+                    "societe_gestion_id": m.get("societe_gestion_id"),
+                    "societe_nom": m.get("societe_nom"),
+                }
+        except Exception:
+            selected_user = None
+        # Rôles par périmètre pour préremplir la sélection
+        if selected_user_roles:
+            try:
+                current_role_societe = next(
+                    (r.get("role_id") for r in selected_user_roles if r.get("societe_id") == selected_societe_id),
+                    None,
+                )
+            except Exception:
+                current_role_societe = None
+            try:
+                current_role_global = next(
+                    (r.get("role_id") for r in selected_user_roles if r.get("societe_id") is None),
+                    None,
+                )
+            except Exception:
+                current_role_global = None
+        else:
+            current_role_societe = None
+            current_role_global = None
+    else:
+        current_role_societe = None
+        current_role_global = None
+
+    default_scope = "societe"
+    if current_role_societe is None and current_role_global is not None:
+        default_scope = "global"
+    if selected_societe_id is None:
+        default_scope = "global"
+
+    # Mot de passe initial renvoyé via querystring après création de compte
+    tmp_pwd = request.query_params.get("tmp_pwd")
+    tmp_action = request.query_params.get("tmp_action")
+
+    # Pagination sociétés
+    page_count = math.ceil(total_societes / per_page) if per_page else 1
+    user_page_count = math.ceil(total_users / user_per_page) if user_per_page else 1
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -16458,8 +16773,312 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "utilisateurs_societes": utilisateurs_societes,
             "is_superadmin": is_superadmin,
             "selected_societe": selected_societe,
+            "selected_user": selected_user,
+            "selected_user_roles": selected_user_roles,
+            "roles_disponibles": roles_disponibles,
+            "current_role_societe": current_role_societe,
+            "current_role_global": current_role_global,
+            "default_scope": default_scope,
+            "tmp_pwd": tmp_pwd,
+            "tmp_action": tmp_action,
+            "search_term": search_term,
+            "page": page,
+            "page_count": page_count,
+            "total_societes": total_societes,
+            "per_page": per_page,
+            "user_search_term": user_search_term,
+            "user_page": user_page,
+            "user_page_count": user_page_count,
+            "total_users": total_users,
+            "user_per_page": user_per_page,
         },
     )
+
+
+@router.post("/superadmin/roles", response_class=RedirectResponse)
+def dashboard_superadmin_set_role(
+    request: Request,
+    user_id: int = Form(..., description="ID administration_RH"),
+    role_id: int = Form(..., description="ID du rôle à assigner"),
+    societe_id: int | None = Form(None, description="Portée société pour le rôle"),
+    scope: str = Form("societe", description="Type de portée (societe|global)"),
+    db: Session = Depends(get_db),
+):
+    """Assigne un rôle à un utilisateur staff pour une société (ou global)."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    # Valider la portée
+    target_societe_id: int | None
+    if scope == "global":
+        target_societe_id = None
+    elif scope == "societe":
+        target_societe_id = societe_id if societe_id not in (None, "") else None
+    else:
+        raise HTTPException(status_code=400, detail="Portée invalide")
+
+    # Vérifier l'utilisateur RH et son compte d'auth
+    row_rh = db.execute(text("SELECT id FROM administration_RH WHERE id = :rid LIMIT 1"), {"rid": user_id}).fetchone()
+    if not row_rh:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    row_auth = db.execute(
+        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid ORDER BY id DESC LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if not row_auth:
+        raise HTTPException(status_code=400, detail="Aucun compte d'authentification lié pour cet utilisateur")
+    auth_user_id = row_auth[0] if not hasattr(row_auth, "_mapping") else row_auth._mapping.get("id")
+
+    # Vérifier le rôle
+    role_row = db.execute(text("SELECT id FROM auth_roles WHERE id = :rid LIMIT 1"), {"rid": role_id}).fetchone()
+    if not role_row:
+        raise HTTPException(status_code=400, detail="Rôle inexistant")
+
+    # Appliquer le rôle (remplace l'existant sur la même portée)
+    db.execute(
+        text(
+            """
+            DELETE FROM auth_user_roles
+            WHERE user_type = 'staff' AND user_id = :uid AND societe_id <=> :soc
+            """
+        ),
+        {"uid": auth_user_id, "soc": target_societe_id},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO auth_user_roles (user_type, user_id, role_id, societe_id)
+            VALUES ('staff', :uid, :rid, :soc)
+            """
+        ),
+        {"uid": auth_user_id, "rid": role_id, "soc": target_societe_id},
+    )
+    db.commit()
+
+    target_params = {"societe_id": societe_id, "user_id": user_id}
+    clean_params = {k: v for k, v in target_params.items() if v not in (None, "")}
+    qs = urlencode(clean_params)
+    target_url = "/dashboard/superadmin"
+    if qs:
+        target_url = f"{target_url}?{qs}#droits"
+    else:
+        target_url = f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/roles/delete", response_class=RedirectResponse)
+def dashboard_superadmin_delete_role(
+    request: Request,
+    user_id: int = Form(..., description="ID administration_RH"),
+    societe_id: int | None = Form(None, description="Portée société à nettoyer"),
+    scope: str = Form("societe", description="Type de portée (societe|global)"),
+    db: Session = Depends(get_db),
+):
+    """Supprime le rôle sur la portée choisie pour l'utilisateur staff."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    target_societe_id: int | None
+    if scope == "global":
+        target_societe_id = None
+    elif scope == "societe":
+        target_societe_id = societe_id if societe_id not in (None, "") else None
+    else:
+        raise HTTPException(status_code=400, detail="Portée invalide")
+
+    row_auth = db.execute(
+        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid ORDER BY id DESC LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if not row_auth:
+        raise HTTPException(status_code=400, detail="Aucun compte d'authentification lié pour cet utilisateur")
+    auth_user_id = row_auth[0] if not hasattr(row_auth, "_mapping") else row_auth._mapping.get("id")
+
+    db.execute(
+        text(
+            """
+            DELETE FROM auth_user_roles
+            WHERE user_type = 'staff' AND user_id = :uid AND societe_id <=> :soc
+            """
+        ),
+        {"uid": auth_user_id, "soc": target_societe_id},
+    )
+    db.commit()
+
+    target_params = {"societe_id": societe_id, "user_id": user_id}
+    clean_params = {k: v for k, v in target_params.items() if v not in (None, "")}
+    qs = urlencode(clean_params)
+    target_url = "/dashboard/superadmin"
+    if qs:
+        target_url = f"{target_url}?{qs}#droits"
+    else:
+        target_url = f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/create-auth", response_class=RedirectResponse)
+def dashboard_superadmin_create_auth(
+    request: Request,
+    user_id: int = Form(..., description="ID administration_RH"),
+    login: str | None = Form(None, description="Identifiant de connexion (email)"),
+    password: str | None = Form(None, description="Mot de passe initial (optionnel, sinon généré)"),
+    societe_id: int | None = Form(None, description="Société contextuelle pour retour"),
+    db: Session = Depends(get_db),
+):
+    """Crée le compte d'authentification staff avec mot de passe initial."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    row_rh = db.execute(
+        text("SELECT id, mail FROM administration_RH WHERE id = :rid LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if not row_rh:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    mail = row_rh._mapping.get("mail") if hasattr(row_rh, "_mapping") else (row_rh[1] if len(row_rh) > 1 else None)
+    final_login = (login or mail or "").strip()
+    if not final_login:
+        raise HTTPException(status_code=400, detail="Aucun login fourni")
+
+    # Vérifier unicité du login
+    exists = db.execute(
+        text("SELECT id FROM auth_users WHERE login = :l LIMIT 1"),
+        {"l": final_login},
+    ).fetchone()
+    if exists:
+        raise HTTPException(status_code=400, detail="Login déjà utilisé")
+
+    row_auth_existing = db.execute(
+        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if row_auth_existing:
+        raise HTTPException(status_code=400, detail="Compte déjà existant pour cet utilisateur")
+
+    plain_password = (password or secrets.token_urlsafe(8))[:24]
+    pwd_hash = hash_password(plain_password)
+    db.execute(
+        text(
+            """
+            INSERT INTO auth_users (user_type, login, password_hash, actif, rh_id)
+            VALUES ('staff', :login, :pwd, 1, :rid)
+            """
+        ),
+        {"login": final_login, "pwd": pwd_hash, "rid": user_id},
+    )
+    db.commit()
+
+    target_params = {"user_id": user_id, "tmp_pwd": plain_password, "tmp_action": "create"}
+    # conserver societe_id pour re-afficher le contexte
+    raw_soc = request.query_params.get("societe_id") or societe_id or None
+    if raw_soc not in (None, ""):
+        target_params["societe_id"] = raw_soc
+    qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
+    target_url = "/dashboard/superadmin"
+    if qs:
+        target_url = f"{target_url}?{qs}#droits"
+    else:
+        target_url = f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/reset-auth", response_class=RedirectResponse)
+def dashboard_superadmin_reset_auth(
+    request: Request,
+    user_id: int = Form(..., description="ID administration_RH"),
+    password: str | None = Form(None, description="Nouveau mot de passe (optionnel, sinon généré)"),
+    societe_id: int | None = Form(None, description="Société contextuelle pour retour"),
+    db: Session = Depends(get_db),
+):
+    """Réinitialise le mot de passe du compte staff."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    row_auth = db.execute(
+        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid ORDER BY id DESC LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if not row_auth:
+        raise HTTPException(status_code=400, detail="Aucun compte d'authentification lié pour cet utilisateur")
+    auth_user_id = row_auth[0] if not hasattr(row_auth, "_mapping") else row_auth._mapping.get("id")
+
+    plain_password = (password or secrets.token_urlsafe(8))[:24]
+    pwd_hash = hash_password(plain_password)
+    db.execute(
+        text("UPDATE auth_users SET password_hash = :pwd WHERE id = :uid"),
+        {"pwd": pwd_hash, "uid": auth_user_id},
+    )
+    db.commit()
+
+    target_params = {"user_id": user_id, "tmp_pwd": plain_password, "tmp_action": "reset"}
+    raw_soc = request.query_params.get("societe_id") or societe_id or None
+    if raw_soc not in (None, ""):
+        target_params["societe_id"] = raw_soc
+    qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
+    target_url = "/dashboard/superadmin"
+    target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/auth-toggle", response_class=RedirectResponse)
+def dashboard_superadmin_toggle_auth(
+    request: Request,
+    user_id: int = Form(..., description="ID administration_RH"),
+    actif: int = Form(..., description="1 pour activer, 0 pour désactiver"),
+    societe_id: int | None = Form(None, description="Société contextuelle pour retour"),
+    db: Session = Depends(get_db),
+):
+    """Active/désactive un compte staff."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    row_auth = db.execute(
+        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid ORDER BY id DESC LIMIT 1"),
+        {"rid": user_id},
+    ).fetchone()
+    if not row_auth:
+        raise HTTPException(status_code=400, detail="Aucun compte d'authentification lié pour cet utilisateur")
+    auth_user_id = row_auth[0] if not hasattr(row_auth, "_mapping") else row_auth._mapping.get("id")
+
+    db.execute(
+        text("UPDATE auth_users SET actif = :a WHERE id = :uid"),
+        {"a": 1 if actif else 0, "uid": auth_user_id},
+    )
+    db.commit()
+
+    target_params = {"user_id": user_id}
+    raw_soc = request.query_params.get("societe_id") or societe_id or None
+    if raw_soc not in (None, ""):
+        target_params["societe_id"] = raw_soc
+    qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
+    target_url = "/dashboard/superadmin"
+    target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
 
 
 # ---------------- ESG data API (Affaire) ----------------

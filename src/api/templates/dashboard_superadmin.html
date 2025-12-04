@@ -30,16 +30,38 @@
     </span>
   </div>
   <div style="display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top:14px;">
-    <div class="kpi-mini kpi-line"><span>Nom</span><span class="kv">{{ superadmin_user.nom or '—' }}</span></div>
-    <div class="kpi-mini kpi-line"><span>Prénom</span><span class="kv">{{ superadmin_user.prenom or '—' }}</span></div>
-    <div class="kpi-mini kpi-line"><span>Email</span><span class="kv">{{ superadmin_user.mail or '—' }}</span></div>
-    <div class="kpi-mini kpi-line"><span>Téléphone</span><span class="kv">{{ superadmin_user.telephone or '—' }}</span></div>
+    {% set info = namespace(rows=[]) %}
+    {% if superadmin_user.nom %}{% set _ = info.rows.append(('Nom', superadmin_user.nom)) %}{% endif %}
+    {% if superadmin_user.prenom %}{% set _ = info.rows.append(('Prénom', superadmin_user.prenom)) %}{% endif %}
+    {% if superadmin_user.mail %}{% set _ = info.rows.append(('Email', superadmin_user.mail)) %}{% endif %}
+    {% if superadmin_user.telephone %}{% set _ = info.rows.append(('Téléphone', superadmin_user.telephone)) %}{% endif %}
+    {% if info.rows|length == 0 %}
+      {% set _ = info.rows.append(('Nom', '—')) %}
+      {% set _ = info.rows.append(('Prénom', '—')) %}
+      {% set _ = info.rows.append(('Email', '—')) %}
+      {% set _ = info.rows.append(('Téléphone', '—')) %}
+    {% endif %}
+    <div style="display:flex; flex-wrap:wrap; gap:14px; grid-column:1/-1;">
+      {% for label, value in info.rows %}
+        <div style="display:flex; align-items:center; gap:6px; padding:6px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;">
+          <span class="muted" style="font-weight:600;">{{ label }} :</span>
+          <span class="kv">{{ value }}</span>
+        </div>
+      {% endfor %}
+    </div>
   </div>
 </div>
 {% endif %}
 
 <div class="card" style="margin-bottom:1rem;">
-  <h3 style="margin:0 0 8px 0;">Sociétés (liste)</h3>
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+    <h3 style="margin:0;">Sociétés (liste)</h3>
+    <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
+      <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
+      <button type="submit" class="btn btn-secondary">Filtrer</button>
+    </form>
+  </div>
   {% if societes_gestion %}
     <div style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
@@ -49,7 +71,7 @@
             <th style="padding:6px 4px;">Contact</th>
             <th style="padding:6px 4px;">Téléphone</th>
             <th style="padding:6px 4px;">Courriel</th>
-            <th style="padding:6px 4px; text-align:right;">Actions</th>
+            <th style="padding:6px 4px; text-align:center;">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -59,13 +81,27 @@
             <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
             <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
             <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
-            <td style="padding:6px 4px; text-align:right;">
-              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}">Gérer</a>
+            <td style="padding:6px 4px; text-align:center;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
+                <i class="fa-regular fa-pen-to-square"></i>
+              </a>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+      <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        {% set qparam = '&q=' ~ search_term if search_term else '' %}
+        {% if page > 1 %}
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}">Précédent</a>
+        {% endif %}
+        {% if page < page_count %}
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}">Suivant</a>
+        {% endif %}
+      </div>
     </div>
   {% else %}
     <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
@@ -73,7 +109,7 @@
 </div>
 
 {% if selected_societe %}
-  <div class="card" style="margin-bottom:1rem;">
+  <div class="card" id="utilisateurs" style="margin-bottom:1rem;">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
       <div>
         <h3 style="margin:0;">{{ selected_societe.nom }}</h3>
@@ -81,31 +117,21 @@
       </div>
       <a class="btn btn-secondary" href="/dashboard/superadmin">Fermer</a>
     </div>
-    <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top:12px;">
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Contact</span>
-        <span class="kv">{{ selected_societe.contact or '—' }}</span>
-      </div>
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Téléphone</span>
-        <span class="kv">{{ selected_societe.telephone or '—' }}</span>
-      </div>
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Courriel</span>
-        <span class="kv">{{ selected_societe.email or '—' }}</span>
-      </div>
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Adresse</span>
-        <span class="kv">{{ selected_societe.adresse or '—' }}</span>
-      </div>
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Clients actifs</span>
-        <span class="kv">{{ selected_societe.clients_actifs or 0 }}</span>
-      </div>
-      <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-        <span>Affaires actives</span>
-        <span class="kv">{{ selected_societe.affaires_actives or 0 }}</span>
-      </div>
+    <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:14px;">
+      {% set soc_info = [
+        ('Contact', selected_societe.contact or '—'),
+        ('Téléphone', selected_societe.telephone or '—'),
+        ('Courriel', selected_societe.email or '—'),
+        ('Adresse', selected_societe.adresse or '—'),
+        ('Clients actifs', selected_societe.clients_actifs if selected_societe.clients_actifs is not none else 0),
+        ('Affaires actives', selected_societe.affaires_actives if selected_societe.affaires_actives is not none else 0)
+      ] %}
+      {% for label, value in soc_info %}
+        <div style="display:flex; align-items:center; gap:6px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;">
+          <span class="muted" style="font-weight:600;">{{ label }} :</span>
+          <span class="kv">{{ value }}</span>
+        </div>
+      {% endfor %}
     </div>
   </div>
 {% endif %}
@@ -114,6 +140,13 @@
   <div class="card" style="margin-bottom:1rem;">
     <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Utilisateurs de la société</h2>
     <div class="muted" style="margin-bottom:8px; font-size:0.9rem;">Gestion des comptes (création, rôles, activation) à venir. Bouton ci-dessous pour préparer la gestion des droits.</div>
+    <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+      <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+      {% if search_term %}<input type="hidden" name="q" value="{{ search_term }}">{% endif %}
+      {% if page %}<input type="hidden" name="page" value="{{ page }}">{% endif %}
+      <input class="form-control" type="text" name="uq" value="{{ user_search_term or '' }}" placeholder="Rechercher un utilisateur (nom, email)" style="min-width:240px;">
+      <button type="submit" class="btn btn-secondary">Filtrer</button>
+    </form>
     {% if not utilisateurs_societes %}
       <div class="muted" style="font-size:0.95rem;">Aucun utilisateur renseigné.</div>
     {% else %}
@@ -121,34 +154,179 @@
         <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
           <thead>
             <tr style="text-align:left; border-bottom:1px solid var(--border);">
-              <th style="padding:6px 4px;">Nom</th>
-              <th style="padding:6px 4px;">Prénom</th>
-              <th style="padding:6px 4px;">Email</th>
-              <th style="padding:6px 4px;">Téléphone</th>
-              <th style="padding:6px 4px;">Superadmin</th>
-              <th style="padding:6px 4px; text-align:right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for u in utilisateurs_societes %}
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:6px 4px;">{{ u.nom or '—' }}</td>
-              <td style="padding:6px 4px;">{{ u.prenom or '—' }}</td>
-              <td style="padding:6px 4px;">{{ u.mail or '—' }}</td>
-              <td style="padding:6px 4px;">{{ u.telephone or '—' }}</td>
-              <td style="padding:6px 4px;">{% if u.superadmin %}<span class="status-pill" style="background:#dcfce7; color:#166534; padding:4px 8px; font-size:11px;">Oui</span>{% else %}Non{% endif %}</td>
-              <td style="padding:6px 4px; text-align:right;">
-                <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}&user_id={{ u.id }}" title="Gérer les droits et comptes">
-                  Gestion des droits
-                </a>
-              </td>
-            </tr>
-            {% endfor %}
+            <th style="padding:6px 4px; width:32%;">Nom</th>
+            <th style="padding:6px 4px;">Prénom</th>
+            <th style="padding:6px 4px;">Email</th>
+            <th style="padding:6px 4px;">Téléphone</th>
+            <th style="padding:6px 4px;">Rôle</th>
+            <th style="padding:6px 4px; text-align:center; width:1%; white-space:nowrap;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in utilisateurs_societes %}
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 4px;">{{ u.nom or '—' }}</td>
+            <td style="padding:6px 4px;">{{ u.prenom or '—' }}</td>
+            <td style="padding:6px 4px;">{{ u.mail or '—' }}</td>
+            <td style="padding:6px 4px;">{{ u.telephone or '—' }}</td>
+            <td style="padding:6px 4px;">{{ u.role_label or '—' }}</td>
+            <td style="padding:6px 4px; text-align:center;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}&user_id={{ u.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}{% if user_search_term %}&uq={{ user_search_term }}{% endif %}{% if user_page %}&upage={{ user_page }}{% endif %}#droits" title="Gérer les droits et comptes">
+                <i class="fa-regular fa-pen-to-square"></i>
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
           </tbody>
         </table>
       </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+        <div class="muted" style="font-size:0.9rem;">{{ total_users }} utilisateurs — page {{ user_page }} / {{ user_page_count }}</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          {% set q_soc = '&q=' ~ search_term if search_term else '' %}
+          {% set q_users = '&uq=' ~ user_search_term if user_search_term else '' %}
+          {% if user_page > 1 %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{{ q_soc }}&upage={{ user_page - 1 }}{{ q_users }}{% if page %}&page={{ page }}{% endif %}">Précédent</a>
+          {% endif %}
+          {% if user_page < user_page_count %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{{ q_soc }}&upage={{ user_page + 1 }}{{ q_users }}{% if page %}&page={{ page }}{% endif %}">Suivant</a>
+          {% endif %}
+        </div>
+      </div>
     {% endif %}
   </div>
+  {% if selected_user %}
+    <div class="card" id="droits" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <h3 style="margin:0;">Gestion des droits — {{ selected_user.prenom or '' }} {{ selected_user.nom or '' }}</h3>
+          <p class="muted" style="margin:4px 0 0 0;">Société : {{ selected_societe.nom }}</p>
+        </div>
+        <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}">Fermer</a>
+      </div>
+      <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:14px;">
+        {% set user_info = [] %}
+        {% if selected_user.mail %}{% set _ = user_info.append(('Email', selected_user.mail)) %}{% endif %}
+        {% if selected_user.telephone %}{% set _ = user_info.append(('Téléphone', selected_user.telephone)) %}{% endif %}
+        {% set auth_label = None %}
+        {% if selected_user.auth_user_id %}
+          {% set auth_label = (selected_user.auth_login or '—') ~ (' (Actif)' if selected_user.auth_actif else ' (Inactif)') %}
+        {% endif %}
+        {% if auth_label %}{% set _ = user_info.append(("Compte d'authentification", auth_label)) %}{% endif %}
+        {% if user_info|length == 0 %}
+          {% set _ = user_info.append(('Email', '—')) %}
+          {% set _ = user_info.append(('Téléphone', '—')) %}
+          {% set _ = user_info.append(("Compte d'authentification", 'Aucun compte lié (à créer)')) %}
+        {% endif %}
+        {% for label, value in user_info %}
+          <div style="display:flex; align-items:center; gap:6px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;">
+            <span class="muted" style="font-weight:600;">{{ label }} :</span>
+            <span class="kv">{{ value }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:8px; background:#f9fafb;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+          <div>
+            <div style="font-weight:600;">Compte d'authentification</div>
+            <p class="muted" style="margin:4px 0 0 0; font-size:0.95rem;">Créer le compte et récupérer le mot de passe initial.</p>
+          </div>
+        </div>
+        {% if selected_user.auth_user_id %}
+          <div class="muted" style="margin-top:8px;">Compte existant ({{ selected_user.auth_login }}). Utilisez un reset si besoin.</div>
+          <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <form method="post" action="/dashboard/superadmin/reset-auth" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+              <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+              <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+              <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+                <span>Nouveau mot de passe (laisser vide pour générer)</span>
+                <input class="form-control" type="text" name="password" placeholder="Auto-généré si vide">
+              </label>
+              <button type="submit" class="btn btn-primary">Réinitialiser</button>
+            </form>
+            <form method="post" action="/dashboard/superadmin/auth-toggle">
+              <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+              <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+              <input type="hidden" name="actif" value="{% if selected_user.auth_actif %}0{% else %}1{% endif %}">
+              {% if selected_user.auth_actif %}
+                <button type="submit" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;">Désactiver le compte</button>
+              {% else %}
+                <button type="submit" class="btn btn-secondary" style="background:#dcfce7; color:#166534;">Activer le compte</button>
+              {% endif %}
+            </form>
+          </div>
+        {% else %}
+          <form method="post" action="/dashboard/superadmin/create-auth" style="margin-top:12px; display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items:end;">
+            <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+            <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+              <span>Login (email)</span>
+              <input class="form-control" type="email" name="login" value="{{ selected_user.mail or '' }}" placeholder="email@domaine.fr" required>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+              <span>Mot de passe initial (laisser vide pour générer)</span>
+              <input class="form-control" type="text" name="password" placeholder="Auto-généré si vide">
+            </label>
+            <button type="submit" class="btn btn-primary" style="height: fit-content;">Créer le compte</button>
+          </form>
+        {% endif %}
+        {% if tmp_pwd %}
+          <div style="margin-top:10px; padding:10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+            <div style="font-weight:600;">Mot de passe {% if request.query_params.get('tmp_action') == 'reset' %}réinitialisé{% else %}initial{% endif %} (copier et transmettre)</div>
+            <div style="font-family:monospace; margin-top:4px;">{{ tmp_pwd }}</div>
+          </div>
+        {% endif %}
+      </div>
+      <div style="margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:8px; background:#f9fafb;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+          <div>
+            <div style="font-weight:600;">Rôles attribués</div>
+            <p class="muted" style="margin:4px 0 0 0; font-size:0.95rem;">Sélectionnez un rôle, choisissez le périmètre (global ou société) puis validez ou supprimez.</p>
+          </div>
+        </div>
+        {% if selected_user.auth_user_id %}
+          <form method="post" action="/dashboard/superadmin/roles" style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+            <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+            <label style="display:flex; flex-direction:column; font-size:0.95rem; gap:4px;">
+              <span>Périmètre</span>
+              <select name="scope" class="form-control">
+                <option value="societe" {% if default_scope == 'societe' %}selected{% endif %}>Cette société</option>
+                <option value="global" {% if default_scope == 'global' %}selected{% endif %}>Global</option>
+              </select>
+            </label>
+            <label style="display:flex; flex-direction:column; font-size:0.95rem; gap:4px;">
+              <span>Rôle</span>
+              <select name="role_id" class="form-control">
+                {% set selected_role_from_scope = current_role_societe if default_scope == 'societe' else current_role_global %}
+                {% for r in roles_disponibles %}
+                  <option value="{{ r.id }}" {% if selected_role_from_scope and selected_role_from_scope == r.id %}selected{% endif %}>
+                    {{ r.label or r.code }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit" class="btn btn-primary">Valider</button>
+            <button type="submit" formaction="/dashboard/superadmin/roles/delete" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;">Supprimer le rôle</button>
+          </form>
+        {% else %}
+          <div class="muted" style="margin-top:8px;">Aucun compte d'authentification associé — créer le compte avant d'assigner un rôle.</div>
+        {% endif %}
+        {% if selected_user_roles %}
+          <div style="margin-top:10px; display:grid; gap:8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+            {% for r in selected_user_roles %}
+              <div style="padding:10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+                <div style="font-weight:600;">{{ r.label or r.code }}</div>
+                <div class="muted" style="font-size:0.9rem; margin-top:4px;">{% if r.societe_nom %}Périmètre : {{ r.societe_nom }}{% else %}Périmètre : Global{% endif %}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="muted" style="margin-top:8px;">Aucun rôle assigné pour l'instant.</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 {% else %}
   <div class="card" style="margin-bottom:1rem;">
     <p class="muted" style="margin:0;">Sélectionnez une société pour afficher ses détails et ses utilisateurs.</p>
