@@ -27,8 +27,18 @@ def _timed_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret_key=secret, salt="reset-token")
 
 
-def encode_token(user_id: int, user_type: str, societe_id: Optional[int]) -> str:
+def encode_token(
+    user_id: int,
+    user_type: str,
+    societe_id: Optional[int],
+    client_id: Optional[int] = None,
+    broker_id: Optional[int] = None,
+) -> str:
     payload = {"uid": user_id, "utype": user_type, "sid": societe_id}
+    if client_id is not None:
+        payload["cid"] = client_id
+    if broker_id is not None:
+        payload["bid"] = broker_id
     return _serializer().dumps(payload)
 
 
@@ -39,8 +49,10 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
-def encode_reset_token(user_id: int, user_type: str, ttl_seconds: int = 3600) -> str:
+def encode_reset_token(user_id: int, user_type: str, ttl_seconds: int = 3600, client_portal: bool = False) -> str:
     payload = {"uid": user_id, "utype": user_type}
+    if client_portal:
+        payload["cp"] = True
     # Timed serializer embarque l'horodatage; la limite est appliquée à la lecture.
     return _timed_serializer().dumps(payload, salt="pwd-reset")
 

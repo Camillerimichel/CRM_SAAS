@@ -195,6 +195,113 @@
       </div>
     {% endif %}
   </div>
+  <div class="card" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
+    <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Comptes clients (portail)</h2>
+    <p class="muted" style="margin-bottom:10px; font-size:0.9rem;">Vue simplifiée : Nom, Prénom, Email/Login, dernière connexion issue des logs.</p>
+    <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+      <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+      {% if search_term %}<input type="hidden" name="q" value="{{ search_term }}">{% endif %}
+      {% if page %}<input type="hidden" name="page" value="{{ page }}">{% endif %}
+      <input class="form-control" type="text" name="cq" value="{{ client_search_term or '' }}" placeholder="Filtrer par nom/email" style="min-width:240px;">
+      <button type="submit" class="btn btn-secondary">Filtrer</button>
+    </form>
+    {% if not client_accounts %}
+      <div class="muted" style="font-size:0.95rem;">Aucun compte client pour cette société de courtage.</div>
+    {% else %}
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:6px 4px;">Nom</th>
+              <th style="padding:6px 4px;">Prénom</th>
+              <th style="padding:6px 4px;">Email / Login</th>
+              <th style="padding:6px 4px;">Compte</th>
+              <th style="padding:6px 4px;">Dernière connexion</th>
+              <th style="padding:6px 4px; text-align:center;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in client_accounts %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px 4px;">{{ c.nom or '—' }}</td>
+              <td style="padding:6px 4px;">{{ c.prenom or '—' }}</td>
+              <td style="padding:6px 4px;">{{ c.email or c.login or '—' }}</td>
+              <td style="padding:6px 4px;">{{ 'Existant' if c.has_account else 'À créer' }}</td>
+              <td style="padding:6px 4px;">{{ c.last_seen or c.last_login or '—' }}</td>
+              <td style="padding:6px 4px; text-align:center;">
+                {% if c.client_id %}
+                  {% if c.has_account %}
+                    <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}&client_id={{ c.client_id }}&client_account_id={{ c.id }}{% if client_search_term %}&cq={{ client_search_term }}{% endif %}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#client-auth" title="Modifier le compte portail">
+                      <i class="fa-regular fa-pen-to-square"></i>
+                    </a>
+                  {% else %}
+                    <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}&client_id={{ c.client_id }}{% if client_search_term %}&cq={{ client_search_term }}{% endif %}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#client-auth" title="Créer le compte portail">
+                      <i class="fa-solid fa-plus"></i>
+                    </a>
+                  {% endif %}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+        <div class="muted" style="font-size:0.9rem;">{{ total_client_accounts }} comptes — page {{ client_page }} / {{ client_page_count }}</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          {% set q_soc = '&q=' ~ search_term if search_term else '' %}
+          {% set q_clients = '&cq=' ~ client_search_term if client_search_term else '' %}
+          {% if client_page > 1 %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{{ q_soc }}&cpage={{ client_page - 1 }}{{ q_clients }}{% if page %}&page={{ page }}{% endif %}">Précédent</a>
+          {% endif %}
+          {% if client_page < client_page_count %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{{ q_soc }}&cpage={{ client_page + 1 }}{{ q_clients }}{% if page %}&page={{ page }}{% endif %}">Suivant</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+  {% if selected_client_form %}
+    <div class="card" id="client-auth" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+        <div>
+          <h3 style="margin:0;">{{ 'Modifier le compte' if selected_client_form.has_account else 'Créer un compte portail' }}</h3>
+          <p class="muted" style="margin:4px 0 0 0;">{{ selected_client_form.prenom or '' }} {{ selected_client_form.nom or '' }}</p>
+        </div>
+        <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{% if client_search_term %}&cq={{ client_search_term }}{% endif %}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}">Fermer</a>
+      </div>
+      <form method="post" action="/dashboard/superadmin/client-auth" style="margin-top:12px; display:grid; gap:12px; grid-template-columns: minmax(260px, 1fr) minmax(360px, 1.2fr) minmax(220px, 0.8fr);">
+        <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+        {% if selected_client_form.id %}<input type="hidden" name="client_account_id" value="{{ selected_client_form.id }}">{% endif %}
+        <input type="hidden" name="client_id" value="{{ selected_client_form.client_id }}">
+        <label style="display:flex; flex-direction:column; gap:6px;">
+          <span>Login / Email</span>
+          <input class="form-control" type="email" name="login" value="{{ selected_client_form.email or selected_client_form.login or '' }}" required style="height:44px;">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:6px;">
+          <span>Mot de passe (laisser vide pour conserver)</span>
+          <input class="form-control" type="text" name="password" placeholder="Auto-généré si vide lors de la création" style="height:44px; width:100%;">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:6px;">
+          <span>Statut</span>
+          <select class="form-control" name="status" style="height:44px;">
+            {% set current_status = 'active' %}
+            {% if selected_client_form.has_account and selected_client_form.status %}{% set current_status = selected_client_form.status %}{% endif %}
+            <option value="active" {% if current_status == 'active' %}selected{% endif %}>Actif</option>
+            <option value="disabled" {% if current_status == 'disabled' %}selected{% endif %}>Désactivé</option>
+            <option value="pending_reset" {% if current_status == 'pending_reset' %}selected{% endif %}>En attente de reset</option>
+          </select>
+        </label>
+        <div style="grid-column:1/-1; display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="submit" class="btn btn-primary">{{ 'Mettre à jour' if selected_client_form.has_account else 'Créer le compte' }}</button>
+          <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{% if client_search_term %}&cq={{ client_search_term }}{% endif %}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}">Annuler</a>
+        </div>
+        <div class="muted" style="grid-column:1/-1; font-size:0.9rem;">Un rôle "client" sera associé automatiquement sur ce courtier.</div>
+      </form>
+    </div>
+  {% endif %}
   {% if selected_user %}
     <div class="card" id="droits" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
