@@ -33,7 +33,7 @@
     h1 { margin: 0 0 8px 0; font-size: 1.3rem; }
     p.muted { margin: 0 0 14px 0; color: var(--muted); font-size: 0.95rem; }
     label { display:block; margin:12px 0 6px; font-weight:600; }
-    input[type="email"], input[type="password"], select {
+    input[type="email"], input[type="password"] {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid var(--border);
@@ -56,28 +56,97 @@
     }
     button:hover { filter: brightness(1.05); }
     .note { margin-top:10px; font-size:0.9rem; color: var(--muted); text-align:center; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.55);
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      z-index: 10;
+    }
+    .modal-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      width: min(420px, 100%);
+      box-shadow: 0 18px 50px rgba(15,23,42,0.3);
+      animation: pop 0.2s ease;
+    }
+    .modal-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: rgba(248, 113, 113, 0.1);
+      color: #b91c1c;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-bottom: 10px;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+    .modal-actions button {
+      margin-top: 0;
+      width: auto;
+      padding: 10px 14px;
+      box-shadow: none;
+    }
+    .ghost {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    @keyframes pop {
+      from { transform: translateY(8px) scale(0.98); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Connexion</h1>
     <p class="muted">Identifiez-vous avec votre email et mot de passe.</p>
-    <form method="post" action="/login">
+    <form id="login-form" method="post" action="/login">
       <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="username" required>
-      <label for="broker_id">Courtier</label>
-      <select id="broker_id" name="broker_id">
-        <option value="">Sélectionnez votre courtier (si client)</option>
-        {% for c in courtiers or [] %}
-        <option value="{{ c.id }}">{{ c.nom }}</option>
-        {% endfor %}
-      </select>
+      <input id="email" name="email" type="email" autocomplete="username" required value="{{ prefill_email or '' }}">
       <label for="password">Mot de passe</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <input id="password" name="password" type="password" autocomplete="current-password" required value="{{ prefill_password or '' }}">
       <button type="submit">Se connecter</button>
     </form>
-    <div class="note">Clients et salariés utilisent le même formulaire. Le courtier est requis si votre email existe chez plusieurs courtiers.</div>
+    <div class="note">Clients et salariés utilisent le même formulaire.</div>
     <div class="note"><a href="/password/forgot" style="color:var(--primary); text-decoration:none;">Mot de passe oublié ?</a></div>
   </div>
+  {% if error %}
+  <div class="modal-backdrop" id="error-modal" role="alertdialog" aria-modal="true" aria-live="assertive">
+    <div class="modal-card">
+      <div class="modal-eyebrow">Connexion refusée</div>
+      <h2 style="margin:4px 0 10px;">Action requise</h2>
+      <p style="margin:0; color:var(--text); line-height:1.5;">{{ error }}</p>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="window.location.href='/'">Retour à l'accueil</button>
+        <button type="button" onclick="closeErrorModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    function closeErrorModal() {
+      const modal = document.getElementById('error-modal');
+      if (modal) modal.remove();
+    }
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        closeErrorModal();
+      }
+    });
+  </script>
+  {% endif %}
 </body>
 </html>
