@@ -168,183 +168,193 @@ def login(
     broker_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    accept = request.headers.get("accept", "")
     broker_id_int: int | None = None
     try:
         broker_id_int = int(broker_id) if broker_id not in (None, "") else None
     except Exception:
         broker_id_int = None
 
-    # 1) Comptes staff (auth_users.user_type = 'staff') prioritaire
-    staff_row = db.execute(
-        text(
-            """
-            SELECT id, user_type, password_hash, actif, client_id, rh_id
-            FROM auth_users
-            WHERE login = :login AND user_type = 'staff'
-            LIMIT 1
-            """
-        ),
-        {"login": email},
-    ).fetchone()
+    try:
+        # 1) Comptes staff (auth_users.user_type = 'staff') prioritaire
+        staff_row = db.execute(
+            text(
+                """
+                SELECT id, user_type, password_hash, actif, client_id, rh_id
+                FROM auth_users
+                WHERE login = :login AND user_type = 'staff'
+                LIMIT 1
+                """
+            ),
+            {"login": email},
+        ).fetchone()
 
-    user_name = None
-    societe_id = None
-    role_codes: list[str] = []
-    client_id: int | None = None
-    broker_cookie: int | None = None
+        user_name = None
+        societe_id = None
+        role_codes: list[str] = []
+        client_id: int | None = None
+        broker_cookie: int | None = None
 
-    if staff_row:
-        m = staff_row._mapping if hasattr(staff_row, "_mapping") else None
-        uid = m.get("id") if m else staff_row[0]
-        utype = "staff"
-        pwd_hash = m.get("password_hash") if m else staff_row[2]
-        actif = m.get("actif") if m else staff_row[3]
-        if not actif:
-            raise HTTPException(status_code=403, detail="Compte désactivé")
-        if not verify_password(password, pwd_hash):
-            raise HTTPException(status_code=401, detail="Identifiants invalides")
-        _update_auth_user_last_login(db, uid)
-        try:
-            rows_roles = db.execute(
-                text(
-                    """
-                    SELECT ar.code
-                    FROM auth_user_roles aur
-                    JOIN auth_roles ar ON ar.id = aur.role_id
-                    WHERE aur.user_type = :ut AND aur.user_id = :uid
-                    """
-                ),
-                {"ut": utype, "uid": uid},
-            ).fetchall()
-            role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
-            row_scope = db.execute(
-                text(
-                    """
-                    SELECT societe_id
-                    FROM auth_user_roles
-                    WHERE user_type = :ut AND user_id = :uid
-                    ORDER BY (societe_id IS NULL) DESC, societe_id ASC
-                    LIMIT 1
-                    """
-                ),
-                {"ut": utype, "uid": uid},
-            ).fetchone()
-            if row_scope:
-                societe_id = row_scope[0] if not hasattr(row_scope, "_mapping") else row_scope._mapping.get("societe_id")
-        except Exception:
-            societe_id = None
-        try:
-            if m and m.get("rh_id"):
-                rh_row = db.execute(
-                    text("SELECT prenom, nom FROM administration_RH WHERE id = :rid LIMIT 1"),
-                    {"rid": m.get("rh_id")},
-                ).fetchone()
-                if rh_row:
-                    _m = rh_row._mapping if hasattr(rh_row, "_mapping") else None
-                    prenom = _m.get("prenom") if _m else (rh_row[0] if len(rh_row) > 0 else "")
-                    nom = _m.get("nom") if _m else (rh_row[1] if len(rh_row) > 1 else "")
-                    user_name = f"{prenom or ''} {nom or ''}".strip()
-        except Exception:
-            user_name = None
-    else:
-        # 2) Comptes clients dans auth_client_users (courtier requis si doublon)
-        params = {"login": email}
-        query = "SELECT id, client_id, broker_id, password_hash, status FROM auth_client_users WHERE login = :login"
-        if broker_id_int is not None:
-            query += " AND broker_id = :bid"
-            params["bid"] = broker_id_int
-        client_rows = db.execute(text(query), params).fetchall()
-        if not client_rows:
-            # 3) Fallback legacy (anciens comptes clients dans auth_users)
-            legacy_row = db.execute(
-                text(
-                    """
-                    SELECT id, user_type, password_hash, actif, client_id
-                    FROM auth_users
-                    WHERE login = :login AND user_type = 'client'
-                    LIMIT 1
-                    """
-                ),
-                {"login": email},
-            ).fetchone()
-            if not legacy_row:
-                raise HTTPException(status_code=401, detail="Identifiants invalides")
-            m = legacy_row._mapping if hasattr(legacy_row, "_mapping") else None
-            uid = m.get("id") if m else legacy_row[0]
-            utype = "client"
-            pwd_hash = m.get("password_hash") if m else legacy_row[2]
-            actif = m.get("actif") if m else legacy_row[3]
-            client_id = m.get("client_id") if m else (legacy_row[4] if len(legacy_row) > 4 else None)
+        if staff_row:
+            m = staff_row._mapping if hasattr(staff_row, "_mapping") else None
+            uid = m.get("id") if m else staff_row[0]
+            utype = "staff"
+            pwd_hash = m.get("password_hash") if m else staff_row[2]
+            actif = m.get("actif") if m else staff_row[3]
             if not actif:
                 raise HTTPException(status_code=403, detail="Compte désactivé")
             if not verify_password(password, pwd_hash):
                 raise HTTPException(status_code=401, detail="Identifiants invalides")
             _update_auth_user_last_login(db, uid)
-            # Rôles via auth_user_roles (legacy)
-            rows_roles = db.execute(
-                text(
-                    """
-                    SELECT ar.code
-                    FROM auth_user_roles aur
-                    JOIN auth_roles ar ON ar.id = aur.role_id
-                    WHERE aur.user_type = 'client' AND aur.user_id = :uid
-                    """
-                ),
-                {"uid": uid},
-            ).fetchall()
-            role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
-        else:
-            if broker_id_int is None and len(client_rows) > 1:
-                raise HTTPException(status_code=400, detail="Plusieurs courtiers utilisent ce login : précisez votre courtier.")
-            client_row = client_rows[0]
-            m = client_row._mapping if hasattr(client_row, "_mapping") else None
-            uid = m.get("id") if m else client_row[0]
-            utype = "client"
-            client_id = m.get("client_id") if m else (client_row[1] if len(client_row) > 1 else None)
-            broker_cookie = m.get("broker_id") if m else (client_row[2] if len(client_row) > 2 else None)
-            pwd_hash = m.get("password_hash") if m else (client_row[3] if len(client_row) > 3 else None)
-            status = m.get("status") if m else (client_row[4] if len(client_row) > 4 else None)
-            if status and str(status) != "active":
-                raise HTTPException(status_code=403, detail="Compte inactif ou en attente de réinitialisation")
-            if not verify_password(password, pwd_hash):
-                raise HTTPException(status_code=401, detail="Identifiants invalides")
-            _log_client_login(db, client_user_id=uid, client_id=client_id, broker_id=broker_cookie, request=request)
-            # Rôles via auth_client_user_roles
-            rows_roles = db.execute(
-                text(
-                    """
-                    SELECT ar.code, cur.societe_id
-                    FROM auth_client_user_roles cur
-                    JOIN auth_roles ar ON ar.id = cur.role_id
-                    WHERE cur.client_user_id = :uid
-                    """
-                ),
-                {"uid": uid},
-            ).fetchall()
-            role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
-            # Priorité au scope explicite, sinon courtier
             try:
-                row_scope = next((r for r in rows_roles if (hasattr(r, "_mapping") and r._mapping.get("societe_id") is not None) or (not hasattr(r, "_mapping") and r[1] is not None)), None)
-                if row_scope:
-                    societe_id = row_scope._mapping.get("societe_id") if hasattr(row_scope, "_mapping") else row_scope[1]
-                elif broker_cookie is not None:
-                    societe_id = broker_cookie
-            except Exception:
-                societe_id = broker_cookie
-        # Nom/prénom pour clients
-        try:
-            if client_id:
-                c_row = db.execute(
-                    text("SELECT prenom, nom FROM mariadb_clients WHERE id = :cid LIMIT 1"),
-                    {"cid": client_id},
+                rows_roles = db.execute(
+                    text(
+                        """
+                        SELECT ar.code
+                        FROM auth_user_roles aur
+                        JOIN auth_roles ar ON ar.id = aur.role_id
+                        WHERE aur.user_type = :ut AND aur.user_id = :uid
+                        """
+                    ),
+                    {"ut": utype, "uid": uid},
+                ).fetchall()
+                role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
+                row_scope = db.execute(
+                    text(
+                        """
+                        SELECT societe_id
+                        FROM auth_user_roles
+                        WHERE user_type = :ut AND user_id = :uid
+                        ORDER BY (societe_id IS NULL) DESC, societe_id ASC
+                        LIMIT 1
+                        """
+                    ),
+                    {"ut": utype, "uid": uid},
                 ).fetchone()
-                if c_row:
-                    _m = c_row._mapping if hasattr(c_row, "_mapping") else None
-                    prenom = _m.get("prenom") if _m else (c_row[0] if len(c_row) > 0 else "")
-                    nom = _m.get("nom") if _m else (c_row[1] if len(c_row) > 1 else "")
-                    user_name = f"{prenom or ''} {nom or ''}".strip()
-        except Exception:
-            user_name = None
+                if row_scope:
+                    societe_id = row_scope[0] if not hasattr(row_scope, "_mapping") else row_scope._mapping.get("societe_id")
+            except Exception:
+                societe_id = None
+            try:
+                if m and m.get("rh_id"):
+                    rh_row = db.execute(
+                        text("SELECT prenom, nom FROM administration_RH WHERE id = :rid LIMIT 1"),
+                        {"rid": m.get("rh_id")},
+                    ).fetchone()
+                    if rh_row:
+                        _m = rh_row._mapping if hasattr(rh_row, "_mapping") else None
+                        prenom = _m.get("prenom") if _m else (rh_row[0] if len(rh_row) > 0 else "")
+                        nom = _m.get("nom") if _m else (rh_row[1] if len(rh_row) > 1 else "")
+                        user_name = f"{prenom or ''} {nom or ''}".strip()
+            except Exception:
+                user_name = None
+        else:
+            # 2) Comptes clients dans auth_client_users (courtier requis si doublon)
+            params = {"login": email}
+            query = "SELECT id, client_id, broker_id, password_hash, status FROM auth_client_users WHERE login = :login"
+            if broker_id_int is not None:
+                query += " AND broker_id = :bid"
+                params["bid"] = broker_id_int
+            client_rows = db.execute(text(query), params).fetchall()
+            if not client_rows:
+                # 3) Fallback legacy (anciens comptes clients dans auth_users)
+                legacy_row = db.execute(
+                    text(
+                        """
+                        SELECT id, user_type, password_hash, actif, client_id
+                        FROM auth_users
+                        WHERE login = :login AND user_type = 'client'
+                        LIMIT 1
+                        """
+                    ),
+                    {"login": email},
+                ).fetchone()
+                if not legacy_row:
+                    raise HTTPException(status_code=401, detail="Identifiants invalides")
+                m = legacy_row._mapping if hasattr(legacy_row, "_mapping") else None
+                uid = m.get("id") if m else legacy_row[0]
+                utype = "client"
+                pwd_hash = m.get("password_hash") if m else legacy_row[2]
+                actif = m.get("actif") if m else legacy_row[3]
+                client_id = m.get("client_id") if m else (legacy_row[4] if len(legacy_row) > 4 else None)
+                if not actif:
+                    raise HTTPException(status_code=403, detail="Compte désactivé")
+                if not verify_password(password, pwd_hash):
+                    raise HTTPException(status_code=401, detail="Identifiants invalides")
+                _update_auth_user_last_login(db, uid)
+                # Rôles via auth_user_roles (legacy)
+                rows_roles = db.execute(
+                    text(
+                        """
+                        SELECT ar.code
+                        FROM auth_user_roles aur
+                        JOIN auth_roles ar ON ar.id = aur.role_id
+                        WHERE aur.user_type = 'client' AND aur.user_id = :uid
+                        """
+                    ),
+                    {"uid": uid},
+                ).fetchall()
+                role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
+            else:
+                if broker_id_int is None and len(client_rows) > 1:
+                    raise HTTPException(status_code=400, detail="Plusieurs courtiers utilisent ce login : précisez votre courtier.")
+                client_row = client_rows[0]
+                m = client_row._mapping if hasattr(client_row, "_mapping") else None
+                uid = m.get("id") if m else client_row[0]
+                utype = "client"
+                client_id = m.get("client_id") if m else (client_row[1] if len(client_row) > 1 else None)
+                broker_cookie = m.get("broker_id") if m else (client_row[2] if len(client_row) > 2 else None)
+                pwd_hash = m.get("password_hash") if m else (client_row[3] if len(client_row) > 3 else None)
+                status = m.get("status") if m else (client_row[4] if len(client_row) > 4 else None)
+                if status and str(status) != "active":
+                    raise HTTPException(status_code=403, detail="Compte inactif ou en attente de réinitialisation")
+                if not verify_password(password, pwd_hash):
+                    raise HTTPException(status_code=401, detail="Identifiants invalides")
+                _log_client_login(db, client_user_id=uid, client_id=client_id, broker_id=broker_cookie, request=request)
+                # Rôles via auth_client_user_roles
+                rows_roles = db.execute(
+                    text(
+                        """
+                        SELECT ar.code, cur.societe_id
+                        FROM auth_client_user_roles cur
+                        JOIN auth_roles ar ON ar.id = cur.role_id
+                        WHERE cur.client_user_id = :uid
+                        """
+                    ),
+                    {"uid": uid},
+                ).fetchall()
+                role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
+                # Priorité au scope explicite, sinon courtier
+                try:
+                    row_scope = next((r for r in rows_roles if (hasattr(r, "_mapping") and r._mapping.get("societe_id") is not None) or (not hasattr(r, "_mapping") and r[1] is not None)), None)
+                    if row_scope:
+                        societe_id = row_scope._mapping.get("societe_id") if hasattr(row_scope, "_mapping") else row_scope[1]
+                    elif broker_cookie is not None:
+                        societe_id = broker_cookie
+                except Exception:
+                    societe_id = broker_cookie
+            # Nom/prénom pour clients
+            try:
+                if client_id:
+                    c_row = db.execute(
+                        text("SELECT prenom, nom FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+                        {"cid": client_id},
+                    ).fetchone()
+                    if c_row:
+                        _m = c_row._mapping if hasattr(c_row, "_mapping") else None
+                        prenom = _m.get("prenom") if _m else (c_row[0] if len(c_row) > 0 else "")
+                        nom = _m.get("nom") if _m else (c_row[1] if len(c_row) > 1 else "")
+                        user_name = f"{prenom or ''} {nom or ''}".strip()
+            except Exception:
+                user_name = None
+    except HTTPException as exc:
+        if "text/html" in accept:
+            return templates.TemplateResponse(
+                "login.html",
+                {"request": request, "error": exc.detail, "prefill_email": email, "prefill_password": password},
+                status_code=exc.status_code,
+            )
+        raise
 
     # Générer token et cookies
     token = encode_token(user_id=uid, user_type=utype, societe_id=societe_id, client_id=client_id, broker_id=broker_cookie)
@@ -408,11 +418,7 @@ def logout(request: Request):
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, db: Session = Depends(get_db)):
     """Formulaire simple de connexion (staff/clients)."""
-    courtiers = db.execute(
-        text("SELECT id, nom FROM mariadb_societe_gestion WHERE nature = 'courtier' AND actif = 1 ORDER BY nom")
-    ).fetchall()
-    courtiers_ctx = [{"id": (c.id if hasattr(c, 'id') else c[0]), "nom": (c.nom if hasattr(c, 'nom') else c[1])} for c in courtiers or []]
-    return templates.TemplateResponse("login.html", {"request": request, "courtiers": courtiers_ctx})
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 # ---------------- Mot de passe oublié / reset ----------------

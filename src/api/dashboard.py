@@ -17269,6 +17269,26 @@ def dashboard_superadmin_client_auth(
     if status not in ("active", "disabled", "pending_reset"):
         status = "active"
 
+    # Utiliser le courtier du client (société d'appartenance) pour broker_id
+    broker_id_effective = societe_id
+    try:
+        broker_id_from_client = db.execute(
+            text(
+                """
+                SELECT societe_id
+                FROM mariadb_client_societe
+                WHERE client_id = :cid
+                ORDER BY date_fin IS NULL DESC, date_fin DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).scalar()
+        if broker_id_from_client is not None:
+            broker_id_effective = broker_id_from_client
+    except Exception:
+        broker_id_effective = societe_id
+
     role_client_id = db.execute(text("SELECT id FROM auth_roles WHERE code = 'client' LIMIT 1")).scalar()
     if role_client_id is None:
         raise HTTPException(status_code=400, detail="Rôle client introuvable")
@@ -17279,14 +17299,14 @@ def dashboard_superadmin_client_auth(
             # Mise à jour
             existing = db.execute(
                 text("SELECT id FROM auth_client_users WHERE id = :id AND broker_id = :bid"),
-                {"id": client_account_id, "bid": societe_id},
+                {"id": client_account_id, "bid": broker_id_effective},
             ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Compte client introuvable")
             # Vérifier unicité login
             dup = db.execute(
                 text("SELECT id FROM auth_client_users WHERE broker_id = :bid AND login = :l AND id != :id LIMIT 1"),
-                {"bid": societe_id, "l": final_login, "id": client_account_id},
+                {"bid": broker_id_effective, "l": final_login, "id": client_account_id},
             ).fetchone()
             if dup:
                 raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
@@ -17321,7 +17341,7 @@ def dashboard_superadmin_client_auth(
             # Création
             dup = db.execute(
                 text("SELECT id FROM auth_client_users WHERE broker_id = :bid AND login = :l LIMIT 1"),
-                {"bid": societe_id, "l": final_login},
+                {"bid": broker_id_effective, "l": final_login},
             ).fetchone()
             if dup:
                 raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
@@ -17334,7 +17354,7 @@ def dashboard_superadmin_client_auth(
                     VALUES (:cid, :bid, :login, :pwd, :status)
                     """
                 ),
-                {"cid": client_id, "bid": societe_id, "login": final_login, "pwd": pwd_hash, "status": status},
+                {"cid": client_id, "bid": broker_id_effective, "login": final_login, "pwd": pwd_hash, "status": status},
             )
             account_id = db.execute(text("SELECT LAST_INSERT_ID()")).scalar()
             # Rôle client par défaut
@@ -17346,7 +17366,7 @@ def dashboard_superadmin_client_auth(
                         VALUES (:uid, :rid, :sid)
                         """
                     ),
-                    {"uid": account_id, "rid": role_client_id, "sid": societe_id},
+                    {"uid": account_id, "rid": role_client_id, "sid": broker_id_effective},
                 )
             except Exception:
                 pass
@@ -17358,7 +17378,7 @@ def dashboard_superadmin_client_auth(
         raise
 
     target_params = {
-        "societe_id": societe_id,
+        "societe_id": broker_id_effective,
         "client_id": client_id,
         "client_account_id": account_id,
     }
