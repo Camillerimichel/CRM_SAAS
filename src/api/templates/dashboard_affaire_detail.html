@@ -185,7 +185,8 @@
     gap:6px;
     color: inherit;
   }
-  .section-toggle-row .accordion-toggle i { color: inherit !important; }
+  .section-toggle-row .accordion-toggle i,
+  .section-toggle-row .accordion-toggle span { color: inherit !important; }
   .section-toggle-row .accordion-toggle,
   .section-toggle-row .accordion-toggle.collapsed,
   .section-toggle-row .accordion-toggle.collapsed * {
@@ -207,9 +208,7 @@
     border:1px solid var(--border);
     box-shadow:var(--shadow-sm);
   }
-  #affTasksToggle:not(.collapsed) * {
-    color:inherit !important;
-  }
+  #affTasksToggle:not(.collapsed) * { color:inherit !important; }
   #avisToggle {
     background:#fff;
     color:var(--text);
@@ -346,31 +345,37 @@
     <div id="invToggle" class="card accordion-toggle" title="Investissements" aria-label="Investissements">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+        <span>Investissements</span>
       </h3>
     </div>
     <div id="esgToggle" class="card accordion-toggle" title="ESG" aria-label="ESG">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+        <span>ESG</span>
       </h3>
     </div>
     <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-file-contract" aria-hidden="true"></i>
+        <span>Avis d'opération</span>
       </h3>
     </div>
     <div id="riskToggle" class="card accordion-toggle client-hide" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>SRRI / Risque</span>
       </h3>
     </div>
     <div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" title="Graphiques" aria-label="Graphiques">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-chart-pie" aria-hidden="true"></i>
+        <span>Graphiques</span>
       </h3>
     </div>
     <div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" title="Reportings annuels" aria-label="Reportings annuels">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+        <span>Reportings annuels</span>
       </h3>
     </div>
   </div>
@@ -1034,7 +1039,11 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
     ];
     function byId(id){ return document.getElementById(id); }
+    var available = groups.filter(function(g){ return byId(g.toggleId) && byId(g.sectionId); });
+    function firstAvailableKey(){ return available.length ? available[0].key : ''; }
     function setOpen(targetKey){
+      var exists = available.some(function(g){ return g.key === targetKey; });
+      if (targetKey && !exists) { targetKey = firstAvailableKey(); }
       groups.forEach(function(g){
         var t = byId(g.toggleId), s = byId(g.sectionId);
         if (!t || !s) return;
@@ -1046,7 +1055,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     // Init: restaurer la dernière ouverte si possible
     var saved = ''; try { saved = localStorage.getItem('aff_detail_open') || ''; } catch(e) {}
     if (saved) { setOpen(saved); }
-    else { setOpen(''); markAffToggleActive(''); }
+    else { setOpen(firstAvailableKey()); markAffToggleActive(firstAvailableKey()); }
     // Bind clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);
@@ -1142,6 +1151,19 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           var cats = rows.map(r=> r.field);
           var idx = rows.map(r=> (r.index==null? null : Number(r.index)));
           var aff = rows.map(r=> (r.affaire==null? null : Number(r.affaire)));
+          try {
+            console.log('ESG affaire plot data', {
+              url: url,
+              alloc: alloc,
+              allocDate: allocDate,
+              allocIsin: allocIsin,
+              asOf: asOf,
+              fields: fields,
+              categories: cats,
+              indexValues: idx,
+              affaireValues: aff
+            });
+          } catch(_){}
           var traces = [
             { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
             { x: aff, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
