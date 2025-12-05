@@ -146,9 +146,10 @@
     .support-modal__series table { width:100%; border-collapse:collapse; font-size:0.85rem; }
     .support-modal__series th,
     .support-modal__series td { border:1px solid #e2e8f0; padding:0.45rem 0.5rem; text-align:left; }
-    .support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
-    .support-modal__series .series-table { margin-bottom:1rem; }
-    .support-modal__series .series-empty { font-style:italic; color:#64748b; font-size:0.85rem; }
+.support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
+.support-modal__series .series-table { margin-bottom:1rem; }
+.support-modal__series .series-empty { font-style:italic; color:#64748b; font-size:0.85rem; }
+.support-srri-status { font-size:0.85rem; color:#475569; margin-left:6px; }
     .support-task-modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(15,23,42,0.55); z-index:1200; padding:2rem 1rem; }
     .support-task-modal.open { display:flex; }
     .support-task-modal__panel { background:#fff; border-radius:12px; box-shadow:0 24px 48px rgba(15,23,42,0.35); max-width:460px; width:100%; padding:1.5rem; position:relative; }
@@ -236,6 +237,56 @@
     <button type="button" class="support-modal__close" id="supportModalClose" aria-label="Fermer">×</button>
     <h2 class="support-modal__title" id="supportModalTitle">Support</h2>
     <div class="support-modal__meta" id="supportModalMeta"></div>
+    <div class="support-modal__compare-toggle" style="margin:6px 0 2px 0; display:flex; align-items:center; gap:8px; justify-content:flex-start; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" id="supportCompareToggle" class="support-meta-btn" style="min-width:180px;">
+          <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+          <span style="display:flex; flex-direction:column; line-height:1.1;">
+            <span>Comparaisons</span>
+            <span style="font-size:0.78rem; color:#475569;">(VL base 100)</span>
+          </span>
+        </button>
+        <button type="button" id="supportEsgToggle" class="support-meta-btn" style="min-width:180px;">
+          <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+          <span style="display:flex; flex-direction:column; line-height:1.1;">
+            <span>ESG</span>
+            <span style="font-size:0.78rem; color:#475569;">(base 100)</span>
+          </span>
+        </button>
+      </div>
+      <span id="supportCompareStatus" class="muted" style="font-size:0.85rem;"></span>
+    </div>
+    <div id="supportCompareSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+        <label for="supportCompareInput" style="font-size:0.85rem; color:#475569;">Comparer avec</label>
+        <input type="text" id="supportCompareInput" list="supportCompareOptions" placeholder="ISIN ou nom partiel" style="flex:1 1 260px; min-width:220px; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;" />
+        <datalist id="supportCompareOptions"></datalist>
+        <button type="button" id="supportCompareBtn" class="support-meta-btn" style="height:40px;"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Lancer</span></button>
+      </div>
+      <div class="support-modal__chart" id="supportCompareChartContainer" style="display:none;">
+        <canvas id="supportCompareChart"></canvas>
+      </div>
+    </div>
+    <div id="supportEsgSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
+        <div style="flex:1 1 240px; min-width:220px;">
+          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+          <select id="supportEsgAlloc" style="width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;">
+            <option value="">— choisir —</option>
+          </select>
+        </div>
+        <div>
+          <button id="supportEsgRefresh" class="support-meta-btn" type="button" style="height:40px;"><span>Actualiser</span></button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <div id="supportEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+      </div>
+      <div id="supportEsgChart" style="height:320px; width:100%; display:none;"></div>
+      <div id="supportEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
+      <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Support = (Support / Indice) × 100.</div>
+    </div>
     <div class="support-modal__actions">
       <div>
         <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
@@ -404,6 +455,22 @@ $(document).ready(function () {
             })();
             // Rendu initial des badges
             try { renderBadges(); } catch(e) {}
+
+            // Index supports pour autocomplétion comparaison
+            try {
+                supportIndex = [];
+                api.rows().every(function(){
+                    var row = this.data();
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = row[0] || '';
+                    var isin = (tmp.textContent || '').trim();
+                    tmp.innerHTML = row[1] || '';
+                    var nom = (tmp.textContent || '').trim();
+                    if (isin) supportIndex.push({ isin: isin, nom: nom });
+                });
+                var opts = supportIndex.map(function(s){ return '<option value="'+s.isin+'">'+ (s.nom || '') +'</option>'; }).join('');
+                $('#supportCompareOptions').html(opts);
+            } catch(e){}
         }
     });
 
@@ -440,10 +507,57 @@ $(document).ready(function () {
         if ($supportModalChartContainer && $supportModalChartContainer.is(':visible')){
             if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
             $supportModalChartContainer.hide();
+            if ($supportModalSeries.length){ $supportModalSeries.hide(); }
         } else {
-            ensureChartJs(function(){ renderSupportModalChart(); });
+            ensureChartJs(function(){
+                renderSupportModalChart();
+                if ($supportModalSeries.length && $supportModalSeries.html().trim()){
+                    $supportModalSeries.show();
+                }
+            });
         }
         updateSansNomButtonState();
+    }
+    function toggleSupportCompare(){
+        if ($supportCompareSection && $supportCompareSection.is(':visible')){
+            if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+            $supportCompareChartContainer.hide();
+            $supportCompareSection.hide();
+            setCompareButtonActive(false);
+            return;
+        }
+        $supportCompareSection.show();
+        setCompareButtonActive(true);
+        var term = ($('#supportCompareInput').val() || '').trim();
+        if (term){
+            fetchComparison(term);
+        }
+    }
+
+    function toggleSupportSrri(){
+        $('#supportSrriSection').find('.series-empty').remove();
+        if ($supportSrriSection && $supportSrriSection.is(':visible')){
+            if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+            $supportSrriChartContainer.hide();
+            $supportSrriTable.hide().empty();
+            $supportSrriSection.hide();
+            setSrriButtonActive(false);
+            return;
+        }
+        var series = computeSrriSeries();
+        if (!series || !series.labels.length){
+            $supportSrriChartContainer.hide();
+            $supportSrriTable.hide().empty();
+            $supportSrriSection.show().append('<div class="series-empty">Données insuffisantes pour calculer la trajectoire SRRI.</div>');
+            setSrriButtonActive(false);
+            return;
+        }
+        ensureChartJs(function(){
+            renderSupportSrriChart(series);
+            renderSupportSrriTable(series);
+            $supportSrriSection.show();
+            setSrriButtonActive(true);
+        });
     }
     function saveSupportsState(){
       try {
@@ -535,6 +649,8 @@ $(document).ready(function () {
     var $supportModalDate = $('#supportModalDate');
     var $supportModalTotal = $('#supportModalTotal');
     var $supportModalExport = $('#supportModalExport');
+    var $supportCompareToggle = $('#supportCompareToggle');
+    var $supportCompareSection = $('#supportCompareSection');
     var $supportModalClientFilter = $('#supportModalClientFilter');
     var $supportModalResponsableFilter = $('#supportModalResponsableFilter');
     var $supportModalAmountFilter = $('#supportModalAmountFilter');
@@ -542,10 +658,27 @@ $(document).ready(function () {
     var $supportModalCreateTasks = $('#supportModalCreateTasks');
     var $supportModalChartContainer = $('#supportModalChartContainer');
     var supportModalChartCanvas = document.getElementById('supportModalChart');
+    var $supportCompareChartContainer = $('#supportCompareChartContainer');
+    var supportCompareChartCanvas = document.getElementById('supportCompareChart');
+    var $supportSrriSection = $('#supportSrriSection');
+    var $supportSrriChartContainer = $('#supportSrriChartContainer');
+    var supportSrriChartCanvas = document.getElementById('supportSrriChart');
+    var $supportSrriTable = $('#supportSrriTable');
+    var supportModalValuationsWeekly = [];
+    var supportModalValuations = [];
+    var supportCompareValuations = [];
+    var supportCompareLabel = '';
+    var supportEsgFields = [];
+    var supportEsgAllocNames = [];
+    var supportEsgMetaLoaded = false;
+    var $supportEsgAlloc = $('#supportEsgAlloc');
+    var $supportEsgUnmatched = $('#supportEsgUnmatched');
+    var supportIndex = [];
     var supportModalClientsData = [];
     var supportModalFilteredData = [];
     var supportModalTaskTypes = [];
     var supportModalCodeIsin = '';
+    var supportModalLastDate = null;
     var $supportTaskModal = $('#supportTaskModal');
     var $supportTaskModalClose = $('#supportTaskModalClose');
     var $supportTaskTypeSelect = $('#supportTaskTypeSelect');
@@ -553,9 +686,32 @@ $(document).ready(function () {
     var $supportTaskSubmit = $('#supportTaskSubmit');
     var $supportTaskCancel = $('#supportTaskCancel');
     var $supportTaskStatus = $('#supportTaskStatus');
-    var supportModalValuations = [];
     var supportModalChartInstance = null;
+    var supportCompareChartInstance = null;
+    var supportEsgChartInstance = null;
+    var supportSrriChartInstance = null;
     var chartJsLoaded = false;
+
+    function setCompareButtonActive(active){
+        if ($supportCompareToggle && $supportCompareToggle.length){
+            $supportCompareToggle.toggleClass('active', !!active);
+        }
+    }
+
+    function setSrriButtonActive(active){
+        var btn = document.getElementById('supportSrriBtn');
+        if (btn){
+            if (active){ btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); }
+            else { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); }
+        }
+    }
+
+    function setEsgButtonActive(active){
+        var btn = document.getElementById('supportEsgToggle');
+        if (btn){
+            btn.classList.toggle('active', !!active);
+        }
+    }
 
     function escHtml(str){
         if (str === null || str === undefined) return '';
@@ -581,6 +737,121 @@ $(document).ready(function () {
         document.head.appendChild(script);
     }
 
+    function ensurePlotlySupportEsg(callback){
+        if (window.Plotly){ callback(); return; }
+        var existing = document.querySelector('script[data-loader=\"plotly\"]');
+        if (existing){
+            existing.addEventListener('load', function(){ callback(); });
+            return;
+        }
+        var s=document.createElement('script');
+        s.src='https://cdn.plot.ly/plotly-2.32.0.min.js';
+        s.async=true;
+        s.setAttribute('data-loader','plotly');
+        s.onload=function(){ callback(); };
+        document.head.appendChild(s);
+    }
+
+    function loadSupportEsgMeta(cb){
+        if (supportEsgMetaLoaded){
+            cb && cb();
+            return;
+        }
+        fetch('/dashboard/esg/fields')
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(data){
+                supportEsgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
+                supportEsgAllocNames = Array.isArray(data.alloc_names) ? data.alloc_names : [];
+                supportEsgMetaLoaded = true;
+                renderSupportEsgFields();
+                renderSupportEsgAllocOptions();
+                cb && cb();
+            })
+            .catch(function(err){
+                console.warn('ESG meta load error', err);
+                supportEsgFields = [];
+                supportEsgAllocNames = [];
+                supportEsgMetaLoaded = true;
+                renderSupportEsgFields();
+                renderSupportEsgAllocOptions();
+                cb && cb();
+            });
+    }
+
+    function renderSupportEsgAllocOptions(){
+        if (!$supportEsgAlloc || !$supportEsgAlloc.length) return;
+        var opts = ['<option value=\"\">— choisir —</option>'];
+        supportEsgAllocNames.forEach(function(n){
+            opts.push('<option value=\"'+escHtml(n)+'\">'+escHtml(n)+'</option>');
+        });
+        $supportEsgAlloc.html(opts.join(''));
+    }
+
+    function renderSupportEsgFields(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        if (!supportEsgFields.length){
+            wrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
+            return;
+        }
+        supportEsgFields.forEach(function(f){
+            var btn = document.createElement('button');
+            btn.type='button';
+            btn.className='dim-btn support-esg-field';
+            btn.setAttribute('data-field', f.col || f.field || f.label || '');
+            btn.title = f.label || f.col || '';
+            btn.textContent = f.label || f.col || '';
+            btn.addEventListener('click', function(){
+                if (btn.classList.contains('active')){
+                    btn.classList.remove('active');
+                } else {
+                    var actives = wrap.querySelectorAll('.support-esg-field.active');
+                    if (actives.length >= 4) return;
+                    btn.classList.add('active');
+                }
+            });
+            wrap.appendChild(btn);
+        });
+        ensureSupportEsgDefaultSelection();
+    }
+
+    function ensureSupportEsgDefaultSelection(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return;
+        var actives = wrap.querySelectorAll('.support-esg-field.active');
+        if (actives.length) return;
+        var btns = wrap.querySelectorAll('.support-esg-field');
+        for (var i = 0; i < btns.length && i < 4; i++){
+            btns[i].classList.add('active');
+        }
+    }
+
+    function selectedSupportEsgFields(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return [];
+        return Array.from(wrap.querySelectorAll('.support-esg-field.active')).map(function(b){
+            return b.getAttribute('data-field');
+        }).filter(Boolean);
+    }
+
+    function runSupportEsg(){
+        if (!supportEsgMetaLoaded){
+            loadSupportEsgMeta(function(){ runSupportEsg(); });
+            return;
+        }
+        if (!supportEsgFields.length){
+            renderSupportEsgFields();
+            return;
+        }
+        var alloc = ($supportEsgAlloc && $supportEsgAlloc.val()) || '';
+        ensureSupportEsgDefaultSelection();
+        var fields = selectedSupportEsgFields();
+        if (!alloc){ return; }
+        if (!fields.length){ return; }
+        // Placeholder: branchement API ESG support à implémenter
+    }
+
     function formatEuro(value){
         if (value === null || value === undefined || !isFinite(value)) return '—';
         try {
@@ -597,6 +868,165 @@ $(document).ready(function () {
             if (!isNaN(d)) return d.toLocaleDateString('fr-FR');
         } catch(e){}
         return iso;
+    }
+
+    function toFridayISO(iso){
+        if (!iso) return null;
+        try {
+            var d = new Date(iso);
+            if (isNaN(d)) return null;
+            var day = d.getDay(); // 0=dim, 5=ven
+            var delta = (5 - day + 7) % 7; // avancer jusqu'au vendredi de la même semaine (ou suivant)
+            d.setDate(d.getDate() + delta);
+            return d.toISOString().slice(0, 10);
+        } catch(e){ return null; }
+    }
+
+    function srriFromVol(volPct){
+        if (volPct == null || !isFinite(volPct)) return null;
+        if (volPct < 0.5) return 1;
+        if (volPct < 2) return 2;
+        if (volPct < 5) return 3;
+        if (volPct < 10) return 4;
+        if (volPct < 15) return 5;
+        if (volPct < 25) return 6;
+        return 7;
+    }
+
+    function stddev(arr){
+        if (!arr || arr.length === 0) return NaN;
+        var mean = arr.reduce(function(s,v){ return s+v; },0)/arr.length;
+        var variance = arr.reduce(function(s,v){ var d=v-mean; return s + d*d; },0)/arr.length;
+        return Math.sqrt(variance);
+    }
+
+    function computeSrriSeries(){
+        if (!supportModalValuations || !supportModalValuations.length) return null;
+        var refIso = supportModalLastDate || (supportModalValuations[supportModalValuations.length-1]?.date);
+        if (!refIso) return null;
+        var refDate = new Date(refIso);
+        if (isNaN(refDate)) return null;
+        var cutoff4y = new Date(refDate); cutoff4y.setFullYear(refDate.getFullYear() - 4);
+        var cutoff3y = new Date(refDate); cutoff3y.setFullYear(refDate.getFullYear() - 3);
+
+        var weekMap = {};
+        supportModalValuations.forEach(function(row){
+            if (!row || !row.date) return;
+            var d = new Date(row.date);
+            if (isNaN(d) || d < cutoff4y) return;
+            var friday = toFridayISO(row.date);
+            if (!friday) return;
+            weekMap[friday] = parseFloat(row.valeur); // on garde la dernière valeur de la semaine
+        });
+        var weeks = Object.keys(weekMap).sort();
+        if (weeks.length < 60) return null; // besoin d'un minimum pour 52 semaines
+
+        var weeklySeries = weeks.map(function(w){ return {date: w, value: weekMap[w]}; });
+        var returns = [];
+        for (var i=1; i<weeklySeries.length; i++){
+            var prev = weeklySeries[i-1].value;
+            var cur = weeklySeries[i].value;
+            if (prev && cur){
+                returns.push(cur/prev - 1);
+            } else {
+                returns.push(null);
+            }
+        }
+        var points = [];
+        for (var j=51; j<returns.length; j++){
+            var window = returns.slice(j-51, j+1).filter(function(r){ return r !== null && isFinite(r); });
+            if (window.length < 26) { points.push(null); continue; } // trop peu de données propres
+            var vol = stddev(window) * Math.sqrt(52); // annualisation
+            var volPct = vol * 100;
+            var srri = srriFromVol(volPct);
+            points.push({date: weeklySeries[j+1].date, volPct: volPct, srri: srri});
+        }
+        points = points.filter(Boolean).filter(function(p){
+            var d = new Date(p.date);
+            return !isNaN(d) && d >= cutoff3y;
+        });
+        if (!points.length) return null;
+        var labels = points.map(function(p){ return p.date; });
+        var volData = points.map(function(p){ return Number(p.volPct.toFixed(2)); });
+        var srriData = points.map(function(p){ return p.srri; });
+        var tableRows = points.slice(-20).reverse();
+        return { labels: labels, volData: volData, srriData: srriData, tableRows: tableRows };
+    }
+
+    function renderSupportSrriChart(series){
+        if (!supportSrriChartCanvas || !series) return;
+        if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        var maxVol = 0;
+        try { maxVol = Math.max.apply(null, series.volData.filter(function(v){ return isFinite(v); })); } catch(e){}
+        var suggestedMax = isFinite(maxVol) ? (maxVol + Math.max(1, maxVol * 0.05)) : undefined;
+        supportSrriChartInstance = new Chart(supportSrriChartCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: series.labels,
+                datasets: [
+                    {
+                        label: 'Volatilité annualisée (%)',
+                        data: series.volData,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37,99,235,0.15)',
+                        tension: 0.2,
+                        yAxisID: 'y',
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'SRRI',
+                        data: series.srriData,
+                        borderColor: '#f97316',
+                        backgroundColor: 'rgba(249,115,22,0.15)',
+                        stepped: true,
+                        tension: 0,
+                        yAxisID: 'y1',
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { maxTicksLimit: 8 },
+                        grid: { display: false }
+                    },
+                    y: {
+                        title: { display: true, text: 'Volatilité (%)' },
+                        suggestedMin: 0,
+                        suggestedMax: suggestedMax
+                    },
+                    y1: {
+                        position: 'right',
+                        title: { display: true, text: 'SRRI' },
+                        min: 1,
+                        max: 7,
+                        grid: { drawOnChartArea: false },
+                        ticks: { stepSize: 1 }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { mode: 'index', intersect: false }
+                }
+            }
+        });
+        $('#supportSrriChartContainer').show();
+    }
+
+    function renderSupportSrriTable(series){
+        if (!$supportSrriTable.length || !series) return;
+        if (!series.tableRows || !series.tableRows.length){
+            $supportSrriTable.hide().empty();
+            return;
+        }
+        var rowsHtml = series.tableRows.map(function(r){
+            return '<tr><td>' + formatDateLabel(r.date) + '</td><td>' + r.volPct.toFixed(2) + ' %</td><td>SRRI ' + r.srri + '</td></tr>';
+        }).join('');
+        var html = '<div class="series-table"><div class="support-series-header"><h4>Evolution SRRI (3 dernières années)</h4></div><table><thead><tr><th>Date</th><th>Volatilité annualisée</th><th>SRRI</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+        $supportSrriTable.html(html).show();
     }
 
     function bindSupportSeriesToggles(){
@@ -624,10 +1054,11 @@ $(document).ready(function () {
             });
     }
 
-    function renderSupportSeriesTables(){
+    function renderSupportSeriesTables(showNow){
         if (!$supportModalSeries.length){
             return;
         }
+        var displaySeries = !!showNow;
         var html = '';
         if (supportModalValuations && supportModalValuations.length){
             var rows = supportModalValuations
@@ -644,7 +1075,8 @@ $(document).ready(function () {
                 html += '<div id="seriesDaily" class="series-table-body" style="display:none;">';
                 html += '<table><thead><tr><th>Date</th><th>Valeur</th></tr></thead><tbody>';
                 rows.forEach(function(row){
-                    html += '<tr><td>' + formatDateLabel(row.date) + '</td><td>' + formatEuro(parseFloat(row.valeur)) + '</td></tr>';
+                    var iso = toFridayISO(row.date) || row.date;
+                    html += '<tr><td>' + formatDateLabel(iso) + '</td><td>' + formatEuro(parseFloat(row.valeur)) + '</td></tr>';
                 });
                 html += '</tbody></table></div></div>';
             }
@@ -664,7 +1096,8 @@ $(document).ready(function () {
                 html += '<div id="seriesWeekly" class="series-table-body" style="display:none;">';
                 html += '<table><thead><tr><th>Semaine début</th><th>Montant (€)</th></tr></thead><tbody>';
                 wrows.forEach(function(row){
-                    html += '<tr><td>' + formatDateLabel(row.week_start) + '</td><td>' + formatEuro(parseFloat(row.total_valo)) + '</td></tr>';
+                    var iso = toFridayISO(row.week_start) || row.week_start;
+                    html += '<tr><td>' + formatDateLabel(iso) + '</td><td>' + formatEuro(parseFloat(row.total_valo)) + '</td></tr>';
                 });
                 html += '</tbody></table></div></div>';
             }
@@ -674,7 +1107,12 @@ $(document).ready(function () {
             $supportModalSeries.html(html).hide();
             return;
         }
-        $supportModalSeries.html(html).show();
+        $supportModalSeries.html(html);
+        if (displaySeries){
+            $supportModalSeries.show();
+        } else {
+            $supportModalSeries.hide();
+        }
         bindSupportSeriesToggles();
     }
 
@@ -689,51 +1127,30 @@ $(document).ready(function () {
             return;
         }
 
-        var labelsIso = [];
-        var dailyValues = [];
+        var dailyMap = {};
         var rawDaily = supportModalValuations || [];
         rawDaily.forEach(function(row){
             if (!row || !row.date) return;
-            var iso = String(row.date).slice(0, 10);
-            labelsIso.push(iso);
+            var iso = toFridayISO(String(row.date).slice(0, 10)) || String(row.date).slice(0, 10);
             var val = parseFloat(row.valeur);
-            dailyValues.push(isFinite(val) ? val : null);
+            dailyMap[iso] = isFinite(val) ? val : null;
         });
-        if (!labelsIso.length && hasWeekly){
-            (supportModalValuationsWeekly || []).forEach(function(row){
-                if (!row || !row.week_start) return;
-                var iso = String(row.week_start).slice(0, 10);
-                labelsIso.push(iso);
-                dailyValues.push(null);
-            });
-        }
-        if (!labelsIso.length){
-            alert('Aucune valeur liquidative disponible.');
-            return;
-        }
 
         var weeklyMap = {};
         (supportModalValuationsWeekly || []).forEach(function(row){
             if (!row || !row.week_start) return;
+            var iso = toFridayISO(String(row.week_start).slice(0, 10)) || String(row.week_start).slice(0, 10);
             var val = parseFloat(row.total_valo);
-            weeklyMap[row.week_start] = isFinite(val) ? val : null;
+            weeklyMap[iso] = isFinite(val) ? val : null;
         });
-        function weekStartFromIso(iso){
-            try {
-                var d = new Date(iso);
-                if (isNaN(d)) return null;
-                var day = d.getDay();
-                var offset = (day === 0 ? -6 : 1 - day);
-                var monday = new Date(d);
-                monday.setDate(d.getDate() + offset);
-                return monday.toISOString().slice(0, 10);
-            } catch(e){ return null; }
+
+        var labelsIso = Array.from(new Set([].concat(Object.keys(dailyMap), Object.keys(weeklyMap)))).sort();
+        if (!labelsIso.length){
+            alert('Aucune valeur liquidative disponible.');
+            return;
         }
-        var weeklyValues = labelsIso.map(function(iso){
-            var mondayIso = weekStartFromIso(iso);
-            if (!mondayIso) return null;
-            return weeklyMap.hasOwnProperty(mondayIso) ? weeklyMap[mondayIso] : null;
-        });
+        var dailyValues = labelsIso.map(function(iso){ return dailyMap.hasOwnProperty(iso) ? dailyMap[iso] : null; });
+        var weeklyValues = labelsIso.map(function(iso){ return weeklyMap.hasOwnProperty(iso) ? weeklyMap[iso] : null; });
         var weeklyValuesFiltered = weeklyValues.filter(function(val){
             return val !== null && isFinite(val);
         });
@@ -848,6 +1265,134 @@ $(document).ready(function () {
         updateSansNomButtonState();
     }
 
+    function prepareNormalizedSeries(list){
+        if (!list || !list.length) return { labels: [], values: [], base: null, latest: null };
+        var map = {};
+        var latest = null;
+        list.forEach(function(row){
+            if (!row || !row.date) return;
+            var iso = toFridayISO(String(row.date).slice(0, 10)) || String(row.date).slice(0, 10);
+            var d = new Date(iso);
+            if (isNaN(d)) return;
+            if (!latest || d > latest) latest = d;
+            var val = parseFloat(row.valeur);
+            map[iso] = isFinite(val) ? val : null;
+        });
+        if (!latest) return { labels: [], values: [], base: null, latest: null };
+        var threshold = new Date(latest);
+        threshold.setFullYear(threshold.getFullYear() - 3);
+        var labels = Object.keys(map).filter(function(iso){
+            var d = new Date(iso);
+            return !isNaN(d) && d >= threshold;
+        }).sort();
+        var baseIso = labels.find(function(l){ return map[l] != null; }) || null;
+        var baseVal = baseIso ? map[baseIso] : null;
+        var values = labels.map(function(l){
+            if (map[l] == null || baseVal == null || baseVal === 0) return null;
+            return (map[l] / baseVal) * 100.0;
+        });
+        return { labels: labels, values: values, base: baseVal, latest: latest };
+    }
+
+    function renderSupportCompareChart(){
+        var primary = prepareNormalizedSeries(supportModalValuations);
+        var secondary = prepareNormalizedSeries(supportCompareValuations);
+        var allLabels = Array.from(new Set([].concat(primary.labels, secondary.labels))).sort();
+        if (!allLabels.length){
+            $('#supportCompareStatus').text('Aucune donnée comparable.');
+            return;
+        }
+        var primMap = {};
+        primary.labels.forEach(function(l, idx){ primMap[l] = primary.values[idx]; });
+        var secMap = {};
+        secondary.labels.forEach(function(l, idx){ secMap[l] = secondary.values[idx]; });
+        var primSeries = allLabels.map(function(l){ return primMap.hasOwnProperty(l) ? primMap[l] : null; });
+        var secSeries = allLabels.map(function(l){ return secMap.hasOwnProperty(l) ? secMap[l] : null; });
+
+        ensureChartJs(function(){
+            if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+            if (!$supportCompareChartContainer.length || !supportCompareChartCanvas){ return; }
+            $supportCompareChartContainer.show();
+            var ctx = supportCompareChartCanvas.getContext('2d');
+            supportCompareChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: allLabels,
+                    datasets: [
+                        {
+                            label: 'Support sélectionné (base 100)',
+                            data: primSeries,
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37,99,235,0.18)',
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.25
+                        },
+                        {
+                            label: (supportCompareLabel || 'Comparaison') + ' (base 100)',
+                            data: secSeries,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239,68,68,0.15)',
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.25
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx){
+                                    var val = ctx.parsed.y;
+                                    if (val == null || isNaN(val)) return (ctx.dataset.label || '') + ' : -';
+                                    return (ctx.dataset.label || '') + ' : ' + val.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            position: 'left',
+                            ticks: { callback: function(value){ return value.toFixed ? value.toFixed(0) : value; } }
+                        },
+                        x: {
+                            ticks: {
+                                callback: function(value, index){ var iso = allLabels[index]; try{ var d=new Date(iso); if(!isNaN(d)) return d.toLocaleDateString('fr-FR'); }catch(e){} return iso; }
+                            }
+                        }
+                    }
+                }
+            });
+            $('#supportCompareStatus').text('');
+        });
+    }
+
+    function fetchComparison(term){
+        var statusEl = $('#supportCompareStatus');
+        var needle = term.trim().toLowerCase();
+        if (!needle){ statusEl.text('Choisissez un support à comparer.'); return; }
+        var match = supportIndex.find(function(s){
+            return (s.isin && s.isin.toLowerCase().indexOf(needle) !== -1) ||
+                   (s.nom && s.nom.toLowerCase().indexOf(needle) !== -1);
+        });
+        var targetIsin = match ? match.isin : term.toUpperCase();
+        statusEl.text('Chargement...');
+    fetch('/dashboard/supports/details?code_isin=' + encodeURIComponent(targetIsin))
+        .then(function(resp){ if(!resp.ok) throw new Error('Erreur ' + resp.status); return resp.json(); })
+        .then(function(data){
+            supportCompareValuations = Array.isArray(data.valuations) ? data.valuations.slice() : [];
+            supportCompareLabel = (data.support && (data.support.nom || data.support.code_isin)) || targetIsin;
+            renderSupportCompareChart();
+        })
+        .catch(function(err){
+            statusEl.text(err.message || 'Erreur de chargement.');
+        });
+    }
+
     function openSupportModal(){
         $supportModal.addClass('open').attr('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
@@ -857,10 +1402,20 @@ $(document).ready(function () {
         closeSupportTaskModal();
         if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
         if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+        if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
+        if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        $('#supportEsgChart').hide().empty();
+        $('#supportEsgUnmatched').hide().text('');
+        $('#supportEsgSection').hide();
+        setEsgButtonActive(false);
         if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        $('#supportCompareStatus').text('');
+        if ($supportCompareSection.length){ $supportCompareSection.hide(); }
         $supportModal.removeClass('open').attr('aria-hidden', 'true');
         document.body.style.overflow = '';
         updateSansNomButtonState();
+        setCompareButtonActive(false);
     }
 
     function renderSupportModalLoading(code){
@@ -873,9 +1428,31 @@ $(document).ready(function () {
         $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
         supportModalValuations = [];
         supportModalValuationsWeekly = [];
+        supportCompareValuations = [];
+        supportCompareLabel = '';
+        supportEsgFields = [];
+        supportModalLastDate = null;
         if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
         if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+        if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
+        if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        $('#supportEsgChart').hide().empty();
+        $('#supportEsgUnmatched').hide().text('');
+        $('#supportEsgSection').hide();
+        if ($supportEsgAlloc && $supportEsgAlloc.length){ $supportEsgAlloc.val(''); }
+        $('#supportEsgFields').empty();
+        if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        $('#supportSrriTable').hide().empty();
+        $('#supportSrriChartContainer').hide();
+        $('#supportSrriSection').hide();
         if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        $('#supportCompareStatus').text('');
+        if ($supportCompareSection.length){ $supportCompareSection.hide(); }
+        setCompareButtonActive(false);
+        setSrriButtonActive(false);
+        setEsgButtonActive(false);
         updateSansNomButtonState();
     }
 
@@ -905,14 +1482,24 @@ $(document).ready(function () {
             {label: 'SRRI', value: (s.SRRI !== null && s.SRRI !== undefined) ? s.SRRI : '—'}
         ];
         fields.forEach(function(item){
-            metaHtml += '<div><span class="label">' + item.label + '</span><span class="value">' + item.value + '</span></div>';
+            if (item.label === 'SRRI'){
+                metaHtml += '<div><span class="label">' + item.label + '</span><button type="button" class="support-meta-btn" id="supportSrriBtn" aria-pressed="false"><span>' + (item.value || '—') + '</span></button></div>';
+            } else {
+                metaHtml += '<div><span class="label">' + item.label + '</span><span class="value">' + item.value + '</span></div>';
+            }
         });
-        metaHtml += '<button type="button" class="support-meta-btn" id="supportSansNomBtn" aria-pressed="false"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Graphiques</span></button>';
+        metaHtml += '<button type="button" class="support-meta-btn" id="supportSansNomBtn" aria-pressed="false"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Graphiques VL & AUM</span></button>';
         $supportModalMeta.html(metaHtml);
         var sansNomBtn = document.getElementById('supportSansNomBtn');
         if (sansNomBtn){
             sansNomBtn.addEventListener('click', function(){
                 toggleSupportChart();
+            });
+        }
+        var srriBtn = document.getElementById('supportSrriBtn');
+        if (srriBtn){
+            srriBtn.addEventListener('click', function(){
+                toggleSupportSrri();
             });
         }
         $supportModalMeta.closest('.support-modal__panel').find('.support-modal__graph-row').remove();
@@ -947,9 +1534,15 @@ $(document).ready(function () {
             sansNomBtn.disabled = !hasGraphData;
         }
         updateSansNomButtonState();
-        renderSupportSeriesTables();
+        $('#supportCompareStatus').text('');
+        if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+        if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
+        supportCompareValuations = [];
+        supportCompareLabel = '';
+        renderSupportSeriesTables(false);
         $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
         $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
+        supportModalLastDate = data.last_date || null;
         var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
         $supportModalTotal.text('Total valorisation : ' + totalText);
         $supportModalExport.data('export', data.csv_url || '').prop('disabled', !data.csv_url);
@@ -1219,6 +1812,38 @@ $(document).ready(function () {
         if (!url) return;
         window.location.href = url;
     });
+    $('#supportCompareToggle').on('click', function(){ toggleSupportCompare(); });
+    $('#supportCompareBtn').on('click', function(){ 
+        var term = ($('#supportCompareInput').val() || '').trim();
+        if (term){ fetchComparison(term); }
+    });
+    $('#supportCompareInput').on('keydown', function(e){ 
+        if (e.key === 'Enter'){ 
+            e.preventDefault(); 
+            var term = ($('#supportCompareInput').val() || '').trim();
+            if (term){ fetchComparison(term); }
+        } 
+    });
+    $('#supportEsgToggle').on('click', function(){
+        if ($('#supportEsgSection').is(':visible')){
+            if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+            $('#supportEsgChart').hide().empty();
+            $('#supportEsgUnmatched').hide().text('');
+            $('#supportEsgSection').hide();
+            setEsgButtonActive(false);
+        } else {
+            $('#supportEsgSection').show();
+            setEsgButtonActive(true);
+            loadSupportEsgMeta(function(){
+                ensurePlotlySupportEsg(function(){
+                    renderSupportEsgFields();
+                    renderSupportEsgAllocOptions();
+                    runSupportEsg();
+                });
+            });
+        }
+    });
+    $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
 
     function scheduleModalReRender(){
         clearTimeout(scheduleModalReRender._id);

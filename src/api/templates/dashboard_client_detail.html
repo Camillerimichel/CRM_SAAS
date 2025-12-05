@@ -181,6 +181,7 @@
     box-shadow: none !important;
     color: var(--text) !important;
     padding: 6px 8px;
+    border-radius: 10px;
   }
   .section-toggle-row .accordion-toggle h3 {
     font-size:0.95rem;
@@ -189,9 +190,12 @@
     color: inherit;
   }
   .section-toggle-row .chevron { display:none; }
-  .section-toggle-row .accordion-toggle i { color: inherit; }
+  .section-toggle-row .accordion-toggle i,
+  .section-toggle-row .accordion-toggle span { color: inherit !important; }
   .section-toggle-row .accordion-toggle.active {
     color: var(--primary-600) !important;
+    background: var(--primary-100) !important;
+    border-color: transparent !important;
   }
   .section-toggle-row .accordion-toggle.active i,
   .section-toggle-row .accordion-toggle.active span,
@@ -214,9 +218,16 @@
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
   .kyc-main-btn i { font-size:1rem; color:#fff; }
   /* Bouton Conformité identique aux autres (pilule primaire) */
-  /* Masquer les libellés du menu principal (icônes seules) */
-  .section-toggle-row button span { display:none; }
-  .section-toggle-row button { min-width:auto; padding:10px 12px; }
+  /* Menu principal : icônes + libellés pour lisibilité */
+  .section-toggle-row button {
+    min-width:auto;
+    padding:10px 12px;
+    gap:8px;
+  }
+  .section-toggle-row button span {
+    display:inline;
+    font-weight:600;
+  }
   /* aucun style spécifique: utiliser l'apparence standard des autres accordéons */
   .tb-markers-enabled [data-tb-marker] {
     position: relative;
@@ -247,10 +258,13 @@
 
 {% if client %}
   <!-- Actions rapides -->
+  {% set _is_client = (_role_hint == 'client') %}
   <div class="section-toggle-row" style="margin-top:6px;">
-    <button id="confToggleDetail" class="accordion-toggle client-hide" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
-      <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Relation client et conformité</span>
-    </button>
+    {% if not _is_client %}
+      <button id="confToggleDetail" class="accordion-toggle client-hide" data-tb-marker="CL_13" type="button" title="Relation client et conformité" aria-label="Relation client et conformité" onclick="setSectionToggleActive('confToggleDetail'); openConfMain();">
+        <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Relation client et conformité</span>
+      </button>
+    {% endif %}
     {# Création de tâche désactivée (maintenance) #}
     <button id="invToggle" class="accordion-toggle" data-tb-marker="CL_14" type="button" title="Investissements" aria-label="Investissements" onclick="setSectionToggleActive('invToggle');">
       <i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Investissements</span>
@@ -264,9 +278,11 @@
     <button id="reportToggle" class="accordion-toggle" type="button" title="Reportings annuels" aria-label="Reportings annuels" onclick="setSectionToggleActive('reportToggle');">
       <i class="fa-solid fa-file-lines" aria-hidden="true"></i><span>Reportings annuels</span>
     </button>
-    <button id="docsToggle" class="accordion-toggle client-hide" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
-      <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
-    </button>
+    {% if not _is_client %}
+      <button id="docsToggle" class="accordion-toggle client-hide" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
+        <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
+      </button>
+    {% endif %}
   </div>
   <div id="synthCard" class="card" style="margin-bottom:0.5rem; padding:0;">
     <div id="synthToggle" class="accordion-toggle" data-target="synthPanel" style="margin:0; cursor:pointer; justify-content:center; text-align:center;">
@@ -373,7 +389,10 @@
         });
       }
       window.setSectionToggleActive = setActive;
-      setActive('confToggleDetail');
+      var defaultBtn = document.querySelector('.section-toggle-row .accordion-toggle');
+      if (defaultBtn && defaultBtn.id) {
+        setActive(defaultBtn.id);
+      }
       document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
         btn.addEventListener('click', function(){ setActive(btn.id); });
       });
@@ -1558,34 +1577,48 @@ function openClientMsgs(kind){
       { key:'invest', toggleId:'investToggle', sectionId:'investSection' },
     ];
     function byId(id){ return document.getElementById(id); }
+    var available = groups.filter(function(g){ return byId(g.toggleId) && byId(g.sectionId); });
+    function firstAvailableKey(){ return available.length ? available[0].key : ''; }
+    function setActive(id){
+      try {
+        document.querySelectorAll('.section-toggle-row .accordion-toggle').forEach(function(btn){
+          btn.classList.toggle('active', btn.id === id);
+        });
+      } catch(e){}
+    }
     var currentOpen = '';
     function setOpen(key){
+      var targetKey = key;
+      var exists = available.some(function(g){ return g.key === key; });
+      if (key && !exists) { targetKey = firstAvailableKey(); }
       groups.forEach(function(g){
         var t = byId(g.toggleId), s = byId(g.sectionId);
         if (!t || !s) return;
-        var isTarget = key && g.key === key;
+        var isTarget = targetKey && g.key === targetKey;
         if (isTarget){
           s.style.display = '';
           t.classList.remove('collapsed');
+          setActive(g.toggleId);
         } else {
           s.style.display = 'none';
           t.classList.add('collapsed');
         }
       });
-      currentOpen = key || '';
-      try { localStorage.setItem('client_detail_open', key || ''); } catch(e) {}
+      currentOpen = targetKey || '';
+      try { localStorage.setItem('client_detail_open', currentOpen || ''); } catch(e) {}
     }
     // Restore last open
     var saved = '';
     try { saved = localStorage.getItem('client_detail_open') || ''; } catch(e) {}
     if (saved) { setOpen(saved); currentOpen = saved; }
+    else if (!currentOpen) { setOpen(firstAvailableKey()); }
     // Wire clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);
       if (!t || !s) return;
       t.addEventListener('click', function(){
         var isOpen = s.style.display !== 'none';
-        if (isOpen) { setOpen(''); }
+        if (isOpen) { setOpen(''); setActive(''); }
         else { setOpen(g.key); }
       });
     });
@@ -2217,6 +2250,20 @@ function openClientMsgs(kind){
           var cats = displayRows.map(function(r){ return (fieldLabels && fieldLabels[r.field]) || r.field_original || r.field; });
           var idx = displayRows.map(r=> (r.index==null? null : Number(r.index)));
           var cli = displayRows.map(r=> (r.client==null? null : Number(r.client)));
+          try {
+            console.log('ESG client plot data', {
+              url: url,
+              alloc: alloc,
+              allocDate: allocDate,
+              asOf: asOf,
+              fields: fields,
+              categories: cats,
+              indexValues: idx,
+              clientValues: cli,
+              rawResults: rows,
+              filteredResults: displayRows
+            });
+          } catch(_){}
           var traces = [
             { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
             { x: cli, y: cats, type:'bar', orientation:'h', name:'Client', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }

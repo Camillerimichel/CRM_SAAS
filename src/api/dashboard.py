@@ -195,6 +195,7 @@ KEYWORDS_VEILLE = [
 FINANCE_CACHE: dict = {}
 HOME_CACHE: dict = {}
 ESG_FIELDS_CACHE: dict = {}
+ESG_GLOBAL_CACHE: dict = {}
 
 
 def _matches_keywords(text: str) -> bool:
@@ -1747,8 +1748,18 @@ def _compute_client_esg_comparison(
 
     # Résolution des noms de colonnes (gestion des variantes orthographiques/accents)
     try:
-        rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
-        available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
+        available_cols = []
+        ok = False
+        try:
+            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            if rows_cols:
+                available_cols = [str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field")) if hasattr(rc, "_mapping") else str(rc[0]) for rc in rows_cols]
+                ok = True
+        except Exception:
+            ok = False
+        if not ok:
+            rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+            available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
     except Exception:
         available_cols = []
     col_lookup: dict[str, str] = {}
@@ -1802,12 +1813,13 @@ def _compute_client_esg_comparison(
             "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
             "FROM mariadb_historique_support_w h\n"
             "JOIN mariadb_support s ON s.id = h.id_support\n"
-            "WHERE h.id_source = :aid AND h.date = :d\n"
+            "WHERE h.id_source = :aid AND DATE(h.date) = :d\n"
             "GROUP BY s.code_isin"
         )
+        as_of_date_only = as_of.split(" ")[0] if as_of else None
         for aid in affaire_ids:
-            if as_of:
-                ref_date = as_of
+            if as_of_date_only:
+                ref_date = as_of_date_only
             else:
                 ref_date = db.execute(
                     text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"),
@@ -1815,7 +1827,7 @@ def _compute_client_esg_comparison(
                 ).scalar()
                 if not ref_date:
                     continue
-            rows = db.execute(text(weight_sql), {"aid": aid, "d": ref_date}).fetchall()
+            rows = db.execute(text(weight_sql), {"aid": aid, "d": str(ref_date).split(" ")[0]}).fetchall()
             params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
             for r in rows or []:
                 isin = getattr(r, "isin", None)
@@ -2038,6 +2050,22 @@ def _compute_client_esg_comparison(
         if debug_esg is not None:
             debug_esg["resolved_pairs"] = resolved_pairs
         debug_info["esg"] = debug_esg
+    try:
+        if client_id == 1869 and any(f in {"board_independence", "board_gender_diversity"} for f in sel_fields):
+            wanted = {"board_independence", "board_gender_diversity"}
+            filtered = [r for r in results if (r.get("field_original") or r.get("field")) in wanted]
+            logger.info(
+                "ESG debug client 1869 -> fields=%s payload=%s client_weights=%s alloc_weights=%s aff_ids=%s resolved=%s unmatched=%s",
+                sel_fields,
+                filtered,
+                list(client_weights.items())[:8],
+                list(alloc_weights.items())[:8],
+                affaire_ids,
+                payload.get("resolved_fields"),
+                payload.get("unmatched_fields"),
+            )
+    except Exception:
+        pass
     return payload, debug_info
 
 
@@ -17684,11 +17712,26 @@ def dashboard_global_esg(
     debug: int = Query(0, description="Activer la sortie debug"),
     db: Session = Depends(get_db),
 ):
+    t_start = perf_counter()
     sel_fields: list[str] = []
     if fields:
         sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
+
+    cache_key = (
+        alloc or "",
+        alloc_isin or "",
+        as_of or "",
+        alloc_date or "",
+        tuple(sorted(sel_fields)),
+    )
+    now_ts = perf_counter()
+    if not debug:
+        cached = ESG_GLOBAL_CACHE.get(cache_key)
+        if cached and (now_ts - cached.get("ts", 0)) < 300:
+            logger.info("ESG global cache hit alloc=%s fields=%s (age=%.2fs)", alloc, sel_fields, now_ts - cached.get("ts", 0))
+            return cached["payload"]
 
     # Simplification demandée: calcul Top-10 par valorisation globale et agrégation pondérée des champs
     # On utilise MAX(date) sur mariadb_historique_support_w, prend les 10 plus gros fonds,
@@ -17842,6 +17885,12 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
                 "portfolio_raw": port_map,
                 "index_raw": idx_map,
             }
+        if not debug:
+            ESG_GLOBAL_CACHE[cache_key] = {"ts": now_ts, "payload": payload_top}
+        logger.info(
+            "ESG global computed (fast path) alloc=%s fields=%s alloc_date=%s duration=%.3fs",
+            alloc, sel_fields, alloc_date_val, perf_counter() - t_start,
+        )
         return payload_top
     except Exception:
         # En cas d'erreur, on retombe sur le comportement précédent (plus bas)
