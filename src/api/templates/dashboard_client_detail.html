@@ -1257,24 +1257,108 @@ function generateClientSynthese(){
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-column"></i> Comparaison placements clients / Offre financière</h3>
       <span class="chevron">▾</span>
     </div>
-    <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-      <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
-        <div>
-          <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
-          <select id="allocSelectClient"></select>
-        </div>
-        <div>
-          <label class="muted" style="font-size:0.85rem;">Période</label><br>
-          <button class="rangeBtn" data-range="all">Tout</button>
-          <button class="rangeBtn" data-range="365">1 an</button>
+      <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
+        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
+          <div>
+            <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
+            <select id="allocSelectClient"></select>
+            <div style="margin-top:6px;">
+              <button id="allocResetBtnClient" type="button" class="dim-btn" title="Revenir à l'allocation par défaut">Réinitialiser</button>
+            </div>
+          </div>
+          <div>
+            <label class="muted" style="font-size:0.85rem;">Période</label><br>
+            <button class="rangeBtn" data-range="all">Tout</button>
+            <button class="rangeBtn" data-range="365">1 an</button>
           <button class="rangeBtn" data-range="180">6 mois</button>
           <button class="rangeBtn" data-range="90">3 mois</button>
           <button class="rangeBtn" data-range="30">1 mois</button>
         </div>
       </div>
-      <canvas id="clientAllocChart" height="120"></canvas>
-    </div>
+    <canvas id="clientAllocChart" height="120"></canvas>
   </div>
+</div>
+
+  <div class="card" style="margin-bottom:10px;">
+    <div class="accordion-toggle" data-target="simuAllocPanel" style="margin:0; justify-content:flex-start;">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-flask"></i> Simulation financière</h3>
+      <span class="chevron">▾</span>
+    </div>
+  <div id="simuAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 10px 0;">
+    <div class="muted" style="margin:4px 0 8px 0; font-size:12px;">Répartition client basée sur les encours agrégés par allocation (SRRI → allocation), éditable pour la simulation.</div>
+    <div class="table-responsive">
+      <table id="simuAllocTable" class="table table-sm" style="width:100%; font-size:13px;">
+        <thead>
+          <tr>
+            <th>Allocation</th>
+            <th style="text-align:right;">Perf 52s</th>
+            <th style="text-align:right;">Volat.</th>
+            <th style="text-align:center;">SRRI</th>
+            <th style="text-align:right; white-space:nowrap; width:1%;">Répartition contrats</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in allocation_simulation_rows or [] %}
+          <tr data-alloc="{{ row.nom }}">
+            <td>{{ row.nom }}</td>
+            <td style="text-align:right;">{% if row.perf_52 is not none %}{{ '%.2f'|format(row.perf_52 if row.perf_52|abs > 1 else row.perf_52*100) }} %{% else %}—{% endif %}</td>
+            <td style="text-align:right;">{% if row.volat is not none %}{{ '%.2f'|format(row.volat if row.volat|abs > 1 else row.volat*100) }} %{% else %}—{% endif %}</td>
+            <td style="text-align:center;"> 
+              {% set _srri = None %}
+              {% if row.volat is not none %}
+                {% set _v = row.volat %}
+                {% if _v|abs <= 1 %}
+                  {% set _v = _v * 100 %}
+                {% endif %}
+                {% if _v <= 0.5 %}
+                  {% set _srri = 1 %}
+                {% elif _v <= 2 %}
+                  {% set _srri = 2 %}
+                {% elif _v <= 5 %}
+                  {% set _srri = 3 %}
+                {% elif _v <= 10 %}
+                  {% set _srri = 4 %}
+                {% elif _v <= 15 %}
+                  {% set _srri = 5 %}
+                {% elif _v <= 25 %}
+                  {% set _srri = 6 %}
+                {% else %}
+                  {% set _srri = 7 %}
+                {% endif %}
+              {% endif %}
+              {{ _srri if _srri is not none else '—' }}
+            </td>
+            <td style="text-align:right; white-space:nowrap; width:1%;">
+              <input type="text"
+                     class="simu-weight"
+                     inputmode="decimal"
+                     pattern="^[0-9]+([\\.,][0-9]{0,2})?$"
+                     value="{{ '%.2f'|format(row.poids_pct or 0) }}"
+                     style="width:7ch; box-sizing:border-box; text-align:right;" />
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:6px;">
+      <button id="simuAllocResetBtn" type="button" class="dim-btn" title="Remettre les répartitions calculées">Réinitialiser</button>
+      <div class="muted" id="simuAllocSum" style="font-size:12px; text-align:right;"></div>
+    </div>
+    <div id="simuAllocSqlWrap" class="muted" style="margin-top:10px; font-size:12px; display:none;">
+      Requête SQL (littérale) :
+      <pre id="simuAllocSql" style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:12px; white-space:pre-wrap; margin-top:4px;">(chargement…)</pre>
+    </div>
+    <div id="simuAllocSrriChartWrap" style="margin-top:12px;">
+      <canvas id="simuAllocSrriChart" height="110"></canvas>
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px; display:flex; align-items:center; gap:8px; display:none;">
+      <span>Données (JSON) utilisées pour le graphique :</span>
+      <button id="simuAllocExportCsv" type="button" class="dim-btn" style="padding:4px 8px; font-size:12px;">Exporter CSV</button>
+    </div>
+    <pre id="simuAllocDataJson" style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:12px; white-space:pre-wrap; margin-top:4px; display:none;">[]</pre>
+  </div>
+</div>
 
   <div class="card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="graphPiePanel" style="margin:0; justify-content:flex-start;">
@@ -1560,6 +1644,19 @@ function openClientMsgs(kind){
         panel.style.display = isOpen ? 'none' : '';
         t.classList.toggle('collapsed', isOpen);
       });
+    });
+  })();
+
+  // Toggle consolidation panel
+  (function(){
+    const tg = document.getElementById('simuConsToggle');
+    const panel = document.getElementById('simuConsPanel');
+    if (!tg || !panel) return;
+    tg.addEventListener('click', function(){
+      const isHidden = panel.style.display === 'none' || panel.style.display === '';
+      panel.style.display = isHidden ? 'block' : 'none';
+      const chev = tg.querySelector('.chevron');
+      if (chev) chev.textContent = isHidden ? '▾' : '▸';
     });
   })();
 </script>
@@ -2023,6 +2120,23 @@ function openClientMsgs(kind){
       opt.dataset.missing = '1';
       sel.appendChild(opt);
     }
+    function resetAllocToDefault(){
+      if (!sel) return;
+      let target = null;
+      if (defaultAlloc){
+        target = Array.from(sel.options).find(o => (o.value||'').toLowerCase() === defaultAlloc.toLowerCase());
+      }
+      if (target){
+        sel.value = target.value;
+      } else if (sel.options.length){
+        sel.selectedIndex = 0;
+      }
+      drawAlloc(sel.value ? [sel.value] : []);
+    }
+    const resetBtn = document.getElementById('allocResetBtnClient');
+    if (resetBtn){
+      resetBtn.addEventListener('click', resetAllocToDefault);
+    }
     function toMap(arr){ const m = new Map(); (arr||[]).forEach(p=>{ if(p&&p.date!=null){ m.set(String(p.date).slice(0,10), parseFloat(p.sicav)); } }); return m; }
     const clientMap = toMap(clientSicav);
     // Intersect dates across selected allocations and client
@@ -2180,6 +2294,439 @@ function openClientMsgs(kind){
       if (!sel.value && sel.options.length){ sel.selectedIndex = 0; }
       if (sel.value){ drawAlloc([sel.value]); }
     })();
+  })();
+
+  // Simulation financière: somme des répartitions
+  (function(){
+    const table = document.getElementById('simuAllocTable');
+    const sumEl = document.getElementById('simuAllocSum');
+    const resetBtn = document.getElementById('simuAllocResetBtn');
+    const sqlEl = document.getElementById('simuAllocSql');
+    const srriChartCtx = document.getElementById('simuAllocSrriChart')?.getContext('2d');
+    const dataJsonEl = document.getElementById('simuAllocDataJson');
+    const exportBtn = document.getElementById('simuAllocExportCsv');
+    let srriChart = null;
+    const allocSeriesData = {{ alloc_series | tojson }};
+    if (!table || !sumEl) return;
+    function defaultValue(inp){
+      const tr = inp.closest('tr');
+      const alloc = tr ? (tr.getAttribute('data-alloc')||'') : '';
+      const init = {{ allocation_simulation_rows|tojson }};
+      const found = (init||[]).find(r => (r.nom||'').toLowerCase() === alloc.toLowerCase());
+      return found ? (parseFloat(found.poids_pct)||0) : 0;
+    }
+    function parseWeight(inp){
+      if (!inp) return NaN;
+      const raw = (inp.value||'').replace(',', '.');
+      const num = parseFloat(raw);
+      return isFinite(num) ? num : NaN;
+    }
+    function normalizeName(n){ return (n||'').trim().toLowerCase(); }
+    function findSeriesName(name){
+      const target = normalizeName(name);
+      if (!target) return null;
+      const keys = Object.keys(allocSeriesData||{});
+      return keys.find(k => normalizeName(k) === target) || null;
+    }
+    function parseSeriesMap(){
+      const cache = {};
+      return function(name){
+        const key = findSeriesName(name);
+        if (!key) return new Map();
+        if (cache[key]) return cache[key];
+        const arr = allocSeriesData && allocSeriesData[key] ? allocSeriesData[key] : [];
+        const m = new Map();
+        (arr||[]).forEach(p=>{
+          if (!p) return;
+          const d = (p.date || '').slice(0,10);
+          const v = parseFloat(p.sicav);
+          if (!d || !isFinite(v)) return;
+          m.set(d, v);
+        });
+        cache[key] = m;
+        return m;
+      };
+    }
+    const getSeriesMap = parseSeriesMap();
+    function formatPct(v){
+      if (!isFinite(v)) return '—';
+      return v.toFixed(2).replace('.', ',') + ' %';
+    }
+    function formatNum(v){
+      if (!isFinite(v)) return '—';
+      try{
+        return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+      }catch(_e){
+        return v.toFixed(2).replace('.', ',');
+      }
+    }
+    function srriFromVol(vol){
+      if (!isFinite(vol)) return null;
+      if (vol <= 0.5) return 1;
+      if (vol <= 2) return 2;
+      if (vol <= 5) return 3;
+      if (vol <= 10) return 4;
+      if (vol <= 15) return 5;
+      if (vol <= 25) return 6;
+      return 7;
+    }
+    function sampleStd(values){
+      if (!values || values.length < 2) return null;
+      const n = values.length;
+      const mean = values.reduce((s,v)=>s+v,0)/n;
+      const variance = values.reduce((s,v)=>s + Math.pow(v-mean,2),0)/(n-1);
+      const res = Math.sqrt(variance);
+      return isFinite(res) ? res : null;
+    }
+    function allAllocNames(){
+      const names = [];
+      table.querySelectorAll('tbody tr').forEach(tr=>{
+        const nm = (tr.getAttribute('data-alloc')||'').trim() || (tr.cells[0]?.textContent||'').trim();
+        if (nm){ names.push(nm); }
+      });
+      return names;
+    }
+    function selectedAllocNames(){
+      const names = [];
+      table.querySelectorAll('tbody tr').forEach(tr=>{
+        const inp = tr.querySelector('input.simu-weight');
+        const val = parseWeight(inp);
+        if (!isFinite(val) || val <= 0) return;
+        const nm = (tr.getAttribute('data-alloc')||'').trim() || (tr.cells[0]?.textContent||'').trim();
+        if (nm){ names.push(nm); }
+      });
+      return names;
+    }
+    function allocWeights(){
+      const res = [];
+      table.querySelectorAll('tbody tr').forEach(tr=>{
+        const nm = (tr.getAttribute('data-alloc')||'').trim() || (tr.cells[0]?.textContent||'').trim();
+        const w = parseWeight(tr.querySelector('input.simu-weight'));
+        if (!nm) return;
+        res.push({ name: nm, weight: isFinite(w) ? w : 0 });
+      });
+      return res;
+    }
+    function intersectDates(names){
+      let allowed = null;
+      names.forEach(n=>{
+        const label = (typeof n === 'string') ? n : (n.display || n.key || '');
+        const m = getSeriesMap(label);
+        const dates = Array.from(m.keys());
+        if (allowed === null){
+          allowed = new Set(dates);
+        } else {
+          const inter = new Set();
+          allowed.forEach(d=>{ if (m.has(d)) inter.add(d); });
+          allowed = inter;
+        }
+      });
+      return allowed ? Array.from(allowed).sort() : [];
+    }
+    function computeResults(){
+      const weights = allocWeights();
+      const sel = selectedAllocNames();
+      const baseNames = sel.length ? sel : allAllocNames();
+      if (!baseNames.length) return [];
+      const weightMap = new Map(weights.map(w => [w.name.toLowerCase(), w.weight]));
+      const names = baseNames
+        .map(n => ({ display: n, key: findSeriesName(n), norm: normalizeName(n) }))
+        .filter(n => n.key);
+      if (!names.length) return [];
+      let dates = intersectDates(names);
+      if (!dates.length) return [];
+      // Prendre les 160 dernières dates communes (comme la requête), puis re-trier ascendant
+      dates = dates.slice(-160);
+      const rows = [];
+      const weightLookup = {};
+      names.forEach(n => { weightLookup[n.key] = weightMap.has(n.norm) ? weightMap.get(n.norm) : 0; });
+      dates.forEach(d=>{
+        let valo = 0;
+        for (const n of names){
+          const v = getSeriesMap(n.display).get(d);
+          if (!isFinite(v)) { valo = null; break; }
+          const w = weightLookup[n.key] || 0;
+          valo += v * (w/100);
+        }
+        if (valo === null || !isFinite(valo)) return;
+        rows.push({ date: d, valo });
+      });
+      // Perf hebdo
+      for (let i=0; i<rows.length; i++){
+        const prev = rows[i-1] ? rows[i-1].valo : null;
+        if (prev === null || prev === undefined || !isFinite(prev) || prev === 0){
+          rows[i].perf = null;
+        } else {
+          rows[i].perf = ((rows[i].valo / prev) - 1) * 100;
+        }
+      }
+      // Vol glissante 52s (nécessite 52 perfs non null/finies)
+      for (let i=0; i<rows.length; i++){
+        const start = Math.max(0, i - 51);
+        const slice = rows.slice(start, i+1).map(r => r.perf).filter(v => isFinite(v));
+        if (slice.length < 52){
+          rows[i].vol = null;
+        } else {
+          const std = sampleStd(slice);
+          rows[i].vol = isFinite(std) ? std * Math.sqrt(52) : null; // annualisée
+        }
+        rows[i].srri = srriFromVol(rows[i].vol);
+      }
+      return rows;
+    }
+    function buildSqlLiteral(){
+      const weights = allocWeights();
+      const sel = selectedAllocNames();
+      const baseNames = sel.length ? sel : allAllocNames();
+      if (!baseNames.length){
+        return '-- aucune allocation sélectionnée';
+      }
+      const weightMap = new Map(weights.map(w => [normalizeName(w.name), w.weight]));
+      const base = baseNames.map(n => {
+        const w = weightMap.has(normalizeName(n)) ? weightMap.get(normalizeName(n)) : 0;
+        return { name: n, weight: w };
+      });
+      const quoted = base.map(n => "'" + String(n.name).replace(/'/g, "''") + "'").join(', ');
+      const count = base.length;
+      const weightCases = base.map(n => {
+        const frac = isFinite(n.weight) ? (n.weight / 100) : 0;
+        return `WHEN a.nom = '${String(n.name).replace(/'/g, "''")}' THEN ${frac.toFixed(8)}`;
+      }).join("\n         ");
+      return [
+        "WITH dates AS (",
+        "  SELECT DATE(date) AS d",
+        "  FROM allocations",
+        "  WHERE nom IN (" + quoted + ")",
+        "  GROUP BY d",
+        "  HAVING COUNT(DISTINCT nom) = " + count,
+        "  ORDER BY d DESC",
+        "  LIMIT 160",
+        "),",
+        "data AS (",
+        "  SELECT DATE(a.date) AS d, a.nom, COALESCE(a.sicav, 0) AS vl",
+        "  FROM allocations a",
+        "  WHERE a.nom IN (" + quoted + ")",
+        "),",
+        "agg AS (",
+        "  SELECT d,",
+        "         SUM(vl * CASE",
+        "         " + weightCases,
+        "         ELSE 0 END) AS valo_ponderee",
+        "  FROM data a",
+        "  WHERE d IN (SELECT d FROM dates)",
+        "  GROUP BY d",
+        "),",
+        "perf AS (",
+        "  SELECT",
+        "    d,",
+        "    valo_ponderee,",
+        "    CASE",
+        "      WHEN LAG(valo_ponderee) OVER (ORDER BY d) IS NULL THEN NULL",
+        "      WHEN LAG(valo_ponderee) OVER (ORDER BY d) = 0 THEN NULL",
+        "      ELSE ((valo_ponderee / LAG(valo_ponderee) OVER (ORDER BY d)) - 1) * 100",
+        "    END AS perf_hebdo_pct",
+        "  FROM agg",
+        "),",
+        "final AS (",
+        "  SELECT",
+        "    d,",
+        "    valo_ponderee,",
+        "    perf_hebdo_pct,",
+        "    CASE",
+        "      WHEN COUNT(perf_hebdo_pct) OVER (ORDER BY d ROWS BETWEEN 51 PRECEDING AND CURRENT ROW) < 52 THEN NULL",
+        "      ELSE STDDEV_SAMP(perf_hebdo_pct) OVER (ORDER BY d ROWS BETWEEN 51 PRECEDING AND CURRENT ROW) * SQRT(52)",
+        "    END AS vol_52s_pct",
+        "  FROM perf",
+        ")",
+        "SELECT",
+        "  d,",
+        "  valo_ponderee,",
+        "  perf_hebdo_pct,",
+        "  vol_52s_pct,",
+        "  CASE",
+        "    WHEN vol_52s_pct IS NULL THEN NULL",
+        "    WHEN vol_52s_pct <= 0.5 THEN 1",
+        "    WHEN vol_52s_pct <= 2 THEN 2",
+        "    WHEN vol_52s_pct <= 5 THEN 3",
+        "    WHEN vol_52s_pct <= 10 THEN 4",
+        "    WHEN vol_52s_pct <= 15 THEN 5",
+        "    WHEN vol_52s_pct <= 25 THEN 6",
+        "    ELSE 7",
+        "  END AS srri_niveau",
+        "FROM final",
+        "ORDER BY d;"
+      ].join("\n");
+    }
+    function toCsv(rows){
+      if (!rows || !rows.length) return '';
+      const headers = ['date','valo','perf','vol','srri'];
+      const lines = [headers.join(';')];
+      rows.forEach(r=>{
+        lines.push([r.date || '', r.valo ?? '', r.perf ?? '', r.vol ?? '', r.srri ?? ''].join(';'));
+      });
+      return lines.join('\n');
+    }
+    function renderResults(){
+      const rows = computeResults();
+      const firstIdx = rows.findIndex(r => isFinite(r.srri) && r.srri !== 1);
+      const plotRows = firstIdx > 0 ? rows.slice(firstIdx) : rows;
+      if (dataJsonEl){ dataJsonEl.textContent = JSON.stringify(rows, null, 2); }
+      if (exportBtn){
+        exportBtn.onclick = function(){
+          const csv = toCsv(rows);
+          const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'simulation_srris.csv';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(a); }, 100);
+        };
+      }
+      if (srriChartCtx){
+        if (srriChart){ srriChart.destroy(); srriChart = null; }
+        if (plotRows.length){
+          const srriBandPlugin = {
+            id: 'srriBand',
+            beforeDatasetsDraw(chart){
+              const ds = chart.data.datasets[0];
+              if (!ds) return;
+              const meta = chart.getDatasetMeta(0);
+              const pts = meta?.data || [];
+              const yScale = chart.scales?.y;
+              const area = chart.chartArea;
+              if (!yScale || !area) return;
+              const ctx = chart.ctx;
+              ctx.save();
+              const fillColor = 'rgba(36,86,166,0.08)';
+              for (let i=0; i<pts.length; i++){
+                const p = pts[i];
+                if (!p) continue;
+                const raw = ds.data[i];
+                const srri = parseFloat(raw);
+                if (!isFinite(srri)) continue;
+                const yTop = yScale.getPixelForValue(srri - 1);
+                const yBottom = yScale.getPixelForValue(srri);
+                const y1 = Math.min(yTop, yBottom);
+                const y2 = Math.max(yTop, yBottom);
+                const x1 = p.x;
+                const x2 = (pts[i+1]?.x ?? area.right);
+                ctx.fillStyle = fillColor;
+                ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+              }
+              ctx.restore();
+            }
+          };
+          const srriLabelPlugin = {
+            id: 'srriLabel',
+            afterDraw(chart){
+              const yScale = chart.scales?.y;
+              const area = chart.chartArea;
+              if (!yScale || !area) return;
+              const ctx = chart.ctx;
+              ctx.save();
+              ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text') || '#111827';
+              ctx.font = '12px sans-serif';
+              ctx.textAlign = 'right';
+              ctx.textBaseline = 'middle';
+              for (let v = 1; v <= 7; v++){
+                const yPos = yScale.getPixelForValue(v - 0.5);
+                if (yPos < area.top || yPos > area.bottom) continue;
+                ctx.fillText(String(v), area.left - 8, yPos);
+              }
+              ctx.restore();
+            }
+          };
+          srriChart = new Chart(srriChartCtx, {
+            type: 'line',
+            plugins: [srriBandPlugin, srriLabelPlugin],
+            data: {
+              labels: plotRows.map(r => r.date),
+              datasets: [
+                {
+                  label: 'SRRI',
+                  data: plotRows.map(r => r.srri),
+                  borderColor: 'transparent',
+                  backgroundColor: 'transparent',
+                  fill: false,
+                  tension: 0,
+                  pointRadius: 0,
+                  stepped: true,
+                  yAxisID: 'y'
+                },
+                {
+                  label: 'Perf hebdo (%)',
+                  data: plotRows.map(r => isFinite(r.perf) ? +r.perf.toFixed(2) : null),
+                  borderColor: '#10b981',
+                  backgroundColor: 'rgba(16,185,129,0.15)',
+                  fill: false,
+                  tension: 0.2,
+                  pointRadius: 0,
+                  spanGaps: true,
+                  yAxisID: 'y1'
+                }
+              ]
+            },
+            options:{
+              responsive:true,
+              layout:{ padding:{ left:28 } },
+              scales:{
+                y:{
+                  min: 0,
+                  max: 7.5,
+                  ticks:{
+                    stepSize:1,
+                    display:false
+                  },
+                  grid:{},
+                  title:{ display:true, text:'SRRI' }
+                },
+                y1:{
+                  position:'right',
+                  grid:{ drawOnChartArea:false },
+                  ticks:{
+                    color:'#10b981',
+                    callback:(v)=> (v?.toFixed ? v.toFixed(1) : v) + ''
+                  },
+                  title:{ display:true, text:'Perf hebdo (%)', color:'#10b981' },
+                  border:{ color:'#10b981' }
+                },
+                x:{ ticks:{ maxRotation:0, minRotation:0, autoSkip:true, maxTicksLimit:6 } }
+              },
+              plugins:{ legend:{ display:false } }
+            }
+          });
+        }
+      }
+    }
+    function updateSum(){
+      let total = 0;
+      table.querySelectorAll('input.simu-weight').forEach(inp=>{
+        const v = parseWeight(inp);
+        if (isFinite(v)) total += v;
+      });
+      sumEl.textContent = 'Somme des répartitions : ' + formatPct(total);
+      sumEl.style.color = Math.abs(total - 100) < 0.01 ? 'var(--text-muted)' : '#dc2626';
+      if (sqlEl){ sqlEl.textContent = buildSqlLiteral(); }
+      renderResults();
+    }
+    // Afficher dès le chargement
+    table.addEventListener('input', function(e){
+      const inp = e.target.closest('input.simu-weight');
+      if (!inp) return;
+      updateSum();
+    });
+    if (resetBtn){
+      resetBtn.addEventListener('click', function(){
+        table.querySelectorAll('input.simu-weight').forEach(inp=>{
+          const defVal = defaultValue(inp);
+          inp.value = defVal.toFixed(2);
+        });
+        updateSum();
+      });
+    }
+    updateSum();
   })();
 
   // --- ESG (client consolidé) Plotly horizontal bar: indice=100 vs client ---
