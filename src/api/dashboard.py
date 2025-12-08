@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 from pydantic import BaseModel
+from sqlalchemy.exc import OperationalError
 
 
 from src.database import get_db
@@ -2349,8 +2350,9 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             HistoriquePersonne.perf_sicav_52,
             HistoriquePersonne.volat,
             HistoriquePersonne.annee,
+            HistoriquePersonne.SRRI,
         )
-        .filter(HistoriquePersonne.id == client_id)
+        .filter(HistoriquePersonne.id_personne == client_id)
         .order_by(HistoriquePersonne.date)
         .all()
     )
@@ -12055,6 +12057,19 @@ async def dashboard_client_kyc(
                     offre_personnelle_id = int(offre_personnelle) if offre_personnelle else None
                 except Exception:
                     offre_personnelle_id = None
+                logger.info(
+                    "risque_save submit client=%s conso=%s perte=%s patr=%s disp=%s dur=%s obj=%s rev_ct=%s accept_calc=%s offre_pers=%s",
+                    client_id,
+                    conso,
+                    perte_id,
+                    patr_id,
+                    disp_id,
+                    duree_id,
+                    obj_ids,
+                    revenus_ct_accept,
+                    accept_offre_calculee,
+                    offre_personnelle_id,
+                )
 
                 # Compute base offer
                 def clamp(n, lo, hi):
@@ -12185,6 +12200,16 @@ async def dashboard_client_kyc(
                 # SRRI mappé sur l'offre finale
                 srri_map = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
                 srri_val = srri_map.get(int(params_main["offre_finale_niveau_id"]), None)
+                logger.info(
+                    "risque_save computed client=%s offre_calc=%s final_offer=%s srri=%s rev_ct_accept=%s accept_calc=%s pers=%s",
+                    client_id,
+                    offre_calc,
+                    final_offer,
+                    srri_val,
+                    revenus_ct_accept,
+                    accept_offre_calculee,
+                    offre_personnelle_id,
+                )
                 # Insertion systématique d'un nouveau questionnaire
                 db.execute(
                     _text(
@@ -12217,7 +12242,7 @@ async def dashboard_client_kyc(
                     )
                 for oid in obj_ids:
                     db.execute(
-                        _text("INSERT OR IGNORE INTO risque_questionnaire_objectif (questionnaire_id, option_id) VALUES (:q,:o)"),
+                        _text("INSERT IGNORE INTO risque_questionnaire_objectif (questionnaire_id, option_id) VALUES (:q,:o)"),
                         {"q": rqid, "o": int(oid)},
                     )
                 # Upsert risque_decision_client
@@ -12335,6 +12360,8 @@ async def dashboard_client_kyc(
 
                     payload = {
                         "cid": client_id,
+                        "date_saisie": now,
+                        "date_expiration": obso,
                         "niv": niveau_id,
                         "exp": exp_txt,
                         "connaissance": connaissance_txt,
@@ -12357,31 +12384,37 @@ async def dashboard_client_kyc(
                                     duree = :duree,
                                     contraintes = :contraintes,
                                     confirmation_client = :confirmation,
-                                    commentaire = :commentaire
+                                    commentaire = :commentaire,
+                                    date_saisie = :date_saisie,
+                                    date_expiration = :date_expiration
                                 WHERE id = :id
                                 """
                             ),
                             payload | {"id": int(row_kr[0])},
                         )
                         risque_id = int(row_kr[0])
+                        logger.info("KYC_Client_Risque update client=%s risque_id=%s payload=%s", client_id, risque_id, payload)
                     else:
                         db.execute(
                             _text(
                                 """
                                 INSERT INTO KYC_Client_Risque (
-                                    client_id, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire
+                                    client_id, date_saisie, date_expiration, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire
                                 ) VALUES (
-                                    :cid, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire
+                                    :cid, :date_saisie, :date_expiration, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire
                                 )
                                 """
                             ),
                             payload,
                         )
                         try:
-                            last_id = _last_insert_id(db)
+                            row_last = db.execute(_text("SELECT LAST_INSERT_ID()")).fetchone()
+                            last_id = row_last[0] if row_last else None
                             risque_id = int(last_id) if last_id is not None else None
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("KYC_Client_Risque insert: unable to fetch LAST_INSERT_ID for client=%s: %s", client_id, exc, exc_info=True)
                             risque_id = None
+                        logger.info("KYC_Client_Risque insert client=%s risque_id=%s payload=%s", client_id, risque_id, payload)
                     # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
                     try:
                         # Créer la table si absente
@@ -12590,13 +12623,21 @@ async def dashboard_client_kyc(
                     except Exception:
                         pass
                 except Exception as exc:
-                    logger.debug("KYC_Client_Risque upsert error: %s", exc, exc_info=True)
+                    logger.warning("KYC_Client_Risque upsert error for client=%s: %s", client_id, exc, exc_info=True)
                 db.commit()
+                try:
+                    row_dbg = db.execute(
+                        _text("SELECT id, date_saisie, niveau_id, confirmation_client FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY id DESC LIMIT 3"),
+                        {"cid": client_id},
+                    ).fetchall()
+                    logger.info("KYC_Client_Risque debug rows client=%s -> %s", client_id, [tuple(r) for r in row_dbg])
+                except Exception as exc:
+                    logger.warning("KYC_Client_Risque debug fetch error client=%s: %s", client_id, exc, exc_info=True)
                 # set to show panel
                 active_section = "knowledge"
             except Exception as exc:
                 db.rollback()
-                logger.debug("Dashboard KYC client: erreur risque_save: %s", exc, exc_info=True)
+                logger.warning("Dashboard KYC client: erreur risque_save client=%s: %s", client_id, exc, exc_info=True)
 
         elif action == "lcbft_save":
             from sqlalchemy import text as _text
@@ -13548,7 +13589,15 @@ async def dashboard_client_kyc(
     risque_objectifs_ids: list[int] = []
     try:
         row = db.execute(
-            text("SELECT * FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+            text(
+                """
+                SELECT *
+                FROM risque_questionnaire
+                WHERE client_ref = :r
+                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                LIMIT 1
+                """
+            ),
             {"r": str(client_id)},
         ).fetchone()
         if row:
@@ -14631,19 +14680,8 @@ async def dashboard_client_kyc(
         fatca_saved = None
     # Pays de résidence fiscale: priorité à l'adresse KYC principale, sinon dernière adresse,
     # sinon tentatives depuis mariadb_clients (colonnes variables selon environnement).
-    try:
-        primary_addr = None
-        if 'adresses' in locals() and adresses:
-            for a in adresses:
-                if a.get('is_primary'):
-                    primary_addr = a
-                    break
-            if not primary_addr:
-                primary_addr = adresses[0]
-        if primary_addr:
-            fatca_client_country = primary_addr.get('pays') or ''
-    except Exception:
-        pass
+    contact_address_str = None
+    contact_addresses_list: list[str] = []
     try:
         crow = db.execute(text("SELECT * FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
         if crow:
@@ -15066,6 +15104,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             Client.commercial_id,
             Client.SRRI,
             HistoriquePersonne.SRRI.label("srri_hist"),
+            subquery.c.last_date.label("srri_hist_date"),
             HistoriquePersonne.valo.label("total_valo"),
             HistoriquePersonne.perf_sicav_52.label("perf_52_sem"),
             HistoriquePersonne.volat.label("volatilite"),
@@ -15144,6 +15183,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "prenom": getattr(r, "prenom", None) or "",
             "SRRI": getattr(r, "SRRI", None),
             "srri_hist": getattr(r, "srri_hist", None),
+            "srri_hist_date": getattr(r, "srri_hist_date", None),
             "srri_icon": icon_for_compare(getattr(r, "SRRI", None), getattr(r, "srri_hist", None)),
             "total_valo": total_valo_num,
             "perf_52_sem": perf_num,
@@ -16359,6 +16399,235 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     )
 
 # ---------------- Superadministration ----------------
+_DEFAULT_LOG_TYPES = [
+    ("srri_clients", "Calculs de niveaux de risques clients"),
+    ("srri_affaires", "Calculs de niveaux de risques affaires"),
+]
+
+
+def _ensure_log_tables(db: Session) -> None:
+    """Crée les tables de log si elles n'existent pas (best-effort)."""
+    try:
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS log_type (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  code VARCHAR(100) NOT NULL UNIQUE,
+                  label VARCHAR(255) NOT NULL,
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS log_suivi (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                  log_type_id INT NOT NULL,
+                  started_at DATETIME NOT NULL,
+                  ended_at DATETIME NULL,
+                  status VARCHAR(32) NOT NULL DEFAULT 'running',
+                  message TEXT NULL,
+                  user_id INT NULL,
+                  ip_address VARCHAR(64) NULL,
+                  duration_seconds DECIMAL(12, 2) NULL,
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_log_type_started (log_type_id, started_at DESC),
+                  CONSTRAINT fk_log_suivi_type FOREIGN KEY (log_type_id) REFERENCES log_type(id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to ensure log tables exist")
+        raise
+
+
+def _upsert_log_type(db: Session, code: str, label: str) -> int | None:
+    """Retourne l'ID du log_type (création si besoin)."""
+    try:
+        row = db.execute(text("SELECT id FROM log_type WHERE code = :c LIMIT 1"), {"c": code}).fetchone()
+        if row:
+            return row._mapping.get("id") if hasattr(row, "_mapping") else row[0]
+        res = db.execute(
+            text(
+                """
+                INSERT INTO log_type (code, label)
+                VALUES (:c, :l)
+                ON DUPLICATE KEY UPDATE label = VALUES(label)
+                """
+            ),
+            {"c": code, "l": label},
+        )
+        db.commit()
+        if hasattr(res, "lastrowid") and res.lastrowid:
+            return int(res.lastrowid)
+        try:
+            return int(res.inserted_primary_key[0])
+        except Exception:
+            return None
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to upsert log_type %s", code)
+        return None
+
+
+def _ensure_default_log_types(db: Session) -> list[dict]:
+    """Garantit la présence des typologies par défaut et les retourne."""
+    _ensure_log_tables(db)
+    for code, label in _DEFAULT_LOG_TYPES:
+        _upsert_log_type(db, code, label)
+    try:
+        rows = db.execute(text("SELECT id, code, label FROM log_type ORDER BY label")).fetchall()
+        return [dict(r._mapping) if hasattr(r, "_mapping") else dict(r) for r in rows]
+    except Exception:
+        logger.exception("Unable to load log types")
+        return []
+
+
+def _start_log_entry(db: Session, log_code: str, log_label: str, user_id: int | None, ip: str | None) -> int | None:
+    """Insère une entrée de suivi en base et retourne son id (best-effort)."""
+    try:
+        _ensure_log_tables(db)
+        log_type_id = _upsert_log_type(db, log_code, log_label)
+        if log_type_id is None:
+            return None
+        res = db.execute(
+            text(
+                """
+                INSERT INTO log_suivi (log_type_id, started_at, status, user_id, ip_address)
+                VALUES (:ltid, NOW(), 'running', :uid, :ip)
+                """
+            ),
+            {"ltid": log_type_id, "uid": user_id, "ip": ip},
+        )
+        db.commit()
+        if hasattr(res, "lastrowid") and res.lastrowid:
+            return int(res.lastrowid)
+        try:
+            return int(res.inserted_primary_key[0])
+        except Exception:
+            return None
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to start log entry for %s", log_code)
+        return None
+
+
+def _finish_log_entry(
+    db: Session,
+    log_id: int | None,
+    status: str,
+    message: str | None,
+    duration_seconds: float | None,
+) -> None:
+    """Met à jour la fin d'un log (best-effort)."""
+    if log_id is None:
+        return
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE log_suivi
+                SET
+                  status = :st,
+                  message = :msg,
+                  ended_at = COALESCE(ended_at, NOW()),
+                  duration_seconds = :dur
+                WHERE id = :lid
+                """
+            ),
+            {
+                "st": status,
+                "msg": message[:2000] if message else None,
+                "dur": round(duration_seconds, 2) if duration_seconds is not None else None,
+                "lid": log_id,
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to finish log entry %s", log_id)
+
+
+def _fetch_logs(
+    db: Session,
+    log_type_id: int | None,
+    status: str | None,
+    search_term: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int]:
+    """Charge les logs pour l'affichage superadmin."""
+    where_clauses = []
+    params: dict[str, object] = {}
+    if log_type_id is not None:
+        where_clauses.append("ls.log_type_id = :ltid")
+        params["ltid"] = log_type_id
+    if status:
+        where_clauses.append("ls.status = :st")
+        params["st"] = status
+    if search_term:
+        where_clauses.append("ls.message LIKE :pat")
+        params["pat"] = f"%{search_term}%"
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    try:
+        rows = db.execute(
+            text(
+                f"""
+                SELECT
+                  ls.id,
+                  ls.log_type_id,
+                  lt.label AS type_label,
+                  lt.code AS type_code,
+                  ls.started_at,
+                  ls.ended_at,
+                  ls.status,
+                  ls.message,
+                  ls.user_id,
+                  rh.nom AS user_nom,
+                  rh.prenom AS user_prenom,
+                  au.login AS user_login,
+                  ls.ip_address,
+                  ls.duration_seconds
+                FROM log_suivi ls
+                LEFT JOIN log_type lt ON lt.id = ls.log_type_id
+                LEFT JOIN auth_users au ON au.id = ls.user_id
+                LEFT JOIN administration_RH rh ON rh.id = au.rh_id
+                {where_sql}
+                ORDER BY ls.started_at DESC
+                LIMIT :lim OFFSET :off
+                """
+            ),
+            {**params, "lim": limit, "off": offset},
+        ).fetchall()
+        logs = [dict(r._mapping) if hasattr(r, "_mapping") else dict(r) for r in rows]
+        total = (
+            db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM log_suivi ls
+                    LEFT JOIN log_type lt ON lt.id = ls.log_type_id
+                    {where_sql}
+                    """
+                ),
+                params,
+            ).scalar()
+            or 0
+        )
+        return logs, int(total)
+    except Exception:
+        logger.exception("Unable to fetch logs")
+        return [], 0
+
+
 @router.get("/superadmin", response_class=HTMLResponse)
 def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     """Page de supervision globale (sociétés, utilisateurs, imports)."""
@@ -16385,6 +16654,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     per_page = 25
     user_per_page = 25
     client_per_page = 25
+    log_per_page = 60
     try:
         page = int(request.query_params.get("page") or 1)
         if page < 1:
@@ -16406,8 +16676,24 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         client_page = 1
     user_offset = (user_page - 1) * user_per_page
     client_offset = (client_page - 1) * client_per_page
+    try:
+        log_page = int(request.query_params.get("lpage") or 1)
+        if log_page < 1:
+            log_page = 1
+    except Exception:
+        log_page = 1
+    log_offset = (log_page - 1) * log_per_page
     user_search_term = request.query_params.get("uq") or None
     client_search_term = request.query_params.get("cq") or None
+    log_search_term = request.query_params.get("lq") or None
+    raw_log_type = request.query_params.get("ltype")
+    log_type_filter: int | None = None
+    if raw_log_type not in (None, ""):
+        try:
+            log_type_filter = int(raw_log_type)
+        except Exception:
+            log_type_filter = None
+    log_status_filter = request.query_params.get("lstatus") or None
     # Sélection d'un compte client pour édition/création
     selected_client_id: int | None = None
     raw_client_id = request.query_params.get("client_id")
@@ -16942,10 +17228,30 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     tmp_pwd = request.query_params.get("tmp_pwd")
     tmp_action = request.query_params.get("tmp_action")
 
+    # Logs de suivi (outils de gestion base)
+    logs_suivi: list[dict] = []
+    total_logs = 0
+    log_types: list[dict] = []
+    try:
+        log_types = _ensure_default_log_types(db)
+        logs_suivi, total_logs = _fetch_logs(
+            db,
+            log_type_id=log_type_filter,
+            status=log_status_filter,
+            search_term=log_search_term,
+            limit=log_per_page,
+            offset=log_offset,
+        )
+    except Exception:
+        logs_suivi = []
+        total_logs = 0
+        log_types = []
+
     # Pagination sociétés
     page_count = math.ceil(total_societes / per_page) if per_page else 1
     user_page_count = math.ceil(total_users / user_per_page) if user_per_page else 1
     client_page_count = math.ceil(total_client_accounts / client_per_page) if client_per_page else 1
+    log_page_count = math.ceil(total_logs / log_per_page) if log_per_page else 1
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -16981,6 +17287,15 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "client_per_page": client_per_page,
             "client_search_term": client_search_term,
             "selected_client_form": selected_client_form,
+            "logs_suivi": logs_suivi,
+            "log_types": log_types,
+            "log_page": log_page,
+            "log_page_count": log_page_count,
+            "log_per_page": log_per_page,
+            "log_search_term": log_search_term,
+            "log_type_filter": log_type_filter,
+            "log_status_filter": log_status_filter,
+            "total_logs": total_logs,
         },
     )
 
@@ -17270,6 +17585,380 @@ def dashboard_superadmin_toggle_auth(
     target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
     return RedirectResponse(url=target_url, status_code=303)
 
+
+@router.post("/superadmin/recompute-srri", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_srri(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Recalcule volat/SRRI pour tous les clients et met à jour mariadb_historique_personne_w."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="srri_clients",
+        log_label="Calculs de niveaux de risques clients",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        db.execute(text("DROP TABLE IF EXISTS tempo_hist_personne_w"))
+        db.execute(
+            text(
+                """
+                CREATE TABLE tempo_hist_personne_w (
+                  id                 INT,
+                  `date`             DATETIME,
+                  valo               DECIMAL(38,18),
+                  mouvement          DECIMAL(38,18),
+                  valorisation_suiv  DECIMAL(38,18),
+                  r                  DECIMAL(38,18),
+                  dietz              DECIMAL(38,18),
+                  perf_dietz         DECIMAL(38,18),
+                  volat_52           DECIMAL(38,18),
+                  srri               INT,
+                  rn                 INT,
+                  PRIMARY KEY (id, rn)
+                )
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO tempo_hist_personne_w (
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                )
+                WITH ordered AS (
+                  SELECT
+                    id,
+                    `date`,
+                    valo AS valorisation_suiv,
+                    mouvement,
+                    LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                    ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+                  FROM mariadb_historique_personne_w
+                ),
+                base AS (
+                  SELECT
+                    id,
+                    `date`,
+                    COALESCE(prev_valo, 0) AS valo,
+                    mouvement,
+                    valorisation_suiv,
+                    rn,
+                    CASE
+                      WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                      ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                           / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                    END AS r
+                  FROM ordered
+                ),
+                dietz_calc AS (
+                  SELECT
+                    *,
+                    1 + SUM(COALESCE(r, 0)) OVER (
+                      PARTITION BY id
+                      ORDER BY `date`
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ) AS dietz
+                  FROM base
+                ),
+                perf AS (
+                  SELECT
+                    id,
+                    `date`,
+                    valo,
+                    mouvement,
+                    valorisation_suiv,
+                    r,
+                    dietz,
+                    rn,
+                    CASE
+                      WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                      ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                           / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                    END AS perf_dietz
+                  FROM dietz_calc
+                ),
+                vola AS (
+                  SELECT
+                    *,
+                    STDDEV_SAMP(perf_dietz) OVER (
+                      PARTITION BY id
+                      ORDER BY `date`
+                      ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
+                    ) * SQRT(52) AS volat_raw
+                  FROM perf
+                )
+                SELECT
+                  id,
+                  `date`,
+                  valo,
+                  mouvement,
+                  valorisation_suiv,
+                  r,
+                  dietz,
+                  perf_dietz,
+                  CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
+                  CASE
+                    WHEN rn < 52 THEN 0
+                    WHEN volat_raw < 0.005 THEN 1
+                    WHEN volat_raw < 0.02  THEN 2
+                    WHEN volat_raw < 0.05  THEN 3
+                    WHEN volat_raw < 0.10  THEN 4
+                    WHEN volat_raw < 0.15  THEN 5
+                    WHEN volat_raw < 0.25  THEN 6
+                    ELSE 7
+                  END AS srri,
+                  rn
+                FROM vola
+                ORDER BY id, `date`
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                UPDATE mariadb_historique_personne_w AS m
+                JOIN tempo_hist_personne_w AS t
+                  ON m.id = t.id
+                 AND m.`date` = t.`date`
+                SET
+                  m.volat = t.volat_52,
+                  m.SRRI  = t.srri
+                """
+            )
+        )
+        db.commit()
+        elapsed = perf_counter() - started
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Recalcul des niveaux de risques clients terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"srri_status": "ok", "srri_dur": f"{elapsed:.2f}"})
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"srri_status": "error"})
+        logger.exception("SRRI/volat clients recompute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec recalcul risques clients: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#suivi-logs" if qs else "/dashboard/superadmin#suivi-logs"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/recompute-srri-affaires", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_srri_affaires(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Recalcule volat/SRRI pour toutes les affaires et met à jour mariadb_historique_affaire_w."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="srri_affaires",
+        log_label="Calculs de niveaux de risques affaires",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        db.execute(text("DROP TABLE IF EXISTS tempo_hist_affaire_w"))
+        db.execute(
+            text(
+                """
+                CREATE TABLE tempo_hist_affaire_w (
+                  id                 INT,
+                  `date`             DATETIME,
+                  valo               DECIMAL(38,18),
+                  mouvement          DECIMAL(38,18),
+                  valorisation_suiv  DECIMAL(38,18),
+                  r                  DECIMAL(38,18),
+                  dietz              DECIMAL(38,18),
+                  perf_dietz         DECIMAL(38,18),
+                  volat_52           DECIMAL(38,18),
+                  srri               INT,
+                  rn                 INT,
+                  PRIMARY KEY (id, rn)
+                )
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO tempo_hist_affaire_w (
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                )
+                WITH ordered AS (
+                  SELECT
+                    id,
+                    `date`,
+                    valo AS valorisation_suiv,
+                    mouvement,
+                    LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                    ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+                  FROM mariadb_historique_affaire_w
+                ),
+                base AS (
+                  SELECT
+                    id,
+                    `date`,
+                    COALESCE(prev_valo, 0) AS valo,
+                    mouvement,
+                    valorisation_suiv,
+                    rn,
+                    CASE
+                      WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                      ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                           / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                    END AS r
+                  FROM ordered
+                ),
+                dietz_calc AS (
+                  SELECT
+                    *,
+                    1 + SUM(COALESCE(r, 0)) OVER (
+                      PARTITION BY id
+                      ORDER BY `date`
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ) AS dietz
+                  FROM base
+                ),
+                perf AS (
+                  SELECT
+                    id,
+                    `date`,
+                    valo,
+                    mouvement,
+                    valorisation_suiv,
+                    r,
+                    dietz,
+                    rn,
+                    CASE
+                      WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                      ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                           / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                    END AS perf_dietz
+                  FROM dietz_calc
+                ),
+                vola AS (
+                  SELECT
+                    *,
+                    STDDEV_SAMP(perf_dietz) OVER (
+                      PARTITION BY id
+                      ORDER BY `date`
+                      ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
+                    ) * SQRT(52) AS volat_raw
+                  FROM perf
+                )
+                SELECT
+                  id,
+                  `date`,
+                  valo,
+                  mouvement,
+                  valorisation_suiv,
+                  r,
+                  dietz,
+                  perf_dietz,
+                  CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
+                  CASE
+                    WHEN rn < 52 THEN 0
+                    WHEN volat_raw < 0.005 THEN 1
+                    WHEN volat_raw < 0.02  THEN 2
+                    WHEN volat_raw < 0.05  THEN 3
+                    WHEN volat_raw < 0.10  THEN 4
+                    WHEN volat_raw < 0.15  THEN 5
+                    WHEN volat_raw < 0.25  THEN 6
+                    ELSE 7
+                  END AS srri,
+                  rn
+                FROM vola
+                ORDER BY id, `date`
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                UPDATE mariadb_historique_affaire_w AS m
+                JOIN tempo_hist_affaire_w AS t
+                  ON m.id = t.id
+                 AND m.`date` = t.`date`
+                SET
+                  m.volat = t.volat_52,
+                  m.SRRI  = t.srri
+                """
+            )
+        )
+        # Mettre à jour le SRRI de l'affaire à partir de la dernière ligne calculée
+        db.execute(
+            text(
+                """
+                UPDATE mariadb_affaires AS a
+                JOIN (
+                  SELECT id, srri
+                  FROM (
+                    SELECT id, srri,
+                           ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+                    FROM tempo_hist_affaire_w
+                  ) AS ordered
+                  WHERE rk = 1
+                ) AS t
+                  ON a.id = t.id
+                SET a.SRRI = t.srri
+                """
+            )
+        )
+        db.commit()
+        elapsed = perf_counter() - started
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Recalcul des niveaux de risques affaires terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"srri_affaires_status": "ok", "srri_affaires_dur": f"{elapsed:.2f}"})
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"srri_affaires_status": "error"})
+        logger.exception("SRRI/volat affaires recompute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec recalcul risques affaires: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#suivi-logs" if qs else "/dashboard/superadmin#suivi-logs"
+    return RedirectResponse(url=target_url, status_code=303)
 
 @router.post("/superadmin/client-auth", response_class=RedirectResponse)
 def dashboard_superadmin_client_auth(
@@ -19789,6 +20478,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     allocations_lookup: dict[int, str] = {}
     societe_gestion_nom = None
     societe_gestion_role = None
+    contact_address_str = None
+    contact_addresses_list: list[str] = []
     try:
         row_cli_alloc = db.execute(text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
         if row_cli_alloc:
@@ -19837,6 +20528,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         client_allocation_id = getattr(client, "allocation_id", None) if client else None
 
+    # Historique complet pour la courbe (inclut mouvements pour cumul)
     # Historique complet pour la courbe (inclut mouvements pour cumul)
     historique = (
         db.query(
@@ -20344,6 +21036,125 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "last_valo_numeric": last_valo_numeric,
         })
 
+    # Répartition client par allocation (via SRRI -> niveau risque -> allocation_risque)
+    allocation_by_level: dict[int, str] = {}
+    try:
+        rows_alloc_lvl = db.execute(
+            text(
+                """
+                SELECT ar.risque_id,
+                       COALESCE(a.nom, ar.allocation_name) AS allocation_nom
+                FROM allocation_risque ar
+                LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                WHERE ar.risque_id BETWEEN 1 AND 5
+                ORDER BY ar.risque_id, ar.date_attribution DESC, ar.id DESC
+                """
+            )
+        ).fetchall()
+        for row in rows_alloc_lvl or []:
+            rid = row._mapping.get("risque_id") if hasattr(row, "_mapping") else (row[0] if len(row) > 0 else None)
+            nom = row._mapping.get("allocation_nom") if hasattr(row, "_mapping") else (row[1] if len(row) > 1 else None)
+            try:
+                rid_int = int(rid) if rid is not None else None
+            except Exception:
+                rid_int = None
+            if rid_int is None or not nom:
+                continue
+            if rid_int not in allocation_by_level:
+                allocation_by_level[rid_int] = nom
+    except Exception:
+        allocation_by_level = {}
+
+    # Dernières perfs/vol par allocation (dernière date disponible)
+    allocation_perf_map: dict[str, dict[str, float | None]] = {}
+    try:
+        rows_alloc_stats = db.execute(
+            text(
+                """
+                WITH last_alloc AS (
+                  SELECT nom, MAX(date) AS max_date
+                  FROM allocations
+                  GROUP BY nom
+                )
+                SELECT a.nom,
+                       a.perf_sicav_52,
+                       a.volat
+                FROM allocations a
+                JOIN last_alloc la ON la.nom = a.nom
+                 AND (
+                   (la.max_date IS NULL AND a.date IS NULL)
+                   OR (la.max_date IS NOT NULL AND a.date = la.max_date)
+                 )
+                """
+            )
+        ).fetchall()
+        for row in rows_alloc_stats or []:
+            nom = row._mapping.get("nom") if hasattr(row, "_mapping") else (row[0] if len(row) > 0 else None)
+            perf = row._mapping.get("perf_sicav_52") if hasattr(row, "_mapping") else (row[1] if len(row) > 1 else None)
+            vol = row._mapping.get("volat") if hasattr(row, "_mapping") else (row[2] if len(row) > 2 else None)
+            if nom:
+                allocation_perf_map[str(nom)] = {
+                    "perf_52": float(perf) if perf is not None else None,
+                    "volat": float(vol) if vol is not None else None,
+                }
+    except Exception:
+        allocation_perf_map = {}
+
+    # Poids client par allocation (somme des valo des affaires regroupées par allocation)
+    srri_to_level = {2: 1, 3: 2, 4: 3, 5: 4, 6: 5}
+    alloc_valo_map: dict[str, float] = {}
+    total_alloc_valo = 0.0
+    for aff in client_affaires:
+        alloc_name = None
+        srri_aff = aff.get("SRRI")
+        if srri_aff is None:
+            srri_aff = aff.get("srri_calc")
+        level = None
+        try:
+            if srri_aff is not None:
+                level = srri_to_level.get(int(srri_aff))
+        except Exception:
+            level = None
+        if level:
+            alloc_name = allocation_by_level.get(level)
+        if not alloc_name:
+            continue
+        try:
+            valo_aff = float(aff.get("last_valo_numeric") or 0.0)
+        except Exception:
+            valo_aff = 0.0
+        alloc_valo_map[alloc_name] = alloc_valo_map.get(alloc_name, 0.0) + valo_aff
+        total_alloc_valo += valo_aff
+
+    allocation_simulation_rows: list[dict] = []
+    alloc_with_weight: list[str] = []
+    alloc_series_local = alloc_series if "alloc_series" in locals() else {}
+    try:
+        all_alloc_names = alloc_names_client if alloc_names_client else list(allocation_perf_map.keys())
+    except Exception:
+        all_alloc_names = list(allocation_perf_map.keys())
+    for name in sorted(set(all_alloc_names or [])):
+        perf_data = allocation_perf_map.get(name, {})
+        encours = alloc_valo_map.get(name, 0.0)
+        pct = (encours / total_alloc_valo * 100.0) if total_alloc_valo else 0.0
+        allocation_simulation_rows.append({
+            "nom": name,
+            "perf_52": perf_data.get("perf_52"),
+            "volat": perf_data.get("volat"),
+            "poids_pct": pct,
+            "encours": encours,
+        })
+        if name and pct > 0 and isinstance(alloc_series_local, dict) and alloc_series_local.get(name):
+            alloc_with_weight.append(name)
+
+    # Reconstitution retirée (plus de calcul d'intersection des dates)
+    reconstitution_alloc_dates: list[dict] = []
+    reconstitution_dates: list[str] = []
+
+    # (Consolidation retirée)
+    consolidation_rows: list[dict] = []
+    max_date = None
+
     # Comptages contrats ouverts/fermés
     total_contrats = len(affaires_rows)
     nb_contrats_fermes = sum(1 for r in affaires_rows if getattr(r, 'date_cle', None))
@@ -20693,7 +21504,32 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     # Série SICAV du client (mariadb_historique_personne_w)
     client_sicav: list[dict] = []
+    client_srri_series: list[dict] = []
     try:
+        def _srri_from_vol(vol_value):
+            if vol_value is None:
+                return None
+            try:
+                v = float(vol_value)
+            except Exception:
+                return None
+            if math.isnan(v) or math.isinf(v):
+                return None
+            if abs(v) > 1:
+                v = v / 100.0
+            if v <= 0.5:
+                return 1
+            if v <= 2:
+                return 2
+            if v <= 5:
+                return 3
+            if v <= 10:
+                return 4
+            if v <= 15:
+                return 5
+            if v <= 25:
+                return 6
+            return 7
         for h in historique:
             try:
                 ds = h.date.strftime("%Y-%m-%d") if getattr(h, 'date', None) else None
@@ -20703,8 +21539,21 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 "date": ds,
                 "sicav": float(getattr(h, 'sicav', 0) or 0)
             })
+            srri_num = None
+            try:
+                srri_val = getattr(h, "SRRI", None)
+                if srri_val is not None:
+                    srri_num = float(srri_val)
+            except Exception:
+                srri_num = None
+            # Ne pas forcer un SRRI à partir de la vol si non présent
+            client_srri_series.append({
+                "date": ds,
+                "srri": srri_num,
+            })
     except Exception:
         client_sicav = []
+        client_srri_series = []
 
     # Données pour création de tâche (accordéon)
     from sqlalchemy import text as _text
@@ -21460,6 +22309,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # Données pour graphique allocations (lignes)
             "alloc_series": alloc_series,
             "client_sicav": client_sicav,
+            "client_srri_series": client_srri_series,
             # ESG UI context
             "alloc_names": alloc_names_client,
             "esg_fields": esg_fields_client,
@@ -21475,6 +22325,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "client_allocation_id": client_allocation_id,
             "client_allocation_name": client_allocation_name,
             "allocations_lookup": allocations_lookup,
+            "allocation_simulation_rows": allocation_simulation_rows,
             # Lettre d'adéquation: infos consolidées
             "etat_civil_latest": etat_civil_latest,
             "nb_enfants_latest": nb_enfants_latest,
@@ -21538,6 +22389,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "lcbft_raison_selected_ids": locals().get('lcbft_raison_selected_ids', []),
             "lcbft_raison_forced_ids": locals().get('lcbft_raison_forced_ids', []),
             "lcbft_raison_disabled_ids": locals().get('lcbft_raison_disabled_ids', []),
+            "contact_address": contact_address_str,
+            "contact_addresses": contact_addresses_list,
             "lm_today": _date.today().strftime('%d/%m/%Y'),
             # DER context for modal rendering
             "DER_courtier": DER_courtier,
