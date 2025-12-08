@@ -4,14 +4,6 @@
 {% block header_subtitle %}Sociétés, utilisateurs et outils d'import{% endblock %}
 
 {% block content %}
-<div class="card" style="margin-bottom:1rem;">
-  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-      <h2 style="margin:0; font-size:1.4rem;">Sociétés de gestion / courtage</h2>
-      <p class="muted" style="margin:4px 0 0 0;">Pilotage global des entités (courtier, wealth, banque privée), utilisateurs et imports.</p>
-    </div>
-  </div>
-</div>
 
 {% if superadmin_user %}
 <div class="card" style="margin-bottom:1rem; border:1px solid #dbeafe; background:linear-gradient(135deg,#f8fbff 0%,#eef4ff 100%); box-shadow:0 10px 30px rgba(37,99,235,0.08);">
@@ -54,61 +46,98 @@
 {% endif %}
 
 <div class="card" style="margin-bottom:1rem;">
-  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-    <h3 style="margin:0;">Sociétés (liste)</h3>
-    <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
-      <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
-      <button type="submit" class="btn btn-secondary">Filtrer</button>
-    </form>
-  </div>
-  {% if societes_gestion %}
-    <div style="overflow-x:auto;">
-      <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
-        <thead>
-          <tr style="text-align:left; border-bottom:1px solid var(--border);">
-            <th style="padding:6px 4px;">Nom</th>
-            <th style="padding:6px 4px;">Contact</th>
-            <th style="padding:6px 4px;">Téléphone</th>
-            <th style="padding:6px 4px;">Courriel</th>
-            <th style="padding:6px 4px; text-align:center;">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in societes_gestion %}
-          <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:6px 4px;">{{ s.nom }}</td>
-            <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
-            <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
-            <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
-            <td style="padding:6px 4px; text-align:center;">
-              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
-                <i class="fa-regular fa-pen-to-square"></i>
-              </a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
-      <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
-      <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        {% set qparam = '&q=' ~ search_term if search_term else '' %}
-        {% if page > 1 %}
-          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}">Précédent</a>
-        {% endif %}
-        {% if page < page_count %}
-          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}">Suivant</a>
-        {% endif %}
+  <details data-soc-details style="border:0; padding:0;">
+    <summary style="list-style:none; cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+        <h3 style="margin:0;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
+        <span class="btn btn-secondary" data-soc-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
       </div>
+    </summary>
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+      <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
+        <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
+        <button type="submit" class="btn btn-secondary">Filtrer</button>
+      </form>
     </div>
-  {% else %}
-    <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
-  {% endif %}
+    {% if societes_gestion %}
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:6px 4px;">Nom</th>
+              <th style="padding:6px 4px;">Contact</th>
+              <th style="padding:6px 4px;">Téléphone</th>
+              <th style="padding:6px 4px;">Courriel</th>
+              <th style="padding:6px 4px; text-align:center;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in societes_gestion %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px 4px;">{{ s.nom }}</td>
+              <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
+              <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
+              <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
+              <td style="padding:6px 4px; text-align:center;">
+                <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
+                  <i class="fa-regular fa-pen-to-square"></i>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+        <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          {% set qparam = '&q=' ~ search_term if search_term else '' %}
+          {% if page > 1 %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}#utilisateurs">Précédent</a>
+          {% endif %}
+          {% if page < page_count %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}#utilisateurs">Suivant</a>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
+    {% endif %}
+  </details>
 </div>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const details = document.querySelector('[data-soc-details]');
+    const label = document.querySelector('[data-soc-toggle-label]');
+    const related = () => document.querySelectorAll('[data-soc-related]');
+    if (!details || !label) return;
+    // Forcer fermé par défaut (sauf ancre explicite)
+    details.open = false;
+    const setState = () => {
+      const open = details.open;
+      label.textContent = open ? 'Masquer' : 'Afficher';
+      related().forEach(el => { el.style.display = open ? '' : 'none'; });
+    };
+    if (window.location.hash === '#utilisateurs') details.open = true;
+    details.addEventListener('toggle', setState);
+    setState();
+  });
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const details = document.querySelector('[data-base-details]');
+    const label = document.querySelector('[data-base-toggle-label]');
+    if (!details || !label) return;
+    details.open = false;
+    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
+    details.addEventListener('toggle', setLabel);
+    setLabel();
+  });
+</script>
 
 {% if selected_societe %}
+<div data-soc-related>
   <div class="card" id="utilisateurs" style="margin-bottom:1rem;">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
       <div>
@@ -134,9 +163,7 @@
       {% endfor %}
     </div>
   </div>
-{% endif %}
 
-{% if selected_societe %}
   <div class="card" style="margin-bottom:1rem;">
     <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Utilisateurs de la société</h2>
     <div class="muted" style="margin-bottom:8px; font-size:0.9rem;">Gestion des comptes (création, rôles, activation) à venir. Bouton ci-dessous pour préparer la gestion des droits.</div>
@@ -434,15 +461,184 @@
       </div>
     </div>
   {% endif %}
-{% else %}
-  <div class="card" style="margin-bottom:1rem;">
-    <p class="muted" style="margin:0;">Sélectionnez une société pour afficher ses détails et ses utilisateurs.</p>
-  </div>
+</div>
 {% endif %}
 
-<div class="card">
-  <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Outils d'import</h2>
-  <p class="muted" style="margin:0 0 10px 0;">Point d’entrée pour les imports (clients, affaires, historiques) et leurs journaux. À compléter dans les prochaines étapes.</p>
-  <div class="muted" style="font-size:0.95rem;">Placeholder — non implémenté pour le moment.</div>
+<div class="card" id="outils-import">
+  <details data-base-details style="border:0; padding:0;">
+    <summary style="list-style:none; cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+        <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Outils de gestion de la base</h2>
+        <span class="btn btn-secondary" data-base-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
+      </div>
+    </summary>
+    <div style="margin-top:6px;">
+      <p class="muted" style="margin:0 0 10px 0;">Mise à jour des historiques et recalcul des indicateurs.</p>
+      {% set srri_status = request.query_params.get('srri_status') %}
+      {% set srri_dur = request.query_params.get('srri_dur') %}
+      {% set srri_affaires_status = request.query_params.get('srri_affaires_status') %}
+      {% set srri_affaires_dur = request.query_params.get('srri_affaires_dur') %}
+      {% if srri_status == 'ok' %}
+        <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+          Recalcul SRRI/volatilité lancé et synchronisé depuis <code>tempo_hist_personne_w</code>{% if srri_dur %} en {{ srri_dur }}s{% endif %}.
+        </div>
+      {% elif srri_status == 'error' %}
+        <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+          Le recalcul SRRI/volatilité a échoué. Consulte les logs pour le détail.
+        </div>
+      {% endif %}
+      {% if srri_affaires_status == 'ok' %}
+        <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+          Recalcul SRRI/volatilité des contrats lancé et synchronisé depuis <code>tempo_hist_affaire_w</code>{% if srri_affaires_dur %} en {{ srri_affaires_dur }}s{% endif %}.
+        </div>
+      {% elif srri_affaires_status == 'error' %}
+        <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+          Le recalcul SRRI/volatilité des contrats a échoué. Consulte les logs pour le détail.
+        </div>
+      {% endif %}
+      <form method="post" action="/dashboard/superadmin/recompute-srri" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">Calcul des niveaux de risques de tous les clients</button>
+      </form>
+      <form method="post" action="/dashboard/superadmin/recompute-srri-affaires" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+        <button type="submit" class="btn btn-primary">Calcul des niveaux de risques pour tous les contrats</button>
+      </form>
+    </div>
+  </details>
 </div>
+
+<div class="card" id="suivi-logs" style="margin-top:1rem;">
+  <details data-log-details style="border:0; padding:0;">
+    <summary style="list-style:none; cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
+        <div>
+          <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Suivi des traitements</h2>
+          <p class="muted" style="margin:0;">Logs en base : typologie, déclencheur, horodatage et message de fin.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <div class="muted" style="font-size:0.9rem;">{{ total_logs or 0 }} entrées</div>
+          <span class="btn btn-secondary" data-log-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
+        </div>
+      </div>
+    </summary>
+    <div style="margin-top:12px;">
+    <form method="get" action="/dashboard/superadmin#suivi-logs" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:0;">
+      {% if selected_societe %}<input type="hidden" name="societe_id" value="{{ selected_societe.id }}">{% endif %}
+      {% if search_term %}<input type="hidden" name="q" value="{{ search_term }}">{% endif %}
+      {% if page %}<input type="hidden" name="page" value="{{ page }}">{% endif %}
+      {% if user_search_term %}<input type="hidden" name="uq" value="{{ user_search_term }}">{% endif %}
+      {% if user_page %}<input type="hidden" name="upage" value="{{ user_page }}">{% endif %}
+      {% if client_search_term %}<input type="hidden" name="cq" value="{{ client_search_term }}">{% endif %}
+      {% if client_page %}<input type="hidden" name="cpage" value="{{ client_page }}">{% endif %}
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+        <span>Typologie</span>
+        <select class="form-control" name="ltype" style="min-width:220px;">
+          <option value="">Toutes</option>
+          {% for lt in log_types or [] %}
+            <option value="{{ lt.id }}" {% if log_type_filter and log_type_filter == lt.id %}selected{% endif %}>
+              {{ lt.label or lt.code }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+        <span>Statut</span>
+        {% set lstatus = log_status_filter or '' %}
+        <select class="form-control" name="lstatus" style="min-width:160px;">
+          <option value="" {% if lstatus == '' %}selected{% endif %}>Tous</option>
+          <option value="ok" {% if lstatus == 'ok' %}selected{% endif %}>Succès</option>
+          <option value="error" {% if lstatus == 'error' %}selected{% endif %}>Erreur</option>
+          <option value="running" {% if lstatus == 'running' %}selected{% endif %}>En cours</option>
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:0.95rem;">
+        <span>Filtre message</span>
+        <input class="form-control" type="text" name="lq" value="{{ log_search_term or '' }}" placeholder="Texte à rechercher" style="min-width:220px;">
+      </label>
+      <button type="submit" class="btn btn-secondary" style="height: fit-content;">Filtrer</button>
+      <button type="button" class="btn btn-secondary" style="height: fit-content; background:#f3f4f6; color:#111827;" onclick="window.location.reload()">Rafraîchir</button>
+      <a class="btn btn-secondary" href="/dashboard/superadmin#suivi-logs" style="background:#f3f4f6; color:#111827; height: fit-content;">Réinitialiser</a>
+    </form>
+
+    {% if logs_suivi %}
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
+        {% for lg in logs_suivi %}
+          {% if loop.index0 > 0 and loop.index0 % 20 == 0 %}
+            <div style="padding:6px 0; border-top:2px dashed var(--border); color:var(--muted); font-size:0.9rem;">Rupture {{ loop.index0 }}</div>
+          {% endif %}
+          <div style="padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-weight:600;">{{ lg.type_label or lg.type_code or 'Sans type' }}</span>
+              {% set st = lg.status or '' %}
+              {% if st == 'ok' %}
+                <span class="status-pill" style="background:#dcfce7; color:#166534;">Succès</span>
+              {% elif st == 'error' %}
+                <span class="status-pill" style="background:#fee2e2; color:#b91c1c;">Erreur</span>
+              {% else %}
+                <span class="status-pill" style="background:#e0f2fe; color:#075985;">En cours</span>
+              {% endif %}
+            </div>
+            <div>
+              <div style="font-weight:600;">Horodatage</div>
+              <div class="muted" style="margin-top:4px;">
+                Début : {{ lg.started_at.strftime('%d/%m/%Y %H:%M:%S') if lg.started_at else '—' }}<br>
+                Fin : {{ lg.ended_at.strftime('%d/%m/%Y %H:%M:%S') if lg.ended_at else '—' }}
+              </div>
+              <div class="muted" style="margin-top:4px;">Durée : {{ '%.2fs'|format(lg.duration_seconds) if lg.duration_seconds is not none else '—' }}</div>
+            </div>
+            <div>
+              <div style="font-weight:600;">Déclenché par</div>
+              <div class="muted" style="margin-top:4px;">
+                {% if lg.user_prenom or lg.user_nom %}
+                  {{ lg.user_prenom or '' }} {{ lg.user_nom or '' }}
+                {% elif lg.user_login %}
+                  {{ lg.user_login }}
+                {% elif lg.user_id %}
+                  Utilisateur #{{ lg.user_id }}
+                {% else %}
+                  Non renseigné
+                {% endif %}
+                {% if lg.ip_address %}<br>IP : {{ lg.ip_address }}{% endif %}
+              </div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <div style="font-weight:600;">Message</div>
+              <div style="margin-top:4px; padding:8px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; white-space:pre-wrap;">{{ lg.message or '—' }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; gap:10px; flex-wrap:wrap;">
+        <div class="muted" style="font-size:0.9rem;">{{ total_logs }} logs — page {{ log_page }} / {{ log_page_count }}</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          {% set log_qs = '' %}
+          {% if log_type_filter %}{% set log_qs = log_qs ~ '&ltype=' ~ log_type_filter %}{% endif %}
+          {% if log_status_filter %}{% set log_qs = log_qs ~ '&lstatus=' ~ log_status_filter %}{% endif %}
+          {% if log_search_term %}{% set log_qs = log_qs ~ '&lq=' ~ log_search_term %}{% endif %}
+          {% if log_page > 1 %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?lpage={{ log_page - 1 }}{{ log_qs }}#suivi-logs">Précédent</a>
+          {% endif %}
+          {% if log_page < log_page_count %}
+            <a class="btn btn-secondary" href="/dashboard/superadmin?lpage={{ log_page + 1 }}{{ log_qs }}#suivi-logs">Suivant</a>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <p class="muted" style="margin-top:10px;">Aucun log enregistré pour l'instant.</p>
+    {% endif %}
+    </div>
+  </details>
+</div>
+<script>
+  (function() {
+    const details = document.querySelector('[data-log-details]');
+    const label = document.querySelector('[data-log-toggle-label]');
+    if (!details || !label) return;
+    details.open = false;
+    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
+    // Ouverture explicite uniquement via ancre #suivi-logs
+    if (window.location.hash === '#suivi-logs') details.open = true;
+    details.addEventListener('toggle', setLabel);
+    setLabel();
+  })();
+</script>
 {% endblock %}
