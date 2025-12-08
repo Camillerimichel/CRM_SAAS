@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates   # <-- ajoute ceci
 from fastapi.staticfiles import StaticFiles
+from fastapi.exception_handlers import http_exception_handler
 import threading
 import logging
 from sqlalchemy.orm import Session
@@ -38,6 +39,22 @@ app.include_router(events.router)
 app.include_router(groupes.router)
 
 # Servir l'app React compilée (http://localhost:8000/app)
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 401:
+        html = """
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body>
+<script>
+alert('Veuillez vous reconnecter');
+window.location.href = '/login';
+</script>
+</body></html>"""
+        return HTMLResponse(content=html, status_code=401)
+    return await http_exception_handler(request, exc)
 
 
 # ---------------- Route d'accueil ----------------
@@ -93,9 +110,34 @@ if FRONTEND_BUILD_PATH.exists():
         filename = request.url.path.lstrip("/")
         return _serve_frontend_asset(filename)
 
-    app.mount("/dashboard", frontend_app)
+app.mount("/dashboard", frontend_app)
 
 logger = logging.getLogger("uvicorn.error")
+access_logger = logging.getLogger("uvicorn.access")
+
+
+class _SkipAccessLogs(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Drop access logs for GET/POST requests to avoid polluting uvicorn.log.
+        Works both when uvicorn provides request_line in args and when message is already formatted.
+        """
+        try:
+            # Case where uvicorn passes the request line as the second arg
+            if isinstance(record.args, tuple) and len(record.args) >= 2:
+                req_line = record.args[1]
+                if isinstance(req_line, str) and (req_line.startswith("GET ") or req_line.startswith("POST ")):
+                    return False
+            # Fallback on formatted message
+            msg = record.getMessage()
+            if isinstance(msg, str) and ('"GET ' in msg or '"POST ' in msg or 'GET /' in msg or 'POST /' in msg):
+                return False
+        except Exception:
+            return True
+        return True
+
+
+access_logger.addFilter(_SkipAccessLogs())
 
 _forgot_rate_limit = defaultdict(deque)
 _FORGOT_MAX = 5

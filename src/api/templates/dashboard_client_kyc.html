@@ -1405,7 +1405,9 @@
               const calcPill = document.getElementById('riskOfferCalcPill');
               const finalPill = document.getElementById('riskOfferFinalPill');
               const srriSpan = document.getElementById('riskSrriValue');
-              if (calcPill) calcPill.textContent = offerLabelFromId(offer);
+              const offerLabel = offerLabelFromId(offer);
+              if (calcPill) calcPill.textContent = offerLabel;
+              if (determinedSpan) determinedSpan.textContent = offerLabel;
               let finalOffer = offer;
               // Revenus CT priority
               try {

@@ -55,7 +55,7 @@
             <th>Nom</th>
             <th>Prénom</th>
             <th>Responsable</th>
-            <th>SRRI calculé</th>
+            <th>SRRI calculé (dernier)</th>
             <th>Valorisation</th>
             <th>Perf 52 sem. (%)</th>
             <th>Volatilité (%)</th>
@@ -87,7 +87,10 @@
             </td>
             <td>{{ c.prenom }}</td>
             <td>{{ c.responsable or '—' }}</td>
-            <td style="text-align:center;">{{ c.srri_hist if c.srri_hist is not none else '' }}</td>
+            <td style="text-align:center;">
+              {{ c.srri_hist if c.srri_hist is not none else '' }}
+              {% if c.srri_hist_date %}<div class="muted" style="font-size:0.8rem;">{{ c.srri_hist_date.strftime('%Y-%m-%d') }}</div>{% endif %}
+            </td>
             <td data-valo="{{ c.total_valo if c.total_valo is not none else '' }}" style="text-align:right;">{{ c.total_valo_str }}</td>
             <td data-perf="{{ c.perf_52_sem if c.perf_52_sem is not none else '' }}" style="text-align:right;">{{ c.perf_52_sem_str }}</td>
             <td data-vol="{{ c.volatilite if c.volatilite is not none else '' }}" style="text-align:right;">{{ c.volatilite_str }}</td>

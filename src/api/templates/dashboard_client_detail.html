@@ -5,6 +5,9 @@
   {% if client %}
     <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <span><i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client – {{ client.prenom }} {{ client.nom }}</span>
+      <button id="contactExportBtn" type="button" class="dim-btn" style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px;">
+        <i class="fa-solid fa-file-export"></i><span>Contact</span>
+      </button>
     </span>
   {% else %}
     <i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client
@@ -13,6 +16,48 @@
 
 {% block content %}
 <style>
+  /* Modal export contact */
+  #contactExportModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  #contactExportModal .modal-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    width: min(420px, 92vw);
+    box-shadow: 0 14px 38px rgba(0,0,0,0.18);
+  }
+  #contactExportModal h3 {
+    margin: 0 0 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #contactExportModal .contact-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0;
+    color: #111827;
+  }
+  #contactExportModal .contact-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  #contactMailModal .field {
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    margin-bottom:12px;
+  }
   .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin-bottom: 14px; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .card-header {
@@ -130,6 +175,9 @@
   /* Contrats table */
   #contractsTable { border-collapse: collapse; }
   #contractsTable .badge-closed { padding: 1px 6px; font-size: 10px; }
+  /* Tableau allocations (Simulation financière) – lignes compactes */
+  #simuAllocTable { font-size: 12px; }
+  #simuAllocTable th, #simuAllocTable td { padding: 3px 6px; }
   /* RBAC UI hides */
   body[data-user-role="client"] .client-hide { display: none !important; }
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
@@ -249,6 +297,56 @@
     box-shadow: 0 2px 6px rgba(15,23,42,0.2);
   }
 </style>
+
+<div id="contactExportModal" aria-hidden="true">
+  <div class="modal-card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <h3><i class="fa-solid fa-address-card"></i> Export contact</h3>
+      <button type="button" id="contactExportClose" class="dim-btn" aria-label="Fermer">✕</button>
+    </div>
+    <div id="contactExportBody" style="margin-top:8px;">
+      <div class="contact-line"><strong>Nom :</strong> <span id="contactName"></span></div>
+      <div class="contact-line"><strong>Prénom :</strong> <span id="contactFirstname"></span></div>
+      <div class="contact-line"><strong>Téléphone :</strong> <span id="contactPhone"></span></div>
+      <div class="contact-line"><strong>Email :</strong> <button type="button" id="contactEmailBtn" class="dim-btn" style="padding:4px 8px;"></button></div>
+    </div>
+    <div class="contact-actions">
+      <button type="button" id="contactExportVcf" class="dim-btn"><i class="fa-solid fa-file-arrow-down"></i><span>vCard (Outlook/Mac)</span></button>
+      <button type="button" id="contactExportCopy" class="dim-btn"><i class="fa-solid fa-copy"></i><span>Copier</span></button>
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px;">Le fichier vCard est compatible Outlook, Google Contacts et Contacts Mac.</div>
+  </div>
+</div>
+<div id="contactMailModal" aria-hidden="true" style="position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:9999; padding:16px;">
+  <div class="modal-card" style="max-width:540px; width:100%; box-shadow:0 18px 42px rgba(0,0,0,0.22); padding:18px 18px 14px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;">
+      <h3 style="margin:0; font-size:1.05rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-envelope"></i> Envoyer un mail</h3>
+      <button type="button" id="contactMailClose" class="dim-btn" aria-label="Fermer">✕</button>
+    </div>
+    <div class="field">
+      <label class="muted" style="font-size:0.85rem;">À</label>
+      <input type="email" id="contactMailTo" readonly style="width:100%; padding:8px 10px; border:1px solid #dfe7fb; border-radius:10px; background:#f8fafc;" />
+    </div>
+    <div class="field">
+      <label class="muted" style="font-size:0.85rem;">Objet</label>
+      <input type="text" id="contactMailSubject" style="width:100%; padding:8px 10px; border:1px solid #dfe7fb; border-radius:10px;" />
+    </div>
+    <div class="field">
+      <label class="muted" style="font-size:0.85rem;">Message</label>
+      <textarea id="contactMailBody" rows="5" style="width:100%; padding:10px; border:1px solid #dfe7fb; border-radius:10px; min-height:140px;"></textarea>
+    </div>
+    <div class="field" style="padding-top:6px; border-top:1px solid #e5e7eb;">
+      <label class="muted" style="font-size:0.85rem;">Pièces jointes (à ajouter dans votre client mail)</label>
+      <input type="file" id="contactMailFiles" multiple />
+      <div id="contactMailFilesList" class="muted" style="font-size:12px;"></div>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+      <button type="button" id="contactMailSend" class="dim-btn" style="background:var(--primary); color:#fff; border-color:var(--primary);"><i class="fa-solid fa-paper-plane"></i><span>Ouvrir dans le client mail</span></button>
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px;">Les pièces jointes doivent être ajoutées manuellement dans votre client mail.</div>
+    <div class="muted" style="font-size:12px; margin-top:4px;">Les mails envoyés depuis ici ne sont pas stockés dans vos tâches.</div>
+  </div>
+</div>
 
 {% set cl_markers_param = tb_markers_param if tb_markers_param is defined else '' %}
 {% set cl_markers_suffix = ('&' + cl_markers_param) if cl_markers_param else '' %}
@@ -376,6 +474,13 @@
             {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
           </span>
         </div>
+        <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+          <span>SRI (détails)</span>
+          <span class="kv">
+            <button type="button" class="btn btn-secondary" style="padding:6px 10px;" onclick="openSriModal()">Voir SRI</button>
+            <div class="muted" style="font-size:12px; margin-top:4px;">SRI courant : {{ client_sri if client_sri is not none else '—' }}</div>
+          </span>
+        </div>
         <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct is not none %}{{ '%.2f'|format(overall_ann_perf_pct) }} %{% else %}-{% endif %}</span></div>
       </div>
     </div>
@@ -398,6 +503,171 @@
       });
     })();
   </script>
+  <style>
+    .sri-tip { position:relative; cursor:help; }
+    .sri-tip:hover::before {
+      content:"";
+      position:absolute;
+      top:-6px; right:8px;
+      border:6px solid transparent;
+      border-bottom-color:#1f2937;
+      opacity:0.85;
+      z-index:40;
+    }
+    .sri-tip:hover::after {
+      content: attr(data-tip);
+      position:absolute;
+      top:-6px; right:0;
+      transform: translateY(-100%);
+      background:#1f2937;
+      color:#fff;
+      padding:8px 10px;
+      border-radius:8px;
+      font-size:0.85rem;
+      line-height:1.25;
+      max-width:280px;
+      white-space:normal;
+      box-shadow:0 6px 18px rgba(0,0,0,0.18);
+      opacity:0.95;
+      z-index:39;
+    }
+    .sri-card {
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      cursor: pointer;
+    }
+    .sri-card.active {
+      transform: scale(1.03);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+      border-color: var(--primary, #4f46e5);
+    }
+  </style>
+
+  <!-- Modal SRI -->
+  <div id="sriModal" class="modal-overlay" onclick="if(event.target===this) closeSriModal()">
+    <div class="modal-card" style="width:720px; max-width:95vw;">
+      <div class="modal-header">
+        <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur SRI</h3>
+        <button class="modal-close" onclick="closeSriModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        {% set sm = sri_metrics_latest %}
+        {% if sm %}
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+            <div style="flex:1; min-width:220px;">
+              <div class="muted" style="font-size:0.9rem;">Date de calcul</div>
+              <div style="font-weight:700;">{{ sm.as_of_date or '—' }}</div>
+              <div class="muted" style="font-size:0.85rem;">Heure serveur : {{ sm.calc_at or '—' }}</div>
+            </div>
+            <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center;">
+              <div class="muted" style="font-size:0.9rem;">SRI</div>
+              <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
+            </div>
+          </div>
+          <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="M0 = nombre d'observations sur la période.">M0 (observations)</div><div class="kv">{{ sm.m0 if sm.m0 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="M1 = moyenne de tous les rendements observés dans l'échantillon.">M1 (moyenne)</div><div class="kv">{{ '%.6f'|format(sm.m1) if sm.m1 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="M2 = ∑(ri - M1)² / M0 (variance).">M2</div><div class="kv">{{ '%.6f'|format(sm.m2) if sm.m2 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="M3 = ∑(ri - M1)³ / M0.">M3</div><div class="kv">{{ '%.6f'|format(sm.m3) if sm.m3 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="M4 = ∑(ri - M1)⁴ / M0.">M4</div><div class="kv">{{ '%.6f'|format(sm.m4) if sm.m4 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="σ = √(M2) (volatilité).">Sigma</div><div class="kv">{{ '%.6f'|format(sm.sigma) if sm.sigma is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="µ1 = M3 / σ³ (coefficient d'asymétrie).">µ1 (skew)</div><div class="kv">{{ '%.6f'|format(sm.mu1) if sm.mu1 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="µ2 = (M4 / σ⁴) - 3 (excès de kurtosis).">µ2 (kurtosis)</div><div class="kv">{{ '%.6f'|format(sm.mu2) if sm.mu2 is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="VaR Cornish-Fisher : σ√N(-1,96 + 0,474 µ1/√N - 0,0687 µ2/N + 0,146 µ1²/N) - 0,5 σ² N.">Var CF</div><div class="kv">{{ '%.6f'|format(sm.var_cf) if sm.var_cf is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="VeV = {√(3,842 - 2*VaR) - 1,96} / √(T), T en années (RHP).">VeV</div><div class="kv">{{ '%.6f'|format(sm.vev) if sm.vev is not none else '—' }}</div>
+            </div>
+            <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+              <div class="muted sri-tip" data-tip="Nombre de périodes de négociation durant la RHP (dans l'avenir).">Périodes (n)</div><div class="kv">{{ sm.n_periods if sm.n_periods is not none else '—' }}</div>
+            </div>
+          </div>
+          <div style="margin-top:14px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">
+            <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (RHP) sur une base de 10 000 euros</div>
+            {% set sc = sri_scenarios %}
+            {% if sc and sc.rows %}
+              <table class="table" style="width:100%; font-size:0.95rem; margin-top:6px;">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;">Horizon</th>
+                    <th style="text-align:right;">Tension</th>
+                    <th style="text-align:right;">Défavorable</th>
+                    <th style="text-align:right;">Intermédiaire</th>
+                    <th style="text-align:right;">Favorable</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in sc.rows %}
+                    <tr>
+                      <td style="text-align:left;">{{ r.horizon }}</td>
+                      <td style="text-align:right;">
+                        {% if r.tension is not none %}
+                          {{ ('{:,.0f}'.format(r.tension * 10000)).replace(',', ' ') }}<br>
+                          <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.tension * 10000) - 10000) / 10000 * 100) }}%</em>
+                        {% else %}—{% endif %}
+                      </td>
+                      <td style="text-align:right;">
+                        {% if r.defavorable is not none %}
+                          {{ ('{:,.0f}'.format(r.defavorable * 10000)).replace(',', ' ') }}<br>
+                          <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.defavorable * 10000) - 10000) / 10000 * 100) }}%</em>
+                        {% else %}—{% endif %}
+                      </td>
+                      <td style="text-align:right;">
+                        {% if r.intermediaire is not none %}
+                          {{ ('{:,.0f}'.format(r.intermediaire * 10000)).replace(',', ' ') }}<br>
+                          <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.intermediaire * 10000) - 10000) / 10000 * 100) }}%</em>
+                        {% else %}—{% endif %}
+                      </td>
+                      <td style="text-align:right;">
+                        {% if r.favorable is not none %}
+                          {{ ('{:,.0f}'.format(r.favorable * 10000)).replace(',', ' ') }}<br>
+                          <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.favorable * 10000) - 10000) / 10000 * 100) }}%</em>
+                        {% else %}—{% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
+            {% else %}
+              <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <p class="muted">Aucune métrique SRI disponible pour ce client.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <script>
+    function openSriModal(){ var m=document.getElementById('sriModal'); if(m) m.style.display='flex'; }
+    function closeSriModal(){ var m=document.getElementById('sriModal'); if(m) m.style.display='none'; }
+    (function(){
+      var cards = document.querySelectorAll('#sriModal .sri-card');
+      cards.forEach(function(card){
+        card.addEventListener('click', function(){
+          card.classList.toggle('active');
+        });
+      });
+    })();
+  </script>
+
 
   
 
@@ -443,6 +713,132 @@
   </div>
   <script>
 const CLIENT_ID = {{ client.id if client else 'null' }};
+
+  // Export contact (vCard / copie)
+  (function(){
+    const openBtn = document.getElementById('contactExportBtn');
+    const modal = document.getElementById('contactExportModal');
+    const closeBtn = document.getElementById('contactExportClose');
+    const vcfBtn = document.getElementById('contactExportVcf');
+    const copyBtn = document.getElementById('contactExportCopy');
+    const mailBtn = document.getElementById('contactEmailBtn');
+    const mailModal = document.getElementById('contactMailModal');
+    const mailClose = document.getElementById('contactMailClose');
+    const mailTo = document.getElementById('contactMailTo');
+    const mailSubject = document.getElementById('contactMailSubject');
+    const mailBody = document.getElementById('contactMailBody');
+    const mailFiles = document.getElementById('contactMailFiles');
+    const mailFilesList = document.getElementById('contactMailFilesList');
+    const mailSend = document.getElementById('contactMailSend');
+    if (!openBtn || !modal) return;
+    const data = {
+      first: `{{ client.prenom or '' }}`.trim(),
+      last: `{{ client.nom or '' }}`.trim(),
+      phone: `{{ client.telephone or '' }}`.trim(),
+      email: `{{ client.email or '' }}`.trim(),
+      addr: ``,
+      addrs: []
+    };
+    function setText(id, val){
+      const el = document.getElementById(id);
+      if (el) el.textContent = val || '—';
+    }
+    function vcard(){
+      const lines = [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        `N:${data.last};${data.first};;;`,
+        `FN:${[data.first, data.last].filter(Boolean).join(' ')}`,
+      ];
+      if (data.phone) lines.push(`TEL;TYPE=CELL,VOICE:${data.phone}`);
+      if (data.email) lines.push(`EMAIL;TYPE=INTERNET:${data.email}`);
+      if (data.addr) lines.push(`ADR;TYPE=HOME:;;${data.addr};;;;`);
+      lines.push('END:VCARD');
+      return lines.join('\\r\\n');
+    }
+    function openModal(){
+      setText('contactName', data.last || '—');
+      setText('contactFirstname', data.first || '—');
+      setText('contactPhone', data.phone || '—');
+      if (mailBtn){
+        mailBtn.textContent = data.email || '—';
+        mailBtn.disabled = !data.email;
+      }
+      setText('contactAddress', data.addr || '—');
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+    }
+    function closeModal(){
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    openBtn.addEventListener('click', openModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+    function downloadVcf(filename){
+      const blob = new Blob([vcard()], { type:'text/vcard;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); }, 200);
+    }
+    if (vcfBtn) vcfBtn.addEventListener('click', function(){
+      const base = [data.first, data.last].filter(Boolean).join('_') || 'contact';
+      downloadVcf(`${base}.vcf`);
+    });
+    if (copyBtn) copyBtn.addEventListener('click', function(){
+      const txt = [
+        [data.first, data.last].filter(Boolean).join(' ').trim(),
+        data.phone,
+        data.email,
+        data.addr
+      ].filter(Boolean).join('\\n');
+      if (navigator.clipboard && txt){
+        navigator.clipboard.writeText(txt).catch(function(){});
+      }
+    });
+    function openMailModal(){
+      if (!mailModal) return;
+      if (mailTo) mailTo.value = data.email || '';
+      if (mailSubject) mailSubject.value = `Contact ${[data.first, data.last].filter(Boolean).join(' ')}`.trim();
+      if (mailBody) mailBody.value = '';
+      if (mailFiles) mailFiles.value = '';
+      if (mailFilesList) mailFilesList.textContent = '';
+      mailModal.style.display = 'flex';
+      mailModal.setAttribute('aria-hidden', 'false');
+    }
+    function closeMailModal(){
+      if (!mailModal) return;
+      mailModal.style.display = 'none';
+      mailModal.setAttribute('aria-hidden', 'true');
+    }
+    if (mailBtn) mailBtn.addEventListener('click', function(e){ e.preventDefault(); openMailModal(); });
+    if (mailClose) mailClose.addEventListener('click', closeMailModal);
+    if (mailModal) mailModal.addEventListener('click', function(e){ if (e.target === mailModal) closeMailModal(); });
+    if (mailFiles && mailFilesList){
+      mailFiles.addEventListener('change', function(){
+        const names = Array.from(mailFiles.files || []).map(f=> f.name);
+        mailFilesList.textContent = names.length ? 'Pièces à joindre dans votre mail : ' + names.join(', ') : '';
+      });
+    }
+    function mailtoUrl(){
+      const to = data.email || '';
+      const subj = encodeURIComponent((mailSubject && mailSubject.value) || '');
+      const body = encodeURIComponent((mailBody && mailBody.value) || '');
+      return `mailto:${encodeURIComponent(to)}?subject=${subj}&body=${body}`;
+    }
+    if (mailSend){
+      mailSend.addEventListener('click', function(){
+        if (!data.email) return;
+        const url = mailtoUrl();
+        window.location.href = url;
+        closeMailModal();
+      });
+    }
+  })();
 const CL_MARKERS_PARAM = "{{ cl_markers_param }}";
 const CL_MARKERS_SUFFIX = "{{ cl_markers_suffix }}";
 function appendMarkers(url){
@@ -1285,7 +1681,6 @@ function generateClientSynthese(){
       <span class="chevron">▾</span>
     </div>
   <div id="simuAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 10px 0;">
-    <div class="muted" style="margin:4px 0 8px 0; font-size:12px;">Répartition client basée sur les encours agrégés par allocation (SRRI → allocation), éditable pour la simulation.</div>
     <div class="table-responsive">
       <table id="simuAllocTable" class="table table-sm" style="width:100%; font-size:13px;">
         <thead>
@@ -1294,7 +1689,7 @@ function generateClientSynthese(){
             <th style="text-align:right;">Perf 52s</th>
             <th style="text-align:right;">Volat.</th>
             <th style="text-align:center;">SRRI</th>
-            <th style="text-align:right; white-space:nowrap; width:1%;">Répartition contrats</th>
+            <th style="text-align:right; white-space:nowrap; width:1%;">Répartitions</th>
           </tr>
         </thead>
         <tbody>
@@ -1334,7 +1729,7 @@ function generateClientSynthese(){
                      inputmode="decimal"
                      pattern="^[0-9]+([\\.,][0-9]{0,2})?$"
                      value="{{ '%.2f'|format(row.poids_pct or 0) }}"
-                     style="width:7ch; box-sizing:border-box; text-align:right;" />
+                     style="width:7ch; box-sizing:border-box; text-align:right; font-size:12px;" />
             </td>
           </tr>
           {% endfor %}
@@ -1349,6 +1744,7 @@ function generateClientSynthese(){
       Requête SQL (littérale) :
       <pre id="simuAllocSql" style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:12px; white-space:pre-wrap; margin-top:4px;">(chargement…)</pre>
     </div>
+    <div id="simuAllocSummary" class="muted" style="margin-top:8px; font-size:12px;"></div>
     <div id="simuAllocSrriChartWrap" style="margin-top:12px;">
       <canvas id="simuAllocSrriChart" height="110"></canvas>
     </div>
@@ -1853,13 +2249,8 @@ function openClientMsgs(kind){
         label: 'Valorisation',
         data,
         borderColor: primaryColorValo,
-        backgroundColor: (ctx) => {
-          const idx = ctx.dataIndex || 0;
-          const v = data[idx] || 0;
-          const m = movs[idx] || 0;
-          return v >= m ? 'rgba(34, 197, 94, 0.16)' : 'rgba(239, 68, 68, 0.16)';
-        },
-        fill: { target: 1 },
+        backgroundColor: 'transparent',
+        fill: false,
         pointRadius: 0,
         pointHoverRadius: 0
       },
@@ -1868,6 +2259,24 @@ function openClientMsgs(kind){
         data: movs,
         borderColor: '#ff6b6b',
         fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0
+      },
+      {
+        label: 'Zone verte',
+        data: data.map((v, i) => (v >= movs[i] ? v : null)),
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(34, 197, 94, 0.16)',
+        fill: { target: 1 },
+        pointRadius: 0,
+        pointHoverRadius: 0
+      },
+      {
+        label: 'Zone rouge',
+        data: data.map((v, i) => (v < movs[i] ? v : null)),
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(239, 68, 68, 0.16)',
+        fill: { target: 1 },
         pointRadius: 0,
         pointHoverRadius: 0
       },
@@ -2038,8 +2447,31 @@ function openClientMsgs(kind){
         ctx.restore();
       }
     };
+    const srriTicksMidPlugin = {
+      id: 'srriTicksMid',
+      afterDraw(chart){
+        const yScale = chart.scales?.y2;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const mids = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5];
+        ctx.save();
+        ctx.fillStyle = srriColor;
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        // Place labels just inside the right axis to avoid clipping
+        const x = Math.min(yScale.left - 6, area.right - 6);
+        mids.forEach((v, idx)=>{
+          const y = yScale.getPixelForValue(v);
+          if (!Number.isFinite(y)) return;
+          ctx.fillText(String(idx + 1), x, y);
+        });
+        ctx.restore();
+      }
+    };
     const chart = new Chart(ctx, {
-      plugins: [srriBandsPlugin, labelPlugin],
+      plugins: [srriBandsPlugin, srriTicksMidPlugin, labelPlugin],
       data: {
         labels: (yearsClient||[]).map(String),
         datasets: [
@@ -2052,13 +2484,18 @@ function openClientMsgs(kind){
         scales: {
           y: {
             position: 'left',
-            ticks: { callback: v => v + ' %' }
+            ticks: { callback: v => v + ' %' },
+            grid: {
+              color: (ctx) => ctx.tick?.value === 0 ? '#1f2937' : 'rgba(0,0,0,0)',
+              lineWidth: (ctx) => ctx.tick?.value === 0 ? 2 : 0,
+              drawTicks: false
+            }
           },
           y2: {
             position: 'right',
             min: 1,
             max: 8,
-            ticks: { stepSize: 1, callback: v => v, color: srriColor },
+            ticks: { display: false, stepSize: 1 },
             grid: { drawOnChartArea: false },
             title: { display: true, text: 'SRRI', color: srriColor },
             border: { color: srriColor }
@@ -2303,10 +2740,12 @@ function openClientMsgs(kind){
     const resetBtn = document.getElementById('simuAllocResetBtn');
     const sqlEl = document.getElementById('simuAllocSql');
     const srriChartCtx = document.getElementById('simuAllocSrriChart')?.getContext('2d');
+    const summaryEl = document.getElementById('simuAllocSummary');
     const dataJsonEl = document.getElementById('simuAllocDataJson');
     const exportBtn = document.getElementById('simuAllocExportCsv');
     let srriChart = null;
     const allocSeriesData = {{ alloc_series | tojson }};
+    const clientSeriesData = {{ client_sicav | tojson }};
     if (!table || !sumEl) return;
     function defaultValue(inp){
       const tr = inp.closest('tr');
@@ -2347,6 +2786,18 @@ function openClientMsgs(kind){
         return m;
       };
     }
+    function buildClientMap(){
+      const m = new Map();
+      (clientSeriesData||[]).forEach(p=>{
+        if (!p) return;
+        const d = (p.date || '').slice(0,10);
+        const v = parseFloat(p.sicav);
+        if (!d || !isFinite(v)) return;
+        m.set(d, v);
+      });
+      return m;
+    }
+    const clientMap = buildClientMap();
     const getSeriesMap = parseSeriesMap();
     function formatPct(v){
       if (!isFinite(v)) return '—';
@@ -2421,6 +2872,16 @@ function openClientMsgs(kind){
           allowed = inter;
         }
       });
+      if (clientMap.size){
+        const clientDates = new Set(Array.from(clientMap.keys()));
+        if (allowed === null){
+          allowed = clientDates;
+        } else {
+          const inter = new Set();
+          allowed.forEach(d=>{ if (clientDates.has(d)) inter.add(d); });
+          allowed = inter;
+        }
+      }
       return allowed ? Array.from(allowed).sort() : [];
     }
     function computeResults(){
@@ -2442,6 +2903,7 @@ function openClientMsgs(kind){
       names.forEach(n => { weightLookup[n.key] = weightMap.has(n.norm) ? weightMap.get(n.norm) : 0; });
       dates.forEach(d=>{
         let valo = 0;
+        const clientValo = clientMap.has(d) ? clientMap.get(d) : null;
         for (const n of names){
           const v = getSeriesMap(n.display).get(d);
           if (!isFinite(v)) { valo = null; break; }
@@ -2449,7 +2911,7 @@ function openClientMsgs(kind){
           valo += v * (w/100);
         }
         if (valo === null || !isFinite(valo)) return;
-        rows.push({ date: d, valo });
+        rows.push({ date: d, valo, clientValo: isFinite(clientValo) ? clientValo : null });
       });
       // Perf hebdo
       for (let i=0; i<rows.length; i++){
@@ -2458,6 +2920,13 @@ function openClientMsgs(kind){
           rows[i].perf = null;
         } else {
           rows[i].perf = ((rows[i].valo / prev) - 1) * 100;
+        }
+        const prevClient = rows[i-1] ? rows[i-1].clientValo : null;
+        if (prevClient === null || prevClient === undefined || !isFinite(prevClient) || prevClient === 0){
+          rows[i].clientPerf = null;
+        } else {
+          const cv = rows[i].clientValo;
+          rows[i].clientPerf = (isFinite(cv) ? ((cv / prevClient) - 1) * 100 : null);
         }
       }
       // Vol glissante 52s (nécessite 52 perfs non null/finies)
@@ -2571,6 +3040,28 @@ function openClientMsgs(kind){
       const firstIdx = rows.findIndex(r => isFinite(r.srri) && r.srri !== 1);
       const plotRows = firstIdx > 0 ? rows.slice(firstIdx) : rows;
       if (dataJsonEl){ dataJsonEl.textContent = JSON.stringify(rows, null, 2); }
+      // Summary vol/srri over last 12 months (based on last date)
+      if (summaryEl){
+        let summaryTxt = '';
+        if (rows.length){
+          const lastDateStr = rows[rows.length - 1].date;
+          const lastDate = lastDateStr ? new Date(lastDateStr) : null;
+          if (lastDate && isFinite(lastDate.getTime())){
+            const cutoff = new Date(lastDate);
+            cutoff.setMonth(cutoff.getMonth() - 12);
+            const vols = rows
+              .filter(r => r.date && new Date(r.date) >= cutoff && isFinite(r.vol))
+              .map(r => r.vol);
+            if (vols.length){
+              const avgVol = vols.reduce((s,v)=>s+v,0) / vols.length;
+              const srriAvg = srriFromVol(avgVol);
+              const volStr = avgVol.toFixed(2).replace('.', ',');
+              summaryTxt = `Volatilité moyenne 12 mois : ${volStr} % – SRRI : ${srriAvg ?? '—'}`;
+            }
+          }
+        }
+        summaryEl.textContent = summaryTxt || 'Volatilité moyenne 12 mois : —';
+      }
       if (exportBtn){
         exportBtn.onclick = function(){
           const csv = toCsv(rows);
@@ -2638,35 +3129,51 @@ function openClientMsgs(kind){
               ctx.restore();
             }
           };
+          const clientPerfData = plotRows.map(r => isFinite(r.clientPerf) ? +r.clientPerf.toFixed(2) : null);
+          const hasClientPerf = clientPerfData.some(v => v !== null && isFinite(v));
+          const datasets = [
+            {
+              label: 'SRRI',
+              data: plotRows.map(r => r.srri),
+              borderColor: 'transparent',
+              backgroundColor: 'transparent',
+              fill: false,
+              tension: 0,
+              pointRadius: 0,
+              stepped: true,
+              yAxisID: 'y'
+            },
+            {
+              label: 'Perf hebdo (%)',
+              data: plotRows.map(r => isFinite(r.perf) ? +r.perf.toFixed(2) : null),
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16,185,129,0.15)',
+              fill: false,
+              tension: 0.2,
+              pointRadius: 0,
+              spanGaps: true,
+              yAxisID: 'y1'
+            }
+          ];
+          if (hasClientPerf){
+            datasets.push({
+              label: 'Perf client (%)',
+              data: clientPerfData,
+              borderColor: '#f97316',
+              backgroundColor: 'rgba(249,115,22,0.15)',
+              fill: false,
+              tension: 0.2,
+              pointRadius: 0,
+              spanGaps: true,
+              yAxisID: 'y1'
+            });
+          }
           srriChart = new Chart(srriChartCtx, {
             type: 'line',
             plugins: [srriBandPlugin, srriLabelPlugin],
             data: {
               labels: plotRows.map(r => r.date),
-              datasets: [
-                {
-                  label: 'SRRI',
-                  data: plotRows.map(r => r.srri),
-                  borderColor: 'transparent',
-                  backgroundColor: 'transparent',
-                  fill: false,
-                  tension: 0,
-                  pointRadius: 0,
-                  stepped: true,
-                  yAxisID: 'y'
-                },
-                {
-                  label: 'Perf hebdo (%)',
-                  data: plotRows.map(r => isFinite(r.perf) ? +r.perf.toFixed(2) : null),
-                  borderColor: '#10b981',
-                  backgroundColor: 'rgba(16,185,129,0.15)',
-                  fill: false,
-                  tension: 0.2,
-                  pointRadius: 0,
-                  spanGaps: true,
-                  yAxisID: 'y1'
-                }
-              ]
+              datasets
             },
             options:{
               responsive:true,
@@ -2694,11 +3201,12 @@ function openClientMsgs(kind){
                 },
                 x:{ ticks:{ maxRotation:0, minRotation:0, autoSkip:true, maxTicksLimit:6 } }
               },
-              plugins:{ legend:{ display:false } }
+              plugins:{ legend:{ display:true, position:'top', labels:{ boxWidth:12, usePointStyle:true } } }
             }
           });
         }
       }
+      // Pas de second graphique SRRI client : on conserve uniquement la simulation SRRI/perf.
     }
     function updateSum(){
       let total = 0;

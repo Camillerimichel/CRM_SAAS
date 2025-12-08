@@ -2323,6 +2323,13 @@ def _build_finance_analysis(
 
 def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
+    client_sri_current = None
+    try:
+        row_sri_cur = db.execute(text("SELECT SRI FROM mariadb_clients WHERE id = :cid LIMIT 1"), {"cid": client_id}).fetchone()
+        if row_sri_cur:
+            client_sri_current = row_sri_cur[0] if not hasattr(row_sri_cur, "_mapping") else row_sri_cur._mapping.get("SRI")
+    except Exception:
+        client_sri_current = None
 
     rh_list = fetch_rh_list(db)
     if not client:
@@ -16044,6 +16051,36 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         return "snowflake"
     srri_icon_aff = _icon_for_compare_srri(affaire.SRRI, srri_calc)
 
+    # SRI courant + métriques/ scénarios (affaire)
+    affaire_sri_current = None
+    try:
+        row_sri_cur = db.execute(text("SELECT SRI FROM mariadb_affaires WHERE id = :aid LIMIT 1"), {"aid": affaire_id}).fetchone()
+        if row_sri_cur:
+            affaire_sri_current = row_sri_cur[0] if not hasattr(row_sri_cur, "_mapping") else row_sri_cur._mapping.get("SRI")
+    except Exception:
+        affaire_sri_current = None
+
+    sri_metrics_latest = None
+    sri_scenarios = {"horizons": [], "rows": []}
+    try:
+        row_sri = db.execute(
+            text(
+                """
+                SELECT sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev, as_of_date, calc_at
+                FROM sri_metrics
+                WHERE entity_type = 'affaire' AND entity_id = :aid
+                ORDER BY as_of_date DESC, calc_at DESC
+                LIMIT 1
+                """
+            ),
+            {"aid": affaire_id},
+        ).fetchone()
+        if row_sri:
+            sri_metrics_latest = dict(row_sri._mapping) if hasattr(row_sri, "_mapping") else dict(row_sri)
+            sri_scenarios = _compute_sri_scenarios(sri_metrics_latest)
+    except Exception:
+        sri_metrics_latest = None
+
     # Durée depuis la première date de l'historique
     from datetime import datetime as _dt
     first_dt_aff = None
@@ -16367,6 +16404,9 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "srri_client": affaire.SRRI,
             "srri_calc": srri_calc,
             "srri_icon_aff": srri_icon_aff,
+            "sri_metrics_latest": sri_metrics_latest,
+            "sri_scenarios": sri_scenarios,
+            "affaire_sri": affaire_sri_current,
             "labels": labels,
             "serie_valo": serie_valo,
             "serie_cum_mouv": serie_cum_mouv,
@@ -16402,7 +16442,11 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
 _DEFAULT_LOG_TYPES = [
     ("srri_clients", "Calculs de niveaux de risques clients"),
     ("srri_affaires", "Calculs de niveaux de risques affaires"),
+    ("sri_clients", "Calculs SRI clients"),
+    ("sri_affaires", "Calculs SRI affaires"),
 ]
+
+_SRI_N_PERIODS = 104  # horizon annualisé pour VaR/VeV (par ex. 2 ans hebdo)
 
 
 def _ensure_log_tables(db: Session) -> None:
@@ -16628,6 +16672,341 @@ def _fetch_logs(
         return [], 0
 
 
+def _ensure_sri_metrics_table(db: Session) -> None:
+    """Crée la table sri_metrics si absente (historisation par entité et date)."""
+    try:
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS sri_metrics (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                  entity_type VARCHAR(16) NOT NULL,
+                  entity_id INT NOT NULL,
+                  as_of_date DATE NOT NULL,
+                  calc_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  sri INT NULL,
+                  m0 INT NULL,
+                  m1 DECIMAL(38,18) NULL,
+                  m2 DECIMAL(38,18) NULL,
+                  m3 DECIMAL(38,18) NULL,
+                  m4 DECIMAL(38,18) NULL,
+                  sigma DECIMAL(38,18) NULL,
+                  mu1 DECIMAL(38,18) NULL,
+                  mu2 DECIMAL(38,18) NULL,
+                  n_periods INT NULL,
+                  var_cf DECIMAL(38,18) NULL,
+                  vev DECIMAL(38,18) NULL,
+                  UNIQUE KEY uk_entity_date (entity_type, entity_id, as_of_date),
+                  INDEX idx_entity (entity_type, entity_id),
+                  INDEX idx_as_of (as_of_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to ensure sri_metrics table exists")
+        raise
+
+
+def _store_sri_metrics(db: Session, entity_type: str, tempo_table: str, source: str = "srri") -> None:
+    """
+    Calcule et upsert les métriques SRI pour un tableau temporel (clients/affaires).
+    Overwrite si (entity_type, entity_id, as_of_date) existe déjà.
+    source: "srri" -> réutilise la colonne srri de la table tempo
+            "vev"  -> calcule SRI à partir de la VeV (équivalent vol) et mappe sur les bandes vol
+    """
+    try:
+        _ensure_sri_metrics_table(db)
+        sql = f"""
+        INSERT INTO sri_metrics (
+          entity_type, entity_id, as_of_date, calc_at,
+          sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev
+        )
+        SELECT
+          :etype AS entity_type,
+          ms.id,
+          ms.as_of_date,
+          NOW(),
+          CASE
+            WHEN :src = 'vev' THEN
+              CASE
+                WHEN ms.vev IS NULL THEN NULL
+                WHEN ms.vev < 0.005 THEN 1
+                WHEN ms.vev < 0.02  THEN 2
+                WHEN ms.vev < 0.05  THEN 3
+                WHEN ms.vev < 0.10 THEN 4
+                WHEN ms.vev < 0.15 THEN 5
+                WHEN ms.vev < 0.25 THEN 6
+                ELSE 7
+              END
+            ELSE ls.srri
+          END AS sri_final,
+          ms.m0,
+          ms.m1,
+          ms.m2,
+          ms.m3,
+          ms.m4,
+          ms.sigma,
+          ms.mu1,
+          ms.mu2,
+          ms.n_periods,
+          ms.var_cf,
+          ms.vev
+        FROM (
+          SELECT
+            st.id,
+            st.as_of_date,
+            st.m0,
+            st.m1,
+            (st.raw_m2 - POWER(st.m1, 2)) AS m2,
+            (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) AS m3,
+            (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) AS m4,
+            CASE WHEN (st.raw_m2 - POWER(st.m1, 2)) < 0 THEN NULL ELSE SQRT(st.raw_m2 - POWER(st.m1, 2)) END AS sigma,
+            CASE
+              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+              ELSE (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5)
+            END AS mu1,
+            CASE
+              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+              ELSE (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3
+            END AS mu2,
+            st.m0 AS n_periods,
+            CASE
+              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+              ELSE (
+                SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                  -1.96
+                  + 0.474 * COALESCE(
+                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                      0
+                    ) / SQRT(:nper)
+                  - 0.0687 * COALESCE(
+                      (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                      0
+                    ) / :nper
+                  + 0.146 * POWER(COALESCE(
+                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                      0
+                    ), 2) / :nper
+                )
+                - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+              )
+            END AS var_cf,
+            CASE
+              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+              ELSE ABS(
+                SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                  -1.96
+                  + 0.474 * COALESCE(
+                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                      0
+                    ) / SQRT(:nper)
+                  - 0.0687 * COALESCE(
+                      (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                      0
+                    ) / :nper
+                  + 0.146 * POWER(COALESCE(
+                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                      0
+                    ), 2) / :nper
+                )
+                - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+              ) / SQRT(:nper)
+            END AS vev
+          FROM (
+            SELECT
+              id,
+              MAX(`date`) AS as_of_date,
+              COUNT(*) AS m0,
+              AVG(r) AS m1,
+              AVG(POWER(r, 2)) AS raw_m2,
+              AVG(POWER(r, 3)) AS raw_m3,
+              AVG(POWER(r, 4)) AS raw_m4
+            FROM {tempo_table}
+            WHERE r IS NOT NULL
+            GROUP BY id
+          ) st
+        ) ms
+        LEFT JOIN (
+          SELECT id, srri
+          FROM (
+            SELECT id, srri,
+                   ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+            FROM {tempo_table}
+          ) x
+          WHERE x.rk = 1
+        ) ls ON ls.id = ms.id
+        ON DUPLICATE KEY UPDATE
+          calc_at = VALUES(calc_at),
+          sri = VALUES(sri),
+          m0 = VALUES(m0),
+          m1 = VALUES(m1),
+          m2 = VALUES(m2),
+          m3 = VALUES(m3),
+          m4 = VALUES(m4),
+          sigma = VALUES(sigma),
+          mu1 = VALUES(mu1),
+          mu2 = VALUES(mu2),
+          n_periods = VALUES(n_periods),
+          var_cf = VALUES(var_cf),
+          vev = VALUES(vev);
+        """
+        db.execute(text(sql), {"etype": entity_type, "nper": _SRI_N_PERIODS, "src": source})
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to store SRI metrics for %s using %s", entity_type, tempo_table)
+
+
+def _update_sri_current(db: Session, entity_type: str) -> None:
+    """Met à jour la colonne SRI courante dans les tables cibles à partir de sri_metrics (dernière as_of)."""
+    try:
+        if entity_type == "client":
+            db.execute(
+                text(
+                    """
+                    UPDATE mariadb_clients AS c
+                    JOIN (
+                      SELECT sm.entity_id AS id, sm.sri
+                      FROM (
+                        SELECT entity_id, sri, as_of_date,
+                               ROW_NUMBER() OVER (PARTITION BY entity_id ORDER BY as_of_date DESC, calc_at DESC) AS rk
+                        FROM sri_metrics
+                        WHERE entity_type = 'client'
+                      ) sm
+                      WHERE sm.rk = 1
+                    ) t ON c.id = t.id
+                    SET c.SRI = t.sri
+                    """
+                )
+            )
+        elif entity_type == "affaire":
+            db.execute(
+                text(
+                    """
+                    UPDATE mariadb_affaires AS a
+                    JOIN (
+                      SELECT sm.entity_id AS id, sm.sri
+                      FROM (
+                        SELECT entity_id, sri, as_of_date,
+                               ROW_NUMBER() OVER (PARTITION BY entity_id ORDER BY as_of_date DESC, calc_at DESC) AS rk
+                        FROM sri_metrics
+                        WHERE entity_type = 'affaire'
+                      ) sm
+                      WHERE sm.rk = 1
+                    ) t ON a.id = t.id
+                    SET a.SRI = t.sri
+                    """
+                )
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to update current SRI for %s", entity_type)
+
+
+def _compute_sri_scenarios(sm: dict | None) -> dict:
+    """
+    Calcule les scénarios (tension, défavorable, intermédiaire, favorable)
+    sur 3 horizons : 1 an, demi-vie (4 ans), vie (8 ans).
+    Les formules sont celles communiquées (Cornish-Fisher et variantes).
+    """
+    if not sm:
+        return {"horizons": [], "rows": []}
+    try:
+        sigma = float(sm.get("sigma")) if sm.get("sigma") is not None else None
+        mu1 = float(sm.get("mu1")) if sm.get("mu1") is not None else None
+        mu2 = float(sm.get("mu2")) if sm.get("mu2") is not None else None
+        m1 = float(sm.get("m1")) if sm.get("m1") is not None else None
+    except Exception:
+        return {"horizons": [], "rows": []}
+    if None in (sigma, mu1, mu2, m1):
+        return {"horizons": [], "rows": []}
+
+    periods_per_year = 52
+    horizons = [
+        ("1 an", 1 * periods_per_year),
+        ("Demi-vie (4 ans)", 4 * periods_per_year),
+        ("Vie (8 ans)", 8 * periods_per_year),
+    ]
+
+    def scen_tension(N: int, za: float = -2.33, w: float = 1.0) -> float:
+        sqrtN = math.sqrt(N)
+        return math.exp(
+            w * sigma * sqrtN
+            * (
+                za
+                + ((za**2 - 1) / 6) * mu1 / sqrtN
+                + ((za**3 - 3 * za) / 24) * mu2 / N
+                - ((2 * za**3 - 5 * za) / 36) * (mu1**2) / N
+            )
+            - 0.5 * (w**2) * (sigma**2) * N
+        )
+
+    def scen_defav(N: int) -> float:
+        sqrtN = math.sqrt(N)
+        return math.exp(
+            m1 * N
+            + sigma
+            * sqrtN
+            * (
+                -1.28
+                + 0.107 * mu1 / sqrtN
+                + 0.0724 * mu2 / N
+                - 0.0611 * (mu1**2) / N
+            )
+            - 0.5 * sigma * sigma * N
+        )
+
+    def scen_inter(N: int) -> float:
+        return math.exp(m1 * N - sigma * mu1 / 6 - 0.5 * sigma * sigma * N)
+
+    def scen_fav(N: int) -> float:
+        sqrtN = math.sqrt(N)
+        return math.exp(
+            m1 * N
+            + sigma
+            * sqrtN
+            * (
+                1.28
+                - 0.107 * mu1 / sqrtN
+                - 0.0724 * mu2 / N
+                + 0.0611 * (mu1**2) / N
+            )
+            - 0.5 * sigma * sigma * N
+        )
+
+    rows = []
+    for name, N in horizons:
+        try:
+            tension_v = scen_tension(N)
+        except Exception:
+            tension_v = None
+        try:
+            defav_v = scen_defav(N)
+        except Exception:
+            defav_v = None
+        try:
+            inter_v = scen_inter(N)
+        except Exception:
+            inter_v = None
+        try:
+            fav_v = scen_fav(N)
+        except Exception:
+            fav_v = None
+
+        rows.append(
+            {
+                "horizon": name,
+                "tension": tension_v,
+                "defavorable": defav_v,
+                "intermediaire": inter_v,
+                "favorable": fav_v,
+            }
+        )
+    return {"horizons": [h[0] for h in horizons], "rows": rows}
 @router.get("/superadmin", response_class=HTMLResponse)
 def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     """Page de supervision globale (sociétés, utilisateurs, imports)."""
@@ -17738,8 +18117,28 @@ def dashboard_superadmin_recompute_srri(
                 """
             )
         )
+        # Mettre à jour le SRI courant au niveau client (à partir de la dernière ligne calculée)
+        db.execute(
+            text(
+                """
+                UPDATE mariadb_clients AS c
+                JOIN (
+                  SELECT id, srri
+                  FROM (
+                    SELECT id, srri,
+                           ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+                    FROM tempo_hist_personne_w
+                  ) AS ordered
+                  WHERE rk = 1
+                ) AS t
+                  ON c.id = t.id
+                SET c.SRI = t.srri
+                """
+            )
+        )
         db.commit()
         elapsed = perf_counter() - started
+        _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="srri")
         _finish_log_entry(
             db,
             log_id=log_id,
@@ -17761,6 +18160,58 @@ def dashboard_superadmin_recompute_srri(
         )
 
     target_url = f"/dashboard/superadmin?{qs}#suivi-logs" if qs else "/dashboard/superadmin#suivi-logs"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/recompute-sri-clients", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_sri_clients(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Calcule le SRI (via VeV) pour tous les clients et met à jour mariadb_clients.SRI + sri_metrics."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="sri_clients",
+        log_label="Calculs SRI clients",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        # Re-utilise la table tempo_hist_personne_w existante (issue du calcul SRRI) pour dériver le SRI via VeV
+        _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="vev")
+        _update_sri_current(db, entity_type="client")
+        elapsed = perf_counter() - started
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Calcul SRI clients terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"sri_clients_status": "ok", "sri_clients_dur": f"{elapsed:.2f}"})
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"sri_clients_status": "error"})
+        logger.exception("SRI clients compute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec calcul SRI clients: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
     return RedirectResponse(url=target_url, status_code=303)
 
 
@@ -17931,12 +18382,14 @@ def dashboard_superadmin_recompute_srri_affaires(
                   WHERE rk = 1
                 ) AS t
                   ON a.id = t.id
-                SET a.SRRI = t.srri
+                SET a.SRRI = t.srri,
+                    a.SRI  = t.srri
                 """
             )
         )
         db.commit()
         elapsed = perf_counter() - started
+        _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="srri")
         _finish_log_entry(
             db,
             log_id=log_id,
@@ -17960,6 +18413,56 @@ def dashboard_superadmin_recompute_srri_affaires(
     target_url = f"/dashboard/superadmin?{qs}#suivi-logs" if qs else "/dashboard/superadmin#suivi-logs"
     return RedirectResponse(url=target_url, status_code=303)
 
+
+@router.post("/superadmin/recompute-sri-affaires", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_sri_affaires(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Calcule le SRI (via VeV) pour toutes les affaires et met à jour mariadb_affaires.SRI + sri_metrics."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="sri_affaires",
+        log_label="Calculs SRI affaires",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="vev")
+        _update_sri_current(db, entity_type="affaire")
+        elapsed = perf_counter() - started
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Calcul SRI affaires terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"sri_affaires_status": "ok", "sri_affaires_dur": f"{elapsed:.2f}"})
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"sri_affaires_status": "error"})
+        logger.exception("SRI affaires compute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec calcul SRI affaires: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
+    return RedirectResponse(url=target_url, status_code=303)
 @router.post("/superadmin/client-auth", response_class=RedirectResponse)
 def dashboard_superadmin_client_auth(
     request: Request,
@@ -20473,6 +20976,13 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     DER_sql_mediation: str | None = None
 
     client = db.query(Client).filter(Client.id == client_id).first()
+    client_sri_current = None
+    try:
+        row_sri_cur = db.execute(text("SELECT SRI FROM mariadb_clients WHERE id = :cid LIMIT 1"), {"cid": client_id}).fetchone()
+        if row_sri_cur:
+            client_sri_current = row_sri_cur[0] if not hasattr(row_sri_cur, "_mapping") else row_sri_cur._mapping.get("SRI")
+    except Exception:
+        client_sri_current = None
     client_allocation_id = None
     client_allocation_name = None
     allocations_lookup: dict[int, str] = {}
@@ -22257,6 +22767,28 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         report_logo_png = None
 
+    # Dernières métriques SRI (client) + scénarios dérivés
+    sri_metrics_latest: dict | None = None
+    sri_scenarios: dict = {"horizons": [], "rows": []}
+    try:
+        row_sri = db.execute(
+            text(
+                """
+                SELECT sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev, as_of_date, calc_at
+                FROM sri_metrics
+                WHERE entity_type = 'client' AND entity_id = :cid
+                ORDER BY as_of_date DESC, calc_at DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row_sri:
+            sri_metrics_latest = dict(row_sri._mapping) if hasattr(row_sri, "_mapping") else dict(row_sri)
+            sri_scenarios = _compute_sri_scenarios(sri_metrics_latest)
+    except Exception:
+        sri_metrics_latest = None
+
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
@@ -22409,6 +22941,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "montantInvesti": lm_total_invest_str,
             "dateEntretien": lm_entretien_date,
             "objectifsMission": lm_objectifs_summary or "—",
+            "sri_metrics_latest": sri_metrics_latest,
+            "sri_scenarios": sri_scenarios,
+            "client_sri": client_sri_current,
         }
     )
 

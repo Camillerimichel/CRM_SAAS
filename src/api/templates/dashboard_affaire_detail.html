@@ -451,11 +451,182 @@
         <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
+        <div class="kpi-mini kpi-line" style="align-items:flex-start;">
+          <span>SRI (détails)</span>
+          <span class="kv">
+            <button type="button" class="btn btn-secondary" style="padding:6px 10px;" onclick="openSriModalAff()">Voir SRI</button>
+            <div class="muted" style="font-size:12px; margin-top:4px;">SRI courant : {{ affaire_sri if affaire_sri is not none else '—' }}</div>
+          </span>
+        </div>
         <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
       </div>
     </div>
   </div>
 </div>
+
+<!-- Modal SRI Affaire -->
+<style>
+  .sri-tip { position:relative; cursor:help; }
+  .sri-tip:hover::before {
+    content:"";
+    position:absolute;
+    top:-6px; right:8px;
+    border:6px solid transparent;
+    border-bottom-color:#1f2937;
+    opacity:0.85;
+    z-index:40;
+  }
+  .sri-tip:hover::after {
+    content: attr(data-tip);
+    position:absolute;
+    top:-6px; right:0;
+    transform: translateY(-100%);
+    background:#1f2937;
+    color:#fff;
+    padding:8px 10px;
+    border-radius:8px;
+    font-size:0.85rem;
+    line-height:1.25;
+    max-width:280px;
+    white-space:normal;
+    box-shadow:0 6px 18px rgba(0,0,0,0.18);
+    opacity:0.95;
+    z-index:39;
+  }
+  .sri-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+  }
+  .sri-card.active {
+    transform: scale(1.03);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+    border-color: var(--primary, #4f46e5);
+  }
+</style>
+<div id="sriModalAff" class="modal-overlay" onclick="if(event.target===this) closeSriModalAff()">
+  <div class="modal-card" style="width:720px; max-width:95vw;">
+    <div class="modal-header">
+      <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur SRI (affaire)</h3>
+      <button class="modal-close" onclick="closeSriModalAff()">✕</button>
+    </div>
+    <div class="modal-body">
+      {% set sm = sri_metrics_latest %}
+      {% if sm %}
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+          <div style="flex:1; min-width:220px;">
+            <div class="muted" style="font-size:0.9rem;">Date de calcul</div>
+            <div style="font-weight:700;">{{ sm.as_of_date or '—' }}</div>
+            <div class="muted" style="font-size:0.85rem;">Heure serveur : {{ sm.calc_at or '—' }}</div>
+          </div>
+          <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center;">
+            <div class="muted" style="font-size:0.9rem;">SRI</div>
+            <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M0 = nombre d'observations sur la période.">M0 (observations)</div><div class="kv">{{ sm.m0 if sm.m0 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M1 = moyenne de tous les rendements observés dans l'échantillon.">M1 (moyenne)</div><div class="kv">{{ '%.6f'|format(sm.m1) if sm.m1 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M2 = ∑(ri - M1)² / M0 (variance).">M2</div><div class="kv">{{ '%.6f'|format(sm.m2) if sm.m2 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M3 = ∑(ri - M1)³ / M0.">M3</div><div class="kv">{{ '%.6f'|format(sm.m3) if sm.m3 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M4 = ∑(ri - M1)⁴ / M0.">M4</div><div class="kv">{{ '%.6f'|format(sm.m4) if sm.m4 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="σ = √(M2) (volatilité).">Sigma</div><div class="kv">{{ '%.6f'|format(sm.sigma) if sm.sigma is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="µ1 = M3 / σ³ (coefficient d'asymétrie).">µ1 (skew)</div><div class="kv">{{ '%.6f'|format(sm.mu1) if sm.mu1 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="µ2 = (M4 / σ⁴) - 3 (excès de kurtosis).">µ2 (kurtosis)</div><div class="kv">{{ '%.6f'|format(sm.mu2) if sm.mu2 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="VaR Cornish-Fisher : σ√N(-1,96 + 0,474 µ1/√N - 0,0687 µ2/N + 0,146 µ1²/N) - 0,5 σ² N.">Var CF</div><div class="kv">{{ '%.6f'|format(sm.var_cf) if sm.var_cf is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="VeV = {√(3,842 - 2*VaR) - 1,96} / √(T), T en années (RHP).">VeV</div><div class="kv">{{ '%.6f'|format(sm.vev) if sm.vev is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="Nombre de périodes de négociation durant la RHP (dans l'avenir).">Périodes (n)</div><div class="kv">{{ sm.n_periods if sm.n_periods is not none else '—' }}</div>
+          </div>
+        </div>
+        <div style="margin-top:14px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">
+          <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (RHP) sur une base de 10 000 euros</div>
+          {% set sc = sri_scenarios %}
+          {% if sc and sc.rows %}
+            <table class="table" style="width:100%; font-size:0.95rem; margin-top:6px;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;">Horizon</th>
+                  <th style="text-align:right;">Tension</th>
+                  <th style="text-align:right;">Défavorable</th>
+                  <th style="text-align:right;">Intermédiaire</th>
+                  <th style="text-align:right;">Favorable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in sc.rows %}
+                  <tr>
+                    <td style="text-align:left;">{{ r.horizon }}</td>
+                    <td style="text-align:right;">
+                      {% if r.tension is not none %}
+                        {{ ('{:,.0f}'.format(r.tension * 10000)).replace(',', ' ') }}<br>
+                        <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.tension * 10000) - 10000) / 10000 * 100) }}%</em>
+                      {% else %}—{% endif %}
+                    </td>
+                    <td style="text-align:right;">
+                      {% if r.defavorable is not none %}
+                        {{ ('{:,.0f}'.format(r.defavorable * 10000)).replace(',', ' ') }}<br>
+                        <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.defavorable * 10000) - 10000) / 10000 * 100) }}%</em>
+                      {% else %}—{% endif %}
+                    </td>
+                    <td style="text-align:right;">
+                      {% if r.intermediaire is not none %}
+                        {{ ('{:,.0f}'.format(r.intermediaire * 10000)).replace(',', ' ') }}<br>
+                        <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.intermediaire * 10000) - 10000) / 10000 * 100) }}%</em>
+                      {% else %}—{% endif %}
+                    </td>
+                    <td style="text-align:right;">
+                      {% if r.favorable is not none %}
+                        {{ ('{:,.0f}'.format(r.favorable * 10000)).replace(',', ' ') }}<br>
+                        <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.favorable * 10000) - 10000) / 10000 * 100) }}%</em>
+                      {% else %}—{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
+          {% else %}
+            <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
+          {% endif %}
+        </div>
+      {% else %}
+        <p class="muted">Aucune métrique SRI disponible pour cette affaire.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<script>
+  function openSriModalAff(){ var m=document.getElementById('sriModalAff'); if(m) m.style.display='flex'; }
+  function closeSriModalAff(){ var m=document.getElementById('sriModalAff'); if(m) m.style.display='none'; }
+  (function(){
+    var cards = document.querySelectorAll('#sriModalAff .sri-card');
+    cards.forEach(function(card){
+      card.addEventListener('click', function(){
+        card.classList.toggle('active');
+      });
+    });
+  })();
+</script>
 
   {# Popup de création de tâche supprimé (maintenance) #}
 
@@ -675,16 +846,19 @@
       <span class="chevron" style="margin-left:4px;">▾</span>
     </h3>
   </div>
-  <div id="graphCmpPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
-    <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
-      <div>
-        <label>Offres financières à comparer</label><br>
-        <select id="allocSelect" style="min-width:200px; max-width:260px; width:auto;"></select>
-      </div>
-      <div>
-        <label class="muted" style="font-size:0.85rem;">Période</label><br>
-        <button class="rangeBtnCmp" data-range="all">Tout</button>
-        <button class="rangeBtnCmp" data-range="365">1 an</button>
+    <div id="graphCmpPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
+      <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
+        <div>
+          <label>Offres financières à comparer</label><br>
+          <select id="allocSelect" style="min-width:200px; max-width:260px; width:auto;"></select>
+          <div style="margin-top:6px;">
+            <button id="allocResetBtn" type="button" class="dim-btn" title="Revenir à l'allocation par défaut">Réinitialiser</button>
+          </div>
+        </div>
+        <div>
+          <label class="muted" style="font-size:0.85rem;">Période</label><br>
+          <button class="rangeBtnCmp" data-range="all">Tout</button>
+          <button class="rangeBtnCmp" data-range="365">1 an</button>
         <button class="rangeBtnCmp" data-range="180">6 mois</button>
         <button class="rangeBtnCmp" data-range="90">3 mois</button>
         <button class="rangeBtnCmp" data-range="30">1 mois</button>
@@ -1642,6 +1816,23 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const rangeBtns = Array.from(document.querySelectorAll('.rangeBtnCmp'));
   function setActiveRangeBtn(val){
     rangeBtns.forEach(b => b.classList.toggle('active', (b.dataset.range||'') === val));
+  }
+  function resetAllocToDefault(){
+    if (!sel) return;
+    let target = null;
+    if (defaultAlloc){
+      target = Array.from(sel.options).find(o => (o.value||'').toLowerCase() === defaultAlloc.toLowerCase());
+    }
+    if (target){
+      sel.value = target.value;
+    } else if (sel.options.length){
+      sel.selectedIndex = 0;
+    }
+    drawChart3(sel.value ? [sel.value] : []);
+  }
+  const resetBtn = document.getElementById('allocResetBtn');
+  if (resetBtn){
+    resetBtn.addEventListener('click', resetAllocToDefault);
   }
   rangeBtns.forEach(btn => btn.addEventListener('click', function(){
     currentRange3 = this.dataset.range || 'all';
