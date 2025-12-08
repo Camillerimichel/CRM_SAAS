@@ -5,6 +5,8 @@ class HistoriquePersonne(Base):
     __tablename__ = "mariadb_historique_personne_w"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    # Certains déploiements n'ont pas la colonne id_personne; utiliser id comme identifiant client si absent.
+    id_personne = Column(Integer, index=True, nullable=True)
     date = Column(DateTime, nullable=True)
     valo = Column(Float, nullable=True)
     mouvement = Column(Float, nullable=True)

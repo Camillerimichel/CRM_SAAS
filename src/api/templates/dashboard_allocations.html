@@ -113,6 +113,7 @@
                     <th>Date</th>
                     <th>Perf 52 sem. (%)</th>
                     <th>Volatilité (%)</th>
+                    <th>SRRI</th>
                 </tr>
                 <tr>
                     <th></th>
@@ -120,6 +121,7 @@
                     <th><input type="text" id="date-filter" placeholder="AAAA-MM-JJ"></th>
                     <th><input type="text" id="perf-filter" placeholder="Filtrer..."></th>
                     <th><input type="text" id="volat-filter" placeholder="Filtrer..."></th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -127,9 +129,43 @@
                 <tr>
                     <td><button class="seeBtn" data-nom="{{ a.nom }}">Choix</button></td>
                     <td>{{ a.nom }}</td>
-                    <td>{% if a.date %}<span class="js-local-dt" data-iso="{{ a.date }}">{{ a.date }}</span>{% endif %}</td>
+                    <td>
+                      {% if a.date %}
+                        {# Forcer un affichage YYYY-MM-DD sans JS #}
+                        {% if a.date.__class__.__name__ == 'datetime' %}
+                          {{ a.date.strftime('%Y-%m-%d') }}
+                        {% else %}
+                          {{ (a.date|string).split(' ')[0] }}
+                        {% endif %}
+                      {% endif %}
+                    </td>
                     <td>{{ a.perf_sicav_52 }}</td>
                     <td>{{ a.volat }}</td>
+                    <td>
+                      {% set _srri = None %}
+                      {% if a.volat is not none %}
+                        {% set _v = a.volat %}
+                        {% if _v|abs <= 1 %}
+                          {% set _v = _v * 100 %}
+                        {% endif %}
+                        {% if _v <= 0.5 %}
+                          {% set _srri = 1 %}
+                        {% elif _v <= 2 %}
+                          {% set _srri = 2 %}
+                        {% elif _v <= 5 %}
+                          {% set _srri = 3 %}
+                        {% elif _v <= 10 %}
+                          {% set _srri = 4 %}
+                        {% elif _v <= 15 %}
+                          {% set _srri = 5 %}
+                        {% elif _v <= 25 %}
+                          {% set _srri = 6 %}
+                        {% else %}
+                          {% set _srri = 7 %}
+                        {% endif %}
+                      {% endif %}
+                      {{ _srri if _srri is not none else '—' }}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
