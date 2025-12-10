@@ -617,11 +617,10 @@ def _warm_finance_cache():
         db = SessionLocal()
         try:
             _build_finance_analysis(db, finance_rh_id=None, finance_date_param=None, finance_valo_param=None)
-            logger.info("Finance cache prewarmed successfully")
         finally:
             db.close()
     except Exception:
-        logger.exception("Finance cache prewarm failed", exc_info=True)
+        pass
 
 @app.on_event("startup")
 def _on_startup():

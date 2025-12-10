@@ -114,16 +114,23 @@
     .support-modal__meta span { display:block; }
     .support-modal__meta .label { color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; }
     .support-modal__meta .value { font-weight:600; color:#1f2937; }
-    .support-meta-btn { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.75rem; font-weight:600; color:#1f2937; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition:background .2s ease, color .2s ease, border-color .2s ease; font-size:0.9rem; }
+    .support-meta-srri { display:flex; align-items:center; gap:10px; }
+    .support-meta-srri .label { display:inline; margin:0; }
+    .support-meta-btn { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.75rem; font-weight:600; color:#1f2937; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition:background .2s ease, color .2s ease, border-color .2s ease, transform .12s ease; font-size:0.9rem; min-width:180px; white-space:nowrap; transform: scale(1); will-change: transform; }
     .support-meta-btn i { color:inherit; }
-    .support-meta-btn:hover { background:#e2e8f0; border-color:#cbd5f5; }
-    .support-meta-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); }
+    .support-meta-btn:hover,
+    .support-meta-btn:focus-visible { background:#e2e8f0; border-color:#cbd5f5; transform: scale(1.04); }
+    .support-meta-btn.active,
+    .support-meta-btn:active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); transform: scale(1.04); }
     .support-meta-btn.active i { color:#fff; }
     .support-modal__clients { margin-top:1rem; }
     .support-modal__clients table { width:100%; border-collapse:collapse; }
     .support-modal__clients th, .support-modal__clients td { padding:0.5rem 0.6rem; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.9rem; }
     .support-modal__clients td:last-child, .support-modal__clients th:last-child { text-align:right; font-variant-numeric:tabular-nums; }
     .support-modal__empty { margin-top:1rem; color:#64748b; font-style:italic; }
+    .support-modal__pager { display:flex; align-items:center; gap:8px; justify-content:flex-end; margin-top:6px; font-size:0.9rem; }
+    .support-modal__pager button { padding:4px 8px; border:1px solid #cbd5f5; border-radius:6px; background:#f8fafc; cursor:pointer; }
+    .support-modal__pager button:disabled { opacity:0.5; cursor:not-allowed; }
     .support-modal__actions { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:0.5rem; }
     .support-modal__actions button { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:0.45rem 0.9rem; cursor:pointer; font-weight:600; transition:filter .2s ease; }
     .support-modal__actions button:hover { filter:brightness(0.9); }
@@ -146,7 +153,9 @@
     .support-modal__series table { width:100%; border-collapse:collapse; font-size:0.85rem; }
     .support-modal__series th,
     .support-modal__series td { border:1px solid #e2e8f0; padding:0.45rem 0.5rem; text-align:left; }
-.support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
+    .support-modal__compare-toggle { display:flex; align-items:center; gap:8px; justify-content:flex-start; flex-wrap:nowrap; padding:8px 0 10px; margin:8px 0 10px; width:100%; box-sizing:border-box; }
+    .support-modal__compare-toggle .support-meta-btn { flex:1 1 0; min-width:0; justify-content:center; }
+    .support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
 .support-modal__series .series-table { margin-bottom:1rem; }
 .support-modal__series .series-empty { font-style:italic; color:#64748b; font-size:0.85rem; }
 .support-srri-status { font-size:0.85rem; color:#475569; margin-left:6px; }
@@ -166,6 +175,8 @@
     #supportTaskCancel { background:#e2e8f0; color:#334155; }
     #supportTaskCancel:hover { filter:brightness(0.9); }
     #supportTaskStatus { font-size:0.85rem; color:#475569; margin-top:0.75rem; min-height:1.2rem; }
+    .dim-btn { padding:4px 8px; border:1px solid #cbd5f5; border-radius:8px; background:#f8fafc; cursor:pointer; font-size:12px; transition:background .15s ease, color .15s ease, border-color .15s ease; }
+    .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
 </style>
 
 <div class="main-container">
@@ -236,24 +247,26 @@
   <div class="support-modal__panel" role="dialog" aria-modal="true" aria-labelledby="supportModalTitle">
     <button type="button" class="support-modal__close" id="supportModalClose" aria-label="Fermer">×</button>
     <h2 class="support-modal__title" id="supportModalTitle">Support</h2>
-    <div class="support-modal__meta" id="supportModalMeta"></div>
-    <div class="support-modal__compare-toggle" style="margin:6px 0 2px 0; display:flex; align-items:center; gap:8px; justify-content:flex-start; flex-wrap:wrap;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <button type="button" id="supportCompareToggle" class="support-meta-btn" style="min-width:180px;">
-          <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
-          <span style="display:flex; flex-direction:column; line-height:1.1;">
-            <span>Comparaisons</span>
-            <span style="font-size:0.78rem; color:#475569;">(VL base 100)</span>
-          </span>
-        </button>
-        <button type="button" id="supportEsgToggle" class="support-meta-btn" style="min-width:180px;">
-          <i class="fa-solid fa-leaf" aria-hidden="true"></i>
-          <span style="display:flex; flex-direction:column; line-height:1.1;">
-            <span>ESG</span>
-            <span style="font-size:0.78rem; color:#475569;">(base 100)</span>
-          </span>
-        </button>
+    <div class="support-modal__actions" style="margin:4px 0 10px 0;">
+      <div>
+        <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
+        <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
       </div>
+    </div>
+    <div class="support-modal__meta" id="supportModalMeta"></div>
+    <div class="support-modal__compare-toggle">
+      <button type="button" id="supportCompareToggle" class="support-meta-btn">
+        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+        <span>Comparaisons (VL base 100)</span>
+      </button>
+      <button type="button" id="supportEsgToggle" class="support-meta-btn">
+        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+        <span>ESG (base 100)</span>
+      </button>
+      <button type="button" id="supportClientsToggle" class="support-meta-btn">
+        <i class="fa-solid fa-users" aria-hidden="true"></i>
+        <span>Clients</span>
+      </button>
       <span id="supportCompareStatus" class="muted" style="font-size:0.85rem;"></span>
     </div>
     <div id="supportCompareSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
@@ -293,32 +306,33 @@
       </div>
       <div class="support-modal__series" id="supportSrriTable" style="display:none;"></div>
     </div>
-    <div class="support-modal__actions">
-      <div>
-        <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
-        <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
-      </div>
-    </div>
     <div class="support-modal__chart" id="supportModalChartContainer">
       <canvas id="supportModalChart"></canvas>
     </div>
     <div class="support-modal__series" id="supportModalSeries"></div>
-    <div class="support-modal__filters">
-      <div>
-        <label for="supportModalClientFilter">Client</label>
-        <input type="text" id="supportModalClientFilter" placeholder="Rechercher client" />
+    <div id="supportClientsSection">
+      <div class="support-modal__filters">
+        <div>
+          <label for="supportModalClientFilter">Client</label>
+          <input type="text" id="supportModalClientFilter" placeholder="Rechercher client" />
+        </div>
+        <div>
+          <label for="supportModalResponsableFilter">Responsable</label>
+          <input type="text" id="supportModalResponsableFilter" placeholder="Rechercher responsable" />
+        </div>
+        <div>
+          <label for="supportModalAmountFilter">Valorisation</label>
+          <input type="text" id="supportModalAmountFilter" placeholder=">100k, 100k-500k" />
+        </div>
+        <button type="button" id="supportModalFiltersReset">Réinitialiser</button>
       </div>
-      <div>
-        <label for="supportModalResponsableFilter">Responsable</label>
-        <input type="text" id="supportModalResponsableFilter" placeholder="Rechercher responsable" />
+      <div class="support-modal__pager" id="supportClientsPager" style="display:none;">
+        <button type="button" id="supportClientsPrev">Précédent</button>
+        <span id="supportClientsPageInfo">Page 1/1</span>
+        <button type="button" id="supportClientsNext">Suivant</button>
       </div>
-      <div>
-        <label for="supportModalAmountFilter">Valorisation</label>
-        <input type="text" id="supportModalAmountFilter" placeholder=">100k, 100k-500k" />
-      </div>
-      <button type="button" id="supportModalFiltersReset">Réinitialiser</button>
+      <div class="support-modal__clients" id="supportModalClients"></div>
     </div>
-    <div class="support-modal__clients" id="supportModalClients"></div>
   </div>
 </div>
 
@@ -661,6 +675,11 @@ $(document).ready(function () {
     var $supportModalResponsableFilter = $('#supportModalResponsableFilter');
     var $supportModalAmountFilter = $('#supportModalAmountFilter');
     var $supportModalFiltersReset = $('#supportModalFiltersReset');
+    var $supportClientsSection = $('#supportClientsSection');
+    var $supportClientsPager = $('#supportClientsPager');
+    var $supportClientsPrev = $('#supportClientsPrev');
+    var $supportClientsNext = $('#supportClientsNext');
+    var $supportClientsPageInfo = $('#supportClientsPageInfo');
     var $supportModalCreateTasks = $('#supportModalCreateTasks');
     var $supportModalChartContainer = $('#supportModalChartContainer');
     var supportModalChartCanvas = document.getElementById('supportModalChart');
@@ -679,9 +698,12 @@ $(document).ready(function () {
     var supportEsgMetaLoaded = false;
     var $supportEsgAlloc = $('#supportEsgAlloc');
     var $supportEsgUnmatched = $('#supportEsgUnmatched');
+    var supportEsgLabelMap = {};
     var supportIndex = [];
     var supportModalClientsData = [];
     var supportModalFilteredData = [];
+    var supportClientsPage = 1;
+    var supportClientsPageSize = 20;
     var supportModalTaskTypes = [];
     var supportModalCodeIsin = '';
     var supportModalLastDate = null;
@@ -716,6 +738,14 @@ $(document).ready(function () {
         var btn = document.getElementById('supportEsgToggle');
         if (btn){
             btn.classList.toggle('active', !!active);
+        }
+    }
+
+    function setClientsButtonActive(active){
+        var btn = document.getElementById('supportClientsToggle');
+        if (btn){
+            btn.classList.toggle('active', !!active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         }
     }
 
@@ -797,6 +827,7 @@ $(document).ready(function () {
         var wrap = document.getElementById('supportEsgFields');
         if (!wrap) return;
         wrap.innerHTML = '';
+        supportEsgLabelMap = {};
         if (!supportEsgFields.length){
             wrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
             return;
@@ -808,6 +839,10 @@ $(document).ready(function () {
             btn.setAttribute('data-field', f.col || f.field || f.label || '');
             btn.title = f.label || f.col || '';
             btn.textContent = f.label || f.col || '';
+            if (f.col || f.field){
+                var key = f.col || f.field;
+                supportEsgLabelMap[key] = f.label || key;
+            }
             btn.addEventListener('click', function(){
                 if (btn.classList.contains('active')){
                     btn.classList.remove('active');
@@ -816,6 +851,7 @@ $(document).ready(function () {
                     if (actives.length >= 4) return;
                     btn.classList.add('active');
                 }
+                runSupportEsg();
             });
             wrap.appendChild(btn);
         });
@@ -853,9 +889,53 @@ $(document).ready(function () {
         var alloc = ($supportEsgAlloc && $supportEsgAlloc.val()) || '';
         ensureSupportEsgDefaultSelection();
         var fields = selectedSupportEsgFields();
+        if (!supportModalCodeIsin){ return; }
         if (!alloc){ return; }
         if (!fields.length){ return; }
-        // Placeholder: branchement API ESG support à implémenter
+        var unmatchedEl = document.getElementById('supportEsgUnmatched');
+        if (unmatchedEl){ unmatchedEl.style.display='none'; unmatchedEl.textContent=''; }
+        ensurePlotlySupportEsg(function(){
+            var url = '/dashboard/supports/' + encodeURIComponent(supportModalCodeIsin) + '/esg?alloc=' + encodeURIComponent(alloc) + '&fields=' + encodeURIComponent(fields.join(','));
+            fetch(url).then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); }).then(function(data){
+                var rows = (data && data.results) || [];
+                var unmatched = (data && data.unmatched_fields) || [];
+                if (unmatchedEl){
+                    if (unmatched.length){
+                        unmatchedEl.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+                        unmatchedEl.style.display = '';
+                    } else {
+                        unmatchedEl.textContent = '';
+                        unmatchedEl.style.display = 'none';
+                    }
+                }
+                var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+                if (!displayRows.length){ displayRows = rows; }
+                if (!displayRows.length){
+                    $('#supportEsgChart').hide().empty();
+                    return;
+                }
+                var cats = displayRows.map(function(r){
+                    return supportEsgLabelMap[r.field] || supportEsgLabelMap[r.resolved_field] || r.field_original || r.field;
+                });
+                var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+                var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
+                var traces = [
+                    { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+                    { x: cli, y: cats, type:'bar', orientation:'h', name:'Support', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+                ];
+                var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+                var cfg = { displayModeBar: false, responsive: true };
+                Plotly.react('supportEsgChart', traces, layout, cfg);
+                $('#supportEsgChart').show();
+            }).catch(function(err){
+                if (unmatchedEl){
+                    unmatchedEl.textContent = 'Erreur de chargement ESG.';
+                    unmatchedEl.style.display = '';
+                }
+                try{ console.warn('Support ESG fetch error', err); }catch(_){}
+                $('#supportEsgChart').hide().empty();
+            });
+        });
     }
 
     function formatEuro(value){
@@ -1418,10 +1498,12 @@ $(document).ready(function () {
         if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
         $('#supportCompareStatus').text('');
         if ($supportCompareSection.length){ $supportCompareSection.hide(); }
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); setClientsButtonActive(false); }
         $supportModal.removeClass('open').attr('aria-hidden', 'true');
         document.body.style.overflow = '';
         updateSansNomButtonState();
         setCompareButtonActive(false);
+        supportClientsPage = 1;
     }
 
     function renderSupportModalLoading(code){
@@ -1459,7 +1541,10 @@ $(document).ready(function () {
         setCompareButtonActive(false);
         setSrriButtonActive(false);
         setEsgButtonActive(false);
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); }
+        setClientsButtonActive(false);
         updateSansNomButtonState();
+        supportClientsPage = 1;
     }
 
     function renderSupportModal(data){
@@ -1489,7 +1574,7 @@ $(document).ready(function () {
         ];
         fields.forEach(function(item){
             if (item.label === 'SRRI'){
-                metaHtml += '<div><span class="label">' + item.label + '</span><button type="button" class="support-meta-btn" id="supportSrriBtn" aria-pressed="false"><span>' + (item.value || '—') + '</span></button></div>';
+                metaHtml += '<div class="support-meta-srri"><span class="label">' + item.label + '</span><button type="button" class="support-meta-btn" id="supportSrriBtn" aria-pressed="false"><span>' + (item.value || '—') + '</span></button></div>';
             } else {
                 metaHtml += '<div><span class="label">' + item.label + '</span><span class="value">' + item.value + '</span></div>';
             }
@@ -1557,12 +1642,14 @@ $(document).ready(function () {
         populateSupportTaskTypeSelect(data.default_type_id);
         supportModalClientsData = Array.isArray(data.clients) ? data.clients.slice() : [];
         supportModalFilteredData = supportModalClientsData.slice();
+        supportClientsPage = 1;
         var hasTaskTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
         $supportModalCreateTasks.prop('disabled', !hasTaskTypes);
         $supportModalClientFilter.val('');
         $supportModalResponsableFilter.val('');
         $supportModalAmountFilter.val('');
         renderSupportModalTable();
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); setClientsButtonActive(false); }
     }
 
     function renderSupportModalTable(){
@@ -1578,9 +1665,14 @@ $(document).ready(function () {
             return matchesClientFilters(row, filters);
         });
         supportModalFilteredData = filtered;
+        var totalPages = Math.max(1, Math.ceil(filtered.length / supportClientsPageSize));
+        if (supportClientsPage > totalPages) supportClientsPage = totalPages;
+        if (supportClientsPage < 1) supportClientsPage = 1;
         var hasEligible = filtered.some(function(client){ return client && client.client_id; });
         var hasTypes = $supportTaskTypeSelect.find('option[value!=""]').length > 0;
         $supportModalCreateTasks.prop('disabled', !(hasEligible && hasTypes));
+        var startIdx = (supportClientsPage - 1) * supportClientsPageSize;
+        var endIdx = startIdx + supportClientsPageSize;
         var rowsHtml = filtered.map(function(client){
             var label = ((client.nom || '') + ' ' + (client.prenom || '')).trim();
             if (!label) label = client.nom || client.prenom || 'Client';
@@ -1591,16 +1683,28 @@ $(document).ready(function () {
                 '<td>' + (client.responsable || '—') + '</td>' +
                 '<td>' + (client.total_valo_str || '0') + ' €</td>' +
             '</tr>';
-        }).join('');
+        });
+        var rowsHtmlPage = rowsHtml.slice(startIdx, endIdx).join('');
         if (!rowsHtml){
             supportModalFilteredData = filtered;
             $supportModalClients.html('<div class="support-modal__empty">Aucun résultat ne correspond aux filtres.</div>');
+            if ($supportClientsPager.length){
+                $supportClientsPager.hide();
+            }
             return;
         }
         var tableHtml = '<table>' +
             '<thead><tr><th>Client</th><th>Responsable</th><th>Valorisation</th></tr></thead>' +
-            '<tbody>' + rowsHtml + '</tbody></table>';
+            '<tbody>' + rowsHtmlPage + '</tbody></table>';
         $supportModalClients.html(tableHtml);
+        if ($supportClientsPager.length){
+            $supportClientsPager.show();
+            if ($supportClientsPageInfo.length){
+                $supportClientsPageInfo.text('Page ' + supportClientsPage + '/' + totalPages);
+            }
+            if ($supportClientsPrev.length){ $supportClientsPrev.prop('disabled', supportClientsPage <= 1); }
+            if ($supportClientsNext.length){ $supportClientsNext.prop('disabled', supportClientsPage >= totalPages); }
+        }
     }
 
     function getSupportModalFilters(){
@@ -1850,9 +1954,30 @@ $(document).ready(function () {
         }
     });
     $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
+    $('#supportClientsToggle').on('click', function(){
+        if (!$supportClientsSection || !$supportClientsSection.length) return;
+        var isVisible = $supportClientsSection.is(':visible');
+        if (isVisible){
+            $supportClientsSection.slideUp(120);
+            setClientsButtonActive(false);
+        } else {
+            $supportClientsSection.slideDown(120);
+            setClientsButtonActive(true);
+        }
+    });
+    if ($supportClientsPager.length){
+        $supportClientsPrev.on('click', function(){
+            if (supportClientsPage > 1){ supportClientsPage -= 1; renderSupportModalTable(); }
+        });
+        $supportClientsNext.on('click', function(){
+            supportClientsPage += 1;
+            renderSupportModalTable();
+        });
+    }
 
     function scheduleModalReRender(){
         clearTimeout(scheduleModalReRender._id);
+        supportClientsPage = 1;
         scheduleModalReRender._id = setTimeout(renderSupportModalTable, 120);
     }
     $supportModalClientFilter.on('input', scheduleModalReRender);
@@ -1862,6 +1987,7 @@ $(document).ready(function () {
         $supportModalClientFilter.val('');
         $supportModalResponsableFilter.val('');
         $supportModalAmountFilter.val('');
+        supportClientsPage = 1;
         renderSupportModalTable();
     });
     $supportModalCreateTasks.on('click', function(){ if ($(this).prop('disabled')) return; openSupportTaskModal(); });
