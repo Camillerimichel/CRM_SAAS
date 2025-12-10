@@ -178,6 +178,51 @@
   /* Tableau allocations (Simulation financière) – lignes compactes */
   #simuAllocTable { font-size: 12px; }
   #simuAllocTable th, #simuAllocTable td { padding: 3px 6px; }
+  /* ESG matrix */
+  .esg-matrix-card { border:1px solid #e5e7eb; background:#f8fafc; }
+  .esg-matrix-header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .esg-pill-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .esg-pill { padding:6px 10px; border:1px solid #cbd5f5; border-radius:999px; background:#fff; cursor:pointer; font-size:0.88rem; transition:background .15s ease, border-color .15s ease; }
+  .esg-pill.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .esg-matrix-table { width:100%; border-collapse:collapse; margin-top:8px; }
+  .esg-matrix-table th, .esg-matrix-table td { padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left; font-size:0.92rem; }
+  .esg-matrix-table th { background:#eef2ff; font-weight:600; color:#0f172a; }
+  .esg-val { text-align:right; font-variant-numeric:tabular-nums; }
+  .esg-delta-pos { color:#15803d; font-weight:600; }
+  .esg-delta-neg { color:#b91c1c; font-weight:600; }
+  .esg-delta-neutral { color:#4b5563; }
+  #esgMatrixExclusions h5,
+  #esgMatrixIndicateurs h5 {
+    background: #fff;
+    color: #0f172a;
+    padding: 6px 10px;
+    border-radius: 8px;
+    display: inline-block;
+    border: 1px solid #e5e7eb;
+  }
+  .esg-matrix-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .esg-matrix-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    padding: 10px 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    flex: 1 1 calc(33.333% - 10px);
+    max-width: calc(33.333% - 10px);
+    min-width: 240px;
+    box-sizing: border-box;
+  }
+  /* ESG blocs (sensibilité / exclusions / indicateurs) */
+  .esg-blocks { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:12px; }
+  .esg-block { border:1px solid #e5e7eb; border-radius:10px; background:#fff; padding:10px 12px; box-shadow:0 6px 16px rgba(0,0,0,0.04); }
+  .esg-block h4 { margin:0 0 8px 0; display:flex; align-items:center; gap:6px; font-size:1rem; }
+  .esg-block .tag-list { display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 8px; }
+  .esg-block .tag { padding:4px 8px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:0.85rem; }
+  .esg-block .empty { color:#6b7280; font-size:0.9rem; font-style:italic; }
   /* RBAC UI hides */
   body[data-user-role="client"] .client-hide { display: none !important; }
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
@@ -309,6 +354,7 @@
       <div class="contact-line"><strong>Prénom :</strong> <span id="contactFirstname"></span></div>
       <div class="contact-line"><strong>Téléphone :</strong> <span id="contactPhone"></span></div>
       <div class="contact-line"><strong>Email :</strong> <button type="button" id="contactEmailBtn" class="dim-btn" style="padding:4px 8px;"></button></div>
+      <div class="contact-line" style="flex-direction:column; align-items:flex-start;"><strong>Adresses :</strong> <div id="contactAddresses" style="margin-top:4px;"></div></div>
     </div>
     <div class="contact-actions">
       <button type="button" id="contactExportVcf" class="dim-btn"><i class="fa-solid fa-file-arrow-down"></i><span>vCard (Outlook/Mac)</span></button>
@@ -739,6 +785,39 @@ const CLIENT_ID = {{ client.id if client else 'null' }};
       addr: ``,
       addrs: []
     };
+    async function hydrateAddresses(rawInput){
+      const raw = rawInput != null ? rawInput : {{ kyc_adresses|default([], true)|tojson }};
+      const norm = (raw || []).map(function(a){
+        if (!a) return null;
+        const parts = [a.rue, a.complement, a.code_postal, a.ville, a.pays].map(function(x){ return (x||'').trim(); }).filter(Boolean);
+        if (!parts.length) return null;
+        return {
+          label: (a.type_libelle || '').trim(),
+          street: (a.rue || '').trim(),
+          complement: (a.complement || '').trim(),
+          postal: (a.code_postal || '').trim(),
+          city: (a.ville || '').trim(),
+          country: (a.pays || '').trim(),
+          display: parts.join(' '),
+          is_primary: !!a.is_primary
+        };
+      }).filter(Boolean);
+      data.addrs = norm;
+      const primary = norm.find(a=>a.is_primary) || norm[0];
+      data.addr = primary ? primary.display : '';
+    }
+    hydrateAddresses();
+    async function fetchAddressesIfEmpty(){
+      if (data.addrs && data.addrs.length) return;
+      try {
+        const res = await fetch(`/dashboard/clients/${CLIENT_ID}/addresses`);
+        if (!res.ok) return;
+        const payload = await res.json();
+        await hydrateAddresses(payload && payload.addresses ? payload.addresses : []);
+      } catch(_err){
+        /* ignore fetch errors */
+      }
+    }
     function setText(id, val){
       const el = document.getElementById(id);
       if (el) el.textContent = val || '—';
@@ -752,11 +831,20 @@ const CLIENT_ID = {{ client.id if client else 'null' }};
       ];
       if (data.phone) lines.push(`TEL;TYPE=CELL,VOICE:${data.phone}`);
       if (data.email) lines.push(`EMAIL;TYPE=INTERNET:${data.email}`);
-      if (data.addr) lines.push(`ADR;TYPE=HOME:;;${data.addr};;;;`);
+      if (data.addrs && data.addrs.length){
+        data.addrs.forEach(function(a){
+          const street = [a.street, a.complement].filter(Boolean).join(' ').trim();
+          const type = (a.label || 'HOME').toUpperCase();
+          lines.push(`ADR;TYPE=${type}:;;${street};${a.city};;${a.postal};${a.country}`);
+        });
+      } else if (data.addr){
+        lines.push(`ADR;TYPE=HOME:;;${data.addr};;;;`);
+      }
       lines.push('END:VCARD');
-      return lines.join('\\r\\n');
+      return lines.join('\r\n') + '\r\n';
     }
-    function openModal(){
+    async function openModal(){
+      await fetchAddressesIfEmpty();
       setText('contactName', data.last || '—');
       setText('contactFirstname', data.first || '—');
       setText('contactPhone', data.phone || '—');
@@ -764,7 +852,17 @@ const CLIENT_ID = {{ client.id if client else 'null' }};
         mailBtn.textContent = data.email || '—';
         mailBtn.disabled = !data.email;
       }
-      setText('contactAddress', data.addr || '—');
+      const addrEl = document.getElementById('contactAddresses');
+      if (addrEl){
+        if (data.addrs && data.addrs.length){
+          addrEl.innerHTML = data.addrs.map(function(a){
+            const lbl = a.label ? ('<strong>'+a.label+':</strong> ') : '';
+            return '<div>'+lbl+ (a.display || '—') +'</div>';
+          }).join('');
+        } else {
+          addrEl.textContent = data.addr || '—';
+        }
+      }
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
     }
@@ -790,12 +888,12 @@ const CLIENT_ID = {{ client.id if client else 'null' }};
       downloadVcf(`${base}.vcf`);
     });
     if (copyBtn) copyBtn.addEventListener('click', function(){
+      const addrLines = (data.addrs && data.addrs.length) ? data.addrs.map(a=> (a.label ? (a.label+': ') : '') + (a.display||'')).filter(Boolean) : (data.addr ? [data.addr] : []);
       const txt = [
         [data.first, data.last].filter(Boolean).join(' ').trim(),
         data.phone,
-        data.email,
-        data.addr
-      ].filter(Boolean).join('\\n');
+        data.email
+      ].concat(addrLines).filter(Boolean).join('\\n');
       if (navigator.clipboard && txt){
         navigator.clipboard.writeText(txt).catch(function(){});
       }
@@ -1304,6 +1402,7 @@ function generateClientSynthese(){
             <tr>
               <th style="text-align:left;">Contrat</th>
               <th style="text-align:right;">Nb parts</th>
+              <th style="text-align:right;">Prix de revient</th>
               <th style="text-align:right;">Valorisation</th>
             </tr>
           </thead>
@@ -1339,6 +1438,8 @@ function generateClientSynthese(){
         }
         var totalParts = 0.0;
         var totalValo = 0.0;
+        var totalPrmpNum = 0.0;
+        var totalPrmpDen = 0.0;
         // regrouper par contrat et sommer
         var grouped = {};
         rows.forEach(function(r, idx){
@@ -1347,11 +1448,16 @@ function generateClientSynthese(){
           var key = String(contrat_id);
           var nb_raw = parseFloat(r.nb_parts || r.nbuc || r.parts || r.quantite || 0) || 0;
           var valo_raw = parseFloat(r.valorisation || r.valo || r.valeur || 0) || 0;
+          var prmp_raw = parseFloat(r.prix_revient || r.prmp || 0);
           if (!grouped[key]){
-            grouped[key] = { contrat_id: contrat_id, contratLabel: contratLabel, nb: 0, valo: 0 };
+            grouped[key] = { contrat_id: contrat_id, contratLabel: contratLabel, nb: 0, valo: 0, prmp_num: 0, prmp_den: 0 };
           }
           grouped[key].nb += nb_raw;
           grouped[key].valo += valo_raw;
+          if (!isNaN(prmp_raw)) {
+            grouped[key].prmp_num += prmp_raw * nb_raw;
+            grouped[key].prmp_den += nb_raw;
+          }
         });
         if (rows.length === 0){
           var tr = document.createElement('tr');
@@ -1369,11 +1475,17 @@ function generateClientSynthese(){
             var contrat_id = r.contrat_id;
             var nb_raw = r.nb || 0;
             var valo_raw = r.valo || 0;
+            var prmp_raw = (r.prmp_den > 0) ? (r.prmp_num / r.prmp_den) : null;
             totalParts += nb_raw;
             totalValo += valo_raw;
+            if (prmp_raw !== null) {
+              totalPrmpNum += prmp_raw * nb_raw;
+              totalPrmpDen += nb_raw;
+            }
             var nb = nb_raw ? nb_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+            var prmp = (prmp_raw !== null && !isNaN(prmp_raw)) ? prmp_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
             var valo = valo_raw ? valo_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-            [contrat, nb, valo].forEach(function(val, idx){
+            [contrat, nb, prmp, valo].forEach(function(val, idx){
               var td = document.createElement('td');
               if (idx === 0 && contrat_id){
                 var a = document.createElement('a');
@@ -1397,8 +1509,9 @@ function generateClientSynthese(){
           var tdParts = document.createElement('td');
           tdParts.style.textAlign = 'right';
           tdParts.textContent = totalParts ? totalParts.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          var tdPrmp = document.createElement('td'); tdPrmp.style.textAlign = 'right'; tdPrmp.textContent = (totalPrmpDen > 0) ? (totalPrmpNum / totalPrmpDen).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
           var tdValo = document.createElement('td'); tdValo.style.textAlign = 'right'; tdValo.textContent = totalValo ? totalValo.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-          [td1, tdParts, tdValo].forEach(function(td){ trTot.appendChild(td); });
+          [td1, tdParts, tdPrmp, tdValo].forEach(function(td){ trTot.appendChild(td); });
           tbody.appendChild(trTot);
         }
         modal.style.display = 'flex';
@@ -1590,11 +1703,20 @@ function generateClientSynthese(){
     <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box;">
       <h3 class="chart-title">Comparaison ESG Client vs Indice</h3>
       <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
+        {% set graph_default_alloc = (client_allocation_name or allocation_reference_name or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if (risque_snapshot is defined and risque_snapshot and risque_snapshot.allocation_nom) else '')) or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))) %}
         <div>
           <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
           <select id="esgAllocSelectClient" style="min-width:220px; max-width:280px; width:auto;">
-            <option value="">— choisir —</option>
-            {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
+            <option value="" {% if not esg_comparison_alloc %}selected{% endif %}>— choisir —</option>
+            {% for nm in alloc_names %}
+              <option value="{{ nm }}"{% if esg_comparison_alloc and nm == esg_comparison_alloc %} selected{% endif %}>{{ nm }}</option>
+            {% endfor %}
+            {% if esg_comparison_alloc and esg_comparison_alloc not in alloc_names %}
+              <option value="{{ esg_comparison_alloc }}" selected>{{ esg_comparison_alloc }}</option>
+            {% endif %}
+            {% if graph_default_alloc and graph_default_alloc not in alloc_names and graph_default_alloc != esg_comparison_alloc %}
+              <option value="{{ graph_default_alloc }}" selected>{{ graph_default_alloc }}</option>
+            {% endif %}
           </select>
         </div>
         <div style="display:none;">
@@ -1626,6 +1748,34 @@ function generateClientSynthese(){
       <div id="esgChartClient" style="height:320px; width:100%;"></div>
       <div id="esgUnmatchedNotice" class="muted" style="margin-top:6px; font-size:12px;{% if not esg_unmatched_fields %} display:none;{% endif %}">{% if esg_unmatched_fields %}Indicateurs introuvables : {{ esg_unmatched_fields|join(', ') }}.{% endif %}</div>
       <div class="muted" style="margin-top:4px; font-size:12px;">Indice normalisé à 100. Client = valeur relative (Client / Indice × 100).</div>
+      <div class="card esg-matrix-card" style="margin-top:12px;">
+        <div class="esg-matrix-header">
+          <h4 style="margin:0;">Correspondance exclusions / indicateurs → métriques ESG</h4>
+          <div class="esg-pill-row">
+            <button type="button" class="esg-pill active" data-esg-group="exclusions">Exclusions / Risques</button>
+            <button type="button" class="esg-pill" data-esg-group="indicateurs">Indicateurs / Opportunités</button>
+          </div>
+        </div>
+        <div id="esgMatrixExclusions"></div>
+        <div id="esgMatrixIndicateurs" style="display:none;"></div>
+      </div>
+      <div class="esg-blocks">
+        <div class="esg-block" id="esgBlockSens">
+          <h4><i class="fa-solid fa-heart" aria-hidden="true"></i>Sensibilité ESG</h4>
+          <div class="tag-list" id="esgSensTags"></div>
+          <div id="esgSensTable"></div>
+        </div>
+        <div class="esg-block" id="esgBlockExcl">
+          <h4><i class="fa-solid fa-ban" aria-hidden="true"></i>Exclusions</h4>
+          <div class="tag-list" id="esgExclTags"></div>
+          <div id="esgExclTable"></div>
+        </div>
+        <div class="esg-block" id="esgBlockIndic">
+          <h4><i class="fa-solid fa-bullseye" aria-hidden="true"></i>Indicateurs à suivre</h4>
+          <div class="tag-list" id="esgIndicTags"></div>
+          <div id="esgIndicTable"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3246,9 +3396,161 @@ function openClientMsgs(kind){
     var asOfSel = document.getElementById('asOfSelect');
     var unmatchedNotice = document.getElementById('esgUnmatchedNotice');
     var serverDefaultAlloc = {{ esg_comparison_alloc|tojson }};
+    var graphDefaultAlloc = {{ (client_allocation_name or allocation_reference_name or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if (risque_snapshot is defined and risque_snapshot and risque_snapshot.allocation_nom) else '')) or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None)))|tojson }};
     var serverDefaultFields = {{ esg_default_fields|tojson }};
     var serverUnmatched = {{ esg_unmatched_fields|tojson }};
     var fieldLabels = {{ esg_field_labels|tojson }};
+    var esgLastResults = [];
+    var esgMatrixResults = [];
+    var esgActiveGroup = 'exclusions';
+    var esgSelectedExclusions = {{ esg_selected_exclusions|default([], true)|tojson }};
+    var esgSelectedIndicators = {{ esg_selected_indicators|default([], true)|tojson }};
+    var esgExclusionOptions = {{ esg_exclusion_options|default([], true)|tojson }};
+    var esgIndicatorOptions = {{ esg_indicator_options|default([], true)|tojson }};
+    var esgCurrent = {{ esg_current|default({}, true)|tojson }};
+    var esgMatrixMappings = {
+      exclusions: {
+        "Fossiles / climat": ["exposure_to_fossil_fuels", "carbon_trend", "scope_1_and_2_carbon_intensity", "scope_3_carbon_intensity", "temperature_score"],
+        "Climat / émissions": ["ghg_intensity_value", "temperature_score", "pollution__negative_revenue"],
+        "Pollution / déchets": ["hazardous_waste", "pollution__negative_revenue", "pollution__positive_revenue", "waste_efficiency"],
+        "Eau": ["avoiding_water_scarcity", "emissions_to_water", "water_efficiency"],
+        "Social": ["social_harm", "social_good"],
+        "Gouvernance / rémunération": ["executive_pay", "board_independence"],
+        "Parité / diversité": ["board_gender_diversity", "pct_female_board", "pct_female_executives", "gender_pay_gap"]
+      },
+      indicateurs: {
+        "Transition / énergie": ["renewable_energy", "carbon_trend", "temperature_score"],
+        "Efficience carbone": ["scope_1_and_2_carbon_intensity", "scope_3_carbon_intensity", "ghg_intensity_value"],
+        "Efficience matière": ["waste_efficiency", "hazardous_waste", "pollution__positive_revenue"],
+        "Efficience eau": ["avoiding_water_scarcity", "water_efficiency", "emissions_to_water"],
+        "Impact social": ["social_good", "social_harm"],
+        "Gouvernance & diversité": ["board_independence", "board_gender_diversity", "pct_female_board", "pct_female_executives", "gender_pay_gap"],
+        "RSE par tête": ["average_per_employee_spend"]
+      }
+    };
+    var esgMatrixAllFields = (function(){
+      var s = new Set();
+      Object.values(esgMatrixMappings).forEach(function(group){
+        Object.values(group).forEach(function(arr){ (arr||[]).forEach(function(f){ if(f) s.add(f); }); });
+      });
+      return Array.from(s);
+    })();
+
+    function renderEsgMatrix(group){
+      esgActiveGroup = group || esgActiveGroup || 'exclusions';
+      var container = esgActiveGroup === 'indicateurs' ? document.getElementById('esgMatrixIndicateurs') : document.getElementById('esgMatrixExclusions');
+      var other = esgActiveGroup === 'indicateurs' ? document.getElementById('esgMatrixExclusions') : document.getElementById('esgMatrixIndicateurs');
+      if (container) container.style.display = '';
+      if (other) other.style.display = 'none';
+      document.querySelectorAll('.esg-pill').forEach(function(btn){
+        var g = btn.getAttribute('data-esg-group');
+        btn.classList.toggle('active', g === esgActiveGroup);
+      });
+      var rows = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : (Array.isArray(esgLastResults) ? esgLastResults : []);
+      var mapping = esgMatrixMappings[esgActiveGroup] || {};
+      var htmlParts = [];
+      Object.keys(mapping).forEach(function(theme){
+        var fields = mapping[theme] || [];
+        var matched = rows.filter(function(r){ return r && fields.indexOf(r.field) !== -1; });
+        var block = '<div class="esg-matrix-item">';
+        block += '<h5 style="margin:0 0 6px 0;">'+theme+'</h5>';
+        if (!matched.length){
+          block += '<div class="muted" style="font-size:0.9rem;">Aucune donnée pour ce thème</div>';
+        } else {
+          block += '<table class="esg-matrix-table"><thead><tr><th>Métriques</th><th class="esg-val">Delta</th></tr></thead><tbody>';
+          matched.forEach(function(r){
+            var label = (fieldLabels && fieldLabels[r.field]) || r.field_original || r.field;
+            var deltaVal = (r.client != null && r.index != null) ? (Number(r.client) - Number(r.index)) : null;
+            var deltaStr = deltaVal == null ? '—' : (deltaVal > 0 ? '+' : '') + deltaVal.toFixed(2);
+            var deltaClass = 'esg-delta-neutral';
+            if (deltaVal > 0.1) deltaClass = 'esg-delta-pos';
+            else if (deltaVal < -0.1) deltaClass = 'esg-delta-neg';
+            block += '<tr><td>'+label+'</td><td class="esg-val '+deltaClass+'">'+deltaStr+'</td></tr>';
+          });
+          block += '</tbody></table>';
+        }
+        block += '</div>';
+        htmlParts.push(block);
+      });
+      if (container){
+        container.innerHTML = htmlParts.length ? '<div class="esg-matrix-grid">'+htmlParts.join('')+'</div>' : '<div class="empty">Aucune métrique disponible.</div>';
+      }
+    }
+
+    function renderEsgBlocks(){
+      var data = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : esgLastResults;
+      var dataByField = {};
+      (data || []).forEach(function(r){
+        if (r && r.field) dataByField[r.field] = r;
+      });
+
+      // Tags sélectionnés
+      var sensTags = [];
+      var selectedSensKeys = [];
+      if (esgCurrent){
+        Object.keys(esgSensibiliteLabels).forEach(function(k){
+          var v = esgCurrent[k];
+          if (v !== null && v !== undefined && String(v).trim() !== ''){
+            selectedSensKeys.push(k);
+            sensTags.push(esgSensibiliteLabels[k]);
+          }
+        });
+      }
+      document.getElementById('esgSensTags').innerHTML = sensTags.length ? sensTags.map(function(t){ return '<span class="tag">'+t+'</span>'; }).join('') : '<span class="empty">Aucune sensibilité renseignée</span>';
+
+      var exclTags = [];
+      var exclLookup = {};
+      (esgExclusionOptions || []).forEach(function(o){ if (o && o.id !== undefined) exclLookup[o.id] = o; });
+      (esgSelectedExclusions || []).forEach(function(id){
+        var o = exclLookup[id];
+        if (o){ exclTags.push(o.label || o.code || ('#'+id)); }
+      });
+      document.getElementById('esgExclTags').innerHTML = exclTags.length ? exclTags.map(function(t){ return '<span class="tag">'+t+'</span>'; }).join('') : '<span class="empty">Aucune exclusion sélectionnée</span>';
+
+      var indicTags = [];
+      var indicLookup = {};
+      (esgIndicatorOptions || []).forEach(function(o){ if (o && o.id !== undefined) indicLookup[o.id] = o; });
+      (esgSelectedIndicators || []).forEach(function(id){
+        var o = indicLookup[id];
+        if (o){ indicTags.push(o.label || o.code || ('#'+id)); }
+      });
+      document.getElementById('esgIndicTags').innerHTML = indicTags.length ? indicTags.map(function(t){ return '<span class="tag">'+t+'</span>'; }).join('') : '<span class="empty">Aucun indicateur sélectionné</span>';
+
+      function buildTable(mapping, targetId, onlyIfTags){
+        var container = document.getElementById(targetId);
+        if (!container) return;
+        if (onlyIfTags && onlyIfTags.length === 0){
+          container.innerHTML = '<div class="empty">Aucune donnée</div>';
+          return;
+        }
+        var htmlParts = [];
+        Object.keys(mapping).forEach(function(theme){
+          var fields = mapping[theme] || [];
+          var matched = fields.map(function(f){ return dataByField[f]; }).filter(Boolean);
+          if (!matched.length) return;
+          var table = '<h5 style="margin:8px 0 4px;">'+theme+'</h5>';
+          table += '<table class="esg-matrix-table"><thead><tr><th>Métrique</th><th class="esg-val">Indice</th><th class="esg-val">Client</th><th class="esg-val">Delta</th></tr></thead><tbody>';
+          matched.forEach(function(r){
+            var label = (fieldLabels && fieldLabels[r.field]) || r.field_original || r.field;
+            var idx = r.index == null ? '—' : Number(r.index).toFixed(2);
+            var cli = r.client == null ? '—' : Number(r.client).toFixed(2);
+            var deltaVal = (r.client != null && r.index != null) ? (Number(r.client) - Number(r.index)) : null;
+            var deltaStr = deltaVal == null ? '—' : (deltaVal > 0 ? '+' : '') + deltaVal.toFixed(2);
+            var deltaClass = 'esg-delta-neutral';
+            if (deltaVal > 0.1) deltaClass = 'esg-delta-pos';
+            else if (deltaVal < -0.1) deltaClass = 'esg-delta-neg';
+            table += '<tr><td>'+label+'</td><td class="esg-val">'+idx+'</td><td class="esg-val">'+cli+'</td><td class="esg-val '+deltaClass+'">'+deltaStr+'</td></tr>';
+          });
+          table += '</tbody></table>';
+          htmlParts.push(table);
+        });
+        container.innerHTML = htmlParts.length ? htmlParts.join('') : '<div class="empty">Aucune métrique disponible.</div>';
+      }
+
+      buildTable(esgSensibiliteMap, 'esgSensTable', sensTags);
+      buildTable(esgMatrixMappings.exclusions, 'esgExclTable', exclTags);
+      buildTable(esgMatrixMappings.indicateurs, 'esgIndicTable', indicTags);
+    }
 
     function setUnmatched(list){
       if (!unmatchedNotice) return;
@@ -3326,10 +3628,22 @@ function openClientMsgs(kind){
           var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
           var cfg = { displayModeBar: false, responsive: true };
           Plotly.react('esgChartClient', traces, layout, cfg);
+          esgLastResults = rows || [];
+          renderEsgMatrix(esgActiveGroup);
+          renderEsgBlocks();
         }).catch(function(err){
           setUnmatched(serverUnmatched);
           try{ console.error('Client ESG fetch error', err); }catch(_){}
         });
+      });
+      // Charger toutes les métriques nécessaires à la matrice (indépendamment des 4 champs sélectionnés)
+      var matrixUrl = `/dashboard/clients/{{ client.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(esgMatrixAllFields.join(','))}` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'') + (CL_MARKERS_SUFFIX || '');
+      fetch(matrixUrl).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
+        esgMatrixResults = (data && data.results) || [];
+        renderEsgMatrix(esgActiveGroup);
+        renderEsgBlocks();
+      }).catch(function(_err){
+        // garder esgMatrixResults tel quel
       });
     }
 
@@ -3361,6 +3675,14 @@ function openClientMsgs(kind){
     if (allocDateSel) allocDateSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}; drawESG(); });
     if (asOfSel) asOfSel.addEventListener('change', drawESG);
     if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
+    document.querySelectorAll('.esg-pill').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var g = btn.getAttribute('data-esg-group');
+        renderEsgMatrix(g || 'exclusions');
+      });
+    });
+    // Initial render of blocks (empty state)
+    renderEsgBlocks();
 
     // Init defaults
     (function init(){
@@ -3368,28 +3690,44 @@ function openClientMsgs(kind){
       try{
         var savedAlloc = '';
         try { savedAlloc = localStorage.getItem(keyAlloc) || ''; } catch(_e) {}
-        var targetAlloc = savedAlloc || serverDefaultAlloc || '';
-        if (targetAlloc){
-          var found = false;
+        var targetAlloc = graphDefaultAlloc || serverDefaultAlloc || '';
+        var findIndexByValue = function(val){
+          if (!val) return -1;
           for (var i=0;i<allocSel.options.length;i++){
-            if (allocSel.options[i].value === targetAlloc){
-              allocSel.selectedIndex = i;
-              found = true;
-              break;
-            }
+            if (allocSel.options[i].value === val){ return i; }
           }
-          if (!found) { targetAlloc = ''; }
+          return -1;
+        };
+        var targetIdx = findIndexByValue(targetAlloc);
+        if (targetAlloc && targetIdx === -1){
+          var opt = document.createElement('option');
+          opt.value = targetAlloc;
+          opt.textContent = targetAlloc;
+          allocSel.insertBefore(opt, allocSel.firstChild);
+          targetIdx = 0;
         }
-        if (!targetAlloc){
+        if (targetIdx === -1 && savedAlloc){
+          targetAlloc = savedAlloc;
+          targetIdx = findIndexByValue(targetAlloc);
+        }
+        if (targetIdx === -1 && targetAlloc){
+          var optFallback = document.createElement('option');
+          optFallback.value = targetAlloc;
+          optFallback.textContent = targetAlloc;
+          allocSel.appendChild(optFallback);
+          targetIdx = allocSel.options.length - 1;
+        }
+        if (targetIdx === -1){
           for (var j=0;j<allocSel.options.length;j++){
             if (allocSel.options[j].value){
-              allocSel.selectedIndex = j;
+              targetIdx = j;
               targetAlloc = allocSel.options[j].value;
               break;
             }
           }
         }
-        if (targetAlloc){
+        if (targetIdx >= 0){
+          allocSel.selectedIndex = targetIdx;
           try{ localStorage.setItem(keyAlloc, targetAlloc); }catch(_e){}
         }
       }catch(_e){}
@@ -4226,3 +4564,16 @@ function openClientMsgs(kind){
 </script>
 
 {% endblock %}
+    var esgSensibiliteMap = {
+      "Environnement": ["carbon_trend", "temperature_score", "ghg_intensity_value", "renewable_energy", "avoiding_water_scarcity", "water_efficiency"],
+      "Social": ["social_good", "social_harm", "executive_pay"],
+      "Gouvernance / Diversité": ["board_independence", "board_gender_diversity", "pct_female_board", "pct_female_executives", "gender_pay_gap"]
+    };
+    var esgSensibiliteLabels = {
+      "env_importance": "Importance environnement",
+      "env_ges_reduc": "Réduction GES",
+      "soc_droits_humains": "Droits humains",
+      "soc_parite": "Parité",
+      "gov_transparence": "Transparence",
+      "gov_controle_ethique": "Contrôle éthique"
+    };

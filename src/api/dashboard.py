@@ -99,6 +99,38 @@ def _require_client_write(request: Request, db: Session, client_id: int):
     return access, scope
 
 
+@router.get("/clients/{client_id}/addresses", response_class=JSONResponse)
+def get_client_addresses(request: Request, client_id: int, db: Session = Depends(get_db)):
+    """Renvoie les adresses du client (KYC_Client_Adresse) pour l'export contact."""
+    _require_client_read(request, db, client_id)
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT a.id,
+                       a.type_adresse_id,
+                       COALESCE(t.libelle, 'Non renseigné') AS type_libelle,
+                       a.rue,
+                       a.complement,
+                       a.code_postal,
+                       a.ville,
+                       a.pays,
+                       a.date_saisie,
+                       a.date_expiration
+                FROM KYC_Client_Adresse a
+                LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
+                WHERE a.client_id = :cid
+                ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        return {"addresses": rows_to_dicts(rows or [])}
+    except Exception as exc:
+        logger.warning("Contact export addresses fetch error client_id=%s: %s", client_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Impossible de récupérer les adresses")
+
+
 def _require_affaire_read(request: Request, db: Session, affaire_id: int):
     """Autorise lecture d'une affaire : client propriétaire ou staff data:read."""
     user_type, user_id, req_scope = extract_user_context(request)
@@ -2051,22 +2083,278 @@ def _compute_client_esg_comparison(
         if debug_esg is not None:
             debug_esg["resolved_pairs"] = resolved_pairs
         debug_info["esg"] = debug_esg
+    # (debug ciblé retiré)
+    return payload, debug_info
+
+
+def _compute_support_esg_comparison(
+    db: Session,
+    support_isin: str,
+    fields: list[str],
+    alloc: str | None = None,
+    alloc_isin: str | None = None,
+    alloc_date: str | None = None,
+    debug: bool = False,
+) -> tuple[dict, dict | None]:
+    """Comparaison ESG pour un support unique vs allocation de référence."""
+    sel_fields = [f for f in (fields or []) if f]
+    payload: dict = {
+        "fields": sel_fields,
+        "alloc": alloc,
+        "alloc_isin": alloc_isin,
+        "alloc_date": None,
+        "results": [],
+        "resolved_fields": [],
+        "unmatched_fields": [],
+        "support_isin": support_isin,
+    }
+    debug_info: dict | None = {"support": None, "allocation": None, "esg": None} if debug else None
+    if not sel_fields or not support_isin:
+        return payload, debug_info
+
+    # Résolution des colonnes ESG disponibles
     try:
-        if client_id == 1869 and any(f in {"board_independence", "board_gender_diversity"} for f in sel_fields):
-            wanted = {"board_independence", "board_gender_diversity"}
-            filtered = [r for r in results if (r.get("field_original") or r.get("field")) in wanted]
-            logger.info(
-                "ESG debug client 1869 -> fields=%s payload=%s client_weights=%s alloc_weights=%s aff_ids=%s resolved=%s unmatched=%s",
-                sel_fields,
-                filtered,
-                list(client_weights.items())[:8],
-                list(alloc_weights.items())[:8],
-                affaire_ids,
-                payload.get("resolved_fields"),
-                payload.get("unmatched_fields"),
+        available_cols = []
+        ok = False
+        try:
+            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            if rows_cols:
+                available_cols = [
+                    str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field")) if hasattr(rc, "_mapping") else str(rc[0])
+                    for rc in rows_cols
+                ]
+                ok = True
+        except Exception:
+            ok = False
+        if not ok:
+            rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+            available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
+    except Exception:
+        available_cols = []
+    col_lookup: dict[str, str] = {}
+    for col in available_cols:
+        key = _normalize_identifier(col)
+        if key and key not in col_lookup:
+            col_lookup[key] = col
+    resolved_pairs: list[tuple[str, str | None]] = []
+    seen_cols = set()
+    for field_name in sel_fields:
+        col = col_lookup.get(_normalize_identifier(field_name))
+        if col in seen_cols:
+            col = None
+        if col:
+            seen_cols.add(col)
+        resolved_pairs.append((field_name, col))
+    valid_pairs = [(orig, col) for orig, col in resolved_pairs if col]
+    payload["resolved_fields"] = [col for _, col in valid_pairs]
+    payload["unmatched_fields"] = [orig for orig, col in resolved_pairs if not col]
+    if not valid_pairs:
+        payload["results"] = [
+            {
+                "field": orig,
+                "field_original": orig,
+                "resolved_field": None,
+                "index": None,
+                "client": None,
+                "cli_present": 0,
+                "idx_present": 0,
+            }
+            for orig in sel_fields
+        ]
+        if debug_info is not None:
+            debug_info["support"] = {"isin": support_isin, "weights_count": 0, "weights_sum": 0}
+            debug_info["allocation"] = {"weights_count": 0, "weights_sum": 0, "isins": [], "date": None, "query": None}
+            debug_info["esg"] = {"isin_count": 0, "query": None}
+        return payload, debug_info
+
+    # Poids support (unique)
+    support_weights = {support_isin: 1.0}
+    debug_support = {"isin": support_isin, "weights_count": 1, "weights_sum": 1.0} if debug else None
+
+    # Poids allocation (reprend le calcul client)
+    alloc_weights: dict[str, float] = {}
+    alloc_date_val = None
+    debug_alloc: dict | None = {"weights_count": 0, "weights_sum": 0, "query": None, "isins": [], "date": None} if debug else None
+    try:
+        import re as _re
+
+        isin_param = alloc_isin or (alloc if alloc and _re.match(r"^[A-Z0-9]{9,12}$", str(alloc).strip()) else None)
+        if isin_param:
+            if alloc_date:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"),
+                    {"i": isin_param, "d": alloc_date},
+                ).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE ISIN = :i AND date = :d
+                """
+            )
+            params2 = {"i": isin_param, "d": alloc_date_val}
+            rows2 = db.execute(q2, params2).fetchall()
+            if debug_alloc is not None:
+                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
+        elif alloc:
+            if alloc_date:
+                alloc_date_val = db.execute(
+                    text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"),
+                    {"n": alloc, "d": alloc_date},
+                ).scalar()
+                if not alloc_date_val:
+                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            else:
+                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
+            q2 = text(
+                """
+                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
+                FROM allocations
+                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
+                """
+            )
+            params2 = {"n": alloc, "d": alloc_date_val}
+            rows2 = db.execute(q2, params2).fetchall()
+            if debug_alloc is not None:
+                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
+        else:
+            rows2 = []
+        total2 = sum(float(getattr(r, "v", 0) or 0) for r in rows2) if rows2 else 0.0
+        if total2 and total2 > 0:
+            for r in rows2:
+                isin = getattr(r, "isin", None)
+                v = float(getattr(r, "v", 0) or 0)
+                if isin:
+                    alloc_weights[isin] = v / total2
+        if debug_alloc is not None:
+            debug_alloc.update(
+                {
+                    "weights_count": len(alloc_weights),
+                    "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
+                    "isins": sorted(alloc_weights.keys()),
+                    "date": str(alloc_date_val) if alloc_date_val is not None else None,
+                }
             )
     except Exception:
-        pass
+        alloc_weights = {}
+    payload["alloc_date"] = str(alloc_date_val) if alloc_date_val is not None else None
+
+    all_isins = set(support_weights.keys()) | set(alloc_weights.keys())
+    if not all_isins:
+        if debug_info is not None:
+            debug_info["support"] = debug_support
+            debug_info["allocation"] = debug_alloc
+        return payload, debug_info
+
+    def _quote_col(c: str) -> str:
+        c = c.strip()
+        return f"`{c}`"
+
+    aliases = [(col, f"c{idx}") for idx, (orig, col) in enumerate(valid_pairs)]
+    col_expr = ", ".join(f"{_quote_col(col)} AS {alias}" for col, alias in aliases)
+    esg_map: dict[str, dict[str, float]] = {}
+    debug_esg: dict | None = {"isin_count": len(all_isins), "query": None} if debug else None
+    try:
+        isin_list = list(all_isins)
+        placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
+        params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
+        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for (col, alias) in aliases:
+                try:
+                    val = mm.get(alias)
+                except Exception:
+                    val = None
+                try:
+                    d[col] = float(val) if val is not None else None
+                except Exception:
+                    d[col] = None
+            esg_map[isin] = d
+        if debug_esg is not None:
+            debug_esg["query"] = {"sql": q_esg.text, "params": params}
+    except Exception:
+        esg_map = {}
+
+    results = []
+    for original_name, column_name in valid_pairs:
+        cli_val = None
+        v_support = (esg_map.get(support_isin) or {}).get(column_name)
+        if v_support is not None:
+            try:
+                cli_val = float(v_support)
+            except Exception:
+                cli_val = None
+
+        idx_val = 0.0
+        idx_wsum = 0.0
+        for isin, w in alloc_weights.items():
+            v = (esg_map.get(isin) or {}).get(column_name)
+            if v is None:
+                continue
+            idx_val += float(w) * float(v)
+            idx_wsum += float(w)
+        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
+
+        cli_present = 1 if v_support is not None else 0
+        idx_present = sum(1 for isin, _w in alloc_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
+
+        if cli_val is None or idx_val is None or idx_val == 0:
+            results.append(
+                {
+                    "field": column_name,
+                    "field_original": original_name,
+                    "resolved_field": column_name,
+                    "index": None,
+                    "client": None,
+                    "cli_present": cli_present,
+                    "idx_present": idx_present,
+                }
+            )
+        else:
+            results.append(
+                {
+                    "field": column_name,
+                    "field_original": original_name,
+                    "resolved_field": column_name,
+                    "index": 100.0,
+                    "client": (cli_val / idx_val) * 100.0,
+                    "cli_present": cli_present,
+                    "idx_present": idx_present,
+                }
+            )
+
+    for original_name, column_name in resolved_pairs:
+        if column_name:
+            continue
+        results.append(
+            {
+                "field": original_name,
+                "field_original": original_name,
+                "resolved_field": None,
+                "index": None,
+                "client": None,
+                "cli_present": 0,
+                "idx_present": 0,
+            }
+        )
+
+    payload["results"] = results
+    if debug_info is not None:
+        debug_info["support"] = debug_support
+        debug_info["allocation"] = debug_alloc
+        if debug_esg is not None:
+            debug_esg["resolved_pairs"] = resolved_pairs
+        debug_info["esg"] = debug_esg
     return payload, debug_info
 
 
@@ -2136,7 +2424,6 @@ def _build_finance_analysis(
         if row_max:
             max_val = row_max[0] if not hasattr(row_max, "_mapping") else row_max._mapping.get("max_date")
             finance_max_date = _parse_date_safe(max_val)
-            logger.info("finance_max_date from mariadb_historique_support_w: %s", finance_max_date)
     except Exception:
         finance_max_date = None
 
@@ -2201,7 +2488,6 @@ def _build_finance_analysis(
             sql += " HAVING " + " AND ".join(having_clauses)
         sql += " ORDER BY total_valo DESC"
         rows_supports = db.execute(text(sql), params).fetchall()
-        logger.info("finance_analysis: supports fetched in %.3fs", perf_counter() - t_sql)
         clients_map: dict[str, list[dict]] = {}
         try:
             t_clients = perf_counter()
@@ -2231,7 +2517,6 @@ def _build_finance_analysis(
                 HAVING SUM(h.valo) > 0
             """
             rows_clients = db.execute(text(sql_clients), params_clients).fetchall()
-            logger.info("finance_analysis: clients fetched in %.3fs", perf_counter() - t_clients)
             for r in rows_clients or []:
                 m = r._mapping if hasattr(r, "_mapping") else None
                 code_isin_client = (m.get("code_isin") if m else r[0]) or None
@@ -9120,7 +9405,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     )
     total_valo = finance_global_ctx["finance_total_valo"]
     t_finance = perf_counter()
-    logger.info("dashboard_home: finance_global_ctx computed in %.3fs", t_finance - t0)
 
     # Découpage du nombre de clients par intervalles de détention (basé sur la dernière valo par client)
     last_valos = (
@@ -9974,8 +10258,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     tasks_close_dist: list[dict] = []
     tasks_type_by_rh: list[dict] = []
     tasks_type_total: list[dict] = []
-
-    logger.info("dashboard_home: tasks/veille/remu sections computed in %.3fs", perf_counter() - t_finance)
 
     veille_ctx = _get_veille_context()
 
@@ -18893,6 +19175,36 @@ def dashboard_client_esg(
     return payload
 
 
+@router.get("/supports/{code_isin}/esg", response_class=JSONResponse)
+def dashboard_support_esg(
+    code_isin: str,
+    alloc: str = Query(None, description="Nom de l'allocation de référence"),
+    alloc_isin: str = Query(None, description="ISIN de l'allocation (prioritaire si fourni)"),
+    fields: str = Query(None, description="Champs ESG séparés par des virgules"),
+    alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
+    debug: int = Query(0, description="Activer la sortie debug"),
+    db: Session = Depends(get_db),
+):
+    sel_fields: list[str] = []
+    if fields:
+        sel_fields = [f.strip() for f in fields.split(",") if f and f.strip()]
+    if not sel_fields:
+        return {"error": "Aucun champ ESG sélectionné."}
+
+    payload, debug_payload = _compute_support_esg_comparison(
+        db=db,
+        support_isin=code_isin,
+        fields=sel_fields,
+        alloc=alloc,
+        alloc_isin=alloc_isin,
+        alloc_date=alloc_date,
+        debug=bool(debug),
+    )
+    if debug and debug_payload is not None:
+        payload["debug"] = debug_payload
+    return payload
+
+
 # ---------------- ESG data API (Global consolidé: tous contrats) ----------------
 @router.get("/esg", response_class=JSONResponse)
 def dashboard_global_esg(
@@ -21919,10 +22231,26 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                         it[k] = getattr(r, k)
         client_supports = []
         for it in client_supports_map.values():
-            den = it.get("prmp_den", 0.0) or 0.0
-            prmp_val = (it.get("prmp_num", 0.0) / den) if den > 0 else None
+            # Recalculer le PRMP consolidé à partir des PRMP de chaque contrat (moyenne pondérée par nb de parts)
+            prmp_num = 0.0
+            prmp_den = 0.0
+            for c in it.get("contracts", []):
+                nb_parts = c.get("nb_parts")
+                prmp_c = c.get("prix_revient")
+                if nb_parts is None or prmp_c is None:
+                    continue
+                try:
+                    nb_val = float(nb_parts)
+                    prmp_val_c = float(prmp_c)
+                except Exception:
+                    continue
+                prmp_num += prmp_val_c * nb_val
+                prmp_den += nb_val
+            prmp_val = (prmp_num / prmp_den) if prmp_den > 0 else None
+
             vl_den = it.get("vl_den", 0.0) or 0.0
             vl_val = (it.get("vl_num", 0.0) / vl_den) if vl_den > 0 else None
+
             contracts_list = [
                 {
                     **c,
@@ -22472,6 +22800,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     esg_fields_client: list[dict] = []
     esg_field_labels_client: dict[str, str] = {}
     esg_comparison_alloc: str | None = None
+    allocation_reference_name: str | None = None
+    allocation_risque_id: int | None = None
+    allocation_risque_name_raw: str | None = None
+    adequation_allocation_html = None
     esg_comparison_rows: list[dict] = []
     esg_comparison_chart_png = None
     esg_unmatched_fields: list[str] = []
@@ -22480,62 +22812,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         esg_fields_client, esg_fields_debug_tmp = _get_esg_fields(db, debug=False)
     except Exception:
         esg_fields_client = []
-    # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
-    allocation_reference_name: str | None = None
-    adequation_allocation_html = None
-    try:
-        rid = None
-        if risque_latest and (risque_latest.get("niveau_id") is not None):
-            rid = int(risque_latest.get("niveau_id"))
-        if rid is not None:
-            row = db.execute(text(
-                """
-                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
-                       ar.texte
-                FROM allocation_risque ar
-                LEFT JOIN allocations a ON a.nom = ar.allocation_name
-                WHERE ar.risque_id = :rid
-                ORDER BY ar.date_attribution DESC, ar.id DESC
-                LIMIT 1
-                """
-            ), {"rid": rid}).fetchone()
-            if row:
-                allocation_reference_name = row[0]
-            if row and row[1] is not None:
-                md = str(row[1])
-                try:
-                    import re, html as _html
-                    text_md = _html.escape(md)
-                    text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
-                    text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
-                    text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
-                    text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
-                    text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
-                    lines = text_md.split('\n')
-                    out = []
-                    in_ul = False
-                    for ln in lines:
-                        if re.match(r"^\s*-\s+", ln):
-                            if not in_ul:
-                                out.append("<ul>"); in_ul=True
-                            out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
-                        else:
-                            if in_ul:
-                                out.append("</ul>"); in_ul=False
-                            if ln.strip(): out.append("<p>"+ln+"</p>")
-                    if in_ul: out.append("</ul>")
-                    adequation_allocation_html = "\n".join(out)
-                except Exception:
-                    adequation_allocation_html = md.replace('\n','<br/>')
-    except Exception:
-        adequation_allocation_html = None
 
     esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
-
     if not allocation_reference_name and alloc_names_client:
         allocation_reference_name = alloc_names_client[0]
-
-    esg_comparison_alloc = allocation_reference_name or (alloc_names_client[0] if alloc_names_client else None)
+    esg_comparison_alloc = (
+        client_allocation_name
+        or allocation_reference_name
+        or (risque_latest.get("allocation_nom") if risque_latest else None)
+        or (alloc_names_client[0] if alloc_names_client else None)
+    )
     # Tenter de déterminer des indicateurs ESG pertinents (ceux qui possèdent des données numériques)
     fields_to_try = [it.get("col") for it in esg_fields_client if it.get("col")]
     if len(fields_to_try) > 12:
@@ -22697,6 +22983,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         synthese_latest = None
 
+    # Profil de risque (KYC_Client_Risque) pour récupérer l'allocation par niveau de risque
     risque_latest = None
     try:
         row = db.execute(text(
@@ -22721,6 +23008,54 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         risque_latest = None
 
+    # Texte de l'offre (allocation_risque.texte) selon le niveau de risque
+    try:
+        rid = None
+        if risque_latest and (risque_latest.get("niveau_id") is not None):
+            rid = int(risque_latest.get("niveau_id"))
+        row = None
+        if rid is not None:
+            row = db.execute(text(
+                """
+                SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                       ar.texte
+                FROM allocation_risque ar
+                LEFT JOIN allocations a ON a.nom = ar.allocation_name
+                WHERE ar.risque_id = :rid
+                ORDER BY ar.date_attribution DESC, ar.id DESC
+                LIMIT 1
+                """
+            ), {"rid": rid}).fetchone()
+        if row:
+            allocation_reference_name = row[0]
+        if row and row[1] is not None:
+            md = str(row[1])
+            try:
+                import re, html as _html
+                text_md = _html.escape(md)
+                text_md = re.sub(r"^###\s+(.*)$", r"<h5>\1</h5>", text_md, flags=re.M)
+                text_md = re.sub(r"^##\s+(.*)$", r"<h4>\1</h4>", text_md, flags=re.M)
+                text_md = re.sub(r"^#\s+(.*)$", r"<h3>\1</h3>", text_md, flags=re.M)
+                text_md = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text_md)
+                text_md = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text_md)
+                lines = text_md.split('\n')
+                out = []
+                in_ul = False
+                for ln in lines:
+                    if re.match(r"^\s*-\s+", ln):
+                        if not in_ul:
+                            out.append("<ul>"); in_ul=True
+                        out.append("<li>" + re.sub(r"^\s*-\s+", "", ln) + "</li>")
+                    else:
+                        if in_ul:
+                            out.append("</ul>"); in_ul=False
+                        if ln.strip(): out.append("<p>"+ln+"</p>")
+                if in_ul: out.append("</ul>")
+                adequation_allocation_html = "\n".join(out)
+            except Exception:
+                adequation_allocation_html = md.replace('\n','<br/>')
+    except Exception:
+        adequation_allocation_html = None
     # Contrats génériques (pour comparatif des offres)
     adequation_contracts = []
     try:
@@ -22851,6 +23186,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "esg_comparison_chart_png": esg_comparison_chart_png,
             "esg_default_fields": esg_default_fields,
             "esg_unmatched_fields": esg_unmatched_fields,
+            "allocation_risque_id": allocation_risque_id,
+            "allocation_risque_name_raw": allocation_risque_name_raw,
             "contrat_choisi_nom": contrat_choisi_nom,
             "contrat_choisi_societe": contrat_choisi_societe,
             "allocation_reference_name": allocation_reference_name or client_allocation_name,
