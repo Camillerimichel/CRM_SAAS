@@ -1,0 +1,5 @@
+
+> frontend@0.1.0 serve
+> node server.js
+
+Frontend served from /var/www/CRM_SAAS/frontend/build on http://0.0.0.0:8101

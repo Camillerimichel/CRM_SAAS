@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 from pydantic import BaseModel
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 
 from src.database import get_db
@@ -2633,21 +2633,30 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         {"cid": client_id},
     ).scalar()
 
-    historique = (
-        db.query(
-            HistoriquePersonne.date,
-            HistoriquePersonne.valo,
-            HistoriquePersonne.mouvement,
-            HistoriquePersonne.sicav,
-            HistoriquePersonne.perf_sicav_52,
-            HistoriquePersonne.volat,
-            HistoriquePersonne.annee,
-            HistoriquePersonne.SRRI,
+    base_hist_query = db.query(
+        HistoriquePersonne.date,
+        HistoriquePersonne.valo,
+        HistoriquePersonne.mouvement,
+        HistoriquePersonne.sicav,
+        HistoriquePersonne.perf_sicav_52,
+        HistoriquePersonne.volat,
+        HistoriquePersonne.annee,
+        HistoriquePersonne.SRRI,
+    ).order_by(HistoriquePersonne.date)
+    try:
+        historique = (
+            base_hist_query.filter(HistoriquePersonne.id_personne == client_id).all()
         )
-        .filter(HistoriquePersonne.id_personne == client_id)
-        .order_by(HistoriquePersonne.date)
-        .all()
-    )
+    except (OperationalError, ProgrammingError) as exc:
+        # Certains environnements n'ont pas la colonne id_personne, on retombe sur id.
+        if "id_personne" in str(exc).lower():
+            logger.warning(
+                "mariadb_historique_personne_w sans colonne id_personne, fallback sur id",
+                exc_info=exc,
+            )
+            historique = base_hist_query.filter(HistoriquePersonne.id == client_id).all()
+        else:
+            raise
 
     selected_dt = None
 
@@ -4964,44 +4973,60 @@ async def dashboard_client_kyc_report(
             return None
 
     # Objectifs (sélectionnés)
-    # Tenter de joindre libellés via ref_objectif (nom de table exact) ou, à défaut, via risque_objectif_option
+    objectifs: list[dict] = []
     try:
-        has_ref_obj = bool(db.execute(text("PRAGMA table_info('ref_objectif')")).fetchall())
-    except Exception:
-        has_ref_obj = False
-    try:
-        has_risque_obj = bool(db.execute(text("PRAGMA table_info('risque_objectif_option')")).fetchall())
-    except Exception:
-        has_risque_obj = False
-    if has_ref_obj:
-        objectifs = rows_to_dicts(db.execute(text(
-            """
-            SELECT o.id, o.objectif_id, ro.libelle AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
-            FROM KYC_Client_Objectifs o
-            LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
-            WHERE o.client_id=:cid
-            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
-            """
-        ), {"cid": client_id}).fetchall() or [])
-    elif has_risque_obj:
-        objectifs = rows_to_dicts(db.execute(text(
-            """
-            SELECT o.id, o.objectif_id, r.label AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
-            FROM KYC_Client_Objectifs o
-            LEFT JOIN risque_objectif_option r ON r.id = o.objectif_id
-            WHERE o.client_id=:cid
-            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
-            """
-        ), {"cid": client_id}).fetchall() or [])
-    else:
-        objectifs = rows_to_dicts(db.execute(text(
-            """
-            SELECT o.id, o.objectif_id, NULL AS objectif_libelle, o.niveau_id, o.horizon_investissement, o.commentaire
-            FROM KYC_Client_Objectifs o
-            WHERE o.client_id=:cid
-            ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
-            """
-        ), {"cid": client_id}).fetchall() or [])
+        objectifs = rows_to_dicts(
+            db.execute(
+                text(
+                    """
+                    SELECT o.id, o.objectif_id, ro.libelle AS objectif_libelle, o.niveau_id,
+                           o.horizon_investissement, o.commentaire
+                    FROM KYC_Client_Objectifs o
+                    LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
+                    WHERE o.client_id=:cid
+                    ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
+                    """
+                ),
+                {"cid": client_id},
+            ).fetchall()
+            or []
+        )
+    except Exception as exc_ref_obj:
+        logger.debug("kyc_report: ref_objectif lookup failed, fallback to risque options: %s", exc_ref_obj)
+        try:
+            objectifs = rows_to_dicts(
+                db.execute(
+                    text(
+                        """
+                        SELECT o.id, o.objectif_id, r.label AS objectif_libelle, o.niveau_id,
+                               o.horizon_investissement, o.commentaire
+                        FROM KYC_Client_Objectifs o
+                        LEFT JOIN risque_objectif_option r ON r.id = o.objectif_id
+                        WHERE o.client_id=:cid
+                        ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
+                        """
+                    ),
+                    {"cid": client_id},
+                ).fetchall()
+                or []
+            )
+        except Exception as exc_risque_obj:
+            logger.debug("kyc_report: risque_objectif_option lookup failed: %s", exc_risque_obj)
+            objectifs = rows_to_dicts(
+                db.execute(
+                    text(
+                        """
+                        SELECT o.id, o.objectif_id, NULL AS objectif_libelle, o.niveau_id,
+                               o.horizon_investissement, o.commentaire
+                        FROM KYC_Client_Objectifs o
+                        WHERE o.client_id=:cid
+                        ORDER BY (o.niveau_id IS NULL), o.niveau_id ASC, o.id DESC
+                        """
+                    ),
+                    {"cid": client_id},
+                ).fetchall()
+                or []
+            )
 
     # Fallback: si aucun objectif enregistré, tenter depuis le dernier questionnaire risque (objectifs principaux)
     try:
@@ -5039,6 +5064,9 @@ async def dashboard_client_kyc_report(
 
     # Risque (KYC_Client_Risque dernier + connaissance produits + allocation)
     risque = None
+    client_allocation_id_pdf: int | None = None
+    client_allocation_name_pdf: str | None = None
+    allocation_risque_id_pdf: int | None = None
     try:
         row = db.execute(text(
             "SELECT * FROM KYC_Client_Risque WHERE client_id=:cid ORDER BY date_saisie DESC, id DESC LIMIT 1"
@@ -5080,6 +5108,7 @@ async def dashboard_client_kyc_report(
                     """
                     SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom
                           , ar.texte AS allocation_texte
+                          , ar.id AS allocation_risque_id
                     FROM allocation_risque ar
                     LEFT JOIN allocations a ON a.nom = ar.allocation_name
                     WHERE ar.risque_id = :rid
@@ -5089,6 +5118,10 @@ async def dashboard_client_kyc_report(
                 ), {"rid": risque.get("niveau_id")}).fetchone()
                 if row_alloc:
                     risque["allocation_nom"] = row_alloc[0]
+                    try:
+                        allocation_risque_id_pdf = int(row_alloc[2]) if len(row_alloc) > 2 and row_alloc[2] is not None else allocation_risque_id_pdf
+                    except Exception:
+                        pass
                     # Convert markdown to simple HTML for conformity template
                     try:
                         md = row_alloc[1]
@@ -5166,6 +5199,193 @@ async def dashboard_client_kyc_report(
     except Exception:
         risque_latest_info = None
 
+    # SRI allocation (tension table pour rapport)
+    allocation_sri_metrics: dict | None = None
+    allocation_sri_scenarios: list[dict] = []
+    allocation_sri_rhp_years: float | None = None
+    try:
+        def _norm_alloc(val: str | None) -> str:
+            import re as _re
+            return _re.sub(r"\s+", " ", str(val or "").strip()).lower()
+
+        def _build_sri_context(sm: dict, rhp_years: float | None, label: str | None = None):
+            nonlocal allocation_sri_metrics, allocation_sri_scenarios, allocation_sri_rhp_years
+            allocation_sri_metrics = sm.copy()
+            if label:
+                allocation_sri_metrics["alloc_label"] = label
+            allocation_sri_rhp_years = rhp_years or 5
+            scen_data = _compute_sri_scenarios(sm, rhp_years=allocation_sri_rhp_years)
+            scen_rows = scen_data.get("rows") or []
+            base_cap = 10000.0
+
+            def _fmt_euro(val: float | None) -> str:
+                if val is None or (isinstance(val, float) and not math.isfinite(val)):
+                    return "—"
+                try:
+                    return "{:,.0f}".format(val).replace(",", " ") + " €"
+                except Exception:
+                    return str(val)
+
+            def _row(factor: float | None) -> dict[str, str]:
+                if factor is None or (isinstance(factor, float) and not math.isfinite(factor)):
+                    return {"euro": "—", "pct": "—"}
+                try:
+                    v = base_cap * float(factor)
+                except Exception:
+                    return {"euro": "—", "pct": "—"}
+                pct = ((v - base_cap) / base_cap) * 100 if base_cap else None
+                pct_str = "—"
+                try:
+                    if pct is not None and math.isfinite(pct):
+                        pct_str = f"{pct:.2f} %"
+                except Exception:
+                    pct_str = "—"
+                return {"euro": _fmt_euro(v), "pct": pct_str}
+
+            allocation_sri_scenarios = []
+            for row in scen_rows:
+                allocation_sri_scenarios.append(
+                    {
+                        "label": row.get("horizon") or "Horizon",
+                        "tension": _row(row.get("tension")),
+                        "defavorable": _row(row.get("defavorable")),
+                        "intermediaire": _row(row.get("intermediaire")),
+                        "favorable": _row(row.get("favorable")),
+                    }
+                )
+
+        target_names = set()
+        target_ids: set[int] = set()
+        if risque and risque.get("allocation_nom"):
+            target_names.add(_norm_alloc(risque.get("allocation_nom")))
+        try:
+            row_cli_alloc = db.execute(text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+            if row_cli_alloc:
+                caid = row_cli_alloc[0] if not hasattr(row_cli_alloc, "_mapping") else (row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0])
+                if caid is not None:
+                    try:
+                        target_ids.add(int(caid))
+                    except Exception:
+                        pass
+                    row_cli_alloc_name = db.execute(text("SELECT nom FROM allocations WHERE id = :aid"), {"aid": caid}).fetchone()
+                    client_allocation_id_pdf = caid if client_allocation_id_pdf is None else client_allocation_id_pdf
+                    if row_cli_alloc_name:
+                        nm = row_cli_alloc_name[0] if not hasattr(row_cli_alloc_name, "_mapping") else (row_cli_alloc_name._mapping.get("nom") or row_cli_alloc_name[0])
+                        if nm:
+                            target_names.add(_norm_alloc(nm))
+                            if client_allocation_name_pdf is None:
+                                client_allocation_name_pdf = nm
+        except Exception:
+            pass
+
+        rows_sm = db.execute(
+            text(
+                """
+                WITH sm_latest AS (
+                  SELECT *
+                  FROM (
+                    SELECT sm.*,
+                           ROW_NUMBER() OVER (PARTITION BY sm.entity_id ORDER BY sm.as_of_date DESC, sm.calc_at DESC) AS rk
+                    FROM sri_metrics sm
+                    WHERE sm.entity_type = 'allocation'
+                  ) s
+                  WHERE s.rk = 1
+                ),
+                alloc_latest AS (
+                  SELECT id AS alloc_id,
+                         nom AS alloc_nom,
+                         UPPER(TRIM(isin)) AS isin_norm
+                  FROM (
+                    SELECT a.*,
+                           ROW_NUMBER() OVER (
+                             PARTITION BY UPPER(TRIM(a.isin))
+                             ORDER BY a.date DESC
+                           ) AS rk
+                    FROM allocations a
+                  ) x
+                  WHERE x.rk = 1
+                )
+                SELECT sm.*, ar.isin AS ar_isin, ar.allocation_name, al.alloc_id, al.alloc_nom
+                FROM sm_latest sm
+                LEFT JOIN allocation_risque ar
+                  ON ar.id = sm.entity_id
+                LEFT JOIN alloc_latest al
+                  ON al.isin_norm = UPPER(TRIM(ar.isin))
+                """
+            )
+        ).fetchall()
+        candidates: list[dict] = []
+        for r in rows_sm or []:
+            m = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            for k, v in list(m.items()):
+                if isinstance(v, Decimal):
+                    m[k] = float(v)
+            if m.get("as_of_date") is not None:
+                try:
+                    m["as_of_date"] = m["as_of_date"].isoformat()
+                except Exception:
+                    m["as_of_date"] = str(m.get("as_of_date"))
+            if m.get("calc_at") is not None:
+                try:
+                    m["calc_at"] = m["calc_at"].isoformat(sep=" ", timespec="seconds")
+                except Exception:
+                    m["calc_at"] = str(m.get("calc_at"))
+            candidates.append(m)
+
+        selected = None
+        for m in candidates:
+            aid = m.get("alloc_id")
+            aname = m.get("alloc_nom") or m.get("allocation_name")
+            if aid is not None:
+                try:
+                    if int(aid) in target_ids:
+                        selected = m
+                        break
+                except Exception:
+                    pass
+            if aname and _norm_alloc(aname) in target_names:
+                selected = m
+                break
+
+        # Fallback: pick first available allocation SRI
+        if not selected and candidates:
+            selected = candidates[0]
+
+        if selected:
+            rhp_map = {1: 3, 2: 5, 3: 5, 4: 8}
+            try:
+                rhp_years = rhp_map.get(int(selected.get("alloc_id"))) if selected.get("alloc_id") is not None else None
+            except Exception:
+                rhp_years = None
+            _build_sri_context(selected, rhp_years, label=(selected.get("allocation_name") or selected.get("alloc_nom")))
+        else:
+            # Fallback client-level SRI metrics if no allocation SRI found
+            try:
+                row_cli_sri = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM sri_metrics
+                        WHERE entity_type = 'client' AND entity_id = :cid
+                        ORDER BY as_of_date DESC, calc_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"cid": client_id},
+                ).fetchone()
+                if row_cli_sri:
+                    sm = dict(row_cli_sri._mapping) if hasattr(row_cli_sri, "_mapping") else dict(row_cli_sri)
+                    for k, v in list(sm.items()):
+                        if isinstance(v, Decimal):
+                            sm[k] = float(v)
+                    _build_sri_context(sm, rhp_years=None, label=risque.get("allocation_nom") if risque else "Client")
+            except Exception:
+                pass
+    except Exception:
+        allocation_sri_metrics = None
+        allocation_sri_scenarios = []
+        allocation_sri_rhp_years = None
+
     # ESG (dernier) + exclusions
     esg = None
     esg_exclusions: list[str] = []
@@ -5212,6 +5432,12 @@ async def dashboard_client_kyc_report(
         "budget_net": _fmt_amount(budget_net),
         "objectifs": objectifs,
         "risque": risque,
+        "client_allocation_id": client_allocation_id_pdf,
+        "client_allocation_name": client_allocation_name_pdf,
+        "allocation_risque_id": allocation_risque_id_pdf,
+        "allocation_sri_metrics": allocation_sri_metrics,
+        "allocation_sri_scenarios": allocation_sri_scenarios,
+        "allocation_sri_rhp_years": allocation_sri_rhp_years,
         "esg": esg,
         "esg_exclusions": esg_exclusions,
         "want_charts": int(pdf or 0) == 0,
@@ -12815,13 +13041,27 @@ async def dashboard_client_kyc(
                     # Charger la série de performance/volatilité pour cette allocation
                     alloc_chart = None
                     try:
-                        if allocation_nom:
-                            rows_series = (
-                                db.query(Allocation.date, Allocation.sicav, Allocation.volat)
-                                .filter(Allocation.nom == allocation_nom)
-                                .order_by(Allocation.date.asc())
-                                .all()
-                            )
+                        # Préférence à l'ID d'allocation si disponible pour éviter tout décalage de base/nom
+                        if allocation_id_client is None and client_id:
+                            try:
+                                row_cli_alloc = db.execute(
+                                    _text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+                                    {"cid": client_id},
+                                ).fetchone()
+                                if row_cli_alloc:
+                                    allocation_id_client = row_cli_alloc[0] if not hasattr(row_cli_alloc, "_mapping") else (
+                                        row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0]
+                                    )
+                            except Exception:
+                                allocation_id_client = None
+
+                        if allocation_id_client or allocation_nom:
+                            query = db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                            if allocation_id_client:
+                                query = query.filter(Allocation.id == allocation_id_client)
+                            else:
+                                query = query.filter(Allocation.nom == allocation_nom)
+                            rows_series = query.order_by(Allocation.date.asc()).all()
                             labels: list[str] = []
                             sicav_vals: list[float] = []
                             vol_vals: list[float] = []
@@ -15046,6 +15286,365 @@ async def dashboard_client_kyc(
         nb_contrats_actifs = 0
         nb_supports_references = 0
 
+    # SRI allocations : tension table for the knowledge modal
+    allocation_sri_metrics: dict | None = None
+    allocation_sri_scenarios: list[dict] = []
+    allocation_sri_rhp_years: float | None = None
+    sri_query_sql: str | None = None
+    sri_query_params: dict | None = None
+    try:
+        # Cibles : allocation du snapshot, puis celle renseignée côté client
+        def _norm_name(val: str | None) -> str:
+            import re as _re
+            return _re.sub(r"\s+", " ", str(val or "").strip()).lower()
+
+        target_names = set()
+        if risque_snapshot and risque_snapshot.get("allocation_nom"):
+            target_names.add(_norm_name(risque_snapshot.get("allocation_nom")))
+
+        client_allocation_id_sri: int | None = None
+        client_allocation_name_sri: str | None = None
+        try:
+            row_cli_alloc = db.execute(text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+            if row_cli_alloc:
+                client_allocation_id_sri = int(row_cli_alloc[0]) if row_cli_alloc[0] is not None else None
+            if client_allocation_id_sri:
+                row_cli_alloc_name = db.execute(text("SELECT nom FROM allocations WHERE id = :aid"), {"aid": client_allocation_id_sri}).fetchone()
+                if row_cli_alloc_name:
+                    client_allocation_name_sri = row_cli_alloc_name[0] if not hasattr(row_cli_alloc_name, "_mapping") else (
+                        row_cli_alloc_name._mapping.get("nom") or row_cli_alloc_name[0]
+                    )
+        except Exception:
+            client_allocation_id_sri = getattr(client, "allocation_id", None) if client else None
+            client_allocation_name_sri = None
+        if client_allocation_name_sri:
+            target_names.add(_norm_name(client_allocation_name_sri))
+        target_ids = set()
+        if client_allocation_id_sri:
+            try:
+                target_ids.add(int(client_allocation_id_sri))
+            except Exception:
+                pass
+        # Essayer directement via allocation_risque_id_pdf si disponible
+        direct_sm = None
+        if allocation_risque_id_pdf is not None:
+            try:
+                sri_query_sql = (
+                    "SELECT * FROM sri_metrics WHERE entity_type = 'allocation' AND entity_id = :eid "
+                    "ORDER BY as_of_date DESC, calc_at DESC LIMIT 1"
+                )
+                sri_query_params = {"eid": allocation_risque_id_pdf}
+                row_sm_direct = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM sri_metrics
+                        WHERE entity_type = 'allocation' AND entity_id = :eid
+                        ORDER BY as_of_date DESC, calc_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"eid": allocation_risque_id_pdf},
+                ).fetchone()
+                if row_sm_direct:
+                    direct_sm = dict(row_sm_direct._mapping) if hasattr(row_sm_direct, "_mapping") else dict(row_sm_direct)
+                    for k, v in list(direct_sm.items()):
+                        if isinstance(v, Decimal):
+                            direct_sm[k] = float(v)
+                    # Enrichir avec nom/alloc_id si manquants
+                    if not direct_sm.get("allocation_name"):
+                        try:
+                            direct_sm["allocation_name"] = (
+                                (risque_snapshot.get("allocation_nom") if risque_snapshot else None)
+                                or client_allocation_name_sri
+                                or client_allocation_name_pdf
+                            )
+                        except Exception:
+                            direct_sm["allocation_name"] = client_allocation_name_sri or client_allocation_name_pdf
+                    if direct_sm.get("alloc_id") is None and client_allocation_id_sri:
+                        direct_sm["alloc_id"] = client_allocation_id_sri
+                    if direct_sm.get("as_of_date") is not None:
+                        try:
+                            direct_sm["as_of_date"] = direct_sm["as_of_date"].isoformat()
+                        except Exception:
+                            direct_sm["as_of_date"] = str(direct_sm.get("as_of_date"))
+                    if direct_sm.get("calc_at") is not None:
+                        try:
+                            direct_sm["calc_at"] = direct_sm["calc_at"].isoformat(sep=" ", timespec="seconds")
+                        except Exception:
+                            direct_sm["calc_at"] = str(direct_sm.get("calc_at"))
+            except Exception:
+                direct_sm = None
+        if (allocation_risque_id_pdf is None) and target_names:
+            try:
+                # Trouver l'ID allocation_risque correspondant au nom sélectionné
+                tn = next(iter(target_names))
+                row_ar = db.execute(
+                    text(
+                        """
+                        SELECT id
+                        FROM allocation_risque
+                        WHERE lower(trim(allocation_name)) = lower(trim(:n))
+                        ORDER BY date_attribution DESC, id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"n": tn},
+                ).fetchone()
+                if row_ar:
+                    allocation_risque_id_pdf = row_ar[0] if not hasattr(row_ar, "_mapping") else (row_ar._mapping.get("id") or row_ar[0])
+            except Exception:
+                pass
+
+        rows_sm = db.execute(
+            text(
+                """
+                WITH sm_latest AS (
+                  SELECT *
+                  FROM (
+                    SELECT sm.*,
+                           ROW_NUMBER() OVER (PARTITION BY sm.entity_id ORDER BY sm.as_of_date DESC, sm.calc_at DESC) AS rk
+                    FROM sri_metrics sm
+                    WHERE sm.entity_type = 'allocation'
+                  ) s
+                  WHERE s.rk = 1
+                ),
+                alloc_latest AS (
+                  SELECT id AS alloc_id,
+                         nom AS alloc_nom,
+                         UPPER(TRIM(isin)) AS isin_norm
+                  FROM (
+                    SELECT a.*,
+                           ROW_NUMBER() OVER (
+                             PARTITION BY UPPER(TRIM(a.isin))
+                             ORDER BY a.date DESC
+                           ) AS rk
+                    FROM allocations a
+                  ) x
+                  WHERE x.rk = 1
+                )
+                SELECT sm.*, ar.isin AS ar_isin, ar.allocation_name, al.alloc_id, al.alloc_nom
+                FROM sm_latest sm
+                LEFT JOIN allocation_risque ar
+                  ON ar.id = sm.entity_id
+                LEFT JOIN alloc_latest al
+                  ON al.isin_norm = UPPER(TRIM(ar.isin))
+                """
+            )
+        ).fetchall()
+
+        candidates: list[dict] = []
+        for r in rows_sm or []:
+            m = dict(r._mapping) if hasattr(r, "_mapping") else dict(r)
+            # Normalise dates et decimals pour l'affichage/template
+            for k, v in list(m.items()):
+                if isinstance(v, Decimal):
+                    m[k] = float(v)
+            if m.get("as_of_date") is not None:
+                try:
+                    m["as_of_date"] = m["as_of_date"].isoformat()
+                except Exception:
+                    m["as_of_date"] = str(m.get("as_of_date"))
+            if m.get("calc_at") is not None:
+                try:
+                    m["calc_at"] = m["calc_at"].isoformat(sep=" ", timespec="seconds")
+                except Exception:
+                    m["calc_at"] = str(m.get("calc_at"))
+            candidates.append(m)
+
+        # 2) Sélectionner la bonne métrique SRI
+        if direct_sm and allocation_sri_metrics is None:
+            selected = direct_sm
+        else:
+            selected = None
+        for m in candidates:
+            aid = m.get("alloc_id")
+            aname = m.get("alloc_nom") or m.get("allocation_name")
+            if aid is not None and int(aid) in target_ids:
+                selected = m
+                break
+            if aname and _norm_name(aname) in target_names:
+                selected = m
+                break
+
+        if selected:
+            allocation_sri_metrics = selected
+            # Déterminer un RHP depuis n_periods (si disponible) sinon fallback map/id
+            rhp_years = None
+            try:
+                nperiods = selected.get("n_periods") or selected.get("nperiods")
+                if nperiods is not None:
+                    rhp_years = max(1.0, float(nperiods)) / 52.0
+            except Exception:
+                rhp_years = None
+            try:
+                aid_int = int(selected.get("alloc_id")) if selected.get("alloc_id") is not None else None
+            except Exception:
+                aid_int = None
+            rhp_map = {1: 3, 2: 5, 3: 5, 4: 8}
+            if rhp_years is None:
+                rhp_years = rhp_map.get(aid_int, 5)
+            allocation_sri_rhp_years = rhp_years
+            scen_data = _compute_sri_scenarios(selected, rhp_years=rhp_years)
+            scen_rows = scen_data.get("rows") or []
+            base_cap = 10000.0
+
+            def _fmt_euro(val: float | None) -> str:
+                if val is None or not math.isfinite(val):
+                    return "—"
+                try:
+                    return "{:,.0f}".format(val).replace(",", " ") + " €"
+                except Exception:
+                    return str(val)
+
+            def _row_vals(factor: float | None) -> dict[str, str]:
+                if factor is None or (isinstance(factor, float) and not math.isfinite(factor)):
+                    return {"euro": "—", "pct": "—"}
+                try:
+                    v = base_cap * float(factor)
+                except Exception:
+                    return {"euro": "—", "pct": "—"}
+                pct = ((v - base_cap) / base_cap) * 100 if base_cap else None
+                pct_str = "—"
+                try:
+                    if pct is not None and math.isfinite(pct):
+                        pct_str = f"{pct:.2f} %"
+                except Exception:
+                    pct_str = "—"
+                return {"euro": _fmt_euro(v), "pct": pct_str}
+
+            for row in scen_rows:
+                allocation_sri_scenarios.append(
+                    {
+                        "label": row.get("horizon") or "Horizon",
+                        "tension": _row_vals(row.get("tension")),
+                        "defavorable": _row_vals(row.get("defavorable")),
+                        "intermediaire": _row_vals(row.get("intermediaire")),
+                        "favorable": _row_vals(row.get("favorable")),
+                    }
+                )
+
+            # Renseigner la requête utilisée si absente (cas sélection via liste)
+            if sri_query_sql is None:
+                try:
+                    entity_id_val = allocation_risque_id_pdf or selected.get("entity_id")
+                except Exception:
+                    entity_id_val = allocation_risque_id_pdf
+                sri_query_sql = "SELECT * FROM sri_metrics WHERE entity_type = 'allocation' AND entity_id = :eid ORDER BY as_of_date DESC, calc_at DESC LIMIT 1"
+                sri_query_params = {"eid": entity_id_val}
+
+        # Si métriques trouvées mais scénarios vides, tenter un calcul forcé
+        if allocation_sri_metrics and not allocation_sri_scenarios:
+            try:
+                scen_data = _compute_sri_scenarios(allocation_sri_metrics, rhp_years=allocation_sri_rhp_years or 5)
+                scen_rows = scen_data.get("rows") or []
+                base_cap = 10000.0
+                def _fmt_euro(val: float | None) -> str:
+                    if val is None or not math.isfinite(val):
+                        return "—"
+                    try:
+                        return "{:,.0f}".format(val).replace(",", " ") + " €"
+                    except Exception:
+                        return str(val)
+                def _row_vals(factor: float | None) -> dict[str, str]:
+                    if factor is None or (isinstance(factor, float) and not math.isfinite(factor)):
+                        return {"euro": "—", "pct": "—"}
+                    try:
+                        v = base_cap * float(factor)
+                    except Exception:
+                        return {"euro": "—", "pct": "—"}
+                    pct = ((v - base_cap) / base_cap) * 100 if base_cap else None
+                    pct_str = "—"
+                    try:
+                        if pct is not None and math.isfinite(pct):
+                            pct_str = f"{pct:.2f} %"
+                    except Exception:
+                        pct_str = "—"
+                    return {"euro": _fmt_euro(v), "pct": pct_str}
+                for row in scen_rows:
+                    allocation_sri_scenarios.append(
+                        {
+                            "label": row.get("horizon") or "Horizon",
+                            "tension": _row_vals(row.get("tension")),
+                            "defavorable": _row_vals(row.get("defavorable")),
+                            "intermediaire": _row_vals(row.get("intermediaire")),
+                            "favorable": _row_vals(row.get("favorable")),
+                        }
+                    )
+            except Exception:
+                pass
+        # Fallback direct: requête explicite sur sri_metrics si aucune donnée scénarios
+        if (not allocation_sri_metrics or not allocation_sri_scenarios) and allocation_risque_id_pdf is not None:
+            try:
+                row_sm_fallback = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM sri_metrics
+                        WHERE entity_type = 'allocation' AND entity_id = :eid
+                        ORDER BY as_of_date DESC, calc_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"eid": allocation_risque_id_pdf},
+                ).fetchone()
+                if row_sm_fallback:
+                    sm_fb = dict(row_sm_fallback._mapping) if hasattr(row_sm_fallback, "_mapping") else dict(row_sm_fallback)
+                    for k, v in list(sm_fb.items()):
+                        if isinstance(v, Decimal):
+                            sm_fb[k] = float(v)
+                    allocation_sri_metrics = sm_fb
+                    # Calcul du RHP depuis n_periods si présent
+                    rhp_fb = None
+                    try:
+                        np = sm_fb.get("n_periods") or sm_fb.get("nperiods")
+                        if np is not None:
+                            rhp_fb = max(1.0, float(np)) / 52.0
+                    except Exception:
+                        rhp_fb = None
+                    scen_fb = _compute_sri_scenarios(sm_fb, rhp_years=rhp_fb or 5)
+                    scen_rows_fb = scen_fb.get("rows") or []
+                    base_cap = 10000.0
+                    def _fmt_euro_fb(val: float | None) -> str:
+                        if val is None or not math.isfinite(val):
+                            return "—"
+                        try:
+                            return "{:,.0f}".format(val).replace(",", " ") + " €"
+                        except Exception:
+                            return str(val)
+                    def _row_vals_fb(factor: float | None) -> dict[str, str]:
+                        if factor is None or (isinstance(factor, float) and not math.isfinite(factor)):
+                            return {"euro": "—", "pct": "—"}
+                        try:
+                            v = base_cap * float(factor)
+                        except Exception:
+                            return {"euro": "—", "pct": "—"}
+                        pct = ((v - base_cap) / base_cap) * 100 if base_cap else None
+                        pct_str = "—"
+                        try:
+                            if pct is not None and math.isfinite(pct):
+                                pct_str = f"{pct:.2f} %"
+                        except Exception:
+                            pct_str = "—"
+                        return {"euro": _fmt_euro_fb(v), "pct": pct_str}
+                    allocation_sri_scenarios = []
+                    for row in scen_rows_fb:
+                        allocation_sri_scenarios.append(
+                            {
+                                "label": row.get("horizon") or "Horizon",
+                                "tension": _row_vals_fb(row.get("tension")),
+                                "defavorable": _row_vals_fb(row.get("defavorable")),
+                                "intermediaire": _row_vals_fb(row.get("intermediaire")),
+                                "favorable": _row_vals_fb(row.get("favorable")),
+                            }
+                        )
+            except Exception:
+                pass
+    except Exception:
+        allocation_sri_metrics = None
+        allocation_sri_scenarios = []
+        allocation_sri_rhp_years = None
+
     return templates.TemplateResponse(
         "dashboard_client_kyc.html",
         {
@@ -15144,6 +15743,7 @@ async def dashboard_client_kyc(
             "risque_history_mode": risque_history_mode,
             "risque_display_saisie": risque_display_saisie,
             "risque_display_obsolescence": risque_display_obsolescence,
+            "allocation_sri_metrics": allocation_sri_metrics,
             # ESG
             "esg_exclusion_options": esg_exclusion_options,
             "esg_indicator_options": esg_indicator_options,
@@ -16724,8 +17324,10 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
 _DEFAULT_LOG_TYPES = [
     ("srri_clients", "Calculs de niveaux de risques clients"),
     ("srri_affaires", "Calculs de niveaux de risques affaires"),
+    ("srri_allocations", "Calculs de niveaux de risques allocations"),
     ("sri_clients", "Calculs SRI clients"),
     ("sri_affaires", "Calculs SRI affaires"),
+    ("sri_allocations", "Calculs SRI allocations"),
 ]
 
 _SRI_N_PERIODS = 104  # horizon annualisé pour VaR/VeV (par ex. 2 ans hebdo)
@@ -16992,6 +17594,25 @@ def _ensure_sri_metrics_table(db: Session) -> None:
         raise
 
 
+def _table_exists(db: Session, table_name: str) -> bool:
+    """Retourne True si la table existe dans la base courante."""
+    try:
+        res = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE() AND table_name = :tname
+                LIMIT 1
+                """
+            ),
+            {"tname": table_name},
+        ).scalar()
+        return bool(res)
+    except Exception:
+        return False
+
+
 def _store_sri_metrics(db: Session, entity_type: str, tempo_table: str, source: str = "srri") -> None:
     """
     Calcule et upsert les métriques SRI pour un tableau temporel (clients/affaires).
@@ -17001,140 +17622,305 @@ def _store_sri_metrics(db: Session, entity_type: str, tempo_table: str, source: 
     """
     try:
         _ensure_sri_metrics_table(db)
-        sql = f"""
-        INSERT INTO sri_metrics (
-          entity_type, entity_id, as_of_date, calc_at,
-          sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev
-        )
-        SELECT
-          :etype AS entity_type,
-          ms.id,
-          ms.as_of_date,
-          NOW(),
-          CASE
-            WHEN :src = 'vev' THEN
-              CASE
-                WHEN ms.vev IS NULL THEN NULL
-                WHEN ms.vev < 0.005 THEN 1
-                WHEN ms.vev < 0.02  THEN 2
-                WHEN ms.vev < 0.05  THEN 3
-                WHEN ms.vev < 0.10 THEN 4
-                WHEN ms.vev < 0.15 THEN 5
-                WHEN ms.vev < 0.25 THEN 6
-                ELSE 7
-              END
-            ELSE ls.srri
-          END AS sri_final,
-          ms.m0,
-          ms.m1,
-          ms.m2,
-          ms.m3,
-          ms.m4,
-          ms.sigma,
-          ms.mu1,
-          ms.mu2,
-          ms.n_periods,
-          ms.var_cf,
-          ms.vev
-        FROM (
-          SELECT
-            st.id,
-            st.as_of_date,
-            st.m0,
-            st.m1,
-            (st.raw_m2 - POWER(st.m1, 2)) AS m2,
-            (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) AS m3,
-            (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) AS m4,
-            CASE WHEN (st.raw_m2 - POWER(st.m1, 2)) < 0 THEN NULL ELSE SQRT(st.raw_m2 - POWER(st.m1, 2)) END AS sigma,
-            CASE
-              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
-              ELSE (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5)
-            END AS mu1,
-            CASE
-              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
-              ELSE (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3
-            END AS mu2,
-            st.m0 AS n_periods,
-            CASE
-              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
-              ELSE (
-                SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
-                  -1.96
-                  + 0.474 * COALESCE(
-                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
-                      0
-                    ) / SQRT(:nper)
-                  - 0.0687 * COALESCE(
-                      (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
-                      0
-                    ) / :nper
-                  + 0.146 * POWER(COALESCE(
-                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
-                      0
-                    ), 2) / :nper
-                )
-                - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
-              )
-            END AS var_cf,
-            CASE
-              WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
-              ELSE ABS(
-                SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
-                  -1.96
-                  + 0.474 * COALESCE(
-                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
-                      0
-                    ) / SQRT(:nper)
-                  - 0.0687 * COALESCE(
-                      (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
-                      0
-                    ) / :nper
-                  + 0.146 * POWER(COALESCE(
-                      (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
-                      0
-                    ), 2) / :nper
-                )
-                - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
-              ) / SQRT(:nper)
-            END AS vev
-          FROM (
+        if entity_type == "allocation":
+            has_alloc_hist = _table_exists(db, "tempo_hist_allocation")
+            m0_select = "COALESCE(m0h.m0_alloc, ms.m0)" if has_alloc_hist else "ms.m0"
+            m0_join = (
+                """
+            LEFT JOIN (
+              SELECT UPPER(TRIM(isin)) AS alloc_key, COUNT(*) AS m0_alloc
+              FROM tempo_hist_allocation
+              GROUP BY alloc_key
+            ) m0h ON m0h.alloc_key = ms.alloc_key
+                """
+                if has_alloc_hist
+                else ""
+            )
+            sql = f"""
+            INSERT INTO sri_metrics (
+              entity_type, entity_id, as_of_date, calc_at,
+              sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev
+            )
             SELECT
-              id,
-              MAX(`date`) AS as_of_date,
-              COUNT(*) AS m0,
-              AVG(r) AS m1,
-              AVG(POWER(r, 2)) AS raw_m2,
-              AVG(POWER(r, 3)) AS raw_m3,
-              AVG(POWER(r, 4)) AS raw_m4
-            FROM {tempo_table}
-            WHERE r IS NOT NULL
-            GROUP BY id
-          ) st
-        ) ms
-        LEFT JOIN (
-          SELECT id, srri
-          FROM (
-            SELECT id, srri,
-                   ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
-            FROM {tempo_table}
-          ) x
-          WHERE x.rk = 1
-        ) ls ON ls.id = ms.id
-        ON DUPLICATE KEY UPDATE
-          calc_at = VALUES(calc_at),
-          sri = VALUES(sri),
-          m0 = VALUES(m0),
-          m1 = VALUES(m1),
-          m2 = VALUES(m2),
-          m3 = VALUES(m3),
-          m4 = VALUES(m4),
-          sigma = VALUES(sigma),
-          mu1 = VALUES(mu1),
-          mu2 = VALUES(mu2),
-          n_periods = VALUES(n_periods),
-          var_cf = VALUES(var_cf),
-          vev = VALUES(vev);
-        """
+              :etype AS entity_type,
+              COALESCE(ar_name.id, ar_isin.id, ms.id) AS entity_id,
+              ms.as_of_date,
+              NOW(),
+              CASE
+                WHEN :src = 'vev' THEN
+                  CASE
+                    WHEN ms.vev IS NULL THEN COALESCE(ls.srri, 0)
+                    WHEN ms.vev < 0.005 THEN 1
+                    WHEN ms.vev < 0.02  THEN 2
+                    WHEN ms.vev < 0.05  THEN 3
+                    WHEN ms.vev < 0.10 THEN 4
+                    WHEN ms.vev < 0.15 THEN 5
+                    WHEN ms.vev < 0.25 THEN 6
+                    ELSE 7
+                  END
+                ELSE ls.srri
+              END AS sri_final,
+              {m0_select} AS m0,
+              ms.m1,
+              ms.m2,
+              ms.m3,
+              ms.m4,
+              ms.sigma,
+              ms.mu1,
+              ms.mu2,
+              ms.n_periods,
+              ms.var_cf,
+              ms.vev
+            FROM (
+              SELECT
+                st.id,
+                st.alloc_key,
+                st.alloc_isin,
+                st.alloc_name,
+                st.as_of_date,
+                st.m0,
+                st.m1,
+                (st.raw_m2 - POWER(st.m1, 2)) AS m2,
+                (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) AS m3,
+                (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) AS m4,
+                CASE WHEN (st.raw_m2 - POWER(st.m1, 2)) < 0 THEN NULL ELSE SQRT(st.raw_m2 - POWER(st.m1, 2)) END AS sigma,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+                  ELSE (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5)
+                END AS mu1,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+                  ELSE (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3
+                END AS mu2,
+                st.m0 AS n_periods,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+                  ELSE (
+                    SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                      -1.96
+                      + 0.474 * COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ) / SQRT(:nper)
+                      - 0.0687 * COALESCE(
+                          (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                          0
+                        ) / :nper
+                      + 0.146 * POWER(COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ), 2) / :nper
+                    )
+                    - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+                  )
+                END AS var_cf,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+                  ELSE ABS(
+                    SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                      -1.96
+                      + 0.474 * COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ) / SQRT(:nper)
+                      - 0.0687 * COALESCE(
+                          (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                          0
+                        ) / :nper
+                      + 0.146 * POWER(COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ), 2) / :nper
+                    )
+                    - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+                  ) / SQRT(:nper)
+                END AS vev
+              FROM (
+                SELECT
+                  MIN(id) AS id,
+                  alloc_key,
+                  alloc_isin,
+                  alloc_name,
+                  MAX(`date`) AS as_of_date,
+                  COUNT(*) AS m0,
+                  AVG(COALESCE(r, 0)) AS m1,
+                  AVG(POWER(COALESCE(r, 0), 2)) AS raw_m2,
+                  AVG(POWER(COALESCE(r, 0), 3)) AS raw_m3,
+                  AVG(POWER(COALESCE(r, 0), 4)) AS raw_m4
+                FROM {tempo_table}
+                WHERE (r IS NOT NULL OR :etype = 'allocation')
+                GROUP BY alloc_key, alloc_isin, alloc_name
+              ) st
+            ) ms
+            {m0_join}
+            LEFT JOIN allocation_risque ar_name
+              ON UPPER(TRIM(ar_name.allocation_name)) COLLATE utf8mb4_unicode_ci = ms.alloc_name COLLATE utf8mb4_unicode_ci
+            LEFT JOIN allocation_risque ar_isin
+              ON UPPER(TRIM(ar_isin.isin)) COLLATE utf8mb4_unicode_ci = ms.alloc_isin COLLATE utf8mb4_unicode_ci
+            LEFT JOIN (
+              SELECT alloc_key, srri
+              FROM (
+                SELECT
+                  alloc_key,
+                  srri,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY alloc_key
+                    ORDER BY `date` DESC
+                  ) AS rk
+                FROM {tempo_table}
+              ) x
+              WHERE x.rk = 1
+            ) ls ON ls.alloc_key = ms.alloc_key
+            ON DUPLICATE KEY UPDATE
+              calc_at = VALUES(calc_at),
+              sri = VALUES(sri),
+              m0 = VALUES(m0),
+              m1 = VALUES(m1),
+              m2 = VALUES(m2),
+              m3 = VALUES(m3),
+              m4 = VALUES(m4),
+              sigma = VALUES(sigma),
+              mu1 = VALUES(mu1),
+              mu2 = VALUES(mu2),
+              n_periods = VALUES(n_periods),
+              var_cf = VALUES(var_cf),
+              vev = VALUES(vev);
+            """
+        else:
+            sql = f"""
+            INSERT INTO sri_metrics (
+              entity_type, entity_id, as_of_date, calc_at,
+              sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev
+            )
+            SELECT
+              :etype AS entity_type,
+              ms.id,
+              ms.as_of_date,
+              NOW(),
+              CASE
+                WHEN :src = 'vev' THEN
+                  CASE
+                    WHEN ms.vev IS NULL THEN COALESCE(ls.srri, 0)
+                    WHEN ms.vev < 0.005 THEN 1
+                    WHEN ms.vev < 0.02  THEN 2
+                    WHEN ms.vev < 0.05  THEN 3
+                    WHEN ms.vev < 0.10 THEN 4
+                    WHEN ms.vev < 0.15 THEN 5
+                    WHEN ms.vev < 0.25 THEN 6
+                    ELSE 7
+                  END
+                ELSE ls.srri
+              END AS sri_final,
+              ms.m0,
+              ms.m1,
+              ms.m2,
+              ms.m3,
+              ms.m4,
+              ms.sigma,
+              ms.mu1,
+              ms.mu2,
+              ms.n_periods,
+              ms.var_cf,
+              ms.vev
+            FROM (
+              SELECT
+                st.id,
+                st.as_of_date,
+                st.m0,
+                st.m1,
+                (st.raw_m2 - POWER(st.m1, 2)) AS m2,
+                (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) AS m3,
+                (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) AS m4,
+                CASE WHEN (st.raw_m2 - POWER(st.m1, 2)) < 0 THEN NULL ELSE SQRT(st.raw_m2 - POWER(st.m1, 2)) END AS sigma,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+                  ELSE (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5)
+                END AS mu1,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN 0
+                  ELSE (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3
+                END AS mu2,
+                st.m0 AS n_periods,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+                  ELSE (
+                    SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                      -1.96
+                      + 0.474 * COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ) / SQRT(:nper)
+                      - 0.0687 * COALESCE(
+                          (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                          0
+                        ) / :nper
+                      + 0.146 * POWER(COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ), 2) / :nper
+                    )
+                    - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+                  )
+                END AS var_cf,
+                CASE
+                  WHEN (st.raw_m2 - POWER(st.m1, 2)) <= 0 THEN NULL
+                  ELSE ABS(
+                    SQRT(st.raw_m2 - POWER(st.m1, 2)) * SQRT(:nper) * (
+                      -1.96
+                      + 0.474 * COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ) / SQRT(:nper)
+                      - 0.0687 * COALESCE(
+                          (st.raw_m4 - 4 * st.m1 * st.raw_m3 + 6 * POWER(st.m1, 2) * st.raw_m2 - 3 * POWER(st.m1, 4)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 2) - 3,
+                          0
+                        ) / :nper
+                      + 0.146 * POWER(COALESCE(
+                          (st.raw_m3 - 3 * st.m1 * st.raw_m2 + 2 * POWER(st.m1, 3)) / POWER((st.raw_m2 - POWER(st.m1, 2)), 1.5),
+                          0
+                        ), 2) / :nper
+                    )
+                    - 0.5 * POWER(SQRT(st.raw_m2 - POWER(st.m1, 2)), 2) * :nper
+                  ) / SQRT(:nper)
+                END AS vev
+              FROM (
+                SELECT
+                  id,
+                  MAX(`date`) AS as_of_date,
+                  COUNT(*) AS m0,
+                  AVG(COALESCE(r, 0)) AS m1,
+                  AVG(POWER(COALESCE(r, 0), 2)) AS raw_m2,
+                  AVG(POWER(COALESCE(r, 0), 3)) AS raw_m3,
+                  AVG(POWER(COALESCE(r, 0), 4)) AS raw_m4
+                FROM {tempo_table}
+                WHERE (r IS NOT NULL OR :etype = 'allocation')
+                GROUP BY id
+              ) st
+            ) ms
+            LEFT JOIN (
+              SELECT id, srri
+              FROM (
+                SELECT id, srri,
+                       ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+                FROM {tempo_table}
+              ) x
+              WHERE x.rk = 1
+            ) ls ON ls.id = ms.id
+            ON DUPLICATE KEY UPDATE
+              calc_at = VALUES(calc_at),
+              sri = VALUES(sri),
+              m0 = VALUES(m0),
+              m1 = VALUES(m1),
+              m2 = VALUES(m2),
+              m3 = VALUES(m3),
+              m4 = VALUES(m4),
+              sigma = VALUES(sigma),
+              mu1 = VALUES(mu1),
+              mu2 = VALUES(mu2),
+              n_periods = VALUES(n_periods),
+              var_cf = VALUES(var_cf),
+              vev = VALUES(vev);
+            """
         db.execute(text(sql), {"etype": entity_type, "nper": _SRI_N_PERIODS, "src": source})
         db.commit()
     except Exception:
@@ -17183,36 +17969,622 @@ def _update_sri_current(db: Session, entity_type: str) -> None:
                     """
                 )
             )
+        elif entity_type == "allocation":
+            db.execute(
+                text(
+                    """
+                    UPDATE allocations AS al
+                    JOIN (
+                      SELECT sm.entity_id AS id, sm.sri
+                      FROM (
+                        SELECT entity_id, sri, as_of_date,
+                               ROW_NUMBER() OVER (PARTITION BY entity_id ORDER BY as_of_date DESC, calc_at DESC) AS rk
+                        FROM sri_metrics
+                        WHERE entity_type = 'allocation'
+                      ) sm
+                      WHERE sm.rk = 1
+                    ) t ON al.id = t.id
+                    SET al.SRI = t.sri
+                    """
+                )
+            )
         db.commit()
     except Exception:
         db.rollback()
         logger.exception("Unable to update current SRI for %s", entity_type)
 
 
-def _compute_sri_scenarios(sm: dict | None) -> dict:
+def _is_missing_table_error(exc: Exception, table: str) -> bool:
+    """Détecte une erreur de table manquante pour ajuster le fallback SRRI -> SRI."""
+    msg = str(exc).lower()
+    return table.lower() in msg and ("doesn't exist" in msg or "unknown table" in msg)
+
+
+def _ensure_allocation_sri_columns(db: Session) -> tuple[bool, bool]:
+    """S'assure que les colonnes SRI et srri existent dans allocations."""
+    try:
+        cols = db.execute(
+            text(
+                """
+                SELECT COLUMN_NAME
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'allocations'
+                  AND COLUMN_NAME IN ('SRI', 'srri')
+                """
+            )
+        ).fetchall()
+        existing = {c[0].lower() for c in cols} if cols else set()
+        has_sri = "sri" in existing
+        has_srri = "srri" in existing
+        if not has_srri:
+            try:
+                db.execute(text("ALTER TABLE allocations ADD COLUMN srri INT NULL"))
+                has_srri = True
+            except Exception:
+                db.rollback()
+            else:
+                db.commit()
+        if not has_sri:
+            try:
+                db.execute(text("ALTER TABLE allocations ADD COLUMN SRI INT NULL"))
+                has_sri = True
+            except Exception:
+                db.rollback()
+            else:
+                db.commit()
+        return has_sri, has_srri
+    except Exception:
+        db.rollback()
+        logger.exception("Unable to ensure SRI/srri columns on allocations")
+        return False, False
+
+
+def _recompute_srri_clients(db: Session) -> float:
+    """Recalcule SRRI/volat pour les clients et alimente sri_metrics."""
+    started = perf_counter()
+    db.execute(text("DROP TABLE IF EXISTS tempo_hist_personne_w"))
+    db.execute(
+        text(
+            """
+            CREATE TABLE tempo_hist_personne_w (
+              id                 INT,
+              `date`             DATETIME,
+              valo               DECIMAL(38,18),
+              mouvement          DECIMAL(38,18),
+              valorisation_suiv  DECIMAL(38,18),
+              r                  DECIMAL(38,18),
+              dietz              DECIMAL(38,18),
+              perf_dietz         DECIMAL(38,18),
+              volat_52           DECIMAL(38,18),
+              srri               INT,
+              rn                 INT,
+              PRIMARY KEY (id, rn)
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO tempo_hist_personne_w (
+              id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+            )
+            WITH ordered AS (
+              SELECT
+                id,
+                `date`,
+                valo AS valorisation_suiv,
+                mouvement,
+                LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+              FROM mariadb_historique_personne_w
+            ),
+            base AS (
+              SELECT
+                id,
+                `date`,
+                COALESCE(prev_valo, 0) AS valo,
+                mouvement,
+                valorisation_suiv,
+                rn,
+                CASE
+                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                END AS r
+              FROM ordered
+            ),
+            dietz_calc AS (
+              SELECT
+                *,
+                1 + SUM(COALESCE(r, 0)) OVER (
+                  PARTITION BY id
+                  ORDER BY `date`
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) AS dietz
+              FROM base
+            ),
+            perf AS (
+              SELECT
+                id,
+                `date`,
+                isin,
+                valo,
+                mouvement,
+                valorisation_suiv,
+                LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`) AS valo_prev,
+                r,
+                dietz,
+                rn,
+                CASE
+                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                END AS perf_dietz
+              FROM dietz_calc
+            ),
+            vola AS (
+              SELECT
+                *,
+                STDDEV_SAMP(perf_dietz) OVER (
+                  PARTITION BY id
+                  ORDER BY `date`
+                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
+                ) * SQRT(52) AS volat_raw
+              FROM perf
+            )
+            SELECT
+              id,
+              `date`,
+              isin,
+              COALESCE(valo_prev, 0) AS valo,
+              mouvement,
+              valorisation_suiv,
+              r,
+              dietz,
+              perf_dietz,
+              CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
+              CASE
+                WHEN rn < 52 THEN 0
+                WHEN volat_raw < 0.005 THEN 1
+                WHEN volat_raw < 0.02  THEN 2
+                WHEN volat_raw < 0.05  THEN 3
+                WHEN volat_raw < 0.10  THEN 4
+                WHEN volat_raw < 0.15 THEN 5
+                WHEN volat_raw < 0.25 THEN 6
+                ELSE 7
+              END AS srri,
+              rn
+            FROM vola
+            ORDER BY id, `date`
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            UPDATE mariadb_historique_personne_w AS m
+            JOIN tempo_hist_personne_w AS t
+              ON m.id = t.id
+             AND m.`date` = t.`date`
+            SET
+              m.volat = t.volat_52,
+              m.SRRI  = t.srri
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            UPDATE mariadb_clients AS c
+            JOIN (
+              SELECT id, srri
+              FROM (
+                SELECT id, srri,
+                       ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+                FROM tempo_hist_personne_w
+              ) AS ordered
+              WHERE rk = 1
+            ) AS t
+              ON c.id = t.id
+            SET c.SRI = t.srri
+            """
+        )
+    )
+    db.commit()
+    _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="srri")
+    return perf_counter() - started
+
+
+def _recompute_srri_affaires(db: Session) -> float:
+    """Recalcule SRRI/volat pour les affaires et alimente sri_metrics."""
+    started = perf_counter()
+    db.execute(text("DROP TABLE IF EXISTS tempo_hist_affaire_w"))
+    db.execute(
+        text(
+            """
+            CREATE TABLE tempo_hist_affaire_w (
+              id                 INT,
+              `date`             DATETIME,
+              valo               DECIMAL(38,18),
+              mouvement          DECIMAL(38,18),
+              valorisation_suiv  DECIMAL(38,18),
+              r                  DECIMAL(38,18),
+              dietz              DECIMAL(38,18),
+              perf_dietz         DECIMAL(38,18),
+              volat_52           DECIMAL(38,18),
+              srri               INT,
+              rn                 INT,
+              PRIMARY KEY (id, rn)
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO tempo_hist_affaire_w (
+              id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+            )
+            WITH ordered AS (
+              SELECT
+                id,
+                `date`,
+                valo AS valorisation_suiv,
+                mouvement,
+                LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+              FROM mariadb_historique_affaire_w
+            ),
+            base AS (
+              SELECT
+                id,
+                `date`,
+                COALESCE(prev_valo, 0) AS valo,
+                mouvement,
+                valorisation_suiv,
+                rn,
+                CASE
+                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                END AS r
+              FROM ordered
+            ),
+            dietz_calc AS (
+              SELECT
+                *,
+                1 + SUM(COALESCE(r, 0)) OVER (
+                  PARTITION BY id
+                  ORDER BY `date`
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) AS dietz
+              FROM base
+            ),
+            perf AS (
+              SELECT
+                id,
+                `date`,
+                isin,
+                COALESCE(LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`), 0) AS valo_prev,
+                mouvement,
+                valorisation_suiv,
+                r,
+                dietz,
+                rn,
+                CASE
+                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                END AS perf_dietz
+              FROM dietz_calc
+            ),
+            vola AS (
+              SELECT
+                *,
+                STDDEV_SAMP(perf_dietz) OVER (
+                  PARTITION BY id
+                  ORDER BY `date`
+                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
+                ) * SQRT(52) AS volat_raw
+              FROM perf
+            )
+            SELECT
+              id,
+              `date`,
+              isin,
+              valo_prev AS valo,
+              mouvement,
+              valorisation_suiv,
+              r,
+              dietz,
+              perf_dietz,
+              CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
+              CASE
+                WHEN rn < 52 THEN 0
+                WHEN volat_raw < 0.005 THEN 1
+                WHEN volat_raw < 0.02  THEN 2
+                WHEN volat_raw < 0.05  THEN 3
+                WHEN volat_raw < 0.10  THEN 4
+                WHEN volat_raw < 0.15 THEN 5
+                WHEN volat_raw < 0.25 THEN 6
+                ELSE 7
+              END AS srri,
+              rn
+            FROM vola
+            ORDER BY id, `date`
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            UPDATE mariadb_historique_affaire_w AS m
+            JOIN tempo_hist_affaire_w AS t
+              ON m.id = t.id
+             AND m.`date` = t.`date`
+            SET
+              m.volat = t.volat_52,
+              m.SRRI  = t.srri
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            UPDATE mariadb_affaires AS a
+            JOIN (
+              SELECT id, srri
+              FROM (
+                SELECT id, srri,
+                       ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
+                FROM tempo_hist_affaire_w
+              ) AS ordered
+              WHERE rk = 1
+            ) AS t
+              ON a.id = t.id
+            SET a.SRI = t.srri
+            """
+        )
+    )
+    db.commit()
+    _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="srri")
+    return perf_counter() - started
+
+
+def _recompute_srri_allocations(db: Session, source: str = "srri") -> float:
+    """Recalcule SRRI/volat pour les allocations et alimente sri_metrics."""
+    started = perf_counter()
+    has_sri, has_srri = _ensure_allocation_sri_columns(db)
+    db.execute(text("DROP TABLE IF EXISTS tempo_hist_allocation_w"))
+    db.execute(
+        text(
+            """
+            CREATE TABLE tempo_hist_allocation_w (
+              id                 INT,
+              alloc_key          VARCHAR(128),
+              alloc_isin         VARCHAR(64),
+              alloc_name         VARCHAR(255),
+              `date`             DATETIME,
+              isin               VARCHAR(64),
+              valo               DECIMAL(38,18),
+              mouvement          DECIMAL(38,18),
+              valorisation_suiv  DECIMAL(38,18),
+              r                  DECIMAL(38,18),
+              dietz              DECIMAL(38,18),
+              perf_dietz         DECIMAL(38,18),
+              volat_52           DECIMAL(38,18),
+              srri               INT,
+              rn                 INT,
+              PRIMARY KEY (id, rn)
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO tempo_hist_allocation_w (
+              id, alloc_key, alloc_isin, alloc_name, `date`, isin, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+            )
+            WITH ordered AS (
+              SELECT
+                id,
+                `date`,
+                UPPER(TRIM(isin)) AS isin_norm,
+                COALESCE(UPPER(TRIM(isin)), CONCAT('alloc_', id)) AS alloc_key,
+                UPPER(TRIM(nom)) AS alloc_name_norm,
+                COALESCE(sicav, valo, 0) AS valorisation_suiv,
+                COALESCE(mouvement, 0) AS mouvement,
+                LAG(COALESCE(sicav, valo, 0)) OVER (
+                  PARTITION BY COALESCE(UPPER(TRIM(isin)), CONCAT('alloc_', id))
+                  ORDER BY `date`
+                ) AS prev_valo,
+                ROW_NUMBER() OVER (
+                  PARTITION BY COALESCE(UPPER(TRIM(isin)), CONCAT('alloc_', id))
+                  ORDER BY `date`
+                ) AS rn
+              FROM allocations
+            ),
+            base AS (
+              SELECT
+                id,
+                alloc_key,
+                isin_norm AS alloc_isin,
+                alloc_name_norm AS alloc_name,
+                `date`,
+                isin_norm AS isin,
+                COALESCE(prev_valo, 0) AS valo,
+                mouvement,
+                valorisation_suiv,
+                rn,
+                COALESCE(
+                  CASE
+                    WHEN COALESCE(prev_valo, 0) + 0.5 * mouvement = 0 THEN 0
+                    ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                         / (COALESCE(prev_valo, 0) + 0.5 * mouvement)
+                  END,
+                  0
+                ) AS r
+              FROM ordered
+            ),
+            dietz_calc AS (
+              SELECT
+                *,
+                1 + SUM(COALESCE(r, 0)) OVER (
+                  PARTITION BY alloc_key
+                  ORDER BY `date`
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) AS dietz
+              FROM base
+            ),
+            perf AS (
+              SELECT
+                id,
+                alloc_key,
+                alloc_isin,
+                alloc_name,
+                `date`,
+                isin,
+                COALESCE(
+                  LAG(valorisation_suiv) OVER (PARTITION BY alloc_key ORDER BY `date`),
+                  0
+                ) AS valo_prev,
+                mouvement,
+                valorisation_suiv,
+                r,
+                dietz,
+                rn,
+                CASE
+                  WHEN LAG(dietz) OVER (PARTITION BY alloc_key ORDER BY `date`) IS NULL THEN NULL
+                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY alloc_key ORDER BY `date`))
+                       / NULLIF(LAG(dietz) OVER (PARTITION BY alloc_key ORDER BY `date`), 0)
+                END AS perf_dietz
+              FROM dietz_calc
+            ),
+            vola AS (
+              SELECT
+                *,
+                STDDEV_SAMP(perf_dietz) OVER (
+                  PARTITION BY alloc_key
+                  ORDER BY `date`
+                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
+                ) * SQRT(52) AS volat_raw
+              FROM perf
+            )
+            SELECT
+              id,
+              alloc_key,
+              alloc_isin,
+              alloc_name,
+              `date`,
+              isin,
+              valo_prev AS valo,
+              mouvement,
+              valorisation_suiv,
+              r,
+              dietz,
+              perf_dietz,
+              CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
+              CASE
+                WHEN rn < 52 THEN 0
+                WHEN volat_raw < 0.005 THEN 1
+                WHEN volat_raw < 0.02  THEN 2
+                WHEN volat_raw < 0.05  THEN 3
+                WHEN volat_raw < 0.10  THEN 4
+                WHEN volat_raw < 0.15 THEN 5
+                WHEN volat_raw < 0.25 THEN 6
+                ELSE 7
+              END AS srri,
+              rn
+            FROM vola
+            ORDER BY id, `date`
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            UPDATE allocations AS al
+            JOIN tempo_hist_allocation_w AS t
+              ON al.id = t.id
+             AND al.`date` = t.`date`
+            SET
+              al.volat = t.volat_52,
+              al.SRI   = t.srri
+            """
+        )
+    )
+    if has_srri:
+        db.execute(
+            text(
+                """
+                UPDATE allocations AS al
+                JOIN tempo_hist_allocation_w AS t
+                  ON al.id = t.id
+                 AND al.`date` = t.`date`
+                SET al.srri = t.srri
+                """
+            )
+        )
+    db.commit()
+    _store_sri_metrics(db, entity_type="allocation", tempo_table="tempo_hist_allocation_w", source=source)
+    return perf_counter() - started
+
+
+def _compute_sri_scenarios(sm: dict | None, rhp_years: float | None = None) -> dict:
     """
     Calcule les scénarios (tension, défavorable, intermédiaire, favorable)
-    sur 3 horizons : 1 an, demi-vie (4 ans), vie (8 ans).
+    sur 3 horizons : 1 an, demi-vie, vie (par défaut 4 et 8 ans,
+    ou un RHP spécifique si fourni).
     Les formules sont celles communiquées (Cornish-Fisher et variantes).
     """
     if not sm:
         return {"horizons": [], "rows": []}
-    try:
-        sigma = float(sm.get("sigma")) if sm.get("sigma") is not None else None
-        mu1 = float(sm.get("mu1")) if sm.get("mu1") is not None else None
-        mu2 = float(sm.get("mu2")) if sm.get("mu2") is not None else None
-        m1 = float(sm.get("m1")) if sm.get("m1") is not None else None
-    except Exception:
-        return {"horizons": [], "rows": []}
+    def _get_num(key: str):
+        val = None
+        try:
+            if key in sm and sm.get(key) is not None:
+                val = sm.get(key)
+            elif key.lower() in sm and sm.get(key.lower()) is not None:
+                val = sm.get(key.lower())
+            elif key.upper() in sm and sm.get(key.upper()) is not None:
+                val = sm.get(key.upper())
+        except Exception:
+            val = None
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    sigma = _get_num("sigma")
+    mu1 = _get_num("mu1")
+    mu2 = _get_num("mu2")
+    m1 = _get_num("m1")
     if None in (sigma, mu1, mu2, m1):
         return {"horizons": [], "rows": []}
 
     periods_per_year = 52
-    horizons = [
-        ("1 an", 1 * periods_per_year),
-        ("Demi-vie (4 ans)", 4 * periods_per_year),
-        ("Vie (8 ans)", 8 * periods_per_year),
-    ]
+    horizons: list[tuple[str, int]] = []
+    if rhp_years is not None:
+        try:
+            rhp_val = float(rhp_years)
+        except Exception:
+            rhp_val = None
+        if rhp_val and rhp_val > 0:
+            half = rhp_val / 2.0
+            horizons = [
+                ("1 an", int(max(1, round(1 * periods_per_year)))),
+                (f"Demi-vie ({half:g} ans)", int(max(1, round(half * periods_per_year)))),
+                (f"Vie ({rhp_val:g} ans)", int(max(1, round(rhp_val * periods_per_year)))),
+            ]
+    if not horizons:
+        horizons = [
+            ("1 an", 1 * periods_per_year),
+            ("Demi-vie (4 ans)", 4 * periods_per_year),
+            ("Vie (8 ans)", 8 * periods_per_year),
+        ]
 
     def scen_tension(N: int, za: float = -2.33, w: float = 1.0) -> float:
         sqrtN = math.sqrt(N)
@@ -18468,6 +19840,7 @@ def dashboard_superadmin_recompute_sri_clients(
         ip=ip,
     )
     started = perf_counter()
+    srri_chain_dur = None
     try:
         # Re-utilise la table tempo_hist_personne_w existante (issue du calcul SRRI) pour dériver le SRI via VeV
         _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="vev")
@@ -18481,6 +19854,53 @@ def dashboard_superadmin_recompute_sri_clients(
             duration_seconds=elapsed,
         )
         qs = urlencode({"sri_clients_status": "ok", "sri_clients_dur": f"{elapsed:.2f}"})
+    except ProgrammingError as exc:
+        db.rollback()
+        if _is_missing_table_error(exc, "tempo_hist_personne_w"):
+            logger.warning("tempo_hist_personne_w manquante — déclenchement SRRI avant SRI clients")
+            try:
+                srri_chain_dur = _recompute_srri_clients(db)
+                _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="vev")
+                _update_sri_current(db, entity_type="client")
+                elapsed = perf_counter() - started
+                note_msg = (
+                    f"Calcul SRI clients terminé après recalcul SRRI (SRRI {srri_chain_dur:.2f}s, total {elapsed:.2f}s)"
+                )
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="ok",
+                    message=note_msg,
+                    duration_seconds=elapsed,
+                )
+                qs = urlencode(
+                    {
+                        "sri_clients_status": "ok",
+                        "sri_clients_dur": f"{elapsed:.2f}",
+                        "sri_clients_note": "srri_chain",
+                    }
+                )
+            except Exception as chain_exc:
+                db.rollback()
+                qs = urlencode({"sri_clients_status": "error"})
+                logger.exception("SRI clients compute failed after SRRI fallback")
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="error",
+                    message=f"Echec calcul SRI clients (fallback SRRI): {chain_exc}",
+                    duration_seconds=perf_counter() - started,
+                )
+        else:
+            qs = urlencode({"sri_clients_status": "error"})
+            logger.exception("SRI clients compute failed")
+            _finish_log_entry(
+                db,
+                log_id=log_id,
+                status="error",
+                message=f"Echec calcul SRI clients: {exc}",
+                duration_seconds=perf_counter() - started,
+            )
     except Exception as exc:
         db.rollback()
         qs = urlencode({"sri_clients_status": "error"})
@@ -18696,6 +20116,56 @@ def dashboard_superadmin_recompute_srri_affaires(
     return RedirectResponse(url=target_url, status_code=303)
 
 
+@router.post("/superadmin/recompute-srri-allocations", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_srri_allocations(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Recalcule volat/SRRI pour toutes les allocations et met à jour la table allocations."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="srri_allocations",
+        log_label="Calculs de niveaux de risques allocations",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        _ensure_allocation_sri_columns(db)
+        elapsed = _recompute_srri_allocations(db)
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Recalcul des niveaux de risques allocations terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"srri_allocations_status": "ok", "srri_allocations_dur": f"{elapsed:.2f}"})
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"srri_allocations_status": "error"})
+        logger.exception("SRRI/volat allocations recompute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec recalcul risques allocations: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#suivi-logs" if qs else "/dashboard/superadmin#suivi-logs"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
 @router.post("/superadmin/recompute-sri-affaires", response_class=RedirectResponse)
 def dashboard_superadmin_recompute_sri_affaires(
     request: Request,
@@ -18719,6 +20189,7 @@ def dashboard_superadmin_recompute_sri_affaires(
         ip=ip,
     )
     started = perf_counter()
+    srri_chain_dur = None
     try:
         _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="vev")
         _update_sri_current(db, entity_type="affaire")
@@ -18731,6 +20202,53 @@ def dashboard_superadmin_recompute_sri_affaires(
             duration_seconds=elapsed,
         )
         qs = urlencode({"sri_affaires_status": "ok", "sri_affaires_dur": f"{elapsed:.2f}"})
+    except ProgrammingError as exc:
+        db.rollback()
+        if _is_missing_table_error(exc, "tempo_hist_affaire_w"):
+            logger.warning("tempo_hist_affaire_w manquante — déclenchement SRRI avant SRI affaires")
+            try:
+                srri_chain_dur = _recompute_srri_affaires(db)
+                _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="vev")
+                _update_sri_current(db, entity_type="affaire")
+                elapsed = perf_counter() - started
+                note_msg = (
+                    f"Calcul SRI affaires terminé après recalcul SRRI (SRRI {srri_chain_dur:.2f}s, total {elapsed:.2f}s)"
+                )
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="ok",
+                    message=note_msg,
+                    duration_seconds=elapsed,
+                )
+                qs = urlencode(
+                    {
+                        "sri_affaires_status": "ok",
+                        "sri_affaires_dur": f"{elapsed:.2f}",
+                        "sri_affaires_note": "srri_chain",
+                    }
+                )
+            except Exception as chain_exc:
+                db.rollback()
+                qs = urlencode({"sri_affaires_status": "error"})
+                logger.exception("SRI affaires compute failed after SRRI fallback")
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="error",
+                    message=f"Echec calcul SRI affaires (fallback SRRI): {chain_exc}",
+                    duration_seconds=perf_counter() - started,
+                )
+        else:
+            qs = urlencode({"sri_affaires_status": "error"})
+            logger.exception("SRI affaires compute failed")
+            _finish_log_entry(
+                db,
+                log_id=log_id,
+                status="error",
+                message=f"Echec calcul SRI affaires: {exc}",
+                duration_seconds=perf_counter() - started,
+            )
     except Exception as exc:
         db.rollback()
         qs = urlencode({"sri_affaires_status": "error"})
@@ -18740,6 +20258,106 @@ def dashboard_superadmin_recompute_sri_affaires(
             log_id=log_id,
             status="error",
             message=f"Echec calcul SRI affaires: {exc}",
+            duration_seconds=perf_counter() - started,
+        )
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/recompute-sri-allocations", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_sri_allocations(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Calcule le SRI (via VeV) pour toutes les allocations et met à jour allocations.SRI + sri_metrics."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="sri_allocations",
+        log_label="Calculs SRI allocations",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    srri_chain_dur: float | None = None
+    try:
+        _ensure_allocation_sri_columns(db)
+        # Recalcule systématiquement la table tempo (schema à jour) puis stocke SRI via SRRI (volatilité)
+        elapsed = _recompute_srri_allocations(db, source="srri")
+        _update_sri_current(db, entity_type="allocation")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=f"Calcul SRI allocations terminé en {elapsed:.2f}s",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"sri_allocations_status": "ok", "sri_allocations_dur": f"{elapsed:.2f}"})
+    except ProgrammingError as exc:
+        db.rollback()
+        if _is_missing_table_error(exc, "tempo_hist_allocation_w"):
+            logger.warning("tempo_hist_allocation_w manquante — déclenchement SRRI avant SRI allocations")
+            try:
+                srri_chain_dur = _recompute_srri_allocations(db)
+                _store_sri_metrics(db, entity_type="allocation", tempo_table="tempo_hist_allocation_w", source="vev")
+                _update_sri_current(db, entity_type="allocation")
+                elapsed = perf_counter() - started
+                note_msg = (
+                    f"Calcul SRI allocations terminé après recalcul SRRI (SRRI {srri_chain_dur:.2f}s, total {elapsed:.2f}s)"
+                )
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="ok",
+                    message=note_msg,
+                    duration_seconds=elapsed,
+                )
+                qs = urlencode(
+                    {
+                        "sri_allocations_status": "ok",
+                        "sri_allocations_dur": f"{elapsed:.2f}",
+                        "sri_allocations_note": "srri_chain",
+                    }
+                )
+            except Exception as chain_exc:
+                db.rollback()
+                qs = urlencode({"sri_allocations_status": "error"})
+                logger.exception("SRI allocations compute failed after SRRI fallback")
+                _finish_log_entry(
+                    db,
+                    log_id=log_id,
+                    status="error",
+                    message=f"Echec calcul SRI allocations (fallback SRRI): {chain_exc}",
+                    duration_seconds=perf_counter() - started,
+                )
+        else:
+            qs = urlencode({"sri_allocations_status": "error"})
+            logger.exception("SRI allocations compute failed")
+            _finish_log_entry(
+                db,
+                log_id=log_id,
+                status="error",
+                message=f"Echec calcul SRI allocations: {exc}",
+                duration_seconds=perf_counter() - started,
+            )
+    except Exception as exc:
+        db.rollback()
+        qs = urlencode({"sri_allocations_status": "error"})
+        logger.exception("SRI allocations compute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Echec calcul SRI allocations: {exc}",
             duration_seconds=perf_counter() - started,
         )
 
@@ -23102,9 +24720,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         report_logo_png = None
 
-    # Dernières métriques SRI (client) + scénarios dérivés
+    # Dernières métriques SRI (client) + scénarios dérivés (avec fallback allocation) + debug
     sri_metrics_latest: dict | None = None
     sri_scenarios: dict = {"horizons": [], "rows": []}
+    sri_debug: list[str] = []
     try:
         row_sri = db.execute(
             text(
@@ -23121,8 +24740,73 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         if row_sri:
             sri_metrics_latest = dict(row_sri._mapping) if hasattr(row_sri, "_mapping") else dict(row_sri)
             sri_scenarios = _compute_sri_scenarios(sri_metrics_latest)
-    except Exception:
+            if sri_scenarios.get("rows"):
+                sri_debug.append("Métriques SRI client trouvées.")
+            else:
+                sri_debug.append("Métriques SRI client trouvées mais scénarios vides.")
+        else:
+            sri_debug.append("Aucune métrique SRI au niveau client.")
+    except Exception as exc:
         sri_metrics_latest = None
+        sri_debug.append(f"Erreur SRI client: {exc}")
+
+    # Fallback allocation si pas de données/rows
+    if (not sri_metrics_latest) or (not sri_scenarios.get("rows")):
+        alloc_candidates: list[int] = []
+        if allocation_risque_id is not None:
+            try:
+                alloc_candidates.append(int(allocation_risque_id))
+            except Exception:
+                pass
+        if client_allocation_id is not None:
+            try:
+                alloc_candidates.append(int(client_allocation_id))
+            except Exception:
+                pass
+        seen_allocs: set[int] = set()
+        for aid in alloc_candidates:
+            if aid in seen_allocs:
+                continue
+            seen_allocs.add(aid)
+            try:
+                row_sm = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM sri_metrics
+                        WHERE entity_type = 'allocation' AND entity_id = :eid
+                        ORDER BY as_of_date DESC, calc_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"eid": aid},
+                ).fetchone()
+                if row_sm:
+                    sm = dict(row_sm._mapping) if hasattr(row_sm, "_mapping") else dict(row_sm)
+                    for k, v in list(sm.items()):
+                        if isinstance(v, Decimal):
+                            sm[k] = float(v)
+                    # RHP depuis n_periods
+                    rhp = None
+                    try:
+                        np = sm.get("n_periods") or sm.get("nperiods")
+                        if np is not None:
+                            rhp = max(1.0, float(np)) / 52.0
+                    except Exception:
+                        rhp = None
+                    sri_metrics_latest = sm
+                    sri_scenarios = _compute_sri_scenarios(sm, rhp_years=rhp or 5)
+                    if sri_scenarios.get("rows"):
+                        sri_debug.append(f"Métriques SRI allocation trouvées (entity_id={aid}).")
+                        break
+                    else:
+                        sri_debug.append(f"Métriques SRI allocation (entity_id={aid}) sans scénarios calculables.")
+                else:
+                    sri_debug.append(f"Aucune métrique SRI pour allocation entity_id={aid}.")
+            except Exception as exc:
+                sri_debug.append(f"Erreur SRI allocation entity_id={aid}: {exc}")
+    if (not sri_metrics_latest) or (not sri_scenarios.get("rows")):
+        sri_debug.append("Pas de scénarios de tension affichables.")
 
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
@@ -23195,6 +24879,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "client_allocation_name": client_allocation_name,
             "allocations_lookup": allocations_lookup,
             "allocation_simulation_rows": allocation_simulation_rows,
+            "allocation_sri_scenarios": sri_scenarios,
             # Lettre d'adéquation: infos consolidées
             "etat_civil_latest": etat_civil_latest,
             "nb_enfants_latest": nb_enfants_latest,
@@ -23280,6 +24965,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "objectifsMission": lm_objectifs_summary or "—",
             "sri_metrics_latest": sri_metrics_latest,
             "sri_scenarios": sri_scenarios,
+            "sri_debug": sri_debug,
             "client_sri": client_sri_current,
         }
     )
@@ -23397,11 +25083,13 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
     )
     last_rows = (
         db.query(
+            Allocation.id,
             Allocation.nom,
             Allocation.date,
             Allocation.perf_sicav_52,
             Allocation.volat,
             Allocation.valo,
+            Allocation.sri,
         )
         .join(sub_last, (Allocation.nom == sub_last.c.nom) & (Allocation.date == sub_last.c.last_date))
         .order_by(Allocation.nom.asc())
@@ -23439,6 +25127,75 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             "vol": float(vol or 0),
             "sicav": float(sicav or 0),
         })
+
+    # Derniers métriques SRI par allocation (pour pop-up)
+    try:
+        rows_sm = db.execute(
+            text(
+                """
+                WITH sm_latest AS (
+                  SELECT *
+                  FROM (
+                    SELECT sm.*,
+                           ROW_NUMBER() OVER (PARTITION BY sm.entity_id ORDER BY sm.as_of_date DESC, sm.calc_at DESC) AS rk
+                    FROM sri_metrics sm
+                    WHERE sm.entity_type = 'allocation'
+                  ) s
+                  WHERE s.rk = 1
+                ),
+                alloc_latest AS (
+                  SELECT id AS alloc_id,
+                         nom AS alloc_nom,
+                         UPPER(TRIM(isin)) AS isin_norm
+                  FROM (
+                    SELECT a.*,
+                           ROW_NUMBER() OVER (
+                             PARTITION BY UPPER(TRIM(a.isin))
+                             ORDER BY a.date DESC
+                           ) AS rk
+                    FROM allocations a
+                  ) x
+                  WHERE x.rk = 1
+                )
+                SELECT sm.*, ar.isin AS ar_isin, ar.allocation_name, al.alloc_id, al.alloc_nom
+                FROM sm_latest sm
+                LEFT JOIN allocation_risque ar
+                  ON ar.id = sm.entity_id
+                LEFT JOIN alloc_latest al
+                  ON al.isin_norm = UPPER(TRIM(ar.isin))
+                """
+            )
+        ).fetchall()
+        sri_metrics_map: dict[str, dict] = {}
+        for r in rows_sm or []:
+            m = dict(r._mapping)
+            # Normalise les dates pour JSON (avoid non-serializable date objects)
+            if m.get("as_of_date") is not None:
+                try:
+                    m["as_of_date"] = m["as_of_date"].isoformat()
+                except Exception:
+                    m["as_of_date"] = str(m["as_of_date"])
+            if m.get("calc_at") is not None:
+                try:
+                    m["calc_at"] = m["calc_at"].isoformat(sep=" ", timespec="seconds")
+                except Exception:
+                    m["calc_at"] = str(m["calc_at"])
+            # Convertit Decimal -> float pour JSON
+            try:
+                for _k, _v in list(m.items()):
+                    if isinstance(_v, Decimal):
+                        m[_k] = float(_v)
+            except Exception:
+                pass
+            # Map par entity_id (allocation_risque.id) et, si trouvé, par allocation.id pour le pop-up
+            ent_id = m.get("entity_id")
+            alloc_id = m.get("alloc_id")
+            if ent_id is not None:
+                sri_metrics_map[str(ent_id)] = m
+            if alloc_id is not None:
+                sri_metrics_map[str(alloc_id)] = m
+    except Exception:
+        sri_metrics_map = {}
     return templates.TemplateResponse(
         "dashboard_allocations.html",
         {
@@ -23446,6 +25203,7 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             "total_allocations": total_allocations,
             "allocations": last_rows,
             "series_data": series_data,
+            "sri_metrics": sri_metrics_map,
         }
     )
 

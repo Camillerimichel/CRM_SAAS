@@ -49,7 +49,7 @@
   <details data-soc-details style="border:0; padding:0;">
     <summary style="list-style:none; cursor:pointer;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-        <h3 style="margin:0;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
+        <h3 style="margin:0; flex:1; text-align:center;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
         <span class="btn btn-secondary" data-soc-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
       </div>
     </summary>
@@ -133,6 +133,88 @@
     const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
     details.addEventListener('toggle', setLabel);
     setLabel();
+  });
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const group = document.querySelector('[data-action-group=\"base-tools\"]');
+    if (!group) return;
+    const buttons = Array.from(group.querySelectorAll('[data-action-btn]'));
+    const activate = (btn) => {
+      buttons.forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+    };
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        activate(btn);
+        const modal = document.querySelector('[data-progress-modal]');
+        const overlay = document.querySelector('[data-progress-overlay]');
+        if (modal && overlay) {
+          const name = btn.getAttribute('data-action-name') || btn.textContent.trim();
+          modal.querySelector('[data-modal-title]').textContent = name;
+          modal.querySelector('[data-modal-body]').textContent = 'Traitement en cours...';
+          modal.querySelector('[data-modal-footer]').innerHTML = '';
+          overlay.style.display = 'flex';
+        }
+      });
+    });
+  });
+</script>
+<div data-progress-overlay style="display:none; position:fixed; inset:0; background:rgba(17,24,39,0.55); z-index:9999; align-items:center; justify-content:center; padding:16px;">
+  <div data-progress-modal style="background:#fff; border-radius:12px; width:min(520px, 90vw); box-shadow:0 20px 60px rgba(0,0,0,0.18); border:1px solid #e5e7eb; overflow:hidden;">
+    <div style="padding:14px 16px; border-bottom:1px solid #e5e7eb;">
+      <h3 data-modal-title style="margin:0; font-size:1.1rem;">Traitement</h3>
+    </div>
+    <div data-modal-body style="padding:14px 16px; color:#111827;">Traitement en cours...</div>
+    <div data-modal-footer style="padding:12px 16px; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid #e5e7eb;">
+    </div>
+  </div>
+</div>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.querySelector('[data-progress-overlay]');
+    const modal = document.querySelector('[data-progress-modal]');
+    if (!overlay || !modal) return;
+    const footer = modal.querySelector('[data-modal-footer]');
+    const closeModal = () => { overlay.style.display = 'none'; };
+    const addCloseButton = () => {
+      footer.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.textContent = 'Fermer';
+      btn.className = 'btn btn-secondary';
+      btn.addEventListener('click', closeModal);
+      footer.appendChild(btn);
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const statusKeys = [
+      { key: 'sri_clients_status', label: 'Calcul SRI clients', entity: 'client' },
+      { key: 'sri_affaires_status', label: 'Calcul SRI affaires', entity: 'affaire' },
+      { key: 'sri_allocations_status', label: 'Calcul SRI allocations', entity: 'allocation' },
+      { key: 'srri_status', label: 'Calcul SRRI clients', entity: 'client' },
+      { key: 'srri_affaires_status', label: 'Calcul SRRI affaires', entity: 'affaire' },
+      { key: 'srri_allocations_status', label: 'Calcul SRRI allocations', entity: 'allocation' },
+    ];
+    const found = statusKeys.find(k => params.get(k.key));
+    if (found) {
+      const status = params.get(found.key);
+      const dur = params.get(found.key.replace('_status', '_dur'));
+      const noteKey = found.key.includes('sri_clients') ? 'sri_clients_note' :
+                      found.key.includes('sri_affaires') ? 'sri_affaires_note' :
+                      found.key.includes('sri_allocations') ? 'sri_allocations_note' : null;
+      const noteVal = noteKey ? params.get(noteKey) : null;
+      modal.querySelector('[data-modal-title]').textContent = found.label;
+      const lines = [];
+      lines.push(status === 'ok' ? 'Statut : succès.' : 'Statut : échec.');
+      if (dur) lines.push(`Durée totale : ${dur}s.`);
+      if (noteVal === 'srri_chain') {
+        lines.push("SRRI manquant — recalcul SRRI lancé automatiquement avant l'écriture SRI.");
+      }
+      lines.push(`Écrit dans : sri_metrics (entity_type=${found.entity}) et mise à jour des colonnes SRI correspondantes.`);
+      modal.querySelector('[data-modal-body]').textContent = lines.join(' ');
+      addCloseButton();
+      overlay.style.display = 'flex';
+    }
   });
 </script>
 
@@ -468,7 +550,7 @@
   <details data-base-details style="border:0; padding:0;">
     <summary style="list-style:none; cursor:pointer;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
-        <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Outils de gestion de la base</h2>
+        <h2 style="margin:0 0 6px 0; font-size:1.2rem; flex:1; text-align:center;">Outils de gestion de la base</h2>
         <span class="btn btn-secondary" data-base-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
       </div>
     </summary>
@@ -478,6 +560,8 @@
       {% set srri_dur = request.query_params.get('srri_dur') %}
       {% set srri_affaires_status = request.query_params.get('srri_affaires_status') %}
       {% set srri_affaires_dur = request.query_params.get('srri_affaires_dur') %}
+      {% set srri_allocations_status = request.query_params.get('srri_allocations_status') %}
+      {% set srri_allocations_dur = request.query_params.get('srri_allocations_dur') %}
   {% if srri_status == 'ok' %}
     <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
       Recalcul SRRI/volatilité lancé et synchronisé depuis <code>tempo_hist_personne_w</code>{% if srri_dur %} en {{ srri_dur }}s{% endif %}.
@@ -496,13 +580,30 @@
       Le recalcul SRRI/volatilité des contrats a échoué. Consulte les logs pour le détail.
     </div>
   {% endif %}
+  {% if srri_allocations_status == 'ok' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+      Recalcul SRRI/volatilité des allocations lancé et synchronisé depuis <code>tempo_hist_allocation_w</code>{% if srri_allocations_dur %} en {{ srri_allocations_dur }}s{% endif %}.
+    </div>
+  {% elif srri_allocations_status == 'error' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+      Le recalcul SRRI/volatilité des allocations a échoué. Consulte les logs pour le détail.
+    </div>
+  {% endif %}
   {% set sri_clients_status = request.query_params.get('sri_clients_status') %}
   {% set sri_clients_dur = request.query_params.get('sri_clients_dur') %}
   {% set sri_affaires_status = request.query_params.get('sri_affaires_status') %}
   {% set sri_affaires_dur = request.query_params.get('sri_affaires_dur') %}
+  {% set sri_allocations_status = request.query_params.get('sri_allocations_status') %}
+  {% set sri_allocations_dur = request.query_params.get('sri_allocations_dur') %}
+  {% set sri_clients_note = request.query_params.get('sri_clients_note') %}
+  {% set sri_affaires_note = request.query_params.get('sri_affaires_note') %}
+  {% set sri_allocations_note = request.query_params.get('sri_allocations_note') %}
   {% if sri_clients_status == 'ok' %}
     <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
       Calcul SRI clients terminé{% if sri_clients_dur %} en {{ sri_clients_dur }}s{% endif %}.
+      {% if sri_clients_note == 'srri_chain' %}
+        <br><span class="muted">Table d'historique absente : recalcul SRRI lancé automatiquement avant le SRI.</span>
+      {% endif %}
     </div>
   {% elif sri_clients_status == 'error' %}
     <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
@@ -512,24 +613,64 @@
   {% if sri_affaires_status == 'ok' %}
     <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
       Calcul SRI affaires terminé{% if sri_affaires_dur %} en {{ sri_affaires_dur }}s{% endif %}.
+      {% if sri_affaires_note == 'srri_chain' %}
+        <br><span class="muted">Table d'historique absente : recalcul SRRI lancé automatiquement avant le SRI.</span>
+      {% endif %}
     </div>
   {% elif sri_affaires_status == 'error' %}
     <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
       Le calcul SRI affaires a échoué. Consulte les logs pour le détail.
     </div>
   {% endif %}
-  <form method="post" action="/dashboard/superadmin/recompute-srri" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-    <button type="submit" class="btn btn-primary">Calcul des niveaux de risques de tous les clients</button>
-  </form>
-  <form method="post" action="/dashboard/superadmin/recompute-srri-affaires" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
-    <button type="submit" class="btn btn-primary">Calcul des niveaux de risques pour tous les contrats</button>
-  </form>
-  <form method="post" action="/dashboard/superadmin/recompute-sri-clients" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
-    <button type="submit" class="btn btn-secondary">Calcul SRI des clients</button>
-  </form>
-  <form method="post" action="/dashboard/superadmin/recompute-sri-affaires" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
-    <button type="submit" class="btn btn-secondary">Calcul SRI des contrats</button>
-  </form>
+  {% if sri_allocations_status == 'ok' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+      Calcul SRI allocations terminé{% if sri_allocations_dur %} en {{ sri_allocations_dur }}s{% endif %}.
+      {% if sri_allocations_note == 'srri_chain' %}
+        <br><span class="muted">Table d'historique absente : recalcul SRRI lancé automatiquement avant le SRI.</span>
+      {% endif %}
+    </div>
+  {% elif sri_allocations_status == 'error' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+      Le calcul SRI allocations a échoué. Consulte les logs pour le détail.
+    </div>
+  {% endif %}
+  <style>
+    .base-action-btn {
+      background:#e1ebff !important;
+      color:#111827 !important;
+      border:1px solid #c7d7ff !important;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      text-align:center;
+      width:100%;
+    }
+    .base-action-btn.active {
+      background:#2563eb !important;
+      color:#fff !important;
+      border-color:#1d4ed8 !important;
+    }
+  </style>
+  <div data-action-group="base-tools" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; align-items:stretch; margin-top:12px;">
+    <form method="post" action="/dashboard/superadmin/recompute-srri" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques de tous les clients">Calcul des niveaux de risques de tous les clients</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/recompute-srri-affaires" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques pour tous les contrats">Calcul des niveaux de risques pour tous les contrats</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/recompute-sri-clients" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul SRI des clients">Calcul SRI des clients</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/recompute-sri-affaires" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul SRI des contrats">Calcul SRI des contrats</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/recompute-srri-allocations" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques des allocations">Calcul des niveaux de risques des allocations</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/recompute-sri-allocations" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul SRI des allocations">Calcul SRI des allocations</button>
+    </form>
+  </div>
 </div>
   </details>
 </div>
@@ -538,7 +679,7 @@
   <details data-log-details style="border:0; padding:0;">
     <summary style="list-style:none; cursor:pointer;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
-        <div>
+        <div style="flex:1; text-align:center;">
           <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Suivi des traitements</h2>
           <p class="muted" style="margin:0;">Logs en base : typologie, déclencheur, horodatage et message de fin.</p>
         </div>
@@ -588,52 +729,62 @@
     </form>
 
     {% if logs_suivi %}
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
-        {% for lg in logs_suivi %}
-          {% if loop.index0 > 0 and loop.index0 % 20 == 0 %}
-            <div style="padding:6px 0; border-top:2px dashed var(--border); color:var(--muted); font-size:0.9rem;">Rupture {{ loop.index0 }}</div>
-          {% endif %}
-          <div style="padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span style="font-weight:600;">{{ lg.type_label or lg.type_code or 'Sans type' }}</span>
+      <div style="overflow-x:auto; margin-top:12px;">
+        <table style="width:100%; border-collapse:collapse; min-width:720px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
+          <thead style="background:#f8fafc; border-bottom:1px solid #e5e7eb;">
+            <tr>
+              <th style="padding:10px 12px; text-align:left; width:180px;">Traitement</th>
+              <th style="padding:10px 12px; text-align:left; width:280px;">Horodatage</th>
+              <th style="padding:10px 12px; text-align:left; width:200px;">Déclenché par</th>
+              <th style="padding:10px 12px; text-align:center; width:140px;">Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lg in logs_suivi %}
               {% set st = lg.status or '' %}
-              {% if st == 'ok' %}
-                <span class="status-pill" style="background:#dcfce7; color:#166534;">Succès</span>
-              {% elif st == 'error' %}
-                <span class="status-pill" style="background:#fee2e2; color:#b91c1c;">Erreur</span>
+              {% set status_label = 'Succès' if st == 'ok' else ('Erreur' if st == 'error' else 'En cours') %}
+              {% set start_str = lg.started_at.strftime('%d/%m/%Y %H:%M:%S') if lg.started_at else '—' %}
+              {% set end_str = lg.ended_at.strftime('%d/%m/%Y %H:%M:%S') if lg.ended_at else '—' %}
+              {% set dur_str = '%.2fs'|format(lg.duration_seconds) if lg.duration_seconds is not none else '—' %}
+              {% if lg.user_prenom or lg.user_nom %}
+                {% set user_str = (lg.user_prenom or '') ~ ' ' ~ (lg.user_nom or '') %}
+              {% elif lg.user_login %}
+                {% set user_str = lg.user_login %}
+              {% elif lg.user_id %}
+                {% set user_str = 'Utilisateur #' ~ lg.user_id %}
               {% else %}
-                <span class="status-pill" style="background:#e0f2fe; color:#075985;">En cours</span>
+                {% set user_str = 'Non renseigné' %}
               {% endif %}
-            </div>
-            <div>
-              <div style="font-weight:600;">Horodatage</div>
-              <div class="muted" style="margin-top:4px;">
-                Début : {{ lg.started_at.strftime('%d/%m/%Y %H:%M:%S') if lg.started_at else '—' }}<br>
-                Fin : {{ lg.ended_at.strftime('%d/%m/%Y %H:%M:%S') if lg.ended_at else '—' }}
-              </div>
-              <div class="muted" style="margin-top:4px;">Durée : {{ '%.2fs'|format(lg.duration_seconds) if lg.duration_seconds is not none else '—' }}</div>
-            </div>
-            <div>
-              <div style="font-weight:600;">Déclenché par</div>
-              <div class="muted" style="margin-top:4px;">
-                {% if lg.user_prenom or lg.user_nom %}
-                  {{ lg.user_prenom or '' }} {{ lg.user_nom or '' }}
-                {% elif lg.user_login %}
-                  {{ lg.user_login }}
-                {% elif lg.user_id %}
-                  Utilisateur #{{ lg.user_id }}
-                {% else %}
-                  Non renseigné
-                {% endif %}
-                {% if lg.ip_address %}<br>IP : {{ lg.ip_address }}{% endif %}
-              </div>
-            </div>
-            <div style="grid-column:1/-1;">
-              <div style="font-weight:600;">Message</div>
-              <div style="margin-top:4px; padding:8px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; white-space:pre-wrap;">{{ lg.message or '—' }}</div>
-            </div>
-          </div>
-        {% endfor %}
+              {% set ip_str = lg.ip_address or '' %}
+              <tr style="border-bottom:1px solid #e5e7eb;">
+                <td style="padding:10px 12px; vertical-align:top;">
+                  <div style="font-weight:600;">{{ lg.type_label or lg.type_code or 'Sans type' }}</div>
+                  <div class="muted" style="font-size:0.9rem; margin-top:4px;">{{ lg.type_code or '' }}</div>
+                </td>
+                <td style="padding:10px 12px; vertical-align:top;">
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    <span class="muted">Début :</span> <span>{{ start_str }}</span>
+                    <span class="muted" style="margin-left:8px;">Fin :</span> <span>{{ end_str }}</span>
+                  </div>
+                  <div class="muted" style="margin-top:4px;">Durée : {{ dur_str }}</div>
+                </td>
+                <td style="padding:10px 12px; vertical-align:top;">
+                  <div>{{ user_str }}</div>
+                  {% if ip_str %}<div class="muted" style="font-size:0.9rem; margin-top:4px;">IP : {{ ip_str }}</div>{% endif %}
+                </td>
+                <td style="padding:10px 12px; vertical-align:top; text-align:center;">
+                  {% if st == 'ok' %}
+                    <button type="button" class="btn" style="background:#22c55e; color:#fff; cursor:default; width:100%; display:flex; align-items:center; justify-content:center;">Succès</button>
+                  {% elif st == 'error' %}
+                    <button type="button" class="btn" style="background:#ef4444; color:#fff; cursor:default; width:100%; display:flex; align-items:center; justify-content:center;">Erreur</button>
+                  {% else %}
+                    <button type="button" class="btn" style="background:#f97316; color:#fff; cursor:default; width:100%; display:flex; align-items:center; justify-content:center;">En cours</button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; gap:10px; flex-wrap:wrap;">
         <div class="muted" style="font-size:0.9rem;">{{ total_logs }} logs — page {{ log_page }} / {{ log_page_count }}</div>
