@@ -1034,6 +1034,50 @@
               {{ risque_snapshot.allocation_html | safe }}
             </div>
           {% endif %}
+          {% if allocation_sri_metrics %}
+            <div id="kycAllocSriBlock" class="sri-card" style="margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                <div>
+                  <div class="muted-small">Indicateur SRI{% if allocation_sri_metrics.as_of_date %} — {{ allocation_sri_metrics.as_of_date }}{% endif %}</div>
+                  <div style="font-weight:700;">{{ allocation_sri_metrics.allocation_name or allocation_sri_metrics.alloc_nom or risque_snapshot.allocation_nom or 'Offre financière' }}</div>
+                  {% if allocation_sri_metrics.calc_at %}<div class="muted-small">Calcul: {{ allocation_sri_metrics.calc_at }}</div>{% endif %}
+                </div>
+                <div class="offer-pill" style="background:#1f2937; color:#fff; border-color:#1f2937;">
+                  SRI {{ allocation_sri_metrics.sri if allocation_sri_metrics.sri is not none else '—' }}
+                </div>
+              </div>
+              {% if allocation_sri_scenarios %}
+                <div style="margin-top:10px;">
+                  <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (base 10 000 €{% if allocation_sri_rhp_years %}, RHP {{ allocation_sri_rhp_years }} ans{% endif %})</div>
+                  <table class="table" style="width:100%; font-size:0.95rem; border-collapse:collapse;">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left;">Horizon</th>
+                        <th style="text-align:right;">Tension</th>
+                        <th style="text-align:right;">Défavorable</th>
+                        <th style="text-align:right;">Intermédiaire</th>
+                        <th style="text-align:right;">Favorable</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in allocation_sri_scenarios %}
+                        <tr>
+                          <td style="text-align:left;">{{ row.label }}</td>
+                          <td style="text-align:right;">{{ row.tension.euro }}<br><em class="muted-small">{{ row.tension.pct }}</em></td>
+                          <td style="text-align:right;">{{ row.defavorable.euro }}<br><em class="muted-small">{{ row.defavorable.pct }}</em></td>
+                          <td style="text-align:right;">{{ row.intermediaire.euro }}<br><em class="muted-small">{{ row.intermediaire.pct }}</em></td>
+                          <td style="text-align:right;">{{ row.favorable.euro }}<br><em class="muted-small">{{ row.favorable.pct }}</em></td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                  <div class="muted-small" style="margin-top:6px;">Calculs Cornish-Fisher tension/défavorable/intermédiaire/favorable sur horizons 1 an, demi-vie et vie.</div>
+                </div>
+              {% else %}
+                <div class="muted" style="margin-top:6px;">Aucune donnée SRI disponible.</div>
+              {% endif %}
+            </div>
+          {% endif %}
           
         </div>
         <script>

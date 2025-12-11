@@ -255,7 +255,20 @@
       <div class="section">Performance et volatilité – {{ risque.allocation_nom or '—' }}</div>
       <img src="data:image/png;base64,{{ chart_img_alloc_b64 }}" alt="Allocation" style="max-width:100%; height:auto;" />
     </div>
+    {% elif chart_alloc_svg %}
+    <div class="card" style="margin-bottom:8px;">
+      <div class="section">Performance et volatilité – {{ risque.allocation_nom or '—' }}</div>
+      <div>{{ chart_alloc_svg | safe }}</div>
+    </div>
+    {% else %}
+    <div class="card" style="margin-bottom:8px;">
+      <div class="section">Performance et volatilité – {{ risque.allocation_nom or '—' }}</div>
+      <div class="muted">Graphique non disponible pour cette allocation.</div>
+    </div>
     {% endif %}
+    <div class="muted" style="margin:4px 0 12px 0;">
+      L'identification de l'offre financière est : {{ allocation_risque_id if allocation_risque_id is not none else (client_allocation_id if client_allocation_id is not none else '—') }} (table allocation_risque).
+    </div>
     <div class="grid-2">
       <div class="card">
         <div class="section">Niveau final</div>

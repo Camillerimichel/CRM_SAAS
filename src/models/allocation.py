@@ -12,6 +12,8 @@ class Allocation(Base):
     perf_sicav_hebdo = Column("perf_sicav_hebdo", Float, nullable=True)
     perf_sicav_52 = Column("perf_sicav_52", Float, nullable=True)
     volat = Column("volat", Float, nullable=True)
+    srri = Column("srri", Integer, nullable=True)
+    sri = Column("SRI", Integer, nullable=True)
     annee = Column("anne", Integer, nullable=True)
     nom = Column("nom", String, nullable=True)
     isin = Column("isin", String, nullable=True)
