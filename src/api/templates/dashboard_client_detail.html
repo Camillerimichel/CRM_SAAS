@@ -1708,23 +1708,34 @@ function generateClientSynthese(){
 
   <div id="esgSectionClient" style="display:none;">
     <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box;">
-      <h3 class="chart-title">Comparaison ESG Client vs Indice</h3>
+    <h3 class="chart-title">Comparaison ESG Client et de son Indice</h3>
       <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
-        {% set graph_default_alloc = (client_allocation_name or allocation_reference_name or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if (risque_snapshot is defined and risque_snapshot and risque_snapshot.allocation_nom) else '')) or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))) %}
-        <div>
-          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
-          <select id="esgAllocSelectClient" style="min-width:220px; max-width:280px; width:auto;">
-            <option value="" {% if not esg_comparison_alloc %}selected{% endif %}>— choisir —</option>
-            {% for nm in alloc_names %}
-              <option value="{{ nm }}"{% if esg_comparison_alloc and nm == esg_comparison_alloc %} selected{% endif %}>{{ nm }}</option>
-            {% endfor %}
-            {% if esg_comparison_alloc and esg_comparison_alloc not in alloc_names %}
-              <option value="{{ esg_comparison_alloc }}" selected>{{ esg_comparison_alloc }}</option>
-            {% endif %}
-            {% if graph_default_alloc and graph_default_alloc not in alloc_names and graph_default_alloc != esg_comparison_alloc %}
-              <option value="{{ graph_default_alloc }}" selected>{{ graph_default_alloc }}</option>
-            {% endif %}
-          </select>
+        {% set client_allocation_display = None %}
+        {% if client_allocation_id %}
+          {% set lookup_name = allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None %}
+          {% set client_allocation_display = client_allocation_name or lookup_name or ('Niveau ' ~ client_allocation_id|string) %}
+          {% if client_allocation_display %}
+            {% set client_allocation_display = client_allocation_display ~ ' (ID ' ~ client_allocation_id|string ~ ')' %}
+          {% endif %}
+        {% endif %}
+        {% set graph_default_alloc = (client_allocation_display or client_allocation_name or allocation_reference_name or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if (risque_snapshot is defined and risque_snapshot and risque_snapshot.allocation_nom) else '')) or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))) %}
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label>
+          <div style="display:flex; gap:6px; align-items:flex-end;">
+            <select id="esgAllocSelectClient" style="min-width:220px; max-width:280px; width:auto;">
+              <option value="" {% if not esg_comparison_alloc %}selected{% endif %}>— choisir —</option>
+              {% for nm in alloc_names %}
+                <option value="{{ nm }}"{% if esg_comparison_alloc and nm == esg_comparison_alloc %} selected{% endif %}>{{ nm }}</option>
+              {% endfor %}
+              {% if esg_comparison_alloc and esg_comparison_alloc not in alloc_names %}
+                <option value="{{ esg_comparison_alloc }}" selected>{{ esg_comparison_alloc }}</option>
+              {% endif %}
+              {% if graph_default_alloc and graph_default_alloc not in alloc_names and graph_default_alloc != esg_comparison_alloc %}
+                <option value="{{ graph_default_alloc }}" selected>{{ graph_default_alloc }}</option>
+              {% endif %}
+            </select>
+            <button id="esgAllocResetBtnClient" class="rangeBtn" type="button" title="Réinitialiser l’allocation" style="background:#f3f4f6; color:#111;">Rafraîchir</button>
+          </div>
         </div>
         <div style="display:none;">
           <label class="muted" style="font-size:0.85rem;">Date</label><br>
@@ -3400,10 +3411,11 @@ function openClientMsgs(kind){
     var allocDateSel = document.getElementById('esgAllocDateClient');
     var fieldsWrap = document.getElementById('esgFieldsClient');
     var refreshBtn = document.getElementById('esgRefreshBtnClient');
+    var resetAllocBtn = document.getElementById('esgAllocResetBtnClient');
     var asOfSel = document.getElementById('asOfSelect');
     var unmatchedNotice = document.getElementById('esgUnmatchedNotice');
     var serverDefaultAlloc = {{ esg_comparison_alloc|tojson }};
-    var graphDefaultAlloc = {{ (client_allocation_name or allocation_reference_name or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if (risque_snapshot is defined and risque_snapshot and risque_snapshot.allocation_nom) else '')) or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None)))|tojson }};
+    var graphDefaultAlloc = {{ graph_default_alloc|tojson }};
     var serverDefaultFields = {{ esg_default_fields|tojson }};
     var serverUnmatched = {{ esg_unmatched_fields|tojson }};
     var fieldLabels = {{ esg_field_labels|tojson }};
@@ -3682,6 +3694,18 @@ function openClientMsgs(kind){
     if (allocDateSel) allocDateSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}; drawESG(); });
     if (asOfSel) asOfSel.addEventListener('change', drawESG);
     if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
+    if (resetAllocBtn){
+      resetAllocBtn.addEventListener('click', function(){
+        var targetAlloc = serverDefaultAlloc || graphDefaultAlloc || '';
+        if (!targetAlloc) return;
+        if (allocSel){
+          allocSel.value = targetAlloc;
+          try{ localStorage.setItem(keyAlloc, targetAlloc); }catch(_e){}
+          try{ localStorage.removeItem(keyAllocDate); }catch(_e){}
+          loadAllocDates();
+        }
+      });
+    }
     document.querySelectorAll('.esg-pill').forEach(function(btn){
       btn.addEventListener('click', function(){
         var g = btn.getAttribute('data-esg-group');

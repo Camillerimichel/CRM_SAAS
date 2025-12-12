@@ -989,7 +989,16 @@
             </div>
             <div class="summary-balance">
               <span class="label">Allocation</span>
-              <span class="amount" id="rsAllocation">{{ risque_snapshot.allocation_nom or '—' }}</span>
+              <span class="amount" id="rsAllocation">
+                {% if risque_snapshot.allocation_nom %}
+                  {{ risque_snapshot.allocation_nom }}
+                  {% if risque_snapshot.allocation_id %}<span class="muted-small" style="font-size:0.8rem;">(ID {{ risque_snapshot.allocation_id }})</span>{% endif %}
+                {% elif risque_snapshot.allocation_id %}
+                  ID {{ risque_snapshot.allocation_id }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
             </div>
             <div class="summary-balance">
               <span class="label">Expérience</span>
@@ -1380,6 +1389,12 @@
             const accYesCk = document.getElementById('acceptYesCk');
             const accNoCk = document.getElementById('acceptNoCk');
             const personalRiskSelect = document.getElementById('personalRiskSelect');
+            const SRRI_MAP = {1:2,2:3,3:4,4:5,5:6};
+            const savedRiskSummary = {
+              calc: {{ (risque_current.offre_calculee_niveau_id if risque_current and risque_current.offre_calculee_niveau_id is not none else None)|tojson }},
+              final: {{ (risque_current.offre_finale_niveau_id if risque_current and risque_current.offre_finale_niveau_id is not none else None)|tojson }},
+            };
+            let riskDirty = false;
             function setOffrePers(val){
               try{ form.querySelectorAll('input[name="offre_personnelle_niveau_id"]').forEach(function(i){ i.value = val || ''; }); }catch(e){}
             }
@@ -1398,6 +1413,7 @@
                   group.querySelectorAll('button[data-value]').forEach(b=>b.classList.remove('btn-choice-active'));
                   btn.classList.add('btn-choice-active');
                   updateSteps();
+                  riskDirty = true;
                   updateOffer();
                   updateSaveEnabled();
                   // Spécifiques: synchroniser les blocs d'acceptation/refus et revenus CT
@@ -1431,6 +1447,7 @@
                   else { btn.classList.add('btn-choice-active'); selected.add(id); }
                   container.innerHTML='';
                   Array.from(selected).forEach(function(val){ const i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; container.appendChild(i); });
+                  riskDirty = true;
                   updateOffer();
                   updateSaveEnabled();
                   updateRevenusCtVisibility();
@@ -1501,10 +1518,19 @@
               return map[id] || '—';
             }
 
+            function renderRiskSummary(calcId, finalId){
+              const calcPill = document.getElementById('riskOfferCalcPill');
+              const finalPill = document.getElementById('riskOfferFinalPill');
+              const srriSpan = document.getElementById('riskSrriValue');
+              const calcLabel = offerLabelFromId(calcId || finalId);
+              if (calcPill) calcPill.textContent = calcLabel;
+              if (finalPill) finalPill.textContent = offerLabelFromId(finalId);
+              if (srriSpan) srriSpan.textContent = finalId && SRRI_MAP[finalId] ? 'SRRI ' + SRRI_MAP[finalId] : '—';
+            }
+
             function updateOffer(){
               // mirror compute on client for UX
               const OFFRE={court_terme:1, prudente:2, equilibree:3, dynamique:4, offensif:5};
-              const SRRI_MAP={1:2,2:3,3:4,4:5,5:6};
               const conso = (val('connaissance_adequate')||'').toLowerCase();
               let offer = OFFRE.court_terme;
               if (conso === 'non'){
@@ -1533,12 +1559,6 @@
                 // objectifs
                 const objIds = selectedIds('objectif_ids'); const epargneId = {{ (risque_opts.objectifs|tojson)|safe }}.find(o=>o.code==='epargne_precaution')?.id; if (epargneId && objIds.includes(epargneId)) offer=Math.min(offer, OFFRE.prudente);
               }
-              const calcPill = document.getElementById('riskOfferCalcPill');
-              const finalPill = document.getElementById('riskOfferFinalPill');
-              const srriSpan = document.getElementById('riskSrriValue');
-              const offerLabel = offerLabelFromId(offer);
-              if (calcPill) calcPill.textContent = offerLabel;
-              if (determinedSpan) determinedSpan.textContent = offerLabel;
               let finalOffer = offer;
               // Revenus CT priority
               try {
@@ -1556,8 +1576,12 @@
                 if (accG === 'oui') finalOffer = offer;
                 else if (accG === 'non' && pers) finalOffer = pers;
               } catch(e) {}
-              if (finalPill) finalPill.textContent = offerLabelFromId(finalOffer);
-              if (srriSpan) srriSpan.textContent = SRRI_MAP[finalOffer] ? 'SRRI ' + SRRI_MAP[finalOffer] : '—';
+              if (!riskDirty && savedRiskSummary && savedRiskSummary.final != null){
+                renderRiskSummary(savedRiskSummary.calc != null ? savedRiskSummary.calc : savedRiskSummary.final, savedRiskSummary.final);
+              } else {
+                renderRiskSummary(offer, finalOffer);
+              }
+              syncDetermined();
             }
 
             function updateSaveEnabled(){
@@ -1652,6 +1676,7 @@
             if (personalRiskSelect){
               personalRiskSelect.addEventListener('change', function(){
                 setOffrePers(personalRiskSelect.value || '');
+                riskDirty = true;
                 // Recalculer et refléter immédiatement la valeur "Finale" du bandeau
                 updateOffer();
                 updateSaveEnabled();
@@ -1665,6 +1690,7 @@
             }
             syncDetermined();
             form.addEventListener('click', function(e){
+              riskDirty = true;
               const t = e.target;
               if (!(t instanceof Element)) return;
               const group = t.closest('.btn-group');

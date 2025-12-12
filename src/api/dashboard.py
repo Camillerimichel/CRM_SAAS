@@ -12693,20 +12693,6 @@ async def dashboard_client_kyc(
                     offre_personnelle_id = int(offre_personnelle) if offre_personnelle else None
                 except Exception:
                     offre_personnelle_id = None
-                logger.info(
-                    "risque_save submit client=%s conso=%s perte=%s patr=%s disp=%s dur=%s obj=%s rev_ct=%s accept_calc=%s offre_pers=%s",
-                    client_id,
-                    conso,
-                    perte_id,
-                    patr_id,
-                    disp_id,
-                    duree_id,
-                    obj_ids,
-                    revenus_ct_accept,
-                    accept_offre_calculee,
-                    offre_personnelle_id,
-                )
-
                 # Compute base offer
                 def clamp(n, lo, hi):
                     return max(lo, min(hi, n))
@@ -12836,16 +12822,6 @@ async def dashboard_client_kyc(
                 # SRRI mappé sur l'offre finale
                 srri_map = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
                 srri_val = srri_map.get(int(params_main["offre_finale_niveau_id"]), None)
-                logger.info(
-                    "risque_save computed client=%s offre_calc=%s final_offer=%s srri=%s rev_ct_accept=%s accept_calc=%s pers=%s",
-                    client_id,
-                    offre_calc,
-                    final_offer,
-                    srri_val,
-                    revenus_ct_accept,
-                    accept_offre_calculee,
-                    offre_personnelle_id,
-                )
                 # Insertion systématique d'un nouveau questionnaire
                 db.execute(
                     _text(
@@ -13029,7 +13005,6 @@ async def dashboard_client_kyc(
                             payload | {"id": int(row_kr[0])},
                         )
                         risque_id = int(row_kr[0])
-                        logger.info("KYC_Client_Risque update client=%s risque_id=%s payload=%s", client_id, risque_id, payload)
                     else:
                         db.execute(
                             _text(
@@ -13050,7 +13025,6 @@ async def dashboard_client_kyc(
                         except Exception as exc:
                             logger.warning("KYC_Client_Risque insert: unable to fetch LAST_INSERT_ID for client=%s: %s", client_id, exc, exc_info=True)
                             risque_id = None
-                        logger.info("KYC_Client_Risque insert client=%s risque_id=%s payload=%s", client_id, risque_id, payload)
                     # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
                     try:
                         # Créer la table si absente
@@ -13129,26 +13103,6 @@ async def dashboard_client_kyc(
                         allocation_md = None
                         allocation_id_client = None
 
-                    # Si le client accepte le risque calculé, mettre à jour mariadb_clients.allocation_id
-                    try:
-                        if accept_offre_calculee == "oui":
-                            if allocation_id_client is None and allocation_nom:
-                                try:
-                                    row_alloc_id = db.execute(
-                                        _text("SELECT id FROM allocations WHERE nom = :nom LIMIT 1"),
-                                        {"nom": allocation_nom},
-                                    ).fetchone()
-                                    if row_alloc_id:
-                                        allocation_id_client = row_alloc_id[0] if not hasattr(row_alloc_id, "_mapping") else (row_alloc_id._mapping.get("id") or row_alloc_id[0])
-                                except Exception:
-                                    allocation_id_client = None
-                            if allocation_id_client is not None:
-                                db.execute(
-                                    _text("UPDATE mariadb_clients SET allocation_id = :aid WHERE id = :cid"),
-                                    {"aid": int(allocation_id_client), "cid": client_id},
-                                )
-                    except Exception as exc:
-                        logger.debug("KYC_Client_Risque: mise à jour allocation_id client impossible: %s", exc, exc_info=True)
                     # Mettre à jour le SRRI dans mariadb_clients selon la correspondance
                     try:
                         if srri_val is not None:
@@ -13161,51 +13115,74 @@ async def dashboard_client_kyc(
 
                     # Charger la série de performance/volatilité pour cette allocation
                     alloc_chart = None
-                    try:
-                        # Préférence à l'ID d'allocation si disponible pour éviter tout décalage de base/nom
-                        if allocation_id_client is None and client_id:
+                    allocation_update_before: int | None = None
+                    allocation_update_after: int | None = None
+                    if client_id:
+                        row_cli_alloc = db.execute(
+                            _text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+                            {"cid": client_id},
+                        ).fetchone()
+                        if row_cli_alloc:
+                            cli_alloc_val = (
+                                row_cli_alloc[0]
+                                if not hasattr(row_cli_alloc, "_mapping")
+                                else (row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0])
+                            )
+                            allocation_update_before = int(cli_alloc_val) if cli_alloc_val is not None else None
+                            if allocation_id_client is None:
+                                allocation_id_client = allocation_update_before
+                    if allocation_id_client or allocation_nom:
+                        query = db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                        if allocation_id_client:
+                            query = query.filter(Allocation.id == allocation_id_client)
+                        else:
+                            query = query.filter(Allocation.nom == allocation_nom)
+                        rows_series = query.order_by(Allocation.date.asc()).all()
+                        labels: list[str] = []
+                        sicav_vals: list[float] = []
+                        vol_vals: list[float] = []
+                        for d, sicav_v, vol_v in rows_series:
                             try:
-                                row_cli_alloc = db.execute(
-                                    _text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid LIMIT 1"),
-                                    {"cid": client_id},
-                                ).fetchone()
-                                if row_cli_alloc:
-                                    allocation_id_client = row_cli_alloc[0] if not hasattr(row_cli_alloc, "_mapping") else (
-                                        row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0]
-                                    )
+                                dstr = d.strftime("%Y-%m-%d") if d else None
                             except Exception:
-                                allocation_id_client = None
+                                dstr = str(d)[:10] if d else None
+                            if not dstr:
+                                continue
+                            labels.append(dstr)
+                            try:
+                                sicav_vals.append(float(sicav_v or 0))
+                            except Exception:
+                                sicav_vals.append(0.0)
+                            try:
+                                vol_vals.append(float(vol_v or 0))
+                            except Exception:
+                                vol_vals.append(0.0)
+                        if labels:
+                            alloc_chart = {"labels": labels, "sicav": sicav_vals, "vol": vol_vals}
 
-                        if allocation_id_client or allocation_nom:
-                            query = db.query(Allocation.date, Allocation.sicav, Allocation.volat)
-                            if allocation_id_client:
-                                query = query.filter(Allocation.id == allocation_id_client)
-                            else:
-                                query = query.filter(Allocation.nom == allocation_nom)
-                            rows_series = query.order_by(Allocation.date.asc()).all()
-                            labels: list[str] = []
-                            sicav_vals: list[float] = []
-                            vol_vals: list[float] = []
-                            for d, sicav_v, vol_v in rows_series:
-                                try:
-                                    dstr = d.strftime("%Y-%m-%d") if d else None
-                                except Exception:
-                                    dstr = str(d)[:10] if d else None
-                                if not dstr:
-                                    continue
-                                labels.append(dstr)
-                                try:
-                                    sicav_vals.append(float(sicav_v or 0))
-                                except Exception:
-                                    sicav_vals.append(0.0)
-                                try:
-                                    vol_vals.append(float(vol_v or 0))
-                                except Exception:
-                                    vol_vals.append(0.0)
-                            if labels:
-                                alloc_chart = {"labels": labels, "sicav": sicav_vals, "vol": vol_vals}
-                    except Exception:
-                        alloc_chart = None
+                    if client_id and niveau_id is not None:
+                        db.execute(
+                            _text(
+                                """
+                                UPDATE mariadb_clients
+                                SET allocation_id = :rid
+                                WHERE id = :cid
+                                """
+                            ),
+                            {"rid": int(niveau_id), "cid": client_id},
+                        )
+                    if client_id:
+                        row_after_update = db.execute(
+                            _text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+                            {"cid": client_id},
+                        ).fetchone()
+                        if row_after_update:
+                            after_val = (
+                                row_after_update[0]
+                                if not hasattr(row_after_update, "_mapping")
+                                else (row_after_update._mapping.get("allocation_id") or row_after_update[0])
+                            )
+                            allocation_update_after = int(after_val) if after_val is not None else None
 
                     # Convertir markdown en HTML simple
                     def _md_to_html(md: str | None) -> str | None:
@@ -13257,6 +13234,9 @@ async def dashboard_client_kyc(
                         "confirmation_client": confirmation_txt,
                         "commentaire": risque_commentaire,
                         "allocation_nom": allocation_nom,
+                        "allocation_id": int(allocation_id_client) if allocation_id_client is not None else None,
+                        "allocation_update_before": allocation_update_before,
+                        "allocation_update_after": allocation_update_after,
                         "allocation_chart": alloc_chart,
                         "allocation_html": _md_to_html(allocation_md),
                     }
@@ -13280,7 +13260,6 @@ async def dashboard_client_kyc(
                         _text("SELECT id, date_saisie, niveau_id, confirmation_client FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY id DESC LIMIT 3"),
                         {"cid": client_id},
                     ).fetchall()
-                    logger.info("KYC_Client_Risque debug rows client=%s -> %s", client_id, [tuple(r) for r in row_dbg])
                 except Exception as exc:
                     logger.warning("KYC_Client_Risque debug fetch error client=%s: %s", client_id, exc, exc_info=True)
                 # set to show panel
@@ -24536,6 +24515,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         alloc_names_client = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
     except Exception:
         alloc_names_client = []
+    def _suggest_allocation_name(candidates: list[str]) -> str | None:
+        if not candidates:
+            return None
+        lowered = [(name or "", (name or "").lower()) for name in candidates]
+        keywords = ["équilibr", "balance", "financ", "offre", " dynamique ", "mixte"]
+        for kw in keywords:
+            for name, low in lowered:
+                if kw in low:
+                    return name or None
+        return candidates[0] if candidates else None
     esg_fields_client: list[dict] = []
     esg_field_labels_client: dict[str, str] = {}
     esg_comparison_alloc: str | None = None
@@ -24553,13 +24542,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         esg_fields_client = []
 
     esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
-    if not allocation_reference_name and alloc_names_client:
-        allocation_reference_name = alloc_names_client[0]
+    if not allocation_reference_name:
+        allocation_reference_name = _suggest_allocation_name(alloc_names_client)
+    fallback_alloc_name = _suggest_allocation_name(alloc_names_client)
     esg_comparison_alloc = (
         client_allocation_name
         or allocation_reference_name
         or (risque_latest.get("allocation_nom") if risque_latest else None)
-        or (alloc_names_client[0] if alloc_names_client else None)
+        or fallback_alloc_name
     )
     # Tenter de déterminer des indicateurs ESG pertinents (ceux qui possèdent des données numériques)
     fields_to_try = [it.get("col") for it in esg_fields_client if it.get("col")]
