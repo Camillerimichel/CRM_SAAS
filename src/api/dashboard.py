@@ -5386,6 +5386,93 @@ async def dashboard_client_kyc_report(
         allocation_sri_scenarios = []
         allocation_sri_rhp_years = None
 
+    # SRI client (métriques + scénarios)
+    client_sri_metrics: dict | None = None
+    client_sri_scenarios: dict = {"horizons": [], "rows": []}
+    client_sri_debug: list[str] = []
+    try:
+        row_sri = db.execute(
+            text(
+                """
+                SELECT sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev, as_of_date, calc_at
+                FROM sri_metrics
+                WHERE entity_type = 'client' AND entity_id = :cid
+                ORDER BY as_of_date DESC, calc_at DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row_sri:
+            client_sri_metrics = dict(row_sri._mapping) if hasattr(row_sri, "_mapping") else dict(row_sri)
+            client_sri_scenarios = _compute_sri_scenarios(client_sri_metrics)
+            if client_sri_scenarios.get("rows"):
+                client_sri_debug.append("Métriques SRI client trouvées.")
+            else:
+                client_sri_debug.append("Métriques SRI client trouvées mais scénarios vides.")
+        else:
+            client_sri_debug.append("Aucune métrique SRI au niveau client.")
+    except Exception as exc:
+        client_sri_metrics = None
+        client_sri_debug.append(f"Erreur SRI client: {exc}")
+
+    # Fallback allocation si pas de données/rows
+    if (not client_sri_metrics) or (not client_sri_scenarios.get("rows")):
+        alloc_candidates: list[int] = []
+        if allocation_risque_id_pdf is not None:
+            try:
+                alloc_candidates.append(int(allocation_risque_id_pdf))
+            except Exception:
+                pass
+        if client_allocation_id_pdf is not None:
+            try:
+                alloc_candidates.append(int(client_allocation_id_pdf))
+            except Exception:
+                pass
+        seen_allocs: set[int] = set()
+        for aid in alloc_candidates:
+            if aid in seen_allocs:
+                continue
+            seen_allocs.add(aid)
+            try:
+                row_sm = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM sri_metrics
+                        WHERE entity_type = 'allocation' AND entity_id = :eid
+                        ORDER BY as_of_date DESC, calc_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"eid": aid},
+                ).fetchone()
+                if row_sm:
+                    sm = dict(row_sm._mapping) if hasattr(row_sm, "_mapping") else dict(row_sm)
+                    for k, v in list(sm.items()):
+                        if isinstance(v, Decimal):
+                            sm[k] = float(v)
+                    rhp = None
+                    try:
+                        np = sm.get("n_periods") or sm.get("nperiods")
+                        if np is not None:
+                            rhp = max(1.0, float(np)) / 52.0
+                    except Exception:
+                        rhp = None
+                    client_sri_metrics = sm
+                    client_sri_scenarios = _compute_sri_scenarios(sm, rhp_years=rhp or 5)
+                    if client_sri_scenarios.get("rows"):
+                        client_sri_debug.append(f"Métriques SRI allocation trouvées (entity_id={aid}).")
+                        break
+                    else:
+                        client_sri_debug.append(f"Métriques SRI allocation (entity_id={aid}) sans scénarios calculables.")
+                else:
+                    client_sri_debug.append(f"Aucune métrique SRI pour allocation entity_id={aid}.")
+            except Exception as exc:
+                client_sri_debug.append(f"Erreur SRI allocation entity_id={aid}: {exc}")
+    if (not client_sri_metrics) or (not client_sri_scenarios.get("rows")):
+        client_sri_debug.append("Pas de scénarios de tension affichables.")
+
     # ESG (dernier) + exclusions
     esg = None
     esg_exclusions: list[str] = []
@@ -5438,6 +5525,9 @@ async def dashboard_client_kyc_report(
         "allocation_sri_metrics": allocation_sri_metrics,
         "allocation_sri_scenarios": allocation_sri_scenarios,
         "allocation_sri_rhp_years": allocation_sri_rhp_years,
+        "client_sri_metrics": client_sri_metrics,
+        "client_sri_scenarios": client_sri_scenarios,
+        "client_sri_debug": client_sri_debug,
         "esg": esg,
         "esg_exclusions": esg_exclusions,
         "want_charts": int(pdf or 0) == 0,
@@ -6050,11 +6140,55 @@ async def dashboard_client_kyc_report(
                         story.append(Paragraph(f"Commentaire: {risque.get('commentaire')}", P))
                     # Allocation chart
                     try:
-                        if chart_img_alloc:
-                            story.append(Spacer(1, 8))
-                            story.append(RLImage(io.BytesIO(chart_img_alloc), width=500, height=240))
-                    except Exception:
-                        pass
+                    if chart_img_alloc:
+                        story.append(Spacer(1, 8))
+                        story.append(RLImage(io.BytesIO(chart_img_alloc), width=500, height=240))
+                except Exception:
+                    pass
+                story.append(Spacer(1, 12))
+                if client_sri_metrics and client_sri_scenarios and client_sri_scenarios.get("rows"):
+                    story.append(Paragraph("Scénarios de tension (RHP) sur une base de 10 000 €", H3))
+                    table_data = [["Horizon", "Tension", "Défavorable", "Intermédiaire", "Favorable"]]
+                    base_cap = 10000.0
+                    def _fmt_cell(factor):
+                        if factor is None:
+                            return ("—", "—")
+                        try:
+                            val = float(factor)
+                        except Exception:
+                            return ("—", "—")
+                        if not math.isfinite(val):
+                            return ("—", "—")
+                        euros = "{:,.0f}".format(base_cap * val).replace(",", " ") + " €"
+                        diff_pct = ((base_cap * val - base_cap) / base_cap) * 100 if base_cap else None
+                        pct = "—"
+                        try:
+                            if diff_pct is not None and math.isfinite(diff_pct):
+                                pct = f"{diff_pct:.2f} %"
+                        except Exception:
+                            pct = "—"
+                        return (euros, pct)
+                    for row in client_sri_scenarios.get("rows"):
+                        tension = _fmt_cell(row.get("tension"))
+                        defav = _fmt_cell(row.get("defavorable"))
+                        inter = _fmt_cell(row.get("intermediaire"))
+                        fav = _fmt_cell(row.get("favorable"))
+                        table_data.append([
+                            Paragraph(str(row.get("horizon") or "Horizon"), P),
+                            Paragraph(f"{tension[0]}<br/><span style='font-size:9px; color:#4b5563;'>{tension[1]}</span>", P),
+                            Paragraph(f"{defav[0]}<br/><span style='font-size:9px; color:#4b5563;'>{defav[1]}</span>", P),
+                            Paragraph(f"{inter[0]}<br/><span style='font-size:9px; color:#4b5563;'>{inter[1]}</span>", P),
+                            Paragraph(f"{fav[0]}<br/><span style='font-size:9px; color:#4b5563;'>{fav[1]}</span>", P),
+                        ])
+                    tbl = Table(table_data, colWidths=[120, 90, 90, 90, 90], hAlign='LEFT')
+                    tbl.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0), colors.HexColor('#eef2ff')),
+                        ('TEXTCOLOR',(0,0),(-1,0), colors.HexColor('#1d4ed8')),
+                        ('GRID',(0,0),(-1,-1), 0.25, colors.grey),
+                        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ]))
+                    story.append(tbl)
+                    story.append(Paragraph("Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).", P))
                     story.append(Spacer(1, 12))
 
                 # Chapitre 5: ESG
