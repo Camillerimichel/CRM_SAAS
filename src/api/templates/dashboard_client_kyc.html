@@ -1140,12 +1140,30 @@
                   </table>
                   <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
                 {% else %}
-                  <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
+                  <div class="muted" style="font-size:0.9rem;">
+                    Aucun scénario calculable (métriques SRI manquantes).
+                    {% if client_sri_debug %}
+                      <div style="font-size:0.8rem; margin-top:4px;">
+                        {% for line in client_sri_debug %}
+                          <div>• {{ line }}</div>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
                 {% endif %}
               </div>
             </div>
           {% else %}
-            <div class="muted" style="font-size:0.9rem; margin-top:12px;">Aucune métrique SRI disponible pour ce client.</div>
+            <div class="muted" style="font-size:0.9rem; margin-top:12px;">
+              Aucune métrique SRI disponible pour ce client.
+              {% if client_sri_debug %}
+                <div style="font-size:0.8rem; margin-top:4px;">
+                  {% for line in client_sri_debug %}
+                    <div>• {{ line }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
           {% endif %}
           
         </div>

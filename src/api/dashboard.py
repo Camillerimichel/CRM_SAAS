@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFil
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam, desc, case
-from sqlalchemy import text, inspect
+from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
@@ -2633,24 +2633,6 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         {"cid": client_id},
     ).scalar()
 
-    # Déterminer si la colonne id_personne existe physiquement
-    def _has_column(table_name: str, column_name: str) -> bool:
-        try:
-            bind = db.get_bind()
-            if bind is None:
-                return False
-            inspector = inspect(bind)
-            cols = [col["name"] for col in inspector.get_columns(table_name)]
-            return column_name in cols
-        except Exception:
-            return False
-
-    hist_filter_col = (
-        HistoriquePersonne.id_personne
-        if _has_column("mariadb_historique_personne_w", "id_personne")
-        else HistoriquePersonne.id
-    )
-
     base_hist_query = db.query(
         HistoriquePersonne.date,
         HistoriquePersonne.valo,
@@ -2661,7 +2643,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         HistoriquePersonne.annee,
         HistoriquePersonne.SRRI,
     ).order_by(HistoriquePersonne.date)
-    historique = base_hist_query.filter(hist_filter_col == client_id).all()
+    historique = base_hist_query.filter(HistoriquePersonne.id == client_id).all()
 
     selected_dt = None
 
