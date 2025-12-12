@@ -8,8 +8,11 @@ fi
 
 CLIENT_ID="$1"
 
+PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
+PYTHONPATH="${PYTHONPATH:-/var/www/CRM_SAAS}"
+
 echo "Seeding SRI metrics for client ${CLIENT_ID}..."
-python scripts/seed_client_sri.py "${CLIENT_ID}"
+PYTHONPATH="${PYTHONPATH}" "$PYTHON_BIN" scripts/seed_client_sri.py "${CLIENT_ID}"
 
 PDF_URL="http://127.0.0.1:8100/dashboard/clients/${CLIENT_ID}/kyc/rapport?style=conformite&pdf=1"
 PDF_FILE="rapport_kyc_${CLIENT_ID}.pdf"
