@@ -1784,14 +1784,14 @@ def _compute_client_esg_comparison(
         available_cols = []
         ok = False
         try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
+            rows_cols = db.execute(text("SHOW COLUMNS FROM donnees_esg_etendu")).fetchall()
             if rows_cols:
                 available_cols = [str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field")) if hasattr(rc, "_mapping") else str(rc[0]) for rc in rows_cols]
                 ok = True
         except Exception:
             ok = False
         if not ok:
-            rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
+            rows_cols = db.execute(text("PRAGMA table_info(donnees_esg_etendu)")).fetchall()
             available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
     except Exception:
         available_cols = []
@@ -1989,11 +1989,11 @@ def _compute_client_esg_comparison(
         isin_list = list(all_isins)
         placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
         params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
-        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
+        q_esg = text(f"SELECT isin, {col_expr} FROM donnees_esg_etendu WHERE isin IN ({placeholders})")
         rows_esg = db.execute(q_esg, params).fetchall()
         for row in rows_esg or []:
             mm = row._mapping
-            isin = mm.get("ISIN")
+            isin = mm.get("isin")
             if not isin:
                 continue
             d = {}
@@ -23759,6 +23759,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     client_supports_map: dict[str, dict] = {}
     movements_cache: dict[tuple[int, int], list[dict]] = {}
     nb_supports_actifs = 0
+    esg_isins_needed: set[str] = set()
+    esg_extended_by_isin: dict[str, dict] = {}
+    esg_consolidated_metrics = []
     try:
         # Liste des contrats (affaires) de ce client
         affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
@@ -23804,6 +23807,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     support_id = int(getattr(r, "support_id", None)) if getattr(r, "support_id", None) is not None else None
                 except Exception:
                     support_id = None
+                code_isin_val = getattr(r, "code_isin", None)
+                if code_isin_val:
+                    normalized_isin = str(code_isin_val).strip()
+                    if normalized_isin:
+                        esg_isins_needed.add(normalized_isin)
                 key = r.code_isin or r.nom
                 it = client_supports_map.get(key)
                 if it and it.get("support_id") is None and support_id is not None:
@@ -23947,6 +23955,89 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 for k in ("cat_gene", "cat_principale", "cat_det", "cat_geo"):
                     if it.get(k) is None and getattr(r, k, None) is not None:
                         it[k] = getattr(r, k)
+        if esg_isins_needed:
+            try:
+                esg_rows = db.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM donnees_esg_etendu
+                        WHERE isin IN :isns
+                        """
+                    ).bindparams(bindparam("isns", expanding=True)),
+                    {"isns": list(esg_isins_needed)},
+                ).fetchall()
+                for row in esg_rows or []:
+                    row_map = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+                    cleaned = {}
+                    for key, value in row_map.items():
+                        if isinstance(value, Decimal):
+                            cleaned[key] = float(value)
+                        else:
+                            cleaned[key] = value
+                    isin_key = (cleaned.get("isin") or "").strip()
+                    if isin_key:
+                        esg_extended_by_isin[isin_key] = cleaned
+            except Exception:
+                esg_extended_by_isin = {}
+        else:
+            esg_extended_by_isin = {}
+        def _column_to_metric_field(column_name: str | None) -> str | None:
+            if not column_name:
+                return None
+            raw = str(column_name).strip()
+            if not raw:
+                return None
+            raw = raw.replace(" ", "_").replace("-", "_")
+            raw = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", raw)
+            raw = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", raw)
+            raw = re.sub(r"_+", "_", raw)
+            return raw.lower()
+
+        esg_metric_totals: dict[str, dict[str, float | str]] = {}
+        for it in client_supports_map.values():
+            support_isin = (it.get("code_isin") or "").strip()
+            esg_data = esg_extended_by_isin.get(support_isin)
+            it["esg_extended"] = esg_data
+            weight = float(it.get("sum_valo") or 0.0)
+            if not weight or not esg_data:
+                continue
+            for col, val in esg_data.items():
+                if col in ("isin", "nom"):
+                    continue
+                if val is None:
+                    continue
+                try:
+                    numeric = float(val)
+                except Exception:
+                    continue
+                field_key = _column_to_metric_field(col)
+                if not field_key:
+                    continue
+                entry = esg_metric_totals.get(field_key)
+                if entry is None:
+                    entry = {"sum": 0.0, "weight": 0.0, "column": col}
+                entry["sum"] = float(entry["sum"]) + numeric * weight
+                entry["weight"] = float(entry["weight"]) + weight
+                if not entry.get("column"):
+                    entry["column"] = col
+                esg_metric_totals[field_key] = entry
+
+        esg_consolidated_metrics = []
+        for field_key, entry in sorted(esg_metric_totals.items()):
+            total_weight = float(entry.get("weight") or 0.0)
+            if not total_weight:
+                continue
+            avg = (float(entry.get("sum", 0.0)) / total_weight) if total_weight else None
+            esg_consolidated_metrics.append(
+                {
+                    "field": field_key,
+                    "field_original": entry.get("column") or field_key,
+                    "value": avg,
+                    "weight": total_weight,
+                }
+            )
+
         client_supports = []
         for it in client_supports_map.values():
             # Recalculer le PRMP consolidé à partir des PRMP de chaque contrat (moyenne pondérée par nb de parts)
@@ -24012,6 +24103,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         client_supports = []
         nb_supports_actifs = 0
+        esg_extended_by_isin = {}
 
     # Documents liés au client, avec nom du document de base
     rows = (
@@ -24952,6 +25044,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "valo_gt_solde": valo_gt_solde,
             # Supports consolidés client
             "client_supports": client_supports,
+            "client_supports_esg_extended": esg_extended_by_isin,
+            "esg_consolidated_metrics": esg_consolidated_metrics,
             "nb_supports_actifs": nb_supports_actifs,
             # (comparatif SICAV retiré)
             # Séries annuelles pour graphiques
@@ -25078,6 +25172,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "sri_scenarios": sri_scenarios,
             "sri_debug": sri_debug,
             "client_sri": client_sri_current,
+            "client_id": client_id,
         }
     )
 

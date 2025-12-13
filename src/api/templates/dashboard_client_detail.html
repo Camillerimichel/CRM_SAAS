@@ -1767,8 +1767,14 @@ function generateClientSynthese(){
       <div id="esgUnmatchedNotice" class="muted" style="margin-top:6px; font-size:12px;{% if not esg_unmatched_fields %} display:none;{% endif %}">{% if esg_unmatched_fields %}Indicateurs introuvables : {{ esg_unmatched_fields|join(', ') }}.{% endif %}</div>
       <div class="muted" style="margin-top:4px; font-size:12px;">Indice normalisé à 100. Client = valeur relative (Client / Indice × 100).</div>
       <div class="card esg-matrix-card" style="margin-top:12px;">
-        <div class="esg-matrix-header">
+      <div class="esg-matrix-header">
+        <div style="display:flex; gap:12px; align-items:center;">
           <h4 style="margin:0;">Correspondance exclusions / indicateurs → métriques ESG</h4>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button id="esgExportBtnClient" class="rangeBtn" type="button" title="Exporter CSV" style="font-size:0.85rem;">Exporter CSV</button>
+            <span id="esgExportNotice" class="muted" style="font-size:0.8rem; display:none;"></span>
+          </div>
+        </div>
           <div class="esg-pill-row">
             <button type="button" class="esg-pill active" data-esg-group="exclusions">Exclusions / Risques</button>
             <button type="button" class="esg-pill" data-esg-group="indicateurs">Indicateurs / Opportunités</button>
@@ -2323,9 +2329,10 @@ function openClientMsgs(kind){
     });
   })();
 
-  // Charts de répartition basés sur supports consolidés
+    // Charts de répartition basés sur supports consolidés
   (function(){
     var supportsData = {{ client_supports | tojson }};
+    var esgExtendedSupportData = {{ client_supports_esg_extended | default({}, true) | tojson }};
     var catCtx = document.getElementById('clientCatChart');
     var geoCtx = document.getElementById('clientGeoChart');
     if (!catCtx || !geoCtx) return;
@@ -3413,6 +3420,10 @@ function openClientMsgs(kind){
     var refreshBtn = document.getElementById('esgRefreshBtnClient');
     var resetAllocBtn = document.getElementById('esgAllocResetBtnClient');
     var asOfSel = document.getElementById('asOfSelect');
+    var esgQueryClientDate = document.getElementById('esgQueryClientDate');
+    var esgQueryAllocName = document.getElementById('esgQueryAllocName');
+    var esgQueryAllocDate = document.getElementById('esgQueryAllocDate');
+    var esgQueryClientId = document.getElementById('esgQueryClientId');
     var unmatchedNotice = document.getElementById('esgUnmatchedNotice');
     var serverDefaultAlloc = {{ esg_comparison_alloc|tojson }};
     var graphDefaultAlloc = {{ graph_default_alloc|tojson }};
@@ -3420,6 +3431,7 @@ function openClientMsgs(kind){
     var serverUnmatched = {{ esg_unmatched_fields|tojson }};
     var fieldLabels = {{ esg_field_labels|tojson }};
     var esgLastResults = [];
+    var serverClientId = {{ (client_id if client_id is defined else None)|tojson }};
     var esgMatrixResults = [];
     var esgActiveGroup = 'exclusions';
     var esgSelectedExclusions = {{ esg_selected_exclusions|default([], true)|tojson }};
@@ -3454,6 +3466,61 @@ function openClientMsgs(kind){
       });
       return Array.from(s);
     })();
+    var esgSensibiliteMap = {
+      "Environnement": ["carbon_trend", "temperature_score", "ghg_intensity_value", "renewable_energy", "avoiding_water_scarcity", "water_efficiency"],
+      "Social": ["social_good", "social_harm", "executive_pay"],
+      "Gouvernance / Diversité": ["board_independence", "board_gender_diversity", "pct_female_board", "pct_female_executives", "gender_pay_gap"]
+    };
+    var esgSensibiliteLabels = {
+      "env_importance": "Importance environnement",
+      "env_ges_reduc": "Réduction GES",
+      "soc_droits_humains": "Droits humains",
+      "soc_parite": "Parité",
+      "gov_transparence": "Transparence",
+      "gov_controle_ethique": "Contrôle éthique"
+    };
+    var esgConsolidatedMetrics = {{ esg_consolidated_metrics | default([], true) | tojson }};
+    var esgMergedRows = [];
+    function normalizeMetricName(value){
+      if (!value) return '';
+      return value.toString().replace(/[^a-z0-9]+/gi, '').toLowerCase();
+    }
+    function buildMergedEsgRows(sourceRows){
+      var byNorm = new Map();
+      function addRow(row, aggregated){
+        if (!row) return;
+        var rawField = row.field || row.field_original;
+        if (!rawField) return;
+        var norm = normalizeMetricName(rawField);
+        if (!norm) return;
+        var existing = byNorm.get(norm);
+        if (existing){
+          if (!aggregated){
+            byNorm.set(norm, { ...existing, ...row, _norm: norm, fromAggregate: false });
+          } else if (!existing.fromAggregate){
+            existing.esg_aggregated_value = row.client;
+            existing.esg_aggregated_weight = row.esg_weight;
+          }
+          return;
+        }
+        byNorm.set(norm, { ...row, _norm: norm, fromAggregate: !!aggregated });
+      }
+      (sourceRows || []).forEach(function(r){
+        addRow(r, false);
+      });
+      (esgConsolidatedMetrics || []).forEach(function(item){
+        addRow({
+          field: item.field,
+          field_original: item.field_original || item.field,
+          client: item.value,
+          index: null,
+          esg_weight: item.weight,
+        }, true);
+      });
+      var result = Array.from(byNorm.values());
+      esgMergedRows = result;
+      return result;
+    }
 
     function renderEsgMatrix(group){
       esgActiveGroup = group || esgActiveGroup || 'exclusions';
@@ -3465,12 +3532,17 @@ function openClientMsgs(kind){
         var g = btn.getAttribute('data-esg-group');
         btn.classList.toggle('active', g === esgActiveGroup);
       });
-      var rows = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : (Array.isArray(esgLastResults) ? esgLastResults : []);
+      var baseRows = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : (Array.isArray(esgLastResults) ? esgLastResults : []);
+      var rows = buildMergedEsgRows(baseRows);
       var mapping = esgMatrixMappings[esgActiveGroup] || {};
       var htmlParts = [];
       Object.keys(mapping).forEach(function(theme){
         var fields = mapping[theme] || [];
-        var matched = rows.filter(function(r){ return r && fields.indexOf(r.field) !== -1; });
+        var normalizedFields = fields.map(normalizeMetricName).filter(function(f){ return f; });
+        var matched = rows.filter(function(r){
+          var norm = r && (r._norm || normalizeMetricName(r.field || r.field_original));
+          return norm && normalizedFields.indexOf(norm) !== -1;
+        });
         var block = '<div class="esg-matrix-item">';
         block += '<h5 style="margin:0 0 6px 0;">'+theme+'</h5>';
         if (!matched.length){
@@ -3498,9 +3570,13 @@ function openClientMsgs(kind){
 
     function renderEsgBlocks(){
       var data = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : esgLastResults;
-      var dataByField = {};
-      (data || []).forEach(function(r){
-        if (r && r.field) dataByField[r.field] = r;
+      var mergedRows = buildMergedEsgRows(data);
+      var normalizedRowMap = {};
+      (mergedRows || []).forEach(function(r){
+        if (!r) return;
+        var norm = r._norm || normalizeMetricName(r.field || r.field_original);
+        if (!norm) return;
+        normalizedRowMap[norm] = r;
       });
 
       // Tags sélectionnés
@@ -3545,7 +3621,8 @@ function openClientMsgs(kind){
         var htmlParts = [];
         Object.keys(mapping).forEach(function(theme){
           var fields = mapping[theme] || [];
-          var matched = fields.map(function(f){ return dataByField[f]; }).filter(Boolean);
+          var normalizedFields = fields.map(normalizeMetricName).filter(function(f){ return f; });
+          var matched = normalizedFields.map(function(f){ return normalizedRowMap[f]; }).filter(Boolean);
           if (!matched.length) return;
           var table = '<h5 style="margin:8px 0 4px;">'+theme+'</h5>';
           table += '<table class="esg-matrix-table"><thead><tr><th>Métrique</th><th class="esg-val">Indice</th><th class="esg-val">Client</th><th class="esg-val">Delta</th></tr></thead><tbody>';
@@ -3569,6 +3646,66 @@ function openClientMsgs(kind){
       buildTable(esgSensibiliteMap, 'esgSensTable', sensTags);
       buildTable(esgMatrixMappings.exclusions, 'esgExclTable', exclTags);
       buildTable(esgMatrixMappings.indicateurs, 'esgIndicTable', indicTags);
+    }
+
+    function formatCsvValue(value){
+      if (value == null) return '';
+      if (typeof value === 'number'){
+        return value.toString();
+      }
+      return String(value).replace(/"/g, '""');
+    }
+
+    function buildEsgCsv(rows){
+      if (!rows || !rows.length) return '';
+      var header = ['Métrique', 'Champ', 'Indice', 'Client', 'Delta', 'Poids'];
+      var lines = [header.join(';')];
+      rows.forEach(function(r){
+        if (!r) return;
+        var label = (fieldLabels && fieldLabels[r.field]) || r.field_original || r.field || '';
+        var idx = r.index == null ? '' : Number(r.index).toFixed(6);
+        var cli = r.client == null ? '' : Number(r.client).toFixed(6);
+        var delta = (r.client != null && r.index != null) ? (Number(r.client) - Number(r.index)).toFixed(6) : '';
+        var weight = (r.esg_weight || r.weight || '');
+        lines.push([
+          '"' + formatCsvValue(label) + '"',
+          '"' + formatCsvValue(r.field || r.field_original || '') + '"',
+          idx,
+          cli,
+          delta,
+          weight
+        ].join(';'));
+      });
+      return lines.join('\n');
+    }
+
+    function triggerCsvDownload(content, filename){
+      if (!content) return;
+      var blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'esg-client.csv';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){
+        URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
+    }
+
+    var exportNoticeTimer;
+    function showExportNotice(text){
+      if (!text) return;
+      var notice = document.getElementById('esgExportNotice');
+      if (!notice) return;
+      notice.textContent = text;
+      notice.style.display = '';
+      notice.style.color = '#0f5132';
+      clearTimeout(exportNoticeTimer);
+      exportNoticeTimer = setTimeout(function(){
+        notice.style.display = 'none';
+      }, 3000);
     }
 
     function setUnmatched(list){
@@ -3609,11 +3746,19 @@ function openClientMsgs(kind){
     });
 
     function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
+    var serverDefaultDate = {{ (as_of_effective if as_of_effective else 'null')|tojson }};
+    if (esgQueryClientId){
+      esgQueryClientId.textContent = serverClientId != null ? serverClientId : '—';
+    }
     function drawESG(){
       var fields = selectedFields();
       var alloc = allocSel.value || '';
       var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
       var asOf = asOfSel && asOfSel.value ? asOfSel.value : '';
+      var resolvedDate = asOf || serverDefaultDate || 'dernier';
+      if (esgQueryClientDate) esgQueryClientDate.textContent = resolvedDate;
+      if (esgQueryAllocName) esgQueryAllocName.textContent = alloc || esgQueryAllocName.textContent || '';
+      if (esgQueryAllocDate) esgQueryAllocDate.textContent = allocDate || resolvedDate;
       if (!fields.length || !alloc){ return; }
       setUnmatched([]);
       ensurePlotly(function(){
@@ -3714,6 +3859,34 @@ function openClientMsgs(kind){
     });
     // Initial render of blocks (empty state)
     renderEsgBlocks();
+
+    var esgExportBtn = document.getElementById('esgExportBtnClient');
+    function attachEsgExport(){
+      var btn = document.getElementById('esgExportBtnClient');
+      console.log('attachEsgExport called; button exists?', !!btn);
+      if (!btn) {
+        return false;
+      }
+      btn.addEventListener('click', function(){
+        var sourceRows = Array.isArray(esgMatrixResults) && esgMatrixResults.length ? esgMatrixResults : esgLastResults;
+        var rows = esgMergedRows.length ? esgMergedRows : buildMergedEsgRows(sourceRows);
+        showExportNotice("tu viens d'appuyer sur le bouton");
+        console.log("tu viens d'appuyer sur le bouton");
+        console.log('ESG export rows', rows);
+        var csv = buildEsgCsv(rows);
+        console.log('ESG export CSV length', csv ? csv.length : 0);
+        if (!csv){
+          console.log('ESG export aborted: no CSV content');
+          return;
+        }
+        showExportNotice('Téléchargement CSV déclenché');
+        triggerCsvDownload(csv, 'esg_client.csv');
+      });
+      return true;
+    }
+    if (!attachEsgExport()){
+      window.addEventListener('load', attachEsgExport);
+    }
 
     // Init defaults
     (function init(){
@@ -4595,16 +4768,3 @@ function openClientMsgs(kind){
 </script>
 
 {% endblock %}
-    var esgSensibiliteMap = {
-      "Environnement": ["carbon_trend", "temperature_score", "ghg_intensity_value", "renewable_energy", "avoiding_water_scarcity", "water_efficiency"],
-      "Social": ["social_good", "social_harm", "executive_pay"],
-      "Gouvernance / Diversité": ["board_independence", "board_gender_diversity", "pct_female_board", "pct_female_executives", "gender_pay_gap"]
-    };
-    var esgSensibiliteLabels = {
-      "env_importance": "Importance environnement",
-      "env_ges_reduc": "Réduction GES",
-      "soc_droits_humains": "Droits humains",
-      "soc_parite": "Parité",
-      "gov_transparence": "Transparence",
-      "gov_controle_ethique": "Contrôle éthique"
-    };
