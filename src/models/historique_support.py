@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
 from src.database import Base
 
 class HistoriqueSupport(Base):
@@ -14,3 +14,4 @@ class HistoriqueSupport(Base):
     vl = Column(Float, nullable=True)
     prmp = Column(Float, nullable=True)
     valo = Column(Float, nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

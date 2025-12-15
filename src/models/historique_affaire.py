@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer
 from src.database import Base
 
 class HistoriqueAffaire(Base):
@@ -13,3 +13,4 @@ class HistoriqueAffaire(Base):
     perf_sicav_52 = Column(Float, nullable=True)
     volat = Column(Float, nullable=True)
     annee = Column("anne", Integer, nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

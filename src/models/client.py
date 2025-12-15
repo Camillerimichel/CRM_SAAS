@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, Text
 from src.database import Base
 
 class Client(Base):
@@ -13,3 +13,4 @@ class Client(Base):
     email = Column(String, nullable=True)
     # Nouveau champ: commercial_id (FK logique vers administration_RH.id)
     commercial_id = Column(Integer, nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

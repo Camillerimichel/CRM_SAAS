@@ -86,10 +86,8 @@
   #affSupportMovementsTable th, #affSupportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
   #affSupportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
   #affSupportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
-  /* ESG block full width enforcement */
-  #esgToggle, #esgSection, #esgSection > .card { width:100%; box-sizing:border-box; grid-column: 1 / -1; }
   /* Toggle chevron styles (reuse for inv+graphs) */
-  #invToggle, #esgToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
+  #invToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
     display:flex;
     align-items:center;
     justify-content:center;
@@ -103,18 +101,18 @@
     border: 1px solid transparent !important;
     box-shadow: none !important;
   }
-  #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
-  #invToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
-  #invToggle:not(.collapsed), #esgToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed), #riskToggle:not(.collapsed) {
+  #invToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
+  #invToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #invToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed), #riskToggle:not(.collapsed) {
     background: transparent !important;
     color: var(--primary-600);
     border-color: transparent !important;
     box-shadow:none !important;
   }
-  #invToggle:not(.collapsed) *, #esgToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) *, #riskToggle:not(.collapsed) * {
+  #invToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) *, #riskToggle:not(.collapsed) * {
     color: var(--primary-600) !important;
   }
-  #invToggle:not(.collapsed) .badge, #esgToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
+  #invToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
     background:transparent !important;
     border-color:transparent !important;
   }
@@ -346,12 +344,6 @@
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
         <span>Investissements</span>
-      </h3>
-    </div>
-    <div id="esgToggle" class="card accordion-toggle" title="ESG" aria-label="ESG">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
-        <span>ESG</span>
       </h3>
     </div>
     <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()">
@@ -651,7 +643,6 @@
       <tr>
         <th>ISIN</th><th>Nom</th><th>SRRI</th>
         <th>Nb UC</th><th>VL</th><th>PRMP</th><th>Valorisation</th>
-        <th>E</th><th>S</th><th>G</th>
       </tr>
     </thead>
     <tbody>
@@ -670,17 +661,13 @@
       <td class="right">{{ s.vl }}</td>
       <td class="right">{{ s.prmp }}</td>
       <td class="right">{{ s.valo }}</td>
-      <td>{{ s.noteE or '' }}</td>
-      <td>{{ s.noteS or '' }}</td>
-      <td>{{ s.noteG or '' }}</td>
     </tr>
     {% endfor %}
     {% if not supports %}
-    <tr><td colspan="10" class="muted">Aucun support trouvé pour ce contrat.</td></tr>
+    <tr><td colspan="7" class="muted">Aucun support trouvé pour ce contrat.</td></tr>
     {% endif %}
     </tbody>
   </table>
-  <small class="muted">Source: mariadb_historique_support_w + mariadb_support + donnees_esg_etendu</small>
   <div id="affSupportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeAffSupportMovementsModal()">
     <div class="modal-card" style="width:820px; max-width:97vw;">
       <div class="modal-header">
@@ -723,109 +710,6 @@
  </div>
 </div>
 <!-- Séparateur visuel -->
-<!-- Accordéon ESG -->
-<div id="esgSection" style="display:none;">
-  <div class="card" style="margin-top:8px; width:100%; box-sizing:border-box; grid-column: 1 / -1;">
-    <h3 class="chart-title">Comparaison ESG Affaire vs Indice</h3>
-    <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
-      <div style="display:flex; flex-direction:column; gap:4px;">
-        <label class="muted" style="font-size:0.85rem;">Allocation de référence</label>
-        <div style="display:flex; gap:6px; align-items:flex-end;">
-          <select id="esgAllocSelect" style="min-width:220px; max-width:280px; width:auto;">
-            <option value="">— choisir —</option>
-            {% for nm in alloc_names %}<option value="{{ nm }}">{{ nm }}</option>{% endfor %}
-          </select>
-          <button id="esgAllocResetBtn" class="rangeBtn" type="button" title="Réinitialiser l’allocation" style="background:#f3f4f6; color:#111;">Rafraîchir</button>
-        </div>
-      </div>
-      <div style="display:none;">
-        <label class="muted" style="font-size:0.85rem;">Date</label><br>
-        <select id="esgAllocDate" style="width: 14ch; min-width: 14ch;"></select>
-      </div>
-      <div style="flex:1 1 auto; min-width:260px;">
-        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
-        <div id="esgFields" style="display:flex; gap:6px; flex-wrap:wrap;">
-          {% for it in esg_fields %}
-            {% set col = it.col if it is mapping else it %}
-            {% set label = it.label if it is mapping else it %}
-            <button type="button" class="dim-btn esg-field" data-field="{{ col }}" title="{{ label }}">{{ label }}</button>
-          {% endfor %}
-        </div>
-      </div>
-      <div>
-        <button id="esgRefreshBtn" class="rangeBtn" type="button" title="Actualiser">Actualiser</button>
-      </div>
-    </div>
-    <div id="esgChart" style="height:320px; width:100%;"></div>
-    <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Affaire = valeur relative (Affaire / Indice × 100).</div>
-    <div class="muted" style="margin-top:8px; font-size:11px; background:var(--surface); padding:8px; border-radius:6px;">
-      <strong>Si le tableau reste vide</strong>, vérifie que les étapes suivantes retournent bien des lignes pour cette affaire :
-      <ul style="margin:4px 0 0 16px; padding:0; line-height:1.3;">
-        <li>Client : <code>SELECT s.code_isin, SUM(h.valo)</code> depuis <code>mariadb_historique_support_w</code> + <code>mariadb_support</code> pour <code>id_source = {{ affaire.id }} et date = MAX(date)</code>.</li>
-        <li>Indice : <code>SELECT ISIN, COALESCE(valo, sicav)</code> depuis <code>allocations</code> pour le <em>nom d’allocation</em> sélectionné (date la plus récente ou celle choisie).</li>
-        <li>ESG : <code>SELECT ISIN, `Board independence`, `GHG intensity-Value`, …</code> depuis <code>esg_fonds</code> pour tous les ISIN extraits.</li>
-      </ul>
-      Le résultat final (client / indice × 100) est calculé à partir de ces pondérations et champs résolus par <code>_compute_client_esg_comparison()</code>.
-    </div>
-    <div class="muted" style="margin-top:8px; font-size:11px; background:var(--surface); padding:8px; border-radius:6px;">
-      <strong>Commandes SQL prêtes à copier</strong> (remplace « Offre équilibrée » si nécessaire) :
-      <pre style="white-space:pre-wrap; margin:6px 0 0 0;">-- Client
-SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo
-FROM mariadb_historique_support_w h
-JOIN mariadb_support s ON s.id = h.id_support
-WHERE h.id_source = {{ affaire.id }}
-  AND DATE(h.date) = (
-    SELECT MAX(DATE(date))
-    FROM mariadb_historique_support_w
-    WHERE id_source = {{ affaire.id }}
-  )
-GROUP BY s.code_isin;
-
--- Indice (nom d’allocation)
-SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
-FROM allocations
-WHERE LOWER(TRIM(nom)) = LOWER(TRIM('Offre équilibrée'))
-  AND date = (
-    SELECT MAX(date)
-    FROM allocations
-    WHERE LOWER(TRIM(nom)) = LOWER(TRIM('Offre équilibrée'))
-  );
-
--- ESG
-SELECT ISIN, `Board independence`, `GHG intensity-Value`, `Avoiding water scarcity`, `Gender pay gap`
-FROM esg_fonds
-WHERE ISIN IN (...Liste des ISIN obtenus précédemment...);</pre>
-    </div>
-    <!--
-      Pour diagnostiquer le tableau ESG vide : assure-toi que _compute_client_esg_comparison()
-      retourne des résultats. Vérifie les pondérations par ISIN (mariadb_historique_support_w /
-      allocations) et que les colonnes ESG (Board independence, GHG intensity-Value, etc.)
-      existent dans esg_fonds ; le back-end repose sur ces colonnes pour construire les
-      séries visibles ci-dessus.
-    -->
-    <!--
-      Résumé (à vérifier pour l'affaire 940) :
-        - Pondérations client par ISIN => SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo
-          FROM mariadb_historique_support_w h
-          JOIN mariadb_support s ON s.id = h.id_support
-          WHERE h.id_source = 940 AND DATE(h.date) = (
-              SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = 940
-            )
-          GROUP BY s.code_isin;
-        - Pondérations allocation (exemple nom d'allocation cible) => SELECT ISIN, COALESCE(valo, sicav) AS v
-          FROM allocations WHERE lower(trim(nom)) = lower(trim(<nom_alloc>)) AND date = (
-              SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(<nom_alloc>))
-            );
-        - Requêtes ESG => SELECT ISIN, `Board independence`, `GHG intensity-Value`
-          FROM esg_fonds WHERE ISIN IN (...)
-        - Le tableau cherche alors :
-            client = moyenne pondérée des valeurs ESG / somme des poids client
-            index = moyenne pondérée de la portée allocation
-            value affichée = (client / index) * 100
-    -->
-  </div>
-</div>
-
 <!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
 <div id="avisSection" data-tb-marker="AF_13" style="display:none;">
   <div class="card" data-tb-marker="AF_14">
@@ -1276,7 +1160,6 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   (function(){
     var groups = [
       { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
-      { key:'esg', toggleId:'esgToggle', sectionId:'esgSection' },
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
     ];
@@ -1336,215 +1219,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const defaultAlloc = {{ default_alloc_name | tojson }};
   const affaireSicav = {{ affaire_sicav | tojson }};
   const supportsData = {{ supports | tojson }};
-  const esgFieldLabels = {{ esg_field_labels | tojson }};
-  // --- ESG (Plotly horizontal bar, indice=100 vs affaire) ---
-  (function(){
-    // Load Plotly
-    var plotlyLoaded = !!window.Plotly;
-    function ensurePlotly(cb){
-      if (plotlyLoaded) { cb(); return; }
-      var s = document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ plotlyLoaded=true; cb(); }; document.head.appendChild(s);
-    }
-    var allocSel = document.getElementById('esgAllocSelect');
-    var allocDateSel = document.getElementById('esgAllocDate');
-    var allocIsinInput = document.getElementById('esgAllocIsin');
-    var asOfInput = document.querySelector('input[name="as_of"]');
-    var fieldsWrap = document.getElementById('esgFields');
-    var refreshBtn = document.getElementById('esgRefreshBtn');
-    var resetAllocBtn = document.getElementById('esgAllocResetBtn');
-
-    // Persist preferences (allocation + champs ESG) par affaire
-    var keyAlloc = 'esg_alloc_{{ affaire.id }}';
-    var keyFields = 'esg_fields_{{ affaire.id }}';
-    var keyAllocDate = 'esg_alloc_date_{{ affaire.id }}';
-    if (!allocSel || !fieldsWrap) return;
-    function ensureAllocOption(val){
-      if (!val) return;
-      for (var i=0;i<allocSel.options.length;i++){
-        if (allocSel.options[i].value === val){
-          return;
-        }
-      }
-      var opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = val;
-      allocSel.appendChild(opt);
-    }
-    function applyAllocValue(val){
-      if (!allocSel) return;
-      ensureAllocOption(val);
-      for (var i=0;i<allocSel.options.length;i++){
-        if (allocSel.options[i].value === val){
-          allocSel.selectedIndex = i;
-          try{ localStorage.setItem(keyAlloc, val); }catch(_e){}
-          try{ localStorage.removeItem(keyAllocDate); }catch(_e){}
-          loadAllocDates();
-          return;
-        }
-      }
-    }
-    if (resetAllocBtn){
-      resetAllocBtn.addEventListener('click', function(){
-        if (defaultAlloc){
-          applyAllocValue(defaultAlloc);
-        }
-      });
-    }
-    function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field.active')).map(b=> b.getAttribute('data-field')); }
-    function updateSelection(btn){
-      var sel = selectedFields();
-      if (btn){
-        if (btn.classList.contains('active')){ btn.classList.remove('active'); }
-        else {
-          if (sel.length >= 4) return; // max 4
-          btn.classList.add('active');
-        }
-      }
-    }
-    fieldsWrap.addEventListener('click', function(e){
-      var b=e.target.closest('.esg-field'); if(!b) return;
-      updateSelection(b);
-      try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
-      drawESG();
-    });
-    function drawESG(){
-      var fields = selectedFields();
-      var alloc = allocSel.value || '';
-      var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
-      var allocIsin = (allocIsinInput && allocIsinInput.value) ? allocIsinInput.value.trim() : '';
-      var asOf = (asOfInput && asOfInput.value) ? asOfInput.value : '';
-      if (!fields.length || !alloc){ return; }
-      ensurePlotly(function(){
-        var url = `/dashboard/affaires/{{ affaire.id }}/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}` +
-                  (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'') + (asOf?`&as_of=${encodeURIComponent(asOf)}`:'') + (allocIsin?`&alloc_isin=${encodeURIComponent(allocIsin)}`:'');
-        url = appendMarkers(url);
-        fetch(url).then(function(r){
-          if (!r.ok){ throw new Error('HTTP ' + r.status + ' for ' + url); }
-          return r.json();
-        }).then(function(data){
-          var rows = (data && data.results) || [];
-          var cats = rows.map(r=> r.field);
-          var idx = rows.map(r=> (r.index==null? null : Number(r.index)));
-          var aff = rows.map(r=> (r.affaire==null? null : Number(r.affaire)));
-          try {
-            console.log('ESG affaire plot data', {
-              url: url,
-              alloc: alloc,
-              allocDate: allocDate,
-              allocIsin: allocIsin,
-              asOf: asOf,
-              fields: fields,
-              categories: cats,
-              indexValues: idx,
-              affaireValues: aff
-            });
-          } catch(_){}
-          var traces = [
-            { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
-            { x: aff, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
-          ];
-          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
-          var cfg = { displayModeBar: false, responsive: true };
-          Plotly.react('esgChart', traces, layout, cfg);
-        }).catch(function(err){ try { console.error('ESG fetch error', err); } catch(_) {} });
-      });
-    }
-    function loadAllocDates(preferred){
-      if (!allocSel || !allocSel.value) { if (allocDateSel) allocDateSel.innerHTML=''; return; }
-      fetch(`/dashboard/allocations/dates?name=${encodeURIComponent(allocSel.value)}`)
-        .then(r=>r.json()).then(function(data){
-          if (!allocDateSel) return;
-          allocDateSel.innerHTML = '';
-          var ds = (data && data.dates) || [];
-          ds.forEach(function(d,i){ var o=document.createElement('option'); o.value=d; o.textContent=d; allocDateSel.appendChild(o); });
-          // présélectionner la date mémorisée si disponible, sinon la plus récente
-          var selected = false;
-          if (preferred){
-            for (var i=0;i<allocDateSel.options.length;i++){
-              if (allocDateSel.options[i].value === preferred){ allocDateSel.selectedIndex = i; selected = true; break; }
-            }
-          }
-          if (!selected && allocDateSel.options.length>0) allocDateSel.selectedIndex = 0;
-          drawESG();
-        }).catch(function(e){ try{ console.error('alloc dates', e);}catch(_){} });
-    }
-    // Sauvegarde des préférences sur changements
-    allocSel.addEventListener('change', function(){
-      try{ localStorage.setItem(keyAlloc, allocSel.value||''); }catch(_e){}
-      // reset stored date when allocation changes
-      try{ localStorage.removeItem(keyAllocDate); }catch(_e){}
-      loadAllocDates();
-    });
-    if (allocDateSel) allocDateSel.addEventListener('change', function(){
-      try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}
-      drawESG();
-    });
-    if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
-
-    // Initialisation: restaurer préférences pour éviter une page vide
-    (function initESGDefaults(){
-      if (!allocSel || !fieldsWrap) return;
-      // Allocation: restaurer ou choisir la première valeur réelle
-      try{
-        var savedAlloc = localStorage.getItem(keyAlloc) || '';
-        var finalAlloc = '';
-        if (savedAlloc){
-          var found = false;
-          for (var i=0;i<allocSel.options.length;i++){
-            if (allocSel.options[i].value === savedAlloc){ allocSel.selectedIndex = i; found = true; break; }
-          }
-          if (found){ finalAlloc = savedAlloc; }
-        }
-        if (!finalAlloc && defaultAlloc){
-          ensureAllocOption(defaultAlloc);
-          for (var k=0;k<allocSel.options.length;k++){
-            if (allocSel.options[k].value === defaultAlloc){
-              allocSel.selectedIndex = k;
-              finalAlloc = defaultAlloc;
-              try{ localStorage.setItem(keyAlloc, finalAlloc); }catch(_e){}
-              break;
-            }
-          }
-        }
-        if (!finalAlloc){
-          for (var j=0;j<allocSel.options.length;j++){
-            if (allocSel.options[j].value){
-              allocSel.selectedIndex = j;
-              finalAlloc = allocSel.options[j].value;
-              break;
-            }
-          }
-          if (finalAlloc){ try{ localStorage.setItem(keyAlloc, finalAlloc); }catch(_e){} }
-        }
-      }catch(_e){}
-
-      // Champs ESG: restaurer ou activer des valeurs par défaut (jusqu'à 3)
-      try{
-        var raw = localStorage.getItem(keyFields);
-        var savedFields = [];
-        if (raw){ try{ savedFields = JSON.parse(raw) || []; }catch(_ee){ savedFields=[]; } }
-        var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field'));
-        // reset all
-        buttons.forEach(function(b){ b.classList.remove('active'); });
-        if (savedFields && savedFields.length){
-          buttons.forEach(function(b){ var v=b.getAttribute('data-field'); if (savedFields.indexOf(v)>=0) b.classList.add('active'); });
-        } else {
-          // activer les 3 premiers par défaut si existants
-          buttons.slice(0,3).forEach(function(b){ b.classList.add('active'); });
-          try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(function(b){return b.getAttribute('data-field');}))); }catch(_e){}
-        }
-      }catch(_e){}
-
-      // Charger dates pour l'allocation sélectionnée et restaurer la date si possible
-      var preferDate = '';
-      try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
-      if (allocSel && allocSel.value){ loadAllocDates(preferDate); }
-      else { drawESG(); }
-      if (resetAllocBtn && defaultAlloc){
-        resetAllocBtn.click();
-      }
-    })();
-  })();
+  
   const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#2456a6';
 
   // Chart 1: valo vs cumul mouvements (remplissage vert/rouge, axe X annuel)

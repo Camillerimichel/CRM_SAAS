@@ -136,7 +136,6 @@
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs">
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
-  <button class="dash-tab" data-key="esg" data-target="esgSection"><i class="fa-solid fa-leaf"></i> ESG</button>
   <button class="dash-tab client-hide backoffice-hide" data-key="groups" data-target="groupsSection"><i class="fa-solid fa-layer-group"></i> Groupes</button>
   <button class="dash-tab" data-key="commissions" data-target="remSection"><i class="fa-solid fa-coins"></i> Commissions</button>
 </div>
@@ -287,15 +286,6 @@
           <div class="compliance-progress" role="img" aria-label="Connaissance client">
             <div id="ccValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="ccObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
-          </div>
-        </div>
-        <div data-tb-marker="TB_29" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
-          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">ESG</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="esgTotal">—</span> / <span id="esgTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="esgObs">—</span> / <span id="esgObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="ESG">
-            <div id="esgValidBar" class="compliance-progress-valid" style="width:0%;"></div>
-            <div id="esgObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_30" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
@@ -996,29 +986,6 @@
 </div>
 
 
-<!-- Accordéon ESG (global) -->
-<div id="esgToggle" class="card collapsed accordion-toggle" data-tb-marker="TB_62" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
-  <h3 style="margin:0; font-size:1.05rem;">ESG</h3>
-  <span class="chevron">▾</span>
-</div>
-<div id="esgSection" data-tb-marker="TB_63" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
-  <div class="card" data-tb-marker="TB_64" style="text-align:left;">
-    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
-      <div>
-        <h3 style="margin-top:0;">ESG</h3>
-        <p class="muted" style="margin:4px 0 0 0;">Chargé à la demande pour ne pas ralentir le tableau de bord.</p>
-      </div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <button id="esgLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
-          <i class="fa-solid fa-leaf"></i> Charger l'ESG
-        </button>
-        <span id="esgStatus" class="muted" style="font-size:0.9rem;">(non chargé)</span>
-      </div>
-    </div>
-    <div id="esgContent" class="muted" style="margin-top:10px;">Clique sur "Charger l'ESG" pour afficher les indicateurs.</div>
-  </div>
-</div>
-
 <!-- Accordéon Groupes -->
 <div id="groupsToggle" class="card collapsed accordion-toggle" style="max-width:1100px; margin: 0 auto 1rem auto; display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; cursor:pointer;">
   <h3 style="margin:0; font-size:1.05rem;">Groupes</h3>
@@ -1451,11 +1418,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         setText('ccObsPct', (data.docs_cc_obsolete_pct||0).toFixed(1));
         setPctBars('ccValidBar', 'ccObsBar', data.docs_cc_obsolete_pct);
 
-        setText('esgTotal', data.docs_esg_total);
-        setText('esgTotalPct', (data.docs_esg_total_pct||0).toFixed(1));
-        setText('esgObs', data.docs_esg_obsolete);
-        setText('esgObsPct', (data.docs_esg_obsolete_pct||0).toFixed(1));
-        setPctBars('esgValidBar', 'esgObsBar', data.docs_esg_obsolete_pct);
 
         setText('lmTotal', data.docs_lm_total);
         setText('lmTotalPct', (data.docs_lm_total_pct||0).toFixed(1));
@@ -1480,201 +1442,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     }
     if (btn) btn.addEventListener('click', loadConformite);
     window.__loadConformiteSection = function(){ if (!confLoaded) loadConformite(); };
-  })();
-
-  // ------- ESG: lazy load -------
-  (function(){
-    let esgLoaded = false;
-    const btn = document.getElementById('esgLoadBtn');
-    const statusEl = document.getElementById('esgStatus');
-    const contentEl = document.getElementById('esgContent');
-    const setStatus = (txt)=> { if (statusEl) statusEl.textContent = txt; };
-
-    function renderESG(data){
-      if (!contentEl) return;
-      const allocs = data.alloc_names || [];
-      const fields = data.esg_fields || [];
-      const dates = data.dates || [];
-      const fieldsHtml = fields.map(it => {
-        const col = it.col || it;
-        const label = it.label || col;
-        return `<button type="button" class="btn btn-choice esg-field-global" data-field="${col}" title="${label}">${label}</button>`;
-      }).join('') || '<div class="muted">Aucun champ ESG détecté.</div>';
-      const allocOptions = ['<option value="">— choisir —</option>'].concat(allocs.map(nm => `<option value="${nm}">${nm}</option>`)).join('');
-      const dateOptions = dates.length ? dates.map(d => `<option value="${d}">${d}</option>`).join('') : '';
-      contentEl.innerHTML = `
-        <div data-tb-marker="TB_65" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:6px 0 8px 0;">
-          <div data-tb-marker="TB_66">
-            <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
-            <select id="esgAllocSelectGlobal" style="min-width:220px; max-width:280px; width:auto;">${allocOptions}</select>
-          </div>
-          ${dateOptions ? `
-          <div data-tb-marker="TB_67" >
-            <label class="muted" style="font-size:0.85rem;">Date</label><br>
-            <select id="esgAllocDateGlobal" style="width: 14ch; min-width: 14ch;">${dateOptions}</select>
-          </div>` : ''}
-          <div data-tb-marker="TB_68" style="flex:1 1 auto; min-width:260px;">
-            <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
-            <div id="esgFieldsGlobal" data-tb-marker="TB_69" style="display:flex; gap:6px; flex-wrap:wrap;">${fieldsHtml}</div>
-          </div>
-        </div>
-        <div id="esgChartGlobal" data-tb-marker="TB_70" style="height:320px; width:100%;"></div>
-        <div class="muted" style="margin-top:6px; font-size:12px;">Indice normalisé à 100. Portefeuille = valeur relative (Portefeuille / Indice × 100).</div>
-        <details id="esgSqlGlobalDetails" data-tb-marker="TB_71" style="margin-top:8px;">
-          <summary class="muted" style="cursor:pointer;">Voir les données brutes</summary>
-          <div id="esgDebugPanelGlobal" class="muted" style="font-size:12px; display:none;"></div>
-        </details>
-      `;
-      esgLoaded = true;
-      setStatus('Chargé');
-      // Initialiser les contrôles ESG (clics, fetch et tracé)
-      initEsgControls();
-    }
-
-    async function loadESG(){
-      if (esgLoaded) return;
-      setStatus('Chargement…');
-      if (contentEl) contentEl.textContent = 'Chargement ESG…';
-      try{
-        const res = await fetch('/dashboard/esg/fields', { credentials:'same-origin' });
-        if (!res.ok) throw new Error('HTTP '+res.status);
-        const data = await res.json();
-        renderESG(data);
-      } catch(err){
-        console.error('ESG load error', err);
-        setStatus('Erreur');
-        if (contentEl) contentEl.textContent = 'Impossible de charger les données ESG.';
-      }
-    }
-    if (btn) btn.addEventListener('click', loadESG);
-    window.__loadEsgSection = function(){ if (!esgLoaded) loadESG(); };
-
-    // Inspiré de l'ancien bloc ESG global, mais initialisé après rendu lazy
-    function initEsgControls(){
-      const allocSel = document.getElementById('esgAllocSelectGlobal');
-      const allocDateSel = document.getElementById('esgAllocDateGlobal');
-      const fieldsWrap = document.getElementById('esgFieldsGlobal');
-      if (!allocSel || !fieldsWrap) return;
-
-      const keyFields = 'global_esg_fields';
-      const keyAlloc = 'global_esg_alloc';
-      const keyAllocDate = 'global_esg_alloc_date';
-      function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field-global.btn-choice-active')).map(b=> b.getAttribute('data-field')); }
-      fieldsWrap.addEventListener('click', function(e){
-        const b=e.target.closest('.esg-field-global'); if(!b) return;
-        const sel = selectedFields();
-        if (b.classList.contains('btn-choice-active')){ b.classList.remove('btn-choice-active'); }
-        else { if (sel.length >= 4) return; b.classList.add('btn-choice-active'); }
-        try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
-        drawESG();
-      });
-
-      // Restaurer sélection champs si existante
-      try{
-        const stored = JSON.parse(localStorage.getItem(keyFields) || '[]');
-        if (stored && stored.length){
-          fieldsWrap.querySelectorAll('.esg-field-global').forEach(btn=>{
-            const f = btn.getAttribute('data-field');
-            if (stored.includes(f)) btn.classList.add('btn-choice-active');
-          });
-        } else {
-          const first = fieldsWrap.querySelector('.esg-field-global');
-          const second = fieldsWrap.querySelectorAll('.esg-field-global')[1];
-          if (first) first.classList.add('btn-choice-active');
-          if (second) second.classList.add('btn-choice-active');
-          try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_ee){}
-        }
-      }catch(_e){}
-
-      // Restaurer allocation/date
-      try{
-        const savedAlloc = localStorage.getItem(keyAlloc) || '';
-        if (savedAlloc && allocSel.querySelector(`option[value="${savedAlloc}"]`)) allocSel.value = savedAlloc;
-      }catch(_e){}
-      if (allocDateSel){
-        try{
-          const savedDate = localStorage.getItem(keyAllocDate) || '';
-          if (savedDate && allocDateSel.querySelector(`option[value="${savedDate}"]`)) allocDateSel.value = savedDate;
-        }catch(_e){}
-      }
-      if (!allocSel.value && allocSel.options.length > 1){
-        allocSel.selectedIndex = 1;
-      }
-
-      function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
-      function drawESG(){
-        const fields = selectedFields();
-        const alloc = allocSel.value || '';
-        const allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
-        if (!fields.length || !alloc) return;
-        ensurePlotly(function(){
-          const url = `/dashboard/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}&debug=1` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'');
-          fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
-            let rows = (data && data.results) || [];
-            rows = rows.filter(r => r && (r.affaire != null || r.index != null || r.global != null || r.index_raw != null));
-            const cats = rows.map(r=> r.field);
-            const idx = rows.map(function(r){
-              if (r.index != null) return Number(r.index);
-              if (r.index_raw != null) return 100;
-              return null;
-            });
-            const g = rows.map(function(r){
-              if (r.affaire != null) return Number(r.affaire);
-              if (r.global != null) return Number(r.global);
-              const pr = (r.global_raw==null? null : Number(r.global_raw));
-              const ir = (r.index_raw==null? null : Number(r.index_raw));
-              if (pr==null || ir==null || ir===0) return null;
-              return (pr/ir)*100.0;
-            });
-            const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6';
-            const traces = [
-              { x: idx, y: cats, type:'bar', orientation:'h', name:(alloc||'Indice'), marker:{ color:'#9ca3af' } },
-              { x: g, y: cats, type:'bar', orientation:'h', name:'Portefeuille', marker:{ color: primary } }
-            ];
-            const layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
-            const cfg = { displayModeBar: false, responsive: true };
-            Plotly.react('esgChartGlobal', traces, layout, cfg);
-            const dbgWrap = document.getElementById('esgDebugPanelGlobal');
-            if (dbgWrap){
-              const d = data && data.debug ? data.debug : null;
-              if (d){
-                const fieldsList = fields;
-                const prow = d.portfolio_raw || {};
-                const irow = d.index_raw || {};
-                let html = '<div style=\"margin-top:6px;\"><strong>Valeurs brutes (par champ)</strong>';
-                html += '<table style=\"border-collapse:collapse; margin-top:4px; font-family:monospace; font-size:12px;\">';
-                html += '<tr><th style=\"text-align:left; padding-right:12px;\">Champ</th><th style=\"text-align:right; padding-right:12px;\">' + (alloc||'Indice') + '</th><th style=\"text-align:right;\">Portefeuille</th></tr>';
-                fieldsList.forEach(function(f){
-                  const iv = Object.prototype.hasOwnProperty.call(irow, f) ? irow[f] : null;
-                  const pv = Object.prototype.hasOwnProperty.call(prow, f) ? prow[f] : null;
-                  html += `<tr><td style=\"padding-right:12px;\">${f}</td><td style=\"text-align:right; padding-right:12px;\">${iv==null?'':iv}</td><td style=\"text-align:right;\">${pv==null?'':pv}</td></tr>`;
-                });
-                html += '</table></div>';
-                dbgWrap.innerHTML = html;
-                dbgWrap.style.display = 'block';
-              } else {
-                dbgWrap.innerHTML = '';
-                dbgWrap.style.display = 'none';
-              }
-            }
-          }).catch(function(err){ console.error('ESG fetch error', err); });
-        });
-      }
-      if (allocSel){
-        allocSel.addEventListener('change', function(){
-          try{ localStorage.setItem(keyAlloc, allocSel.value || ''); }catch(_e){}
-          drawESG();
-        });
-      }
-      if (allocDateSel){
-        allocDateSel.addEventListener('change', function(){
-          try{ localStorage.setItem(keyAllocDate, allocDateSel.value || ''); }catch(_e){}
-          drawESG();
-        });
-      }
-      // Lancer un premier dessin si des champs sont pré-sélectionnés
-      drawESG();
-    }
   })();
 
   (function syncRemRetroForms(){
@@ -1736,7 +1503,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     const groups = [
       { key:'veille', toggle:null, section:'' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
-      { key:'esg', toggle:'esgToggle', section:'esgSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
       { key:'commissions', toggle:'remToggle', section:'remSection' },
     ];
@@ -1789,7 +1555,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
       });
       if (key === 'risks' && window.__loadConformiteSection) { window.__loadConformiteSection(); }
-      if (key === 'esg' && window.__loadEsgSection) { window.__loadEsgSection(); }
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
       // Colorer les boutons de groupes lorsque l'onglet Groupes est actif
       const groupButtons = document.querySelectorAll('#groupsSection .group-card .btn');
@@ -1825,7 +1590,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       if (remParamKeys.some(key => params.has(key))){
         return 'commissions';
       }
-      return 'veille';
+      return 'risks';
     }
 
     tabs.forEach(tab => {
@@ -1972,137 +1737,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
   
 
-  // ESG Global logic (similar to Affaire/Client)
-  (function(){
-    var allocSel = document.getElementById('esgAllocSelectGlobal');
-    var allocDateSel = document.getElementById('esgAllocDateGlobal');
-    var fieldsWrap = document.getElementById('esgFieldsGlobal');
-    var refreshBtn = document.getElementById('esgRefreshBtnGlobal');
-    if (!allocSel || !fieldsWrap) return;
-
-    var keyAlloc = 'global_esg_alloc';
-    var keyFields = 'global_esg_fields';
-    var keyAllocDate = 'global_esg_alloc_date';
-
-    function selectedFields(){ return Array.from(fieldsWrap.querySelectorAll('.esg-field-global.btn-choice-active')).map(b=> b.getAttribute('data-field')); }
-    fieldsWrap.addEventListener('click', function(e){
-      var b=e.target.closest('.esg-field-global'); if(!b) return;
-      var sel = selectedFields();
-      if (b.classList.contains('btn-choice-active')){ b.classList.remove('btn-choice-active'); }
-      else { if (sel.length >= 4) return; b.classList.add('btn-choice-active'); }
-      try{ localStorage.setItem(keyFields, JSON.stringify(selectedFields())); }catch(_e){}
-      drawESG();
-    });
-
-    function ensurePlotly(cb){ if (window.Plotly) { cb(); return; } var s=document.createElement('script'); s.src='https://cdn.plot.ly/plotly-2.32.0.min.js'; s.onload=function(){ cb(); }; document.head.appendChild(s); }
-    function drawESG(){
-      var fields = selectedFields();
-      var alloc = allocSel.value || '';
-      var allocDate = allocDateSel && allocDateSel.value ? allocDateSel.value : '';
-      if (!fields.length || !alloc) return;
-      ensurePlotly(function(){
-        var url = `/dashboard/esg?alloc=${encodeURIComponent(alloc)}&fields=${encodeURIComponent(fields.join(','))}&debug=1` + (allocDate?`&alloc_date=${encodeURIComponent(allocDate)}`:'');
-        fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(data){
-          var rows = (data && data.results) || [];
-          // Keep only rows with at least one value
-          rows = rows.filter(r => r && (r.global != null || r.index != null));
-          var cats = rows.map(r=> r.field);
-          // Normalize: index baseline 100; portfolio = (global_raw / index_raw) * 100
-          var idx = rows.map(function(r){
-            if (r.index != null) return Number(r.index);
-            if (r.index_raw != null) return 100;
-            return null;
-          });
-          var g = rows.map(function(r){
-            if (r.global != null) return Number(r.global);
-            var pr = (r.global_raw==null? null : Number(r.global_raw));
-            var ir = (r.index_raw==null? null : Number(r.index_raw));
-            if (pr==null || ir==null || ir===0) return null;
-            return (pr/ir)*100.0;
-          });
-          // If portfolio values are all null, nothing to plot
-          if (!g.length || g.every(v => v == null)) { g = cats.map(() => null); }
-          var traces = [
-            { x: idx, y: cats, type:'bar', orientation:'h', name:(alloc||'Indice'), marker:{ color:'#9ca3af' } },
-            { x: g, y: cats, type:'bar', orientation:'h', name:'Portefeuille', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
-          ];
-          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
-          var cfg = { displayModeBar: false, responsive: true };
-          Plotly.react('esgChartGlobal', traces, layout, cfg);
-          // Debug panel (only raw values table)
-          try {
-            var dbgWrap = document.getElementById('esgDebugPanelGlobal');
-            if (dbgWrap){
-              var d = data && data.debug ? data.debug : null;
-              if (d){
-                function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-                var html = '';
-                try {
-                  var prow = d.portfolio_raw || {};
-                  var irow = d.index_raw || {};
-                  if (fields && fields.length){
-                    html += '<div style="margin-top:6px;"><strong>Valeurs brutes (par champ)</strong>';
-                    html += '<table style="border-collapse:collapse; margin-top:4px; font-family:monospace; font-size:12px;">';
-                    html += '<tr><th style="text-align:left; padding-right:12px;">Champ</th><th style="text-align:right; padding-right:12px;">' + esc(alloc||'Indice') + '</th><th style="text-align:right;">Portefeuille</th></tr>';
-                    fields.forEach(function(f){
-                      var iv = irow && Object.prototype.hasOwnProperty.call(irow, f) ? irow[f] : null;
-                      var pv = prow && Object.prototype.hasOwnProperty.call(prow, f) ? prow[f] : null;
-                      function fmt(v){ if(v==null||v===undefined||Number.isNaN(Number(v))) return '-'; try{ var n=Number(v); return (Math.abs(n)>=1000? n.toFixed(2): n.toFixed(4)); }catch(_e){ return esc(String(v)); } }
-                      html += '<tr><td style="padding-right:12px;">' + esc(f) + '</td>'+
-                              '<td style="text-align:right; padding-right:12px;">' + fmt(iv) + '</td>'+
-                              '<td style="text-align:right;">' + fmt(pv) + '</td></tr>';
-                    });
-                    html += '</table></div>';
-                  }
-                } catch(_er) {}
-                dbgWrap.innerHTML = html;
-                dbgWrap.style.display='';
-                try { document.getElementById('esgSqlGlobalDetails').open = true; } catch(_e) {}
-              }
-            }
-          } catch(_e) {}
-        }).catch(function(err){ try{ console.error('Global ESG fetch error', err); }catch(_){} });
-      });
-    }
-
-    function loadAllocDates(preferred){
-      if (!allocSel || !allocSel.value) { if (allocDateSel) allocDateSel.innerHTML=''; return; }
-      fetch(`/dashboard/allocations/dates?name=${encodeURIComponent(allocSel.value)}`)
-        .then(r=>r.json()).then(function(data){
-          if (!allocDateSel) return;
-          allocDateSel.innerHTML = '';
-          var ds = (data && data.dates) || [];
-          ds.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; allocDateSel.appendChild(o); });
-          var selected = false;
-          if (preferred){ for (var i=0;i<allocDateSel.options.length;i++){ if (allocDateSel.options[i].value===preferred){ allocDateSel.selectedIndex=i; selected=true; break; } } }
-          if (!selected && allocDateSel.options.length>0) allocDateSel.selectedIndex = 0;
-          drawESG();
-        }).catch(function(e){ try{ console.warn('alloc dates (global)', e);}catch(_){} });
-    }
-
-    allocSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAlloc, allocSel.value||''); }catch(_e){}; try{ localStorage.removeItem(keyAllocDate); }catch(_e){}; loadAllocDates(); });
-    if (allocDateSel) allocDateSel.addEventListener('change', function(){ try{ localStorage.setItem(keyAllocDate, allocDateSel.value||''); }catch(_e){}; drawESG(); });
-    if (refreshBtn) refreshBtn.addEventListener('click', drawESG);
-
-    // Init
-    (function init(){
-      try{
-        var savedAlloc = localStorage.getItem(keyAlloc) || '';
-        if (savedAlloc){ var found=false; for (var i=0;i<allocSel.options.length;i++){ if (allocSel.options[i].value===savedAlloc){ allocSel.selectedIndex=i; found=true; break; } } if(!found) savedAlloc=''; }
-        if (!savedAlloc){ for (var j=0;j<allocSel.options.length;j++){ if (allocSel.options[j].value){ allocSel.selectedIndex=j; savedAlloc=allocSel.options[j].value; break; } } if (savedAlloc){ try{ localStorage.setItem(keyAlloc, savedAlloc);}catch(_e){} } }
-      }catch(_e){}
-      try{
-        var raw = localStorage.getItem(keyFields); var saved=[]; if (raw){ try{ saved=JSON.parse(raw)||[]; }catch(_ee){ saved=[]; } }
-        var buttons = Array.from(fieldsWrap.querySelectorAll('.esg-field-global'));
-        buttons.forEach(b=> b.classList.remove('btn-choice-active'));
-        if (saved.length){ buttons.forEach(b=> { var v=b.getAttribute('data-field'); if (saved.indexOf(v)>=0) b.classList.add('btn-choice-active'); }); }
-        else { buttons.slice(0,3).forEach(b=> b.classList.add('btn-choice-active')); try{ localStorage.setItem(keyFields, JSON.stringify(buttons.slice(0,3).map(b=> b.getAttribute('data-field')))); }catch(_e){} }
-      }catch(_e){}
-      var preferDate = ''; try{ preferDate = localStorage.getItem(keyAllocDate) || ''; }catch(_e){}
-      if (allocSel && allocSel.value){ loadAllocDates(preferDate); } else { drawESG(); }
-    })();
-  })();
-</script>
+  </script>
 
 <script>
   // Toggles horizontaux Risques

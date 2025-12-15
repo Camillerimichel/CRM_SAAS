@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 from src.database import Base
 
 class Document(Base):
@@ -9,3 +9,4 @@ class Document(Base):
     niveau = Column("niveau", String, nullable=True)
     obsolescence_annees = Column("obsolescence__annes", Integer, nullable=True)
     risque = Column("risque", String, nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

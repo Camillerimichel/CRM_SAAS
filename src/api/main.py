@@ -9,7 +9,7 @@ import threading
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
-from src.database import get_db
+from src.database import get_db, SessionLocal
 from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope
 from fastapi import Query
 from datetime import date, datetime
@@ -26,11 +26,14 @@ from src.security.auth import (
     decode_reset_token,
 )
 from src.services.mailer import send_email
+from src.api.utils.societe_context import set_current_societe, reset_current_societe
 
 
 # ---------------- Définition app FastAPI ----------------
 app = FastAPI()
-templates = Jinja2Templates(directory="src/api/templates")
+_THIS_FILE = Path(__file__).resolve()
+TEMPLATES_DIR = _THIS_FILE.parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 from src.api import dashboard
 from src.api import events
 from src.api import groupes
@@ -63,7 +66,6 @@ def read_root(request: Request):
     """Redirection par défaut vers la page de connexion."""
     return RedirectResponse(url="/login", status_code=303)
 
-_THIS_FILE = Path(__file__).resolve()
 BASE_DIR = _THIS_FILE.parents[2]
 # Lorsque le code est exécuté depuis /var/www/CRM_SAAS/src/api/main.py,
 # BASE_DIR pointe sur /var/www/CRM_SAAS/src. On corrige pour remonter
@@ -368,12 +370,20 @@ def login(
                 role_codes = [str(r.code if hasattr(r, "_mapping") else r[0]) for r in rows_roles or []]
                 # Priorité au scope explicite, sinon courtier
                 try:
-                    row_scope = next((r for r in rows_roles if (hasattr(r, "_mapping") and r._mapping.get("societe_id") is not None) or (not hasattr(r, "_mapping") and r[1] is not None)), None)
-                    if row_scope:
-                        societe_id = row_scope._mapping.get("societe_id") if hasattr(row_scope, "_mapping") else row_scope[1]
-                    elif broker_cookie is not None:
-                        societe_id = broker_cookie
+                    row_scope = next(
+                        (
+                            r
+                            for r in rows_roles
+                            if (hasattr(r, "_mapping") and r._mapping.get("societe_id") is not None)
+                            or (not hasattr(r, "_mapping") and r[1] is not None)
+                        ),
+                        None,
+                    )
                 except Exception:
+                    row_scope = None
+                if row_scope:
+                    societe_id = row_scope._mapping.get("societe_id") if hasattr(row_scope, "_mapping") else row_scope[1]
+                elif broker_cookie is not None:
                     societe_id = broker_cookie
             # Nom/prénom pour clients
             try:
@@ -399,6 +409,8 @@ def login(
         raise
 
     # Générer token et cookies
+    if "superadmin" in role_codes:
+        societe_id = None
     token = encode_token(user_id=uid, user_type=utype, societe_id=societe_id, client_id=client_id, broker_id=broker_cookie)
     max_age = 60 * 60 * 8
 
@@ -675,7 +687,34 @@ async def auth_cookie_middleware(request: Request, call_next):
                 "client_id": client_int,
                 "broker_id": broker_int,
             }
+    societe_token = None
+    request.state.societe_gestion_nom = None
+    societe_ctx = getattr(request.state, "user_ctx", None)
+    if societe_ctx:
+        societe_id = societe_ctx.get("societe_id")
+        if societe_id is not None:
+            societe_token = set_current_societe(societe_id)
+            request.state.societe_token = societe_token
+            societe_nom = None
+            db_tmp = None
+            try:
+                db_tmp = SessionLocal()
+                row = db_tmp.execute(text("SELECT nom FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"), {"sid": societe_id}).fetchone()
+                if row:
+                    if hasattr(row, "_mapping"):
+                        societe_nom = row._mapping.get("nom")
+                    else:
+                        societe_nom = row[0]
+            except Exception:
+                societe_nom = None
+            finally:
+                if db_tmp:
+                    db_tmp.close()
+            request.state.societe_gestion_nom = societe_nom
     response = await call_next(request)
+    token_ctx = getattr(request.state, "societe_token", None)
+    if token_ctx:
+        reset_current_societe(token_ctx)
     return response
 
 # ---------------- Middleware CORS ----------------
