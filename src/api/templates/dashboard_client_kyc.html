@@ -792,6 +792,7 @@
             <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
               <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                 <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
+                <span style="margin-left:10px;">Offre financière retenue : <strong>{{ risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else '—' }}</strong></span>
               </div>
               <div class="muted-small">
                 Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
@@ -1083,98 +1084,10 @@
                   <div class="muted-small" style="margin-top:6px;">Calculs Cornish-Fisher tension/défavorable/intermédiaire/favorable sur horizons 1 an, demi-vie et vie.</div>
                 </div>
               {% else %}
-                <div class="muted" style="margin-top:6px;">Aucune donnée SRI disponible.</div>
+                <div class="muted" style="margin-top:6px;">Aucune donnée SRI disponible pour cette offre.</div>
               {% endif %}
             </div>
           {% endif %}
-          
-          {% if client_sri_metrics %}
-            <div class="card" style="margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">
-              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:space-between;">
-                <div>
-                  <div class="muted" style="font-size:0.9rem;">Date de calcul</div>
-                  <div style="font-weight:700;">{{ client_sri_metrics.as_of_date or '—' }}</div>
-                  <div class="muted" style="font-size:0.85rem;">Heure serveur : {{ client_sri_metrics.calc_at or '—' }}</div>
-                </div>
-                <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; text-align:center;">
-                  <div class="muted" style="font-size:0.9rem;">SRI</div>
-                  <div style="font-size:1.6rem; font-weight:700; color:#1f2937;">{{ client_sri_metrics.sri if client_sri_metrics.sri is not none else '—' }}</div>
-                </div>
-              </div>
-              <div style="margin-top:12px;">
-                <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (RHP) sur une base de 10 000 euros</div>
-                {% set sc = client_sri_scenarios %}
-                {% if sc and sc.rows %}
-                  <table class="table" style="width:100%; font-size:0.95rem; margin-top:6px;">
-                    <thead>
-                      <tr>
-                        <th style="text-align:left;">Horizon</th>
-                        <th style="text-align:right;">Tension</th>
-                        <th style="text-align:right;">Défavorable</th>
-                        <th style="text-align:right;">Intermédiaire</th>
-                        <th style="text-align:right;">Favorable</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for r in sc.rows %}
-                        <tr>
-                          <td style="text-align:left;">{{ r.horizon }}</td>
-                          <td style="text-align:right;">
-                            {% if r.tension is not none %}
-                              {{ ('{:,.0f}'.format(r.tension * 10000)).replace(',', ' ') }}<br>
-                              <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.tension * 10000) - 10000) / 10000 * 100) }}%</em>
-                            {% else %}—{% endif %}
-                          </td>
-                          <td style="text-align:right;">
-                            {% if r.defavorable is not none %}
-                              {{ ('{:,.0f}'.format(r.defavorable * 10000)).replace(',', ' ') }}<br>
-                              <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.defavorable * 10000) - 10000) / 10000 * 100) }}%</em>
-                            {% else %}—{% endif %}
-                          </td>
-                          <td style="text-align:right;">
-                            {% if r.intermediaire is not none %}
-                              {{ ('{:,.0f}'.format(r.intermediaire * 10000)).replace(',', ' ') }}<br>
-                              <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.intermediaire * 10000) - 10000) / 10000 * 100) }}%</em>
-                            {% else %}—{% endif %}
-                          </td>
-                          <td style="text-align:right;">
-                            {% if r.favorable is not none %}
-                              {{ ('{:,.0f}'.format(r.favorable * 10000)).replace(',', ' ') }}<br>
-                              <em style="font-size:0.85em; color:#4b5563;">{{ '%.2f'|format(((r.favorable * 10000) - 10000) / 10000 * 100) }}%</em>
-                            {% else %}—{% endif %}
-                          </td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                  <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
-                {% else %}
-                  <div class="muted" style="font-size:0.9rem;">
-                    Aucun scénario calculable (métriques SRI manquantes).
-                    {% if client_sri_debug %}
-                      <div style="font-size:0.8rem; margin-top:4px;">
-                        {% for line in client_sri_debug %}
-                          <div>• {{ line }}</div>
-                        {% endfor %}
-                      </div>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              </div>
-            </div>
-          {% else %}
-            <div class="muted" style="font-size:0.9rem; margin-top:12px;">
-              Aucune métrique SRI disponible pour ce client.
-              {% if client_sri_debug %}
-                <div style="font-size:0.8rem; margin-top:4px;">
-                  {% for line in client_sri_debug %}
-                    <div>• {{ line }}</div>
-                  {% endfor %}
-                </div>
-              {% endif %}
-            </div>
-          {% endif %}
-          
         </div>
         <script>
           (function(){

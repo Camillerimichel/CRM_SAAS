@@ -111,8 +111,20 @@
           {% for r in lm_remunerations %}
             <tr>
               <td>{{ r.mode or r.type or '—' }}</td>
-              <td>{{ r.montant if r.montant is not none else '—' }}</td>
-              <td>{{ r.pourcentage if r.pourcentage is not none else '—' }}</td>
+              <td style="text-align:center;">
+                {% if r.montant is not none %}
+                  {{ '{:,.0f}'.format((r.montant)|float).replace(',', ' ') }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td style="text-align:center;">
+                {% if r.pourcentage is not none %}
+                  {{ '%.2f' % ((r.pourcentage)|float) }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
             </tr>
           {% endfor %}
         </tbody>
@@ -127,17 +139,29 @@
       <table>
         <thead>
           <tr>
-            <th>Type de garantie</th>
-            <th>IAS</th>
-            <th>IOBSP</th>
+            <th style="text-align:center;">Type de garantie</th>
+            <th style="text-align:center;">IAS</th>
+            <th style="text-align:center;">IOBSP</th>
           </tr>
         </thead>
         <tbody>
           {% for g in DER_courtier_garanties_normes %}
             <tr>
-              <td>{{ g.type_garantie or '—' }}</td>
-              <td>{{ g.IAS if g.IAS is not none else '—' }}</td>
-              <td>{{ g.IOBSP if g.IOBSP is not none else '—' }}</td>
+              <td style="text-align:center;">{{ g.type_garantie or '—' }}</td>
+              <td style="text-align:center;">
+                {% if g.IAS is not none %}
+                  {{ '{:,.0f}'.format((g.IAS)|float).replace(',', ' ') }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td style="text-align:center;">
+                {% if g.IOBSP is not none %}
+                  {{ '{:,.0f}'.format((g.IOBSP)|float).replace(',', ' ') }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
             </tr>
           {% endfor %}
         </tbody>

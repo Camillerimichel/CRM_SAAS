@@ -409,6 +409,9 @@
           <div style="text-align:right; line-height:1.2;">
             <div style="font-weight:700;">{{ request.cookies.get('user_name') or request.cookies.get('user_login') or 'Utilisateur' }}</div>
             <div class="muted" style="font-size:0.9rem;">Rôle : {{ _role_hint }}</div>
+            {% if request.state.societe_gestion_nom %}
+              <div class="muted" style="font-size:0.9rem;">Société = {{ request.state.societe_gestion_nom }}</div>
+            {% endif %}
           </div>
           <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
           <form method="post" action="/logout" style="display:inline;">

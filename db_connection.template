@@ -1,0 +1,15 @@
+<!--
+  Template de configuration pour fournir les informations de connexion
+  à la base de données. Duplique ce fichier en `.env` ou une autre
+  configuration prise en charge par ton projet, puis remplis les valeurs.
+  Ne commit pas les secrets finaux dans le dépôt.
+-->
+
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=crm_saas
+DB_USER=crm_user
+DB_PASSWORD=Veduta1789@@
+DB_DRIVER=postgresql
+
+ALCHEMY_DATABASE_URL=${DB_DRIVER}://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}

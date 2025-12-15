@@ -1,0 +1,2 @@
+Note: la creation des garanties par courtier est geree par l endpoint create_courtier_garanties dans dashboard.py.
+

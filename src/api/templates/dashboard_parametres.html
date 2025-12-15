@@ -810,15 +810,15 @@
             <thead>
               <tr>
                 <th style="min-width:280px;">Activité</th>
-                <th style="min-width:100px; width:120px;">Statut</th>
-                <th class="center" style="width:84px;"></th>
+                <th style="min-width:120px; width:140px;">Statut</th>
+                <th class="center" style="width:84px;">Actions</th>
               </tr>
             </thead>
             <tbody>
               {% for it in activite_items %}
               <tr>
                 <td>
-                  <select form="act-{{ it.id }}" name="ref_id" required>
+                  <select form="act-{{ it.activite_id }}" name="ref_id" required>
                     <option value="">Choisir…</option>
                     {% for ref in activite_refs %}
                       <option value="{{ ref.id }}" {% if (it.ref_id|int) == (ref.id|int) %}selected{% endif %}>{{ ref.libelle }}</option>
@@ -826,22 +826,22 @@
                   </select>
                 </td>
                 <td>
-                  <select form="act-{{ it.id }}" name="statut" required>
-                    {% set s = (it.statut or 'exercee') %}
+                  {% set s = (it.statut or 'exercee') %}
+                  <select form="act-{{ it.activite_id }}" name="statut" required>
                     <option value="exercee" {% if s == 'exercee' %}selected{% endif %}>Exercée</option>
                     <option value="non_exercee" {% if s == 'non_exercee' %}selected{% endif %}>Non exercée</option>
                   </select>
                 </td>
                 <td class="center">
-                  <form id="act-{{ it.id }}" method="post" action="/dashboard/parametres/courtier/activite/{{ it.id }}?open=courtierDetails" style="display:inline;"></form>
-                  <button class="btn btn-list btn-list-primary" type="submit" form="act-{{ it.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
-                  <form method="post" action="/dashboard/parametres/courtier/activite/{{ it.id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer cette activité ?');">
+                  <form id="act-{{ it.activite_id }}" method="post" action="/dashboard/parametres/courtier/activite/{{ it.activite_id }}?open=courtierDetails" style="display:inline;"></form>
+                  <button class="btn btn-list btn-list-primary" type="submit" form="act-{{ it.activite_id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/courtier/activite/{{ it.activite_id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer cette activité ?');">
                     <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
                   </form>
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="2" class="muted center">Aucune activité renseignée.</td></tr>
+              <tr><td colspan="3" class="muted center">Aucune activité renseignée.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -1063,6 +1063,9 @@
                 <td class="center actions-cell">
                   <form id="gar-{{ g.id }}" method="post" action="/dashboard/parametres/courtier/garanties/{{ g.id }}?open=courtierDetails" style="display:inline;"></form>
                   <button class="btn btn-list btn-list-primary" type="submit" form="gar-{{ g.id }}" title="Enregistrer"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <form method="post" action="/dashboard/parametres/courtier/garanties/{{ g.id }}/delete?open=courtierDetails" style="display:inline;" onsubmit="return confirm('Supprimer cette norme ?');">
+                    <button class="btn btn-list btn-list-danger" type="submit" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                  </form>
                 </td>
               </tr>
               {% else %}
@@ -1070,6 +1073,36 @@
               {% endfor %}
             </tbody>
           </table>
+          <div class="create-block">
+            <div class="create-header">
+              <button type="button" class="btn btn-add" data-toggle-form="courtierGarantiesCreate"><i class="fa-solid fa-plus"></i><span>Ajouter</span></button>
+            </div>
+            <div id="courtierGarantiesCreate" class="create-body">
+              <form method="post" action="/dashboard/parametres/courtier/garanties?open=courtierDetails" class="card" style="margin:0;">
+                <div class="form-row">
+                  <div class="field" style="min-width:200px;">
+                    <label>Type</label>
+                    <input type="text" name="type_garantie" style="width:200px;" required />
+                  </div>
+                  <div class="field" style="min-width:140px;">
+                    <label>IAS</label>
+                    <input class="money-space-int" type="text" name="IAS" style="width:120px; text-align:right;" inputmode="numeric" />
+                  </div>
+                  <div class="field" style="min-width:140px;">
+                    <label>IOBSP</label>
+                    <input class="money-space-int" type="text" name="IOBSP" style="width:120px; text-align:right;" inputmode="numeric" />
+                  </div>
+                  <div class="field" style="min-width:140px;">
+                    <label>IMMO</label>
+                    <input class="money-space-int" type="text" name="IMMO" style="width:120px; text-align:right;" inputmode="numeric" />
+                  </div>
+                </div>
+                <div class="create-btn-container">
+                  <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus" style="color:#fff;"></i>&nbsp;Ajouter</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
         </div>
       </div>

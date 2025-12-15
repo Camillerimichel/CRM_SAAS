@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Numeric
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime, Numeric
 from src.database import Base  # Base est bien dans src/database.py
 
 class Affaire(Base):
@@ -12,3 +12,4 @@ class Affaire(Base):
     SRRI = Column("srri", Integer, nullable=True)
     frais_negocies = Column("frais_negocies", Numeric(15, 2), nullable=True)
     id_affaire_generique = Column(Integer, ForeignKey("mariadb_affaires_generique.id"), nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

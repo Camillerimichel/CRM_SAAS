@@ -142,9 +142,9 @@
   #supportContractsTable th, #supportContractsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
   #supportContractsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
   #supportContractsTable tr:nth-child(even) td { background:#f8fafc; }
-  #supportMovementsTable th, #supportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
-  #supportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
-  #supportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
+  #supportChronologyTable th, #supportChronologyTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+  #supportChronologyTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
+  #supportChronologyTable tr:nth-child(even) td { background:#f8fafc; }
   /* Charts block (embedded inside a card → keep it light) */
   .pie-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; align-items: stretch; }
   .pie-card { background: transparent; border-radius: 0; padding: 0; box-shadow: none; display:flex; flex-direction:column; }
@@ -261,7 +261,10 @@
     color:inherit !important;
   }
   .badge-closed { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; color:#b00020; background:#ffd6d6; border:1px solid #ffb3b3; vertical-align:middle; white-space:nowrap; }
-  .highlight-cle { background: #ffe5e5 !important; }
+  #contractsTable tbody tr.highlight-cle {
+    background: linear-gradient(90deg, rgba(254, 226, 226, 0.8), rgba(254, 226, 226, 0.3));
+    color: #7f1d1d;
+  }
   /* Boutons pilule type KYC */
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
   .kyc-main-btn i { font-size:1rem; color:#fff; }
@@ -448,6 +451,17 @@
         <div class="kpi-mini kpi-line"><span>Solde net</span><span class="kv">{{ solde_str }}</span></div>
         <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
         <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
+        {% set offre_nom = allocation_reference_name or allocation_risque_name_raw or (risque_latest.allocation_nom if risque_latest else (risque_snapshot.allocation_nom if risque_snapshot else None)) %}
+        <div class="kpi-mini kpi-line">
+          <span>Offre financière retenue</span>
+          <span class="kv">
+            {% if offre_nom %}
+              <a href="/dashboard/allocations?nom={{ offre_nom | urlencode }}" class="link" title="Voir l'offre dans Offres financières">{{ offre_nom }}</a>
+            {% else %}
+              —
+            {% endif %}
+          </span>
+        </div>
       </div>
       <div class="card" data-tb-marker="CL_05">
         <div class="card-header">Indicateurs</div>
@@ -538,10 +552,36 @@
       box-shadow: 0 10px 24px rgba(0,0,0,0.12);
       border-color: var(--primary, #4f46e5);
     }
+    #sriModal.hide-hidden-blocks .sri-metric-grid {
+      display: none !important;
+    }
+    #sriModal .sri-toggle-footer {
+      margin-top: 12px;
+      text-align: center;
+    }
+    #sriModal .sri-toggle-btn {
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:transparent;
+      color: var(--primary, #2563eb);
+      font-size:0.95rem;
+      padding:6px 16px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    #sriModal .sri-toggle-btn:hover {
+      background: rgba(37, 99, 235, 0.08);
+    }
+    #sriModal .sri-toggle-btn span {
+      pointer-events:none;
+    }
   </style>
 
   <!-- Modal SRI -->
-  <div id="sriModal" class="modal-overlay" onclick="if(event.target===this) closeSriModal()">
+  <div id="sriModal" class="modal-overlay hide-hidden-blocks" onclick="if(event.target===this) closeSriModal()">
     <div class="modal-card" style="width:720px; max-width:95vw;">
       <div class="modal-header">
         <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur SRI</h3>
@@ -561,7 +601,7 @@
               <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
             </div>
           </div>
-          <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+          <div class="sri-metric-grid" style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
             <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
               <div class="muted sri-tip" data-tip="M0 = nombre d'observations sur la période.">M0 (observations)</div><div class="kv">{{ sm.m0 if sm.m0 is not none else '—' }}</div>
             </div>
@@ -647,23 +687,54 @@
             <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
           {% endif %}
         </div>
-    {% else %}
-      <p class="muted">Aucune métrique SRI disponible pour ce client.</p>
-      {% if sri_debug %}
-        <div class="muted" style="font-size:0.85rem; margin-top:6px;">
-          {% for line in sri_debug %}
-            <div>• {{ line }}</div>
-          {% endfor %}
+        <div class="sri-toggle-footer">
+          <button type="button" id="sriToggleHiddenBtn" class="sri-toggle-btn" onclick="toggleSriHiddenBlocks()" aria-pressed="false">
+            <i class="fa-solid fa-eye"></i>
+            <span>Afficher les blocs cachés</span>
+          </button>
         </div>
-      {% endif %}
+    {% else %}
+      <p class="muted">Aucune métrique SRI disponible pour cette offre.</p>
     {% endif %}
       </div>
     </div>
   </div>
   <script>
-    function openSriModal(){ var m=document.getElementById('sriModal'); if(m) m.style.display='flex'; }
-    function closeSriModal(){ var m=document.getElementById('sriModal'); if(m) m.style.display='none'; }
+    function updateSriHiddenToggleBtn(){
+      var modal = document.getElementById('sriModal');
+      var btn = document.getElementById('sriToggleHiddenBtn');
+      if(!modal || !btn) return;
+      var icon = btn.querySelector('i');
+      var label = btn.querySelector('span');
+      var hidden = modal.classList.contains('hide-hidden-blocks');
+      btn.setAttribute('aria-pressed', (!hidden).toString());
+      if(icon) icon.className = hidden ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+      if(label) label.textContent = hidden ? 'Afficher les blocs cachés' : 'Masquer les blocs cachés';
+    }
+    function toggleSriHiddenBlocks(){
+      var modal = document.getElementById('sriModal');
+      if(!modal) return;
+      modal.classList.toggle('hide-hidden-blocks');
+      updateSriHiddenToggleBtn();
+    }
+    function openSriModal(){
+      var m = document.getElementById('sriModal');
+      if(m){
+        m.classList.add('hide-hidden-blocks');
+        updateSriHiddenToggleBtn();
+        m.style.display='flex';
+      }
+    }
+    function closeSriModal(){
+      var m = document.getElementById('sriModal');
+      if(m){
+        m.style.display='none';
+        m.classList.add('hide-hidden-blocks');
+        updateSriHiddenToggleBtn();
+      }
+    }
     (function(){
+      updateSriHiddenToggleBtn();
       var cards = document.querySelectorAll('#sriModal .sri-card');
       cards.forEach(function(card){
         card.addEventListener('click', function(){
@@ -1464,53 +1535,248 @@ function generateClientSynthese(){
           var trTot = document.createElement('tr');
           trTot.className = 'muted';
           var td1 = document.createElement('td');
+          td1.colSpan = 1;
           td1.textContent = 'Total';
+          var tdValo = document.createElement('td');
+          tdValo.style.textAlign = 'right';
+          tdValo.textContent = totalValo ? totalValo.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
           var tdParts = document.createElement('td');
           tdParts.style.textAlign = 'right';
           tdParts.textContent = totalParts ? totalParts.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
           var tdPrmp = document.createElement('td'); tdPrmp.style.textAlign = 'right'; tdPrmp.textContent = (totalPrmpDen > 0) ? (totalPrmpNum / totalPrmpDen).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-          var tdValo = document.createElement('td'); tdValo.style.textAlign = 'right'; tdValo.textContent = totalValo ? totalValo.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-          [td1, tdParts, tdPrmp, tdValo].forEach(function(td){ trTot.appendChild(td); });
+          var tdVl = document.createElement('td'); tdVl.style.textAlign = 'right'; tdVl.textContent = '-';
+          [td1, tdValo, tdParts, tdPrmp, tdVl].forEach(function(td){ trTot.appendChild(td); });
           tbody.appendChild(trTot);
         }
         modal.style.display = 'flex';
       }
-      window.closeSupportContractsModal = closeSupportContractsModal;
-      // Bind hyperlinks on ISIN
-      document.addEventListener('click', function(e){
-        var el = e.target.closest('.support-contract-link');
-        if (!el) return;
-        e.preventDefault();
-        try {
-          var contracts = JSON.parse(el.getAttribute('data-contracts') || '[]');
-          var label = (el.getAttribute('data-support-code') || '') + ' ' + (el.getAttribute('data-support-name') || '');
-          openSupportContractsModal(contracts, label.trim());
-        } catch (err){
-          console.error('Support contracts modal error:', err);
+    window.closeSupportContractsModal = closeSupportContractsModal;
+    // Bind hyperlinks on ISIN
+    document.addEventListener('click', function(e){
+      var el = e.target.closest('.support-contract-link');
+      if (!el) return;
+      e.preventDefault();
+      try {
+        var contracts = JSON.parse(el.getAttribute('data-contracts') || '[]');
+        var label = (el.getAttribute('data-support-code') || '') + ' ' + (el.getAttribute('data-support-name') || '');
+        openSupportContractsModal(contracts, label.trim());
+      } catch (err){
+        console.error('Support contracts modal error:', err);
+      }
+    }, false);
+    // Consolidated support modal link
+    const consolidatedSupportContractsMap = {{ consolidated_support_contracts | tojson }};
+    const consolidatedSupportMovementsMap = {{ consolidated_support_movements | tojson }};
+    document.addEventListener('click', function(e){
+      var el = e.target.closest('.consolidated-support-link');
+      if (!el) return;
+      e.preventDefault();
+      openConsolidatedSupportContractsModal(el.dataset.isin || '', el.dataset.name || '');
+    }, false);
+
+    function openConsolidatedSupportContractsModal(isin, name){
+      var modal = document.getElementById('consolidatedSupportContractsModal');
+      if (!modal) return;
+      document.getElementById('supportContractsIsin').textContent = isin || '—';
+      document.getElementById('supportContractsName').textContent = name || '—';
+      renderConsolidatedSupportContractsTable(isin, name);
+      renderConsolidatedSupportChronologyTable(isin);
+      modal.style.display = 'flex';
+    }
+
+    function renderConsolidatedSupportContractsTable(isin, label){
+      var tbody = document.getElementById('supportContractsBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      var rows = consolidatedSupportContractsMap[isin] || [];
+      var labelEl = document.getElementById('supportConsolidatedLabel');
+      if (labelEl){
+        labelEl.textContent = 'Contrats contenant ce support';
+        if (rows.length === 1){
+          var supportName = (label || 'Ce support').trim();
+          labelEl.textContent = supportName + " se trouve dans le contrat";
+        } else if (rows.length > 1){
+          var supportName = (label || 'Ce support').trim();
+          labelEl.textContent = supportName + " se trouve dans les contrats";
         }
-      }, false);
-    })();
+      }
+      if (rows.length === 0){
+        var trEmpty = document.createElement('tr');
+        var tdEmpty = document.createElement('td');
+        tdEmpty.colSpan = 5;
+        tdEmpty.textContent = 'Aucun contrat lié';
+        tdEmpty.className = 'muted';
+        trEmpty.appendChild(tdEmpty);
+        tbody.appendChild(trEmpty);
+        return;
+      }
+      var totalParts = 0.0;
+      var totalValo = 0.0;
+      var totalPrmpNum = 0.0;
+      var totalPrmpDen = 0.0;
+      rows.forEach(function(r){
+        var tr = document.createElement('tr');
+        var contratLabel = r.contrat_ref || ('#' + (r.contrat_id || ''));
+        var contratId = r.contrat_id;
+        var nbParts = parseFloat(r.nbuc || 0);
+        var valo = parseFloat(r.valo || 0);
+        var prmp = parseFloat(r.prmp || 0);
+        var vl = parseFloat(r.vl || 0);
+        totalParts += nbParts;
+        totalValo += valo;
+        if (!isNaN(nbParts) && !isNaN(prmp)){
+          totalPrmpNum += prmp * nbParts;
+          totalPrmpDen += nbParts;
+        }
+        [
+          contratLabel,
+          formatDecimal(valo),
+          formatDecimal(nbParts),
+          formatDecimal(prmp),
+          formatDecimal(vl),
+        ].forEach(function(val, idx){
+          var td = document.createElement('td');
+          if (idx === 0 && contratId){
+            var a = document.createElement('a');
+            a.href = '/dashboard/affaires/' + encodeURIComponent(contratId);
+            a.textContent = val || ('#' + contratId);
+            a.target = '_blank';
+            td.appendChild(a);
+          } else {
+            td.textContent = val;
+          }
+          if (idx >= 1){
+            td.style.textAlign = 'right';
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      var trTot = document.createElement('tr');
+      trTot.className = 'muted';
+      var tdLabel = document.createElement('td');
+      tdLabel.textContent = 'Total';
+      var tdValorisation = document.createElement('td');
+      tdValorisation.textContent = formatDecimal(totalValo);
+      tdValorisation.style.textAlign = 'right';
+      var tdParts = document.createElement('td');
+      tdParts.textContent = formatDecimal(totalParts);
+      tdParts.style.textAlign = 'right';
+      var tdPrmp = document.createElement('td');
+      tdPrmp.textContent = formatDecimal(totalPrmpDen > 0 ? totalPrmpNum / totalPrmpDen : 0);
+      tdPrmp.style.textAlign = 'right';
+      var tdVl = document.createElement('td');
+      tdVl.textContent = '-';
+      tdVl.style.textAlign = 'right';
+      [tdLabel, tdValorisation, tdParts, tdPrmp, tdVl].forEach(function(td){
+        trTot.appendChild(td);
+      });
+      tbody.appendChild(trTot);
+    }
+
+    function renderConsolidatedSupportChronologyTable(isin){
+      var tbody = document.getElementById('supportChronologyBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      var rows = consolidatedSupportMovementsMap[isin] || [];
+      if (!rows.length){
+        var trEmpty = document.createElement('tr');
+        var tdEmpty = document.createElement('td');
+        tdEmpty.colSpan = 5;
+        tdEmpty.textContent = 'Aucun mouvement disponible';
+        tdEmpty.className = 'muted';
+        trEmpty.appendChild(tdEmpty);
+        tbody.appendChild(trEmpty);
+        return;
+      }
+      rows.forEach(function(r){
+        var tr = document.createElement('tr');
+        [
+          formatDate(r.date),
+          r.regle || '—',
+          formatDecimal(r.montant),
+          formatDecimal(r.vl),
+          formatDecimal(r.nb),
+        ].forEach(function(val, idx){
+          var td = document.createElement('td');
+          td.textContent = val;
+          if (idx >= 2){
+            td.style.textAlign = 'right';
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    function formatDecimal(value){
+      if (value === null || value === undefined) return '-';
+      var num = Number(value);
+      if (!isFinite(num)) return '-';
+      return num.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+
+    function formatDate(value){
+      if (!value) return '—';
+      if (typeof value === 'string'){
+        return value.split(' ')[0];
+      }
+      if (value instanceof Date){
+        var year = value.getFullYear();
+        var month = String(value.getMonth() + 1).padStart(2, '0');
+        var day = String(value.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+      }
+      return String(value).split(' ')[0];
+    }
+
+    window.closeConsolidatedSupportContractsModal = function(){
+      document.getElementById('consolidatedSupportContractsModal').style.display = 'none';
+    };
+  })();
   </script>
 
-  <div id="supportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeSupportMovementsModal()">
-    <div class="modal-card" style="width:820px; max-width:97vw;">
+  <div id="consolidatedSupportContractsModal" class="modal-overlay" onclick="if(event.target===this) closeConsolidatedSupportContractsModal()">
+    <div class="modal-card" style="max-width:650px; width:95%;">
       <div class="modal-header">
-        <h3><i class="fa-solid fa-right-left" style="margin-right:8px;"></i><span id="supportMovementsLabel">Mouvements du support</span></h3>
-        <button class="modal-close" onclick="closeSupportMovementsModal()">✕</button>
+        <h3><i class="fa-solid fa-network-wired" style="margin-right:8px;"></i><span id="supportConsolidatedLabel">Contrats contenant ce support</span></h3>
+        <button class="modal-close" onclick="closeConsolidatedSupportContractsModal()">✕</button>
       </div>
       <div class="modal-body">
-        <table id="supportMovementsTable" style="width:100%; border-collapse:collapse;">
-          <thead>
+        <p><strong>Support :</strong> <span id="supportContractsIsin"></span> — <span id="supportContractsName"></span></p>
+        <div class="table-responsive">
+          <table class="table table-sm" style="width:100%; font-size:12px; margin-bottom:0;">
+            <thead>
             <tr>
-              <th style="text-align:left;">Date</th>
-              <th style="text-align:left;">Règle</th>
-              <th style="text-align:right;">Montant</th>
-              <th style="text-align:right;">VL</th>
-              <th style="text-align:right;">Nb parts</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+                <th style="width:40%;">Contrat</th>
+                <th style="text-align:right;">Valorisation</th>
+                <th style="text-align:right;">Nb parts</th>
+                <th style="text-align:right;">PRMP</th>
+                <th style="text-align:right;">VL</th>
+              </tr>
+            </thead>
+            <tbody id="supportContractsBody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:1rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <strong>Chronologie des opérations</strong>
+          </div>
+          <div class="table-responsive">
+            <table id="supportChronologyTable" class="table table-sm" style="width:100%; font-size:12px; margin-bottom:0;">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Règle</th>
+                  <th style="text-align:right;">Montant</th>
+                  <th style="text-align:right;">VL</th>
+                  <th style="text-align:right;">Nb parts</th>
+                </tr>
+              </thead>
+              <tbody id="supportChronologyBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1592,72 +1858,71 @@ function generateClientSynthese(){
         {% endfor %}
       </tbody>
     </table>
-
     <h3 style="margin-top:14px;">Supports consolidés (tous contrats)</h3>
-    <table id="supportsClient">
-      <thead>
-        <tr>
-          <th>ISIN</th>
-          <th>Support</th>
-          <th>SRRI</th>
-          <th>Nb Parts</th>
-          <th>Prix de revient</th>
-          <th>VL</th>
-          <th>Valorisation</th>
-          <th>E</th>
-          <th>S</th>
-          <th>G</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in client_supports %}
-        <tr>
-          <td>
-            {% if s.code_isin %}
-              <a href="#" class="support-contract-link" data-support-code="{{ s.code_isin }}" data-support-name="{{ s.nom or '' }}" data-contracts='{{ s.contracts | tojson | safe }}'>{{ s.code_isin }}</a>
-            {% else %}
-              {{ s.code_isin or '' }}
-            {% endif %}
-          </td>
-          <td>{{ s.nom or '' }}</td>
-          <td class="center">{{ s.srri_support or '' }}</td>
-          <td style="text-align:right;">{{ s.nbuc_str }}</td>
-          <td style="text-align:right;">{{ s.prmp_str }}</td>
-          {% set nav_class = 'nav-dot nav-neutral' %}
-          {% set nav_title = 'VL indisponible' %}
-          {% if s.prmp is not none and s.vl is not none %}
-            {% if s.prmp > s.vl %}
-              {% set nav_class = 'nav-dot nav-red' %}
-              {% set nav_title = 'Prix de revient supérieur à la VL' %}
-            {% else %}
-              {% set nav_class = 'nav-dot nav-green' %}
-              {% set nav_title = 'Prix de revient inférieur ou égal à la VL' %}
-            {% endif %}
-          {% elif s.vl is not none %}
-            {% set nav_class = 'nav-dot nav-green' %}
-            {% set nav_title = 'VL disponible' %}
+    <div class="table-responsive" style="margin-top:10px;">
+      <table id="supportsClient" class="table table-sm" style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr>
+            <th>ISIN</th>
+            <th>Support</th>
+            <th>Contrats</th>
+            <th style="text-align:right;">Nb parts</th>
+            <th style="text-align:right;">Prix de revient</th>
+            <th style="text-align:right;">VL moyenne</th>
+            <th style="text-align:right;">Valorisation</th>
+            <th class="center">E</th>
+            <th class="center">S</th>
+            <th class="center">G</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in consolidated_supports %}
+          <tr>
+            <td>
+              {% if s.code_isin %}
+                <a href="#" class="consolidated-support-link" data-isin="{{ s.code_isin }}" data-name="{{ s.support_nom or '' }}">{{ s.code_isin }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ s.support_nom or '—' }}</td>
+            <td class="center">{{ s.contrats_count_str or '0' }}</td>
+            <td style="text-align:right;">{{ s.nb_parts_str or '—' }}</td>
+            <td style="text-align:right;">{{ s.prmp_str or '—' }}</td>
+            <td style="text-align:right;">
+              {% set nav_class = 'nav-dot nav-neutral' %}
+              {% set nav_title = 'VL indisponible' %}
+              {% if s.prmp_consolide is not none and s.vl_moyenne is not none %}
+                {% if s.prmp_consolide > s.vl_moyenne %}
+                  {% set nav_class = 'nav-dot nav-red' %}
+                  {% set nav_title = 'Prix de revient supérieur à la VL' %}
+                {% else %}
+                  {% set nav_class = 'nav-dot nav-green' %}
+                  {% set nav_title = 'Prix de revient inférieur ou égal à la VL' %}
+                {% endif %}
+              {% elif s.vl_moyenne is not none %}
+                {% set nav_class = 'nav-dot nav-green' %}
+                {% set nav_title = 'VL disponible' %}
+              {% endif %}
+              {% if s.vl_str %}
+                <span class="{{ nav_class }}" aria-hidden="true" title="{{ nav_title }}"></span>{{ s.vl_str }}
+              {% else %}
+                <span class="muted">-</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;">{{ s.valo_str or '—' }}</td>
+            <td class="center">{{ s.noteE or '—' }}</td>
+            <td class="center">{{ s.noteS or '—' }}</td>
+            <td class="center">{{ s.noteG or '—' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not consolidated_supports %}
+          <tr><td colspan="10" class="muted">Aucun support consolidé trouvé.</td></tr>
           {% endif %}
-          <td style="text-align:right;">
-            {% if s.vl is not none %}
-              <span class="{{ nav_class }}" aria-hidden="true" title="{{ nav_title }}"></span>{{ s.vl_str }}
-            {% else %}
-              <span class="muted">-</span>
-            {% endif %}
-          </td>
-          <td style="text-align:right;">{{ s.valo_str }}</td>
-          <td class="center">{{ s.noteE or '' }}</td>
-          <td class="center">{{ s.noteS or '' }}</td>
-          <td class="center">{{ s.noteG or '' }}</td>
-        </tr>
-        {% endfor %}
-        {% if not client_supports %}
-        <tr><td colspan="9" class="muted">Aucun support consolidé trouvé.</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-
+        </tbody>
+      </table>
+    </div>
   </div>
-
 
 <div id="graphsSection" style="display:none;">
   <div class="card" style="margin-bottom:10px;">
@@ -1762,10 +2027,10 @@ function generateClientSynthese(){
                      style="width:7ch; box-sizing:border-box; text-align:right; font-size:12px;" />
             </td>
           </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
     <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:6px;">
       <button id="simuAllocResetBtn" type="button" class="dim-btn" title="Remettre les répartitions calculées">Réinitialiser</button>
       <div class="muted" id="simuAllocSum" style="font-size:12px; text-align:right;"></div>
@@ -1786,31 +2051,7 @@ function generateClientSynthese(){
   </div>
 </div>
 
-  <div class="card" style="margin-bottom:10px;">
-    <div class="accordion-toggle" data-target="graphPiePanel" style="margin:0; justify-content:flex-start;">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-pie"></i> Répartition par catégorie / géographique</h3>
-      <span class="chevron">▾</span>
-    </div>
-    <div id="graphPiePanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-      <div class="pie-grid" style="margin-top:0;">
-        <div class="pie-card">
-          <h3 class="chart-title">Répartition par catégorie</h3>
-          <div class="dim-buttons" style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
-            <button type="button" class="dim-btn active" data-field="cat_gene">Catégorie générale</button>
-            <button type="button" class="dim-btn" data-field="cat_principale">Catégorie principale</button>
-            <button type="button" class="dim-btn" data-field="cat_det">Catégorie détaillée</button>
-          </div>
-          <canvas id="clientCatChart" height="220"></canvas>
-        </div>
-        <div class="pie-card">
-          <h3 class="chart-title">Répartition géographique du secteur</h3>
-          <canvas id="clientGeoChart" height="220"></canvas>
-        </div>
-      </div>
-    </div>
   </div>
-</div>
-
   <!-- Cadre indépendant: Performances et volatilité annuelles -->
 
   <div id="reportSection" class="card" style="display:none;">
@@ -2182,80 +2423,6 @@ function openClientMsgs(kind){
       url.searchParams.set('as_of', v);
       window.location.href = url.toString();
     });
-  })();
-
-    // Charts de répartition basés sur supports consolidés
-  (function(){
-    var supportsData = {{ client_supports | tojson }};
-    var catCtx = document.getElementById('clientCatChart');
-    var geoCtx = document.getElementById('clientGeoChart');
-    if (!catCtx || !geoCtx) return;
-    catCtx = catCtx.getContext('2d');
-    geoCtx = geoCtx.getContext('2d');
-    var catChart, geoChart;
-    function buildCatBar(field){
-      var map = new Map();
-      (supportsData||[]).forEach(function(s){
-        var key = (s[field] || 'Non renseigné');
-        var v = parseFloat(s.valo) || 0;
-        map.set(key, (map.get(key)||0) + v);
-      });
-      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
-      var labels = entries.map(function(e){return e[0];});
-      var values = entries.map(function(e){return e[1];});
-      if (catChart) catChart.destroy();
-      catChart = new Chart(catCtx, {
-        type: 'bar',
-        data: { labels: labels, datasets: [{ data: values, backgroundColor: 'var(--primary)' }] },
-        options: { indexAxis: 'y', responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{ display:false } },
-          layout:{ padding:{ top:10, bottom:6, right:8, left:8 } },
-          scales:{ x:{ display:false, beginAtZero:true }, y:{ ticks:{ font:{ size:10 }, autoSkip:false, maxTicksLimit:20 } } },
-          datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.8, maxBarThickness:18 } },
-          onHover: function(evt, els){ if (els && els.length){ var idx=els[0].index; var label=labels[idx]; buildGeoBar(field, label); } }
-        }
-      });
-      buildGeoBar(field, null);
-      catCtx.canvas.addEventListener('mouseleave', function(){ buildGeoBar(field, null); });
-    }
-    function buildGeoBar(field, catValue){
-      var map = new Map();
-      (supportsData||[]).forEach(function(s){
-        var cat = (s[field] || 'Non renseigné');
-        if (catValue !== null && catValue !== undefined && String(cat) !== String(catValue)) return;
-        var key = (s['cat_geo'] || 'Non renseigné');
-        var v = Number(s.valo) || 0;
-        map.set(key, (map.get(key)||0) + v);
-      });
-      var entries = Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];});
-      var labels = entries.map(function(e){return e[0];});
-      var values = entries.map(function(e){return e[1];});
-      if (geoChart) geoChart.destroy();
-      geoChart = new Chart(geoCtx, {
-        type: 'bar',
-        data: { labels: labels, datasets: [{ data: values, backgroundColor:'#2a9d8f' }] },
-        options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{ display:false } },
-          layout:{ padding:{ top:10, bottom:6, right:8, left:8 } },
-          scales:{ x:{ display:false, beginAtZero:true }, y:{ ticks:{ font:{ size:10 }, autoSkip:false, maxTicksLimit:20 } } },
-          datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.8, maxBarThickness:18 } }
-        }
-      });
-    }
-    buildCatBar('cat_gene');
-    // Scope les clicks aux boutons de la section Répartition (évite de capter les boutons ESG)
-    var dimContainer = document.querySelector('#clientCatChart') ? document.getElementById('clientCatChart').closest('.pie-card') : null;
-    if (dimContainer){
-      dimContainer.querySelectorAll('.dim-buttons .dim-btn').forEach(function(btn){
-        btn.addEventListener('click', function(ev){
-          // Ne pas impacter d'autres groupes de boutons
-          dimContainer.querySelectorAll('.dim-buttons .dim-btn').forEach(function(b){ b.classList.remove('active'); });
-          this.classList.add('active');
-          buildCatBar(this.dataset.field);
-          ev.stopPropagation();
-        });
-      });
-    }
   })();
 
   const labels = [{% for d in labels %}'{{ d }}'{% if not loop.last %}, {% endif %}{% endfor %}];

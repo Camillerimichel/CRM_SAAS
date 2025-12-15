@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime
 from src.database import Base
 
 class DocumentClient(Base):
@@ -17,3 +17,4 @@ class DocumentClient(Base):
     date_creation = Column("date_creation", DateTime, nullable=True)
     date_obsolescence = Column("date_obsolescence", DateTime, nullable=True)
     obsolescence = Column("obsolescence", String, nullable=True)
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

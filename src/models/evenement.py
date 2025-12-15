@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime
 from src.database import Base
 
 
@@ -21,3 +21,4 @@ class Evenement(Base):
         ForeignKey("mariadb_evenement_statut_reclamation.id"),
         nullable=True,
     )
+    id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)
