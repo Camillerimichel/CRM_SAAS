@@ -39,10 +39,38 @@
         border-radius: 8px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
+    .table-container {
+        margin-top: 0.75rem;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 10px 25px rgba(15, 23, 42, 0.25),
+          0 18px 45px rgba(15, 23, 42, 0.18);
+    }
     table {
         width: 100%;
         border-collapse: collapse;
         background: white;
+        font-size: 1rem;
+    }
+    #affairesTable th,
+    #affairesTable td {
+        font-size: 18px;
+    }
+    #affairesTable th:nth-child(3),
+    #affairesTable td:nth-child(3) {
+        text-align: center;
+    }
+    #affairesTable th:nth-child(4) {
+        text-align: right;
+    }
+    #affairesTable th:nth-child(4),
+    #affairesTable td:nth-child(4),
+    #affairesTable th:nth-child(5),
+    #affairesTable td:nth-child(5),
+    #affairesTable th:nth-child(6),
+    #affairesTable td:nth-child(6) {
+        padding-right: 1ch;
     }
     /* En-têtes de tableau héritent du style global (base.html) */
     thead input, thead select {
@@ -98,6 +126,14 @@
     }
     /* Barre outils + chips (harmonisé) */
     .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
+    #affairesGroupActions { justify-content: flex-end; }
+    .affaires-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0.5rem 0;
+    }
     .chips { display:flex; flex-wrap:wrap; gap:8px; }
     .chip { display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background: var(--surface); cursor:pointer; font-size:12px; color: var(--text); text-decoration:none; }
     .chip:hover { background: var(--primary-100); color: var(--primary-600); }
@@ -123,10 +159,6 @@
         </div>
       {% endif %}
     </div>
-    <div class="toolbar" id="affairesGroupActions" style="display:none; margin-bottom:8px;">
-      <div class="muted">Créer des tâches groupées sur la sélection filtrée.</div>
-      <button class="btn btn-primary" type="button" id="btnGroupedTasksAffaires">Créer des tâches groupées</button>
-    </div>
 
     <!-- Accordéon: Risque rapide -->
     <div id="quickToggleAff" class="card accordion-toggle" style="cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
@@ -151,7 +183,13 @@
       </div>
     </div>
 
-    
+    <div class="affaires-header-row">
+      <h2>Liste des affaires</h2>
+      <div class="toolbar" id="affairesGroupActions" style="display:none; margin-bottom:0;">
+        <button class="btn btn-primary" type="button" id="btnGroupedTasksAffaires" style="font-size:18px;">Créer des tâches groupées</button>
+      </div>
+    </div>
+
     <div class="table-container">
         <table id="affairesTable" class="display nowrap" style="width:100%">
             <thead>

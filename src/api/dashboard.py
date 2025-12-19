@@ -2618,16 +2618,12 @@ def _build_finance_analysis(
 
 def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
-    client_sri_current = None
-    try:
-        row_sri_cur = db.execute(text("SELECT SRI FROM mariadb_clients WHERE id = :cid LIMIT 1"), {"cid": client_id}).fetchone()
-        if row_sri_cur:
-            client_sri_current = row_sri_cur[0] if not hasattr(row_sri_cur, "_mapping") else row_sri_cur._mapping.get("SRI")
-    except Exception:
-        client_sri_current = None
+    client_sri_current: int | None = None
+    sri_metrics_client: dict | None = None
 
     rh_list = fetch_rh_list(db)
     if not client:
+        logger.debug("Synthèse: client %s introuvable", client_id)
         return None
 
     civilite = db.execute(
@@ -2960,6 +2956,9 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         geo_labels = [row.get('label') for row in supports_geo_breakdown]
         geo_values = [float(row.get('valo_raw') or 0.0) for row in supports_geo_breakdown]
         supports_geo_chart_png = _build_matplotlib_horizontal_bar_chart(geo_labels, geo_values, "Répartition géographique", "Valorisation (€)")
+
+    # Scénarios SRI globaux pour la synthèse (remplis plus bas)
+    synthese_sri_scenarios: dict = {"horizons": [], "rows": []}
 
     # Courbes valorisation & mouvements par année (pour restitution tabulaire)
     curves_year_map: dict[int, dict] = {}
@@ -3586,12 +3585,17 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
 
     allocation_reference_name = None
     adequation_allocation_html = None
+    allocation_risque_id: int | None = None
+    allocation_sri_metrics: dict | None = None
+    allocation_sri_scenarios: list[dict] = []
+    allocation_sri_rhp_years: float | None = None
     if risque_latest and risque_latest.get("niveau_id") is not None:
         try:
             row = db.execute(
                 text(
                     """
-                    SELECT COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
+                    SELECT ar.id AS allocation_risque_id,
+                           COALESCE(a.nom, ar.allocation_name) AS allocation_nom,
                            ar.texte
                     FROM allocation_risque ar
                     LEFT JOIN allocations a ON a.nom = ar.allocation_name
@@ -3603,8 +3607,10 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                 {"rid": int(risque_latest.get("niveau_id"))},
             ).fetchone()
             if row:
-                allocation_reference_name = row[0]
-                texte = row[1]
+                data = row._mapping if hasattr(row, "_mapping") else {}
+                allocation_risque_id = data.get("allocation_risque_id") or row[0]
+                allocation_reference_name = data.get("allocation_nom") or row[1]
+                texte = data.get("texte") if "texte" in data else (row[2] if len(row) > 2 else None)
                 if texte:
                     try:
                         import html as _html
@@ -3638,6 +3644,117 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                         adequation_allocation_html = str(texte).replace("\n", "<br/>")
         except Exception:
             adequation_allocation_html = None
+
+    # Scénarios SRI pour l'allocation retenue (tableau chapter 7)
+    if allocation_risque_id is not None:
+        try:
+            row_sm = db.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM sri_metrics
+                    WHERE entity_type = 'allocation' AND entity_id = :eid
+                    ORDER BY as_of_date DESC, calc_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"eid": int(allocation_risque_id)},
+            ).fetchone()
+            if row_sm:
+                sm = dict(row_sm._mapping) if hasattr(row_sm, "_mapping") else dict(row_sm)
+                for k, v in list(sm.items()):
+                    if isinstance(v, Decimal):
+                        sm[k] = float(v)
+                allocation_sri_metrics = sm
+                rhp_years: float | None = None
+                try:
+                    np = sm.get("n_periods") or sm.get("nperiods")
+                    if np is not None:
+                        rhp_years = max(1.0, float(np)) / 52.0
+                except Exception:
+                    rhp_years = None
+                allocation_sri_rhp_years = rhp_years or 5.0
+                scen_data = _compute_sri_scenarios(sm, rhp_years=allocation_sri_rhp_years)
+                scen_rows = scen_data.get("rows") or []
+                base_cap = 10000.0
+
+                def _fmt_euro_sri(val: float | None) -> str:
+                    if val is None:
+                        return "—"
+                    try:
+                        num = float(val)
+                    except (TypeError, ValueError):
+                        return "—"
+                    if not math.isfinite(num):
+                        return "—"
+                    try:
+                        return "{:,.0f}".format(num).replace(",", " ") + " €"
+                    except Exception:
+                        return str(num)
+
+                def _row_sri(factor: float | None) -> dict[str, str]:
+                    try:
+                        f = float(factor)
+                    except (TypeError, ValueError):
+                        return {"euro": "—", "pct": "—"}
+                    if not math.isfinite(f):
+                        return {"euro": "—", "pct": "—"}
+                    v = base_cap * f
+                    pct = ((v - base_cap) / base_cap) * 100 if base_cap else None
+                    pct_str = "—"
+                    try:
+                        if pct is not None and math.isfinite(pct):
+                            pct_str = f"{pct:.2f} %"
+                    except Exception:
+                        pct_str = "—"
+                    return {"euro": _fmt_euro_sri(v), "pct": pct_str}
+
+                allocation_sri_scenarios = []
+                for row in scen_rows:
+                    allocation_sri_scenarios.append(
+                        {
+                            "label": row.get("horizon") or "Horizon",
+                            "tension": _row_sri(row.get("tension")),
+                            "defavorable": _row_sri(row.get("defavorable")),
+                            "intermediaire": _row_sri(row.get("intermediaire")),
+                            "favorable": _row_sri(row.get("favorable")),
+                        }
+                    )
+        except Exception:
+            allocation_sri_metrics = None
+            allocation_sri_scenarios = []
+            allocation_sri_rhp_years = None
+
+    # Scénarios SRI globaux pour la synthèse:
+    # on applique exactement la même logique que pour le bouton « Voir SRI »
+    # (lecture dans sri_metrics pour entity_type='client', puis calcul via _compute_sri_scenarios).
+    try:
+        row_sri = db.execute(
+            text(
+                """
+                SELECT sri, m0, m1, m2, m3, m4, sigma, mu1, mu2, n_periods, var_cf, vev, as_of_date, calc_at
+                FROM sri_metrics
+                WHERE entity_type = 'client' AND entity_id = :cid
+                ORDER BY as_of_date DESC, calc_at DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row_sri:
+            sri_metrics_client = dict(row_sri._mapping) if hasattr(row_sri, "_mapping") else dict(row_sri)
+            synthese_sri_scenarios = _compute_sri_scenarios(sri_metrics_client)
+            try:
+                if sri_metrics_client.get("sri") is not None:
+                    client_sri_current = int(sri_metrics_client.get("sri"))
+            except Exception:
+                client_sri_current = None
+        else:
+            sri_metrics_client = None
+            synthese_sri_scenarios = {"horizons": [], "rows": []}
+    except Exception:
+        sri_metrics_client = None
+        synthese_sri_scenarios = {"horizons": [], "rows": []}
 
     revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
     charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
@@ -3685,7 +3802,12 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "niveau_risque": risque_latest.get("niveau_risque") if risque_latest else None,
         "experience": risque_latest.get("experience") if risque_latest else None,
         "connaissance": risque_latest.get("connaissance") if risque_latest else None,
+        "client_sri": client_sri_current,
+        "sri_metrics_client": sri_metrics_client,
         "allocation_reference_name": allocation_reference_name,
+        "allocation_sri_metrics": allocation_sri_metrics,
+        "allocation_sri_scenarios": allocation_sri_scenarios,
+        "allocation_sri_rhp_years": allocation_sri_rhp_years,
         "contrat_choisi_nom": contrat_choisi_nom,
         "contrat_choisi_societe": contrat_choisi_societe,
         "adequation_contracts": adequation_contracts,
@@ -3695,6 +3817,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "etat_civil_latest": etat_civil_row,
         "kyc_etat_civil": etat_civil_row,
         "kyc_situations_matrimoniales": situations_matrimoniales,
+        "sri_scenarios": synthese_sri_scenarios,
     }
     return contexte
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
@@ -11548,6 +11671,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
 async def dashboard_client_kyc(
     client_id: int,
     request: Request,
+    embed: int = 0,
     db: Session = Depends(get_db),
 ):
     _require_client_write(request, db, client_id)
@@ -15808,12 +15932,18 @@ async def dashboard_client_kyc(
         allocation_sri_scenarios = []
         allocation_sri_rhp_years = None
 
+    try:
+        kyc_status = _compute_kyc_completion_status(db, client_id)
+    except Exception:
+        kyc_status = None
+
     return templates.TemplateResponse(
         "dashboard_client_kyc.html",
         {
             "request": request,
             "client": client,
             "client_id": client_id,
+            "embed": bool(embed),
             "ui_focus_section": ui_focus_section,
             "ui_focus_panel": ui_focus_panel,
             "synthese_push_action": synthese_push_action,
@@ -15926,8 +16056,8 @@ async def dashboard_client_kyc(
             "fatca_client_nif": fatca_client_nif or "",
             "fatca_today": fatca_today,
             # LCBFT objectifs (KYC)
-            "lcbft_invest_total": locals().get('lcbft_invest_total', 0.0),
-            "lcbft_objectifs": locals().get('lcbft_objectifs', []),
+            "lcbft_invest_total": locals().get("lcbft_invest_total", 0.0),
+            "lcbft_objectifs": locals().get("lcbft_objectifs", []),
             "summary_data": {
                 "actifs": synth_actifs,
                 "passifs": synth_passifs,
@@ -15940,6 +16070,7 @@ async def dashboard_client_kyc(
             "budget_net_value": float(budget_net) if budget_net is not None else 0.0,
             "nb_contrats_actifs": nb_contrats_actifs,
             "nb_supports_references": nb_supports_references,
+            "kyc_status": kyc_status,
         },
     )
 
@@ -23057,6 +23188,353 @@ async def dashboard_affaire_update_srri(affaire_id: int, request: Request, db: S
 
 
 # ---------------- Détail Client ----------------
+def _compute_kyc_completion_status(db: Session, client_id: int) -> dict:
+    """Calcule un statut synthétique de complétude KYC pour un client.
+
+    Retourne un objet du type:
+    {
+        "sections": {
+            "etat_civil": {"percent": 0-100, "complete": bool},
+            "patrimoine_revenus": {...},
+            "connaissances_financieres": {...},
+            "sensibilite_esg": {...},
+            "objectifs": {...},
+            "choix_contrat": {...},
+            "lcbft": {...},
+        },
+        "overall": {"percent": 0-100, "complete": bool},
+        "objectifs_total": float,
+    }
+    """
+
+    def _non_empty(value: object) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        return True
+
+    sections: dict[str, dict[str, object]] = {}
+
+    # --- État civil: 4 champs clefs ---
+    etat_percent = 0
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT civilite, date_naissance, lieu_naissance, nationalite
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+    except Exception:
+        row = None
+    if row is not None:
+        mapping = getattr(row, "_mapping", row)
+        filled = 0
+        total = 4
+        for col in ("civilite", "date_naissance", "lieu_naissance", "nationalite"):
+            try:
+                if _non_empty(mapping.get(col) if hasattr(mapping, "get") else None):
+                    filled += 1
+            except Exception:
+                continue
+        if total:
+            try:
+                etat_percent = int(round((filled / total) * 100))
+            except Exception:
+                etat_percent = 0
+    sections["etat_civil"] = {
+        "percent": max(0, min(100, etat_percent)),
+        "complete": etat_percent >= 100,
+    }
+
+    # --- Patrimoine & revenus: 4 sous-blocs (actifs, passifs, revenus, charges) ---
+    patr_steps_done = 0
+    patr_steps_total = 4
+    for table_name in (
+        "KYC_Client_Actif",
+        "KYC_Client_Passif",
+        "KYC_Client_Revenus",
+        "KYC_Client_Charges",
+    ):
+        try:
+            cnt = db.execute(
+                text(f"SELECT COUNT(*) FROM {table_name} WHERE client_id = :cid"),
+                {"cid": client_id},
+            ).scalar()
+            if cnt and int(cnt) > 0:
+                patr_steps_done += 1
+        except Exception:
+            continue
+    patr_percent = 0
+    if patr_steps_total:
+        try:
+            patr_percent = int(round((patr_steps_done / patr_steps_total) * 100))
+        except Exception:
+            patr_percent = 0
+    sections["patrimoine_revenus"] = {
+        "percent": max(0, min(100, patr_percent)),
+        "complete": patr_percent >= 100,
+    }
+
+    # --- Connaissances financières: présence d'un questionnaire + offre finale ---
+    kn_percent = 0
+    kn_complete = False
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id, offre_finale_niveau_id
+                FROM risque_questionnaire
+                WHERE client_ref = :ref
+                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                LIMIT 1
+                """
+            ),
+            {"ref": str(client_id)},
+        ).fetchone()
+    except Exception:
+        row = None
+    if row is not None:
+        mapping = getattr(row, "_mapping", row)
+        has_offre_finale = False
+        try:
+            val = mapping.get("offre_finale_niveau_id") if hasattr(mapping, "get") else None
+            has_offre_finale = val is not None
+        except Exception:
+            has_offre_finale = False
+        if has_offre_finale:
+            kn_percent = 100
+            kn_complete = True
+        else:
+            # Questionnaire présent mais offre finale absente → en cours
+            kn_percent = 50
+    sections["connaissances_financieres"] = {
+        "percent": max(0, min(100, kn_percent)),
+        "complete": kn_complete,
+    }
+
+    # --- Sensibilité ESG: 3 blocs (sensibilité, exclusions, indicateurs) ---
+    esg_blocks_done = 0
+    esg_blocks_total = 3
+    esg_qid: int | None = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT *
+                FROM esg_questionnaire
+                WHERE client_ref = :ref
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {"ref": str(client_id)},
+        ).fetchone()
+    except Exception:
+        row = None
+    if row is not None:
+        mapping = getattr(row, "_mapping", row)
+        try:
+            esg_qid_val = mapping.get("id") if hasattr(mapping, "get") else None
+            esg_qid = int(esg_qid_val) if esg_qid_val is not None else None
+        except Exception:
+            esg_qid = None
+        sens_fields = (
+            "env_importance",
+            "env_ges_reduc",
+            "soc_droits_humains",
+            "soc_parite",
+            "gov_transparence",
+            "gov_controle_ethique",
+        )
+        try:
+            if all(
+                _non_empty(mapping.get(col) if hasattr(mapping, "get") else None)
+                for col in sens_fields
+            ):
+                esg_blocks_done += 1
+        except Exception:
+            pass
+    if esg_qid is not None:
+        try:
+            cnt_exc = db.execute(
+                text(
+                    "SELECT COUNT(*) FROM esg_questionnaire_exclusion WHERE questionnaire_id = :q"
+                ),
+                {"q": esg_qid},
+            ).scalar()
+        except Exception:
+            cnt_exc = 0
+        if cnt_exc and int(cnt_exc) > 0:
+            esg_blocks_done += 1
+        try:
+            cnt_ind = db.execute(
+                text(
+                    "SELECT COUNT(*) FROM esg_questionnaire_indicator WHERE questionnaire_id = :q"
+                ),
+                {"q": esg_qid},
+            ).scalar()
+        except Exception:
+            cnt_ind = 0
+        if cnt_ind and int(cnt_ind) > 0:
+            esg_blocks_done += 1
+    esg_percent = 0
+    if esg_blocks_total:
+        try:
+            esg_percent = int(round((esg_blocks_done / esg_blocks_total) * 100))
+        except Exception:
+            esg_percent = 0
+    sections["sensibilite_esg"] = {
+        "percent": max(0, min(100, esg_percent)),
+        "complete": esg_percent >= 100,
+    }
+
+    # --- Objectifs et montant global ---
+    objectifs_total = 0.0
+    try:
+        raw = db.execute(
+            text("SELECT COALESCE(SUM(montant),0) FROM KYC_Client_Objectifs WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        if raw is not None:
+            objectifs_total = float(raw)
+    except Exception:
+        objectifs_total = 0.0
+    obj_percent = 100 if objectifs_total > 0 else 0
+    sections["objectifs"] = {
+        "percent": obj_percent,
+        "complete": objectifs_total > 0,
+    }
+
+    # --- Choix du contrat ---
+    has_contrat = False
+    try:
+        row = db.execute(
+            text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid LIMIT 1"),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            mapping = getattr(row, "_mapping", row)
+            val = mapping.get("id_contrat") if hasattr(mapping, "get") else row[0]
+            has_contrat = val is not None
+    except Exception:
+        has_contrat = False
+    contrat_percent = 100 if has_contrat else 0
+    sections["choix_contrat"] = {
+        "percent": contrat_percent,
+        "complete": has_contrat,
+    }
+
+    # --- LCBFT ---
+    lcbft_percent = 0
+    lcbft_complete = False
+    lcbft_qid: int | None = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id, relation_since, relation_mode, operation_objet
+                FROM LCBFT_questionnaire
+                WHERE client_ref = :ref
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {"ref": str(client_id)},
+        ).fetchone()
+    except Exception:
+        row = None
+    if row is not None:
+        mapping = getattr(row, "_mapping", row)
+        try:
+            qid_val = mapping.get("id") if hasattr(mapping, "get") else None
+            lcbft_qid = int(qid_val) if qid_val is not None else None
+        except Exception:
+            lcbft_qid = None
+        basic_ok = False
+        try:
+            basic_ok = _non_empty(
+                mapping.get("relation_since") if hasattr(mapping, "get") else None
+            ) or _non_empty(
+                mapping.get("relation_mode") if hasattr(mapping, "get") else None
+            )
+        except Exception:
+            basic_ok = False
+        op_ok = False
+        try:
+            op_ok = _non_empty(
+                mapping.get("operation_objet") if hasattr(mapping, "get") else None
+            )
+        except Exception:
+            op_ok = False
+        lcbft_complete = basic_ok and op_ok
+        # Si montant global des objectifs > 100k, exiger au moins une raison de vigilance
+        if objectifs_total > 100000 and lcbft_qid is not None:
+            try:
+                cnt = db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM LCBFT_operation op
+                        JOIN LCBFT_operation_raison_vigilance rv ON rv.operation_id = op.id
+                        WHERE op.questionnaire_id = :qid
+                        """
+                    ),
+                    {"qid": lcbft_qid},
+                ).scalar()
+            except Exception:
+                cnt = 0
+            if not (cnt and int(cnt) > 0):
+                lcbft_complete = False
+        lcbft_percent = 100 if lcbft_complete else 50
+    sections["lcbft"] = {
+        "percent": max(0, min(100, lcbft_percent)),
+        "complete": lcbft_complete,
+    }
+
+    # --- Agrégat global ---
+    total_pct = 0
+    count = 0
+    all_complete = True
+    for name, info in sections.items():
+        if name == "lcbft":
+            # LCBFT ne doit pas impacter la note globale de connaissance client
+            continue
+        try:
+            p = int(info.get("percent", 0))  # type: ignore[arg-type]
+        except Exception:
+            p = 0
+        if p < 0:
+            p = 0
+        elif p > 100:
+            p = 100
+        total_pct += p
+        count += 1
+        if not info.get("complete"):
+            all_complete = False
+    overall_percent = int(round(total_pct / count)) if count else 0
+
+    all_sections_complete = all(
+        bool(info.get("complete")) for info in sections.values()
+    ) if sections else False
+
+    return {
+        "sections": sections,
+        "overall": {
+            "percent": max(0, min(100, overall_percent)),
+            "complete": all_complete,
+        },
+        "objectifs_total": objectifs_total,
+        "all_sections_complete": all_sections_complete,
+    }
+
+
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
     _require_client_read(request, db, client_id)
@@ -23071,6 +23549,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     DER_sql_mediation: str | None = None
 
     client = db.query(Client).filter(Client.id == client_id).first()
+
+    try:
+        kyc_status = _compute_kyc_completion_status(db, client_id)
+    except Exception:
+        kyc_status = None
     client_sri_current = None
     try:
         row_sri_cur = db.execute(text("SELECT SRI FROM mariadb_clients WHERE id = :cid LIMIT 1"), {"cid": client_id}).fetchone()
@@ -25127,6 +25610,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "sri_debug": sri_debug,
             "client_sri": client_sri_current,
             "client_id": client_id,
+            "kyc_status": kyc_status,
         }
     )
 

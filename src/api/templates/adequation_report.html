@@ -179,6 +179,38 @@
   {% else %}
     <p class="muted">Les informations détaillées sur l’allocation ne sont pas disponibles.</p>
   {% endif %}
+  {% if allocation_sri_scenarios and allocation_sri_scenarios|length > 0 %}
+    <h3>Scénarios de tension de l’allocation retenue</h3>
+    <p class="muted">
+      Scénarios calculés sur une base de 10&nbsp;000&nbsp;€
+      {% if allocation_sri_rhp_years %}
+        (RHP {{ '%.1f'|format(allocation_sri_rhp_years|float) }} ans)
+      {% endif %}.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Horizon</th>
+          <th class="number">Tension</th>
+          <th class="number">Défavorable</th>
+          <th class="number">Intermédiaire</th>
+          <th class="number">Favorable</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in allocation_sri_scenarios %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td class="number">{{ row.tension.euro }}<br/><span class="muted">{{ row.tension.pct }}</span></td>
+            <td class="number">{{ row.defavorable.euro }}<br/><span class="muted">{{ row.defavorable.pct }}</span></td>
+            <td class="number">{{ row.intermediaire.euro }}<br/><span class="muted">{{ row.intermediaire.pct }}</span></td>
+            <td class="number">{{ row.favorable.euro }}<br/><span class="muted">{{ row.favorable.pct }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Les scénarios sont basés sur les calculs Cornish‑Fisher utilisés pour l’indicateur SRI de l’offre.</p>
+  {% endif %}
 
   <h2>8. Mises en garde</h2>
   <ul>
