@@ -21,10 +21,28 @@
         text-align: center;
         box-shadow: var(--shadow-sm);
     }
+    .alloc-perf-card {
+        box-shadow:
+          0 10px 25px rgba(15, 23, 42, 0.22),
+          0 18px 45px rgba(15, 23, 42, 0.16);
+        border-radius: 12px;
+    }
+    .table-container {
+        margin-top: 0.75rem;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 10px 25px rgba(15, 23, 42, 0.25),
+          0 18px 45px rgba(15, 23, 42, 0.18);
+    }
     table {
         width: 100%;
         border-collapse: collapse;
         background: white;
+    }
+    #allocationsTable th,
+    #allocationsTable td {
+        font-size: 18px;
     }
     /* En-têtes de tableau héritent du style global (base.html) */
     thead input {
@@ -37,7 +55,25 @@
     tbody td {
         padding: 10px 8px;
     }
-    /* Centre Date (3), Perf (4), Volatilité (5) */
+    /* Largeur colonnes + centrage Choix (1), Date (3), Perf (4), Volatilité (5) */
+    #allocationsTable thead th:nth-child(1),
+    #allocationsTable tbody td:nth-child(1) {
+        text-align: center;
+    }
+    #allocationsTable th:nth-child(2),
+    #allocationsTable td:nth-child(2) {
+        width: 30%;
+    }
+    #allocationsTable th:nth-child(3),
+    #allocationsTable td:nth-child(3) {
+        width: 120px;
+    }
+    #allocationsTable th:nth-child(4),
+    #allocationsTable td:nth-child(4),
+    #allocationsTable th:nth-child(5),
+    #allocationsTable td:nth-child(5) {
+        width: 130px;
+    }
     #allocationsTable thead th:nth-child(3),
     #allocationsTable tbody td:nth-child(3),
     #allocationsTable thead th:nth-child(4),
@@ -129,7 +165,18 @@
             <tbody>
                 {% for a in allocations %}
                 <tr>
-                    <td><button class="seeBtn" data-nom="{{ a.nom }}">Choix</button></td>
+                    <td>
+                      <button
+                        type="button"
+                        class="seeBtn"
+                        data-nom="{{ a.nom }}"
+                        aria-label="Voir l'allocation"
+                        title="Voir l'allocation"
+                        style="border:none; background:none; padding:0; cursor:pointer; color:inherit;"
+                      >
+                        <i class="fa-solid fa-eye"></i>
+                      </button>
+                    </td>
                     <td>{{ a.nom }}</td>
                     <td>
                       {% if a.date %}
@@ -145,9 +192,19 @@
                     <td>{{ a.volat }}</td>
                     <td style="text-align:center;">
                       {% set sm = (sri_metrics.get(a.id|string) if sri_metrics is defined else None) %}
-                      <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+                      <div style="display:inline-flex; flex-direction:row; gap:8px; align-items:center; justify-content:center;">
                         <span style="font-weight:600;">{{ sm.sri if sm and sm.sri is not none else (a.sri if a.sri is defined else '—') }}</span>
-                        <button type="button" class="btn btn-secondary sriBtn" data-aid="{{ a.id }}" data-nom="{{ a.nom }}">Indicateur SRI</button>
+                        <button
+                          type="button"
+                          class="sriBtn"
+                          data-aid="{{ a.id }}"
+                          data-nom="{{ a.nom }}"
+                          aria-label="Voir l'indicateur SRI"
+                          title="Voir l'indicateur SRI"
+                          style="border:none; background:none; padding:0; cursor:pointer; color:inherit;"
+                        >
+                          <i class="fa-solid fa-eye"></i>
+                        </button>
                       </div>
                     </td>
                     <td>
@@ -181,7 +238,7 @@
         </table>
     </div>
 
-    <div class="card" style="margin-top:1.5rem;">
+    <div class="card alloc-perf-card" style="margin-top:1.5rem;">
         <h3>Performance et Volatilité</h3>
         <div id="sicavChart" style="height: 280px;"></div>
     </div>
@@ -561,6 +618,17 @@ $(document).ready(function () {
         buildSeriesForNom(nom);
     });
     $('.rangeBtn').on('click', function(){ applyRange($(this).data('range')); });
+
+    // Sélection par défaut : première allocation de la liste
+    try {
+        var firstBtn = document.querySelector('#allocationsTable tbody .seeBtn');
+        if (firstBtn) {
+            var firstNom = firstBtn.getAttribute('data-nom');
+            if (firstNom) {
+                buildSeriesForNom(firstNom);
+            }
+        }
+    } catch(e) {}
 });
 </script>
 

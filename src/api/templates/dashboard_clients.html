@@ -17,7 +17,26 @@
     .badge-filter .x:hover { opacity:1; }
     .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
     .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 8px 0; }
-    table { width: 100%; border-collapse: collapse; background: white; }
+    .clients-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 0.5rem;
+    }
+    .table-container {
+        margin-top: 0.75rem;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 10px 25px rgba(15, 23, 42, 0.25),
+          0 18px 45px rgba(15, 23, 42, 0.18);
+    }
+    table { width: 100%; border-collapse: collapse; background: white; font-size: 1rem; }
+    #clientsTable th,
+    #clientsTable td {
+        font-size: 18px;
+    }
     thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; box-sizing:border-box; }
     tbody td { padding: 10px 8px; }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
@@ -30,7 +49,12 @@
 
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
   <div class="main-container" data-tb-marker="TB_202">
-    <h2 data-tb-marker="TB_203">Liste des clients</h2>
+    <div class="clients-header-row">
+      <h2 data-tb-marker="TB_203">Liste des clients</h2>
+      <div class="toolbar" id="clientsGroupActions" style="display:none; margin-bottom:0;">
+        <button class="btn btn-primary" type="button" id="btnGroupedTasksClients" style="font-size:18px;">Créer des tâches groupées</button>
+      </div>
+    </div>
     <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
       {% if group_filter_label %}
         <div class="badge-filter">
@@ -43,10 +67,6 @@
         </div>
       {% endif %}
     </div>
-    <div class="toolbar" id="clientsGroupActions" style="display:none; margin-bottom:8px;">
-      <div class="muted">Créer des tâches groupées sur la sélection filtrée.</div>
-      <button class="btn btn-primary" type="button" id="btnGroupedTasksClients">Créer des tâches groupées</button>
-    </div>
 
     <div class="table-container">
       <table id="clientsTable" class="display nowrap" style="width:100%">
@@ -55,7 +75,7 @@
             <th>Nom</th>
             <th>Prénom</th>
             <th>Responsable</th>
-            <th>SRRI calculé (dernier)</th>
+            <th>SRRI</th>
             <th>Valorisation</th>
             <th>Perf 52 sem. (%)</th>
             <th>Volatilité (%)</th>
@@ -89,7 +109,6 @@
             <td>{{ c.responsable or '—' }}</td>
             <td style="text-align:center;">
               {{ c.srri_hist if c.srri_hist is not none else '' }}
-              {% if c.srri_hist_date %}<div class="muted" style="font-size:0.8rem;">{{ c.srri_hist_date.strftime('%Y-%m-%d') }}</div>{% endif %}
             </td>
             <td data-valo="{{ c.total_valo if c.total_valo is not none else '' }}" style="text-align:right;">{{ c.total_valo_str }}</td>
             <td data-perf="{{ c.perf_52_sem if c.perf_52_sem is not none else '' }}" style="text-align:right;">{{ c.perf_52_sem_str }}</td>

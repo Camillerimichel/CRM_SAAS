@@ -241,7 +241,7 @@
     {% endif %}
   </div>
   <div style="margin-top:12px;">
-    <h3 style="margin-top:0;">Évolution des allocations (SICAV)</h3>
+    <h3 style="margin-top:0;">Évolutions comparées des investissements clients et de l'offre produit</h3>
     {% if alloc_compare_chart_png %}
       <div style="width:100%; text-align:center;">
         <img src="data:image/png;base64,{{ alloc_compare_chart_png }}" alt="Évolution des allocations" style="max-width:100%; height:auto;" />
@@ -253,7 +253,6 @@
       <div class="muted">Allocation de référence introuvable ou sans historique disponible.</div>
     {% endif %}
   </div>
-
   <div class="page-break"></div>
   <h2 id="section-esg" class="section-title">6. Notations ESG</h2>
   {% if esg_comparison_rows %}

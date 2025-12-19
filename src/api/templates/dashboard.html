@@ -86,7 +86,7 @@
   /* Tabs principaux (Dashboard) */
   .dash-tabs {
     display: flex;
-    gap: 6px;
+    gap: 18px;
     flex-wrap: wrap;
     overflow-x: visible;
     justify-content: center;
@@ -103,10 +103,10 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text);
-    padding: 10px 12px;
+    padding: 10px 18px;
     border-radius: 12px;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -114,13 +114,16 @@
     cursor: pointer;
     box-shadow: none;
     transition: all .15s ease;
-    flex: 0 1 120px;
-    min-width: 110px;
+    flex: 0 0 auto;
     min-height: 40px;
     text-align: center;
   }
   .dash-tab i { color: var(--primary-600); }
-  .dash-tab:hover { transform: translateY(-1px); border-color: transparent; }
+  .dash-tab:hover {
+    transform: translateY(-2px) scale(1.03);
+    border-color: transparent;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+  }
   .dash-tab.active {
     background: transparent;
     color: var(--primary-600);
@@ -166,16 +169,44 @@
     border-radius:10px;
     background: transparent;
     cursor:pointer;
-    font-size:0.95rem;
+    font-size:18px;
     font-weight:600;
     box-shadow:none;
     color: var(--text);
+  }
+  .risk-toggle-row .risk-toggle:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+    border-color: #cbd5f5;
   }
   .risk-toggle-row .risk-toggle.active {
     background: transparent;
     color: var(--primary-600);
     border-color: transparent;
     box-shadow: none;
+  }
+  /* Cartes conformité / requis / suivi du risque / répartitions (DER, ORIAS, SRRI, clientèles, contrats, etc.) */
+  #complianceSection .compliance-mini-card,
+  #rcpSection .compliance-mini-card,
+  #srriSection .compliance-mini-card,
+  #clienteleSection .compliance-mini-card,
+  #contractsSection .compliance-mini-card {
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:14px 12px;
+    text-align:center;
+    box-shadow:0 10px 24px rgba(15,23,42,0.12);
+    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  #complianceSection .compliance-mini-card:hover,
+  #rcpSection .compliance-mini-card:hover,
+  #srriSection .compliance-mini-card:hover,
+  #clienteleSection .compliance-mini-card:hover,
+  #contractsSection .compliance-mini-card:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow:0 18px 40px rgba(15,23,42,0.18);
+    border-color:#cbd5f5;
   }
   </style>
 
@@ -270,7 +301,7 @@
         </div>
       </div>
       <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
-        <div data-tb-marker="TB_27" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+        <div data-tb-marker="TB_27" class="compliance-mini-card">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">DER</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="derTotal">—</span> / <span id="derTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="derObs">—</span> / <span id="derObsPct">—</span> %</div>
@@ -279,7 +310,7 @@
             <div id="derObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_28" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+        <div data-tb-marker="TB_28" class="compliance-mini-card">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Connaissance client</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="ccTotal">—</span> / <span id="ccTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="ccObs">—</span> / <span id="ccObsPct">—</span> %</div>
@@ -288,7 +319,7 @@
             <div id="ccObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_30" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+        <div data-tb-marker="TB_30" class="compliance-mini-card">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres de mission</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="lmTotal">—</span> / <span id="lmTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="lmObs">—</span> / <span id="lmObsPct">—</span> %</div>
@@ -297,7 +328,7 @@
             <div id="lmObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_31" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+        <div data-tb-marker="TB_31" class="compliance-mini-card">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres d'adéquation</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="laTotal">—</span> / <span id="laTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="laObs">—</span> / <span id="laObsPct">—</span> %</div>
@@ -306,7 +337,7 @@
             <div id="laObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_32" style="background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);">
+        <div data-tb-marker="TB_32" class="compliance-mini-card">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
             <div style="font-weight:600; background:#f1f5f9; border-radius:8px; padding:6px; flex:1; text-align:center;">Réclamations</div>
             <button type="button" onclick="openInfoModal('reclamPivot')" aria-label="Voir le détail des réclamations" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; border:1px solid var(--primary); background:#fff; color:var(--primary); font-weight:600; cursor:pointer;">i</button>
@@ -562,11 +593,11 @@
           'Gouvernance produit',
           'Conclusion des contrats'
         ] %}
-      {% set tile_style = "background:#fff; border:1px solid var(--primary); border-radius:10px; padding:12px; text-align:center; box-shadow:0 2px 8px rgba(15,23,42,0.08);" %}
+      {% set tile_style = "" %}
       {% if title == 'Souscription RC Pro' and rcpro_doc_count > 0 and not rcpro_doc_valid %}
-        {% set tile_style = tile_style + " background:#fee2e2; border-color:#b91c1c;" %}
+        {% set tile_style = "background:#fee2e2; border-color:#b91c1c;" %}
       {% endif %}
-      <div style="{{ tile_style }}">
+      <div class="compliance-mini-card" style="{{ tile_style }}">
         <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px; display:flex; align-items:center; justify-content:center; gap:8px;">{{ title }}{% set info_id = info_ids.get(title) %}{% if info_id %} <button type='button' class='info-btn' onclick="openInfoModal('{{ info_id }}')" title='Informations'>ℹ️</button>{% endif %}</div>
           {% if title == 'Inscription ORIAS' %}
             {% if orias_doc_valid %}
@@ -862,7 +893,7 @@
 
 <div id="clienteleToggle" ></div>
   <div id="clienteleSection" data-tb-marker="TB_36" >
-    <div class="card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+    <div class="card compliance-mini-card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
       <h3>Découpage clients par détention</h3>
       <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
   </div>
@@ -870,7 +901,7 @@
 
 <div id="contractsToggle" ></div>
   <div id="contractsSection" data-tb-marker="TB_37" style="display:none;">
-    <div class="card" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+    <div class="card compliance-mini-card" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
       <h3>Découpage contrat par détention</h3>
       <canvas id="chartContractsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
     </div>
@@ -880,7 +911,7 @@
   <div id="srriToggle" ></div>
   <div id="srriSection" data-tb-marker="TB_38" >
     <div class="charts" data-tb-marker="TB_44" style="display:grid; grid-template-columns: minmax(260px, 320px) repeat(2, minmax(260px, 1fr)); gap:12px; max-width:1200px; margin:0 auto 12px auto; align-items:stretch;">
-      <div class="card" data-tb-marker="TB_38" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_38" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
         <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%;">
           <h3 class="risk-card-title" style="margin:0;">Clients</h3>
         </div>
@@ -917,13 +948,13 @@
           </div>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_45" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_45" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Clients par SRRI</h3>
         <div style="flex:1 1 auto; min-height:0;">
           <canvas id="chartClientsCount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_46" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_46" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Montant par SRRI (Clients)</h3>
         <div style="flex:1 1 auto; min-height:0;">
           <canvas id="chartClientsAmount" style="height:220px; max-height:220px;"></canvas>
@@ -931,7 +962,7 @@
       </div>
     </div>
     <div class="charts" data-tb-marker="TB_53" style="display:grid; grid-template-columns: minmax(260px, 320px) repeat(2, minmax(260px, 1fr)); gap:12px; max-width:1200px; margin:0 auto; align-items:stretch;">
-      <div class="card" data-tb-marker="TB_47" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_47" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
         <div data-tb-marker="TB_48" style="display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%;">
           <h3 class="risk-card-title" style="margin:0;">Affaires</h3>
         </div>
@@ -968,13 +999,13 @@
           </div>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_54" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_54" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Affaires par SRRI</h3>
         <div style="flex:1 1 auto; min-height:0;">
           <canvas id="chartAffairesCount" style="height:220px; max-height:220px;"></canvas>
         </div>
       </div>
-      <div class="card" data-tb-marker="TB_55" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
+      <div class="card compliance-mini-card" data-tb-marker="TB_55" style="display:flex; flex-direction:column; gap:6px; min-height:240px;">
         <h3 style="margin-bottom:0;">Montant par SRRI (Affaires)</h3>
         <div style="flex:1 1 auto; min-height:0;">
           <canvas id="chartAffairesAmount" style="height:220px; max-height:220px;"></canvas>

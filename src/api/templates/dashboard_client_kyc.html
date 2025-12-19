@@ -4,6 +4,9 @@
 
 {% block header_title %}
   <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="btn" onclick="try{ if (window.parent && window.parent.closeConfConnaissanceDetail && window.parent.openConfMain){ window.parent.closeConfConnaissanceDetail(); window.parent.openConfMain(); } else { window.history.back(); } }catch(e){ window.history.back(); }" style="margin-right:8px;">
+      ← Retour
+    </button>
     <span><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</span>
     {% if client %}
       <span class="muted" style="font-size:0.9rem;">Client&nbsp;: {{ client.prenom }} {{ client.nom }}</span>
@@ -23,6 +26,7 @@
   .hero-card { display:flex; flex-direction:column; gap:16px; align-items:flex-start; }
   .kyc-btn-row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; width:100%; }
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:0.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; }
+  .kyc-main-btn-disabled { opacity:0.6; cursor:not-allowed; pointer-events:none; }
   .kyc-etat-container { display:none; gap:12px; flex-direction:column; }
   .kyc-etat-container.open { display:flex; }
   .kyc-main-btn i { font-size:1rem; color:#fff; }
@@ -47,7 +51,7 @@
   .objective-btn:hover { background:var(--primary-50, #eef2ff); border-color:var(--primary); }
   .objective-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 8px 16px rgba(37, 99, 235, 0.25); }
   .accordion-header-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .objective-add-btn { border:1px solid var(--primary); background:#fff; color:var(--primary); width:36px; height:36px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(67,56,202,0.15); transition:background .2s ease, color .2s ease, opacity .2s ease; }
+  .objective-add-btn { border:1px solid var(--primary); background:#fff; color:var(--primary); min-width:96px; height:36px; padding:0 16px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(67,56,202,0.15); font-weight:600; font-size:0.9rem; transition:background .2s ease, color .2s ease, opacity .2s ease, box-shadow .2s ease; }
   .objective-add-btn:hover { background:var(--primary); color:#fff; }
   .objective-add-btn:disabled { background:#f1f5f9; color:#94a3b8; border-color:#e0e7ff; cursor:not-allowed; box-shadow:none; }
   .objective-add-btn:disabled:hover { background:#f1f5f9; color:#94a3b8; }
@@ -127,34 +131,69 @@
       <button type="button" class="kyc-main-btn" id="openEtatCivilBtn">
         <i class="fa-solid fa-user"></i>
         Etat civil
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.etat_civil %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.etat_civil.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openKycBtn">
         <i class="fa-solid fa-piggy-bank"></i>
         Patrimoine et revenu
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.patrimoine_revenus %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.patrimoine_revenus.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openKnowledgeBtn">
         <i class="fa-solid fa-graduation-cap"></i>
         Connaissances financières
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.connaissances_financieres %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.connaissances_financieres.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openEsgBtn">
         <i class="fa-solid fa-leaf"></i>
         Sensibilité ESG
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.sensibilite_esg %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.sensibilite_esg.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openObjectifsBtn">
         <i class="fa-solid fa-bullseye"></i>
         Objectifs
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.objectifs %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.objectifs.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openContratsBtn">
         <i class="fa-solid fa-file-contract"></i>
         Choix du contrat
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.choix_contrat %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.choix_contrat.percent }}%</span>
+        {% endif %}
       </button>
       <button type="button" class="kyc-main-btn" id="openLcbftBtn">
         <i class="fa-solid fa-shield-halved"></i>
         LCBFT
+        {% if kyc_status and kyc_status.sections and kyc_status.sections.lcbft %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
+        {% endif %}
       </button>
-      <a class="kyc-main-btn" href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1" download="rapport_kyc_{{ client_id }}.pdf">
+      {% set _overall = kyc_status.overall if kyc_status and kyc_status.overall else None %}
+      {% set _all_complete = kyc_status.all_sections_complete if kyc_status and (kyc_status.all_sections_complete is not none) else False %}
+      <a
+        class="kyc-main-btn{% if not _all_complete %} kyc-main-btn-disabled{% endif %}"
+        {% if _all_complete %}
+          href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1"
+        {% else %}
+          href="javascript:void(0)"
+          aria-disabled="true"
+        {% endif %}
+        download="rapport_kyc_{{ client_id }}.pdf"
+      >
         <i class="fa-solid fa-download"></i>
         Télécharger PDF
+        {% if _overall %}
+          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _overall.percent }}%</span>
+        {% endif %}
       </a>
       
     </div>
@@ -2509,7 +2548,7 @@
           <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span><i class="fa-solid fa-bullseye" style="margin-right:8px;"></i>Objectifs</span>
           <span class="chevron">▾</span>
         </button>
-        <button type="button" class="objective-add-btn" id="addObjectiveBtn"><i class="fa-solid fa-plus"></i></button>
+        <button type="button" class="objective-add-btn" id="addObjectiveBtn">Ajouter</button>
       </div>
       <div class="accordion-panel" id="objectifsPanel">
         <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
@@ -3263,11 +3302,12 @@ function toNumber(value){
 function updatePriorityOptions(preserveValue = true){
   if (!objectifFormNiveau) return;
   const oldValue = preserveValue ? toNumber(objectifFormNiveau.value) : null;
-  const n = objectifsSelected.length;
+  const total = Array.isArray(objectifsSelected) ? objectifsSelected.length : 0;
+  const n = total > 0 ? total : 1;
   const frag = document.createDocumentFragment();
   const opt0 = document.createElement('option');
   opt0.value = '';
-  opt0.textContent = '-- Choisir (1..' + (n || 'N') + ') --';
+  opt0.textContent = '-- Choisir (1..' + n + ') --';
   frag.appendChild(opt0);
   for (let i = 1; i <= n; i++){
     const o = document.createElement('option');
@@ -3278,6 +3318,11 @@ function updatePriorityOptions(preserveValue = true){
   }
   objectifFormNiveau.innerHTML = '';
   objectifFormNiveau.appendChild(frag);
+  // Premier objectif: forcer par défaut le niveau à 1 si aucun niveau n'était encore défini
+  if (total === 1 && oldValue === null){
+    objectifFormNiveau.value = '1';
+    try { syncCurrentObjectiveFromForm(); } catch(e){}
+  }
 }
 
 // Horizons possibles selon l'objectif sélectionné
@@ -3572,7 +3617,17 @@ function populateDetailForm(obj){
   }
   const montantEl = document.getElementById('objectifFormMontant');
   if (montantEl) montantEl.value = (obj.montant !== undefined && obj.montant !== null) ? String(obj.montant) : '';
-  if (objectifFormNiveau) objectifFormNiveau.value = obj.niveauId !== null && obj.niveauId !== undefined ? String(obj.niveauId) : '';
+  if (objectifFormNiveau){
+    // Si aucun niveau encore défini et qu'il s'agit du premier objectif,
+    // forcer par défaut le niveau de priorité à 1.
+    const total = Array.isArray(objectifsSelected) ? objectifsSelected.length : 0;
+    let niveauId = (obj.niveauId !== null && obj.niveauId !== undefined) ? obj.niveauId : null;
+    if ((niveauId === null || niveauId === undefined) && total === 1){
+      niveauId = 1;
+      obj.niveauId = 1;
+    }
+    objectifFormNiveau.value = (niveauId !== null && niveauId !== undefined) ? String(niveauId) : '';
+  }
   (function(){ const mEl = document.getElementById('objectifFormMontant'); if (mEl) mEl.value = (obj.montant !== undefined && obj.montant !== null) ? formatThousandsLocal(obj.montant) : ''; })();
   if (objectifFormCommentaire) objectifFormCommentaire.value = obj.commentaire || '';
   if (objectifFormDateExpiration) objectifFormDateExpiration.value = obj.dateExpiration || '';

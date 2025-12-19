@@ -17,14 +17,43 @@
 <style>
   .main-container { background: #fff; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 2rem; margin: 2rem auto; }
   .header-section { background: var(--primary); color: #fff; padding: 1.2rem; border-radius: 10px; margin-bottom: 1.2rem; text-align: center; box-shadow: var(--shadow-sm); }
+  .table-container {
+    margin-top: 0.75rem;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 10px 25px rgba(15, 23, 42, 0.25),
+      0 18px 45px rgba(15, 23, 42, 0.18);
+  }
   table { width: 100%; border-collapse: collapse; background: white; }
+  #docsTable th,
+  #docsTable td {
+    font-size: 18px;
+  }
+  #docsTable thead th {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
   /* En-têtes de tableau héritent du style global (base.html) */
   thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
   tbody td { padding: 10px 8px; }
-  /* Centrer la colonne Obsolescence (6) */
+  /* Centrer Niveau (4), Risque (5), Obsolescence (6) */
+  #docsTable thead th:nth-child(4),
+  #docsTable tbody td:nth-child(4),
+  #docsTable thead th:nth-child(5),
+  #docsTable tbody td:nth-child(5),
   #docsTable thead th:nth-child(6),
   #docsTable tbody td:nth-child(6) {
     text-align: center;
+  }
+  /* Largeur colonnes: Nom (1) large, Obsolescence (6) étroite */
+  #docsTable th:nth-child(1),
+  #docsTable td:nth-child(1) {
+    width: 30%;
+  }
+  #docsTable th:nth-child(6),
+  #docsTable td:nth-child(6) {
+    width: 70px;
   }
   /* Barre outils */
   .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin: .5rem 0 1rem 0; }

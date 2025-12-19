@@ -156,6 +156,20 @@
   .support-contract-link:hover { text-decoration:none; }
   .support-movement-link { color:#111827; text-decoration:underline; }
   .support-movement-link:hover { text-decoration:none; }
+  /* Icône PDF explicite (remplace l’icône PNG) */
+  .pdf-pill-icon {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    background:var(--primary-600);
+    color:#fff;
+    font-weight:700;
+    font-size:11px;
+    letter-spacing:0.03em;
+  }
   /* Boutons de période */
   .rangeBtn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; margin-right:4px; }
   .rangeBtn:hover { background:#eef1ff; border-color:#bbb; }
@@ -267,6 +281,9 @@
   }
   /* Boutons pilule type KYC */
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
+  .kyc-main-btn-red { background:#dc2626; border-color:#b91c1c; }
+  .kyc-main-btn-orange { background:#f97316; border-color:#ea580c; }
+  .kyc-main-btn[disabled] { opacity:0.6; cursor:not-allowed; }
   .kyc-main-btn i { font-size:1rem; color:#fff; }
   /* Bouton Conformité identique aux autres (pilule primaire) */
   /* Menu principal : icônes + libellés pour lisibilité */
@@ -407,8 +424,8 @@
       <button type="button" class="btn client-hide" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientAdminGroups()" title="Groupes">
         <i class="fa-solid fa-gear"></i>
       </button>
-      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="generateClientSynthese()" title="Edition de synthèse">
-        <i class="fa-solid fa-file-pdf"></i>
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="generateClientSynthese()" title="Edition de synthèse (PDF)">
+        <span class="pdf-pill-icon">PDF</span>
       </button>
     </div>
     <div class="grid" data-tb-marker="CL_02">
@@ -1354,16 +1371,40 @@ function generateClientSynthese(){
         <div>
           <h4 style="margin:0 0 8px 0; text-align:center;">Gestion</h4>
           <div style="display:flex; flex-direction:column; gap:8px;">
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); openConfConnaissanceDetail()"><i class="fa-solid fa-user-check"></i>Connaissance client</button>
+            {% set _kyc = kyc_status if kyc_status else None %}
+            {% set _overall = _kyc.overall if _kyc and _kyc.overall else None %}
+            {% set _pct = _overall.percent if _overall else 0 %}
+            {% set _complete = _overall.complete if _overall else False %}
+            {% set _btn_class = 'kyc-main-btn' %}
+            {% if _pct == 0 %}
+              {% set _btn_class = 'kyc-main-btn kyc-main-btn-red' %}
+            {% elif _complete %}
+              {% set _btn_class = 'kyc-main-btn' %}
+            {% else %}
+              {% set _btn_class = 'kyc-main-btn kyc-main-btn-orange' %}
+            {% endif %}
+            <button type="button" class="{{ _btn_class }}" style="width:100%;" onclick="closeConfMain(); openConfConnaissanceDetail()">
+              <i class="fa-solid fa-user-check"></i>
+              Connaissance client
+              {% if _overall %}
+                <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _overall.percent }}%</span>
+              {% endif %}
+            </button>
           </div>
         </div>
         <div>
           <h4 style="margin:0 0 8px 0; text-align:center;">Éditions</h4>
           <div style="display:flex; flex-direction:column; gap:8px;">
             <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();"><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();"><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="generateClientSynthese()"><i class="fa-solid fa-file-pdf"></i>Edition de synthèse</button>
+            {% set _obj_total = _kyc.objectifs_total if _kyc and (_kyc.objectifs_total is not none) else lm_total_invest %}
+            {% set _mission_enabled = (_obj_total or 0) > 0 %}
+            {% set _docs_enabled = _overall.complete if _overall else False %}
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();" {% if not _mission_enabled %}disabled title="Un montant global d'objectifs doit être saisi dans la fiche KYC."{% endif %}><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
+            <button type="button" class="kyc-main-btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="generateClientSynthese()" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}>
+              <span class="pdf-pill-icon">PDF</span>
+              <span>Edition de synthèse</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1373,23 +1414,34 @@ function generateClientSynthese(){
   <!-- Modal: Messages/Tâches client (filtré par type réglementaire / non réglementaire) -->
   <style>
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
-    .modal-card { background: #fff; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .modal-card { background: #fff; border-radius: 12px; width: 980px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
     .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
     .modal-header h3 { margin: 0; font-size: 1.05rem; }
     .modal-body { padding: 12px 14px; }
     .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
     /* Harmonisation colonnes pop-up Messages */
     #clientMsgsTable { table-layout: fixed; width: 100%; }
-    #clientMsgsTable th:nth-child(1), #clientMsgsTable td:nth-child(1) { width: 13%; }
-    #clientMsgsTable th:nth-child(2), #clientMsgsTable td:nth-child(2) { width: 15%; }
-    #clientMsgsTable th:nth-child(3), #clientMsgsTable td:nth-child(3) { width: 12%; }
-    #clientMsgsTable th:nth-child(4), #clientMsgsTable td:nth-child(4) { width: 10%; }
+    #clientMsgsTable th:nth-child(1), #clientMsgsTable td:nth-child(1) { width: 16%; }
+    #clientMsgsTable th:nth-child(2), #clientMsgsTable td:nth-child(2) { width: 30%; }
+    #clientMsgsTable th:nth-child(3), #clientMsgsTable td:nth-child(3) { width: 20%; }
+    #clientMsgsTable th:nth-child(4), #clientMsgsTable td:nth-child(4) { width: 12%; }
     #clientMsgsTable th:nth-child(5), #clientMsgsTable td:nth-child(5) { width: 12%; }
-    #clientMsgsTable th:nth-child(6), #clientMsgsTable td:nth-child(6) { width: 24%; }
-    #clientMsgsTable th:nth-child(7), #clientMsgsTable td:nth-child(7) { width: 10%; text-align:center; }
-    #clientMsgsTable th:nth-child(8), #clientMsgsTable td:nth-child(8) { width: 10%; text-align:center; }
-    #clientMsgsTable th:nth-child(9), #clientMsgsTable td:nth-child(9) { width: 10%; text-align:center; }
-    #clientMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #clientMsgsTable th:nth-child(6), #clientMsgsTable td:nth-child(6) { width: 30%; }
+    #clientMsgsTable td {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+    }
+    #clientMsgsTable td:hover {
+      white-space: normal;
+      overflow: visible;
+      position: relative;
+      z-index: 5;
+      background: #fff;
+      transform: scale(1.04);
+      box-shadow: 0 12px 28px rgba(15,23,42,0.22);
+    }
     #clientMsgsTable td:nth-child(6) { white-space: normal; word-break: break-word; }
   </style>
   <div id="clientMsgsModal" class="modal-overlay" data-tb-marker="CL_09" onclick="if(event.target===this) closeClientMsgs()">
@@ -1408,9 +1460,6 @@ function generateClientSynthese(){
             <th>Statut</th>
             <th>Contrat</th>
             <th>Commentaire</th>
-            <th>ID (row.id)</th>
-            <th>ID (evenement_id)</th>
-            <th>Action</th>
           </tr>
           </thead>
           <tbody></tbody>
@@ -2260,29 +2309,7 @@ function openClientMsgs(kind){
       const wrap=document.createElement('div'); wrap.appendChild(a); ctd.appendChild(wrap);
     }
     tr.appendChild(ctd);
-    const idRawTd = document.createElement('td');
-    idRawTd.textContent = (ev && ev.id != null && ev.id !== '') ? ev.id : '—';
-    const idAltTd = document.createElement('td');
-    idAltTd.textContent = (ev && ev.evenement_id != null && ev.evenement_id !== '') ? ev.evenement_id : '—';
-    tr.appendChild(idRawTd);
-    tr.appendChild(idAltTd);
-
-    const actionTd = document.createElement('td');
-    if (evId){
-      const editLink = document.createElement('a');
-      editLink.className='btn btn-choice';
-      editLink.style.cssText='padding:2px 6px; font-size:11px; border-radius:4px;';
-      editLink.innerHTML = '<i class=\"fa-solid fa-eye\"></i>';
-      editLink.href = appendMarkers('/dashboard/taches/' + evId);
-      editLink.target = '_blank';
-      editLink.rel = 'noopener noreferrer';
-      editLink.addEventListener('click', function(e){ e.stopPropagation(); });
-      actionTd.appendChild(editLink);
-    } else {
-      actionTd.textContent = '—';
-      actionTd.style.textAlign = 'center';
-    }
-    tr.appendChild(actionTd);
+    // plus de colonne ID / Action : la tâche reste accessible via le lien statut
     tbody.appendChild(tr);
   });
   modal.style.display = 'flex';
@@ -2425,108 +2452,103 @@ function openClientMsgs(kind){
     });
   })();
 
-  const labels = [{% for d in labels %}'{{ d }}'{% if not loop.last %}, {% endif %}{% endfor %}];
-  const data = [{% for v in serie_valo %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
-  const movs = [{% for v in serie_mov_cum %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
-  const movsRaw = [{% for v in serie_mov_raw %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
-  const ctx = document.getElementById('valoChart').getContext('2d');
-  const normLabels = labels.map(d => (d||'').toString().slice(0,10));
-  const parsedDates = normLabels.map(d => new Date(d));
-  const primaryColorValo = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#1d4ed8';
-  function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
-  function yearAt(index){
-    const d = parsedDates[index];
-    return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
-  }
-  new Chart(ctx, {
-    type: 'line',
-    data: { labels: normLabels, datasets: [
-      {
-        label: 'Valorisation',
-        data,
-        borderColor: primaryColorValo,
-        backgroundColor: 'transparent',
-        fill: false,
-        pointRadius: 0,
-        pointHoverRadius: 0
+  // Graphique valorisation & cumul mouvements (Chart.js)
+  (function(){
+    const labels = [{% for d in labels %}'{{ d }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+    const data = [{% for v in serie_valo %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+    const movs = [{% for v in serie_mov_cum %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+    const movsRaw = [{% for v in serie_mov_raw %}{{ v|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}];
+    const canvas = document.getElementById('valoChart');
+    if (!canvas || !labels.length) return;
+
+    const ctx = canvas.getContext('2d');
+    const normLabels = labels.map(d => (d||'').toString().slice(0,10));
+    const parsedDates = normLabels.map(d => new Date(d));
+    const primaryColorValo = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#1d4ed8';
+    function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
+    function yearAt(index){
+      const d = parsedDates[index];
+      return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
+    }
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: normLabels,
+        datasets: [
+          {
+            label: 'Valorisation',
+            data,
+            borderColor: primaryColorValo,
+            backgroundColor: 'transparent',
+            fill: false,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          },
+          {
+            label: 'Cumul mouvements',
+            data: movs,
+            borderColor: '#ff6b6b',
+            fill: false,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          }
+        ]
       },
-      {
-        label: 'Cumul mouvements',
-        data: movs,
-        borderColor: '#ff6b6b',
-        fill: false,
-        pointRadius: 0,
-        pointHoverRadius: 0
-      },
-      {
-        label: 'Zone verte',
-        data: data.map((v, i) => (v >= movs[i] ? v : null)),
-        borderColor: 'transparent',
-        backgroundColor: 'rgba(34, 197, 94, 0.16)',
-        fill: { target: 1 },
-        pointRadius: 0,
-        pointHoverRadius: 0
-      },
-      {
-        label: 'Zone rouge',
-        data: data.map((v, i) => (v < movs[i] ? v : null)),
-        borderColor: 'transparent',
-        backgroundColor: 'rgba(239, 68, 68, 0.16)',
-        fill: { target: 1 },
-        pointRadius: 0,
-        pointHoverRadius: 0
-      },
-    ] },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      stacked: false,
-      scales: {
-        x: {
-          ticks: {
-            autoSkip: false,
-            maxRotation: 0,
-            callback: (val, idx) => {
-              const y = yearAt(idx);
-              const prev = yearAt(idx - 1);
-              return y && y !== prev ? String(y) : '';
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        stacked: false,
+        scales: {
+          x: {
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (val, idx) => {
+                const y = yearAt(idx);
+                const prev = yearAt(idx - 1);
+                return y && y !== prev ? String(y) : '';
+              }
+            },
+            grid: {
+              color: (ctx) => {
+                const y = yearAt(ctx.index);
+                const prev = yearAt(ctx.index - 1);
+                return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
+              },
+              lineWidth: (ctx) => {
+                const y = yearAt(ctx.index);
+                const prev = yearAt(ctx.index - 1);
+                return y && y !== prev ? 2 : 0.5;
+              }
             }
           },
-          grid: {
-            color: (ctx) => {
-              const y = yearAt(ctx.index);
-              const prev = yearAt(ctx.index - 1);
-              return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
-            },
-            lineWidth: (ctx) => {
-              const y = yearAt(ctx.index);
-              const prev = yearAt(ctx.index - 1);
-              return y && y !== prev ? 2 : 0.5;
-            }
+          y: {
+            beginAtZero: false,
+            ticks: { callback: (v)=> euro(v) }
           }
         },
-        y: { beginAtZero: false, ticks: { callback: (v)=> euro(v) } }
-      },
-      plugins: {
-        legend: { display: true },
-        tooltip: {
-          callbacks: {
-            label: function(context){
-              const y = context.parsed.y;
-              const idx = context.dataIndex;
-              if (context.dataset.label === 'Cumul mouvements'){
-                const delta = movsRaw[idx] || 0;
-                return context.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: function(context){
+                const y = context.parsed.y;
+                const idx = context.dataIndex;
+                if (context.dataset.label === 'Cumul mouvements'){
+                  const delta = movsRaw[idx] || 0;
+                  return context.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
+                }
+                const diff = (data[idx] || 0) - (movs[idx] || 0);
+                const tag = diff >= 0 ? 'Gain' : 'Perte';
+                return [context.dataset.label+': '+euro(y), tag+': '+euro(Math.abs(diff))];
               }
-              const diff = (data[idx] || 0) - (movs[idx] || 0);
-              const tag = diff >= 0 ? 'Gain' : 'Perte';
-              return [context.dataset.label+': '+euro(y), tag+': '+euro(Math.abs(diff))];
             }
           }
         }
       }
-    }
-  });
+    });
+  })();
   // Graphique SRRI + performance (double courbe)
   (function(){
     const yearsClient = {{ years_client | tojson }};

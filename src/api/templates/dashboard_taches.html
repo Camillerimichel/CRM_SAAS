@@ -78,18 +78,20 @@
       gap:6px;
       padding:8px 12px;
       border-radius:10px;
-      border:1px solid var(--border);
-      background:#fff;
+      border:1px solid transparent;
+      background:transparent;
       cursor:pointer;
       font-weight:600;
-      box-shadow: 0 6px 14px rgba(15,23,42,0.08);
-      transition: all .15s ease;
+      font-size:18px;
+      box-shadow:none;
+      transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
     }
     .tasks-nav .nav-btn:hover {
-      background: var(--primary-100);
+      background: transparent;
       color: var(--primary-600);
-      border-color: #c7d2fe;
-      transform: translateY(-1px);
+      border-color: transparent;
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 12px 26px rgba(15,23,42,0.22);
     }
     .task-section { display:none; }
     .task-section.active { display:block; }
@@ -481,27 +483,57 @@
     </div>
     <form method="get" action="/dashboard/taches">
       <style>
+        .tasks-table-container {
+          margin-top: 0.75rem;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow:
+            0 10px 25px rgba(15, 23, 42, 0.25),
+            0 18px 45px rgba(15, 23, 42, 0.18);
+        }
         table.tasks-table-condensed th,
-        table.tasks-table-condensed td { font-size: .9rem; }
+        table.tasks-table-condensed td { font-size: 18px; }
+        table.tasks-table-condensed thead th {
+          padding-top: 6px;
+          padding-bottom: 6px;
+        }
+        /* Date (1) étroite et centrée */
+        table.tasks-table-condensed thead th:nth-child(1),
+        table.tasks-table-condensed tbody td:nth-child(1) {
+          width: 120px;
+          text-align: center;
+        }
+        /* Type (2) élargie */
         table.tasks-table-condensed thead th:nth-child(2),
         table.tasks-table-condensed tbody td:nth-child(2) {
-          width: 82px;
+          width: 220px;
           white-space: normal;
           line-height: 1.25;
         }
+        /* Affaire (4) réduite */
+        table.tasks-table-condensed thead th:nth-child(4),
+        table.tasks-table-condensed tbody td:nth-child(4) {
+          width: 170px;
+        }
+        /* RH (5) largeur existante mais wrap possible */
         table.tasks-table-condensed thead th:nth-child(5),
         table.tasks-table-condensed tbody td:nth-child(5) {
           width: 110px;
           white-space: normal;
           line-height: 1.25;
         }
+        /* Statut (6) plus étroite */
         table.tasks-table-condensed thead th:nth-child(6),
-        table.tasks-table-condensed tbody td:nth-child(6) { width: 120px; }
+        table.tasks-table-condensed tbody td:nth-child(6) {
+          width: 140px;
+          text-align: center;
+        }
         table.tasks-table-condensed .wrap-2 { white-space: normal; word-break: break-word; }
         table.tasks-table-condensed td.status-cell {
           white-space: normal;
           display: flex;
           align-items: flex-start;
+          justify-content: center;
           gap: 6px;
           flex-wrap: wrap;
         }
@@ -527,10 +559,23 @@
           gap: 6px;
           white-space: normal;
           line-height: 1.2;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          box-shadow: none;
+          transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
+        }
+        .tasks-quickfilters .btn-choice:hover {
+          transform: translateY(-2px) scale(1.03);
+          box-shadow: 0 12px 26px rgba(15,23,42,0.22);
+          border-color: transparent;
+          background: transparent;
+          color: var(--primary-700);
         }
       </style>
-      <table id="tasksTable" class="display tasks-table-condensed" style="width:100%">
-        <thead>
+      <div class="tasks-table-container">
+        <table id="tasksTable" class="display tasks-table-condensed" style="width:100%">
+          <thead>
           <tr>
             <th>Date</th>
             <th>Type</th>
@@ -603,7 +648,8 @@
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
       <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
       <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
       <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
