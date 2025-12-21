@@ -567,8 +567,8 @@
           'Distribution des contrats': 'distribution',
           "Conditions d'exercice": 'conditions',
           'Rôle du distributeur': 'role',
-          'Blanchiment': 'blanchiment',
-          'Gouvernance produit': 'gouvernance',
+          'LCBFT': 'blanchiment',
+          'Offre produit': 'gouvernance',
           'Conclusion des contrats': 'conclusion'
         } %}
         {% set info_records = {
@@ -589,8 +589,8 @@
           'Distribution des contrats',
           "Conditions d'exercice",
           'Rôle du distributeur',
-          'Blanchiment',
-          'Gouvernance produit',
+          'LCBFT',
+          'Offre produit',
           'Conclusion des contrats'
         ] %}
       {% set tile_style = "" %}
@@ -684,7 +684,7 @@
                 </span>
               </div>
             {% endif %}
-          {% elif title == 'Gouvernance produit' %}
+          {% elif title == 'Offre produit' %}
             {% if gouvernance_doc_count > 0 %}
               {% if gouvernance_doc_valid %}
                 <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ gouvernance_doc_valid_count }} document{% if gouvernance_doc_valid_count > 1 %}s{% endif %} valide{% if gouvernance_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ gouvernance_doc_expiry_display }})</p>
@@ -720,7 +720,7 @@
                 </span>
               </div>
             {% endif %}
-          {% elif title == 'Blanchiment' %}
+          {% elif title == 'LCBFT' %}
             {% if blanchiment_doc_count > 0 %}
               {% if blanchiment_doc_valid %}
                 <p style="margin:0; font-weight:600; color:#166534;">🟢 {{ blanchiment_doc_valid_count }} document{% if blanchiment_doc_valid_count > 1 %}s{% endif %} valide{% if blanchiment_doc_valid_count > 1 %}s{% endif %} (dernière échéance {{ blanchiment_doc_expiry_display }})</p>

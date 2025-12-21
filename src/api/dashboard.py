@@ -24075,6 +24075,33 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         except Exception:
             mouvements_map[rid] = 0.0
 
+    affaire_ids = [r.id for r in affaires_rows if getattr(r, "id", None) is not None]
+    sri_map: dict[int, int | None] = {}
+    if affaire_ids:
+        try:
+            sri_query = text(
+                """
+                SELECT entity_id, sri, as_of_date, calc_at
+                FROM sri_metrics
+                WHERE entity_type = 'affaire' AND entity_id IN :ids
+                ORDER BY entity_id, as_of_date DESC, calc_at DESC
+                """
+            ).bindparams(bindparam("ids", expanding=True))
+            sri_rows = db.execute(sri_query, {"ids": affaire_ids}).fetchall()
+            for row in sri_rows or []:
+                mapping = row._mapping if hasattr(row, "_mapping") else None
+                rid_raw = mapping.get("entity_id") if mapping else (row[0] if len(row) > 0 else None)
+                sri_raw = mapping.get("sri") if mapping else (row[1] if len(row) > 1 else None)
+                try:
+                    rid = int(rid_raw) if rid_raw is not None else None
+                except Exception:
+                    rid = None
+                if rid is None or rid in sri_map:
+                    continue
+                sri_map[rid] = sri_raw
+        except Exception:
+            sri_map = {}
+
     client_affaires = []
     consolidation_rows: list[dict] = []
     for r in affaires_rows:
@@ -24105,6 +24132,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "id": r.id,
             "ref": r.ref,
             "SRRI": r.SRRI,
+            "sri": sri_map.get(r.id),
             "date_debut": r.date_debut,
             "date_cle": r.date_cle,
             "last_valo": r.last_valo,
@@ -24192,7 +24220,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     "noteS": r.noteS,
                     "noteG": r.noteG,
                     "nb_parts_str": _format_decimal(r.nb_parts_totaux, 2),
-                    "prmp_str": _format_decimal(r.prmp_consolide, 4),
+                    "prmp_str": _format_decimal(r.prmp_consolide, 2),
                     "vl_str": _format_decimal(r.vl_moyenne, 2),
                     "valo_str": _format_decimal(r.valo_totale, 0),
                     "contrats_count_str": str(int(r.contrats_count or 0)),
