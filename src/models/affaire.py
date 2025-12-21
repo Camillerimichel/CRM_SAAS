@@ -10,6 +10,7 @@ class Affaire(Base):
     date_debut = Column(DateTime, nullable=True)
     date_cle = Column(DateTime, nullable=True)
     SRRI = Column("srri", Integer, nullable=True)
+    sri = Column("SRI", Integer, nullable=True)
     frais_negocies = Column("frais_negocies", Numeric(15, 2), nullable=True)
     id_affaire_generique = Column(Integer, ForeignKey("mariadb_affaires_generique.id"), nullable=True)
     id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

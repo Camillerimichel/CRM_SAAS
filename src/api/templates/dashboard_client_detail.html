@@ -279,6 +279,184 @@
     background: linear-gradient(90deg, rgba(254, 226, 226, 0.8), rgba(254, 226, 226, 0.3));
     color: #7f1d1d;
   }
+  #contractsList { display:flex; flex-direction:column; gap:10px; margin-top:8px; width:100%; }
+  .contract-card {
+    display:block;
+    width:100%;
+    box-sizing:border-box;
+    padding:12px 14px;
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    background:#fff;
+    color: inherit;
+    text-decoration:none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .contract-card:hover {
+    transform: scale(1.01);
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+    border-color: rgba(36, 86, 166, 0.35);
+  }
+  .contract-card:focus-visible {
+    outline:2px solid var(--primary);
+    outline-offset:2px;
+  }
+  .contract-card-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .contract-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-weight:600; }
+  .contract-ref { font-size:1rem; }
+  .contract-srri { display:flex; align-items:center; gap:6px; justify-content:flex-end; min-width:140px; }
+  .contract-card-grid { display:grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap:10px 16px; margin-top:8px; }
+  .contract-item { display:flex; align-items:center; justify-content:flex-start; gap:6px; }
+  .contract-label { font-size:0.9rem; font-weight:500; text-transform:none; letter-spacing:0; color:#6b7280; white-space:nowrap; }
+  .contract-value { font-size:0.9rem; font-weight:500; color:var(--text); display:inline-flex; align-items:center; gap:6px; text-align:left; }
+  .contract-srri .contract-label { margin:0; }
+  .contract-srri .contract-value { justify-content:flex-end; margin-left:0; }
+  .contract-item-perf { padding-left:1ch; }
+  .contract-item-volat { margin-left:-3ch; }
+  .contract-item-amount .contract-value {
+    min-width: 13ch;
+    justify-content:flex-end;
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+  }
+  .sri-scale {
+    display:inline-grid;
+    grid-auto-flow:column;
+    gap:3px;
+    margin-left:6px;
+  }
+  .contract-item-sri { margin-left:-4ch; }
+  .contract-item-srri { margin-left:-10ch; }
+  .sri-scale-item {
+    width:18px;
+    height:18px;
+    border:1px solid #d1d5db;
+    border-radius:4px;
+    font-size:0.75rem;
+    line-height:16px;
+    text-align:center;
+    color:#6b7280;
+    background:#fff;
+  }
+  .sri-scale-item.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: rgba(36, 86, 166, 0.12);
+    font-weight:600;
+  }
+  #supportsList { display:flex; flex-direction:column; gap:10px; margin-top:10px; width:100%; }
+  .support-card {
+    display:block;
+    width:100%;
+    box-sizing:border-box;
+    padding:12px 14px;
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    background:#fff;
+    color: inherit;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+  }
+  .support-card:hover {
+    transform: scale(1.01);
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+    border-color: rgba(36, 86, 166, 0.35);
+  }
+  .support-card-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .support-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-weight:600; }
+  .support-name { font-size:1rem; }
+  .support-card-grid {
+    display:grid;
+    grid-template-columns:
+      minmax(110px, 0.7fr)  /* Contrats */
+      minmax(120px, 0.8fr)  /* Nb parts */
+      minmax(140px, 1fr)    /* Prix de revient */
+      minmax(140px, 1.05fr) /* VL moyenne */
+      minmax(150px, 1.1fr)  /* Valorisation */
+      minmax(44px, 0.3fr)   /* E */
+      minmax(44px, 0.3fr)   /* S */
+      minmax(44px, 0.3fr);  /* G */
+    gap:10px 16px;
+    margin-top:8px;
+  }
+  .support-item { display:flex; align-items:center; justify-content:flex-start; gap:6px; }
+  .support-label { font-size:0.9rem; font-weight:500; color:#6b7280; white-space:nowrap; }
+  .support-value { font-size:0.9rem; font-weight:500; color:var(--text); display:inline-flex; align-items:center; gap:6px; text-align:left; }
+  .support-item-parts { margin-left:-2ch; }
+  .support-item-parts .support-value {
+    min-width: 9ch;
+    justify-content:flex-end;
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+  }
+  .support-item-prmp .support-value {
+    min-width: 9ch;
+    justify-content:flex-end;
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+  }
+  .support-item-vl .support-value {
+    min-width: 9ch;
+    justify-content:flex-end;
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+  }
+  .support-item-valo .support-value {
+    min-width: 11ch;
+    justify-content:flex-end;
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+  }
+  .support-item-esg {
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:4px;
+  }
+  .support-item-esg .support-label {
+    font-size:0.8rem;
+    min-width:auto;
+  }
+  .support-item-esg .support-value {
+    min-width:1.2ch;
+    padding:0 4px;
+    border:1px solid #e5e7eb;
+    border-radius:6px;
+    background:#f8fafc;
+    justify-content:center;
+    text-align:center;
+  }
+  .section-title-blue {
+    display:inline-block;
+    background: var(--primary);
+    color:#fff;
+    padding:4px 10px;
+    border-radius:8px;
+  }
+  @media (max-width: 900px) {
+    .support-card-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .support-card-grid { grid-template-columns: 1fr; }
+    .support-item-parts { margin-left:0; }
+  }
+  .contract-card.highlight-cle {
+    background: linear-gradient(90deg, rgba(254, 226, 226, 0.8), rgba(254, 226, 226, 0.3));
+    border-color: #fecaca;
+    color: #7f1d1d;
+  }
+  .contract-card.highlight-cle .contract-label { color: #7f1d1d; }
+  .contract-card.highlight-cle .contract-value { color: #7f1d1d; }
+  @media (max-width: 900px) {
+    .contract-card-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .contract-card-grid { grid-template-columns: 1fr; }
+    .contract-srri { justify-content:flex-start; }
+    .contract-srri .contract-value { justify-content:flex-start; }
+    .contract-item-perf { padding-left:0; }
+    .contract-item-volat { margin-left:0; }
+  }
   /* Boutons pilule type KYC */
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
   .kyc-main-btn-red { background:#dc2626; border-color:#b91c1c; }
@@ -1622,11 +1800,35 @@ function generateClientSynthese(){
       e.preventDefault();
       openConsolidatedSupportContractsModal(el.dataset.isin || '', el.dataset.name || '');
     }, false);
+    document.addEventListener('click', function(e){
+      if (e.target.closest('.consolidated-support-link')) return;
+      var card = e.target.closest('.support-card');
+      if (!card) return;
+      openConsolidatedSupportContractsModal(card.dataset.isin || '', card.dataset.name || '');
+    }, false);
+    document.addEventListener('keydown', function(e){
+      if (e.target.closest('.consolidated-support-link')) return;
+      var card = e.target.closest('.support-card');
+      if (!card) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openConsolidatedSupportContractsModal(card.dataset.isin || '', card.dataset.name || '');
+      }
+    }, false);
 
     function openConsolidatedSupportContractsModal(isin, name){
       var modal = document.getElementById('consolidatedSupportContractsModal');
       if (!modal) return;
-      document.getElementById('supportContractsIsin').textContent = isin || '—';
+      var isinLink = document.getElementById('supportContractsIsinLink');
+      if (isinLink){
+        if (isin){
+          isinLink.textContent = isin;
+          isinLink.href = '/dashboard/supports?isin=' + encodeURIComponent(isin);
+        } else {
+          isinLink.textContent = '—';
+          isinLink.removeAttribute('href');
+        }
+      }
       document.getElementById('supportContractsName').textContent = name || '—';
       renderConsolidatedSupportContractsTable(isin, name);
       renderConsolidatedSupportChronologyTable(isin);
@@ -1792,7 +1994,7 @@ function generateClientSynthese(){
         <button class="modal-close" onclick="closeConsolidatedSupportContractsModal()">✕</button>
       </div>
       <div class="modal-body">
-        <p><strong>Support :</strong> <span id="supportContractsIsin"></span> — <span id="supportContractsName"></span></p>
+        <p><strong>Support :</strong> <a id="supportContractsIsinLink" href="#" target="_blank" rel="noopener"></a> — <span id="supportContractsName"></span></p>
         <div class="table-responsive">
           <table class="table table-sm" style="width:100%; font-size:12px; margin-bottom:0;">
             <thead>
@@ -1839,48 +2041,30 @@ function generateClientSynthese(){
   </style>
   <div id="invSection" class="card" data-tb-marker="CL_15" style="display:none;">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-      <h3 style="margin:4px 8px 8px 0;">Contrats du client</h3>
+      <h3 class="section-title-blue" style="margin:4px 8px 8px 0;">Contrats du client</h3>
       {% if available_dates %}
         <label for="asOfSelect" class="muted" style="font-size:0.85rem;">Date effective:</label>
-        <select id="asOfSelect" style="padding:4px 8px; font-size:0.9rem; width:12ch; min-width:12ch;">
+        <select id="asOfSelect" style="padding:4px 8px; font-size:0.9rem; width:16ch; min-width:16ch;">
           {% for d in available_dates %}
             <option value="{{ d }}" {% if d == as_of_effective %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
         </select>
       {% endif %}
     </div>
-    <table id="contractsTable" data-tb-marker="CL_16">
-      <thead>
-        <tr>
-          <th>Contrat</th>
-          <th>SRRI</th>
-          <th>Date début</th>
-          <th>Montant</th>
-          <th>Perf. 52s</th>
-          <th>Volat. 52s</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in client_affaires %}
-        <tr class="{% if a.date_cle %}highlight-cle{% endif %}">
-          <td>
-            <a href="/dashboard/affaires/{{ a.id }}" target="_blank" style="text-decoration:underline; color: inherit;">{{ a.ref }}</a>
+    <div id="contractsList" data-tb-marker="CL_16">
+      {% for a in client_affaires %}
+      <a href="/dashboard/affaires/{{ a.id }}" target="_blank" class="contract-card {% if a.date_cle %}highlight-cle{% endif %}">
+        <div class="contract-card-header">
+          <div class="contract-title">
+            <span class="contract-ref">{{ a.ref }}</span>
             {% if a.date_cle %}<span class="badge-closed">Le contrat est clôturé ({{ (a.date_cle|string)[:10] }})</span>{% endif %}
-          </td>
-          <td style="text-align:center;">
-            {{ a.SRRI }}
-            {% if a.srri_icon %}
-              {% if a.srri_icon == 'fire' %}
-                <span class="srri-dot srri-blue" title="Au‑dessus" aria-hidden="true"></span>
-              {% elif a.srri_icon == 'hands-praying' %}
-                <span class="srri-dot srri-green" title="Identique" aria-hidden="true"></span>
-              {% elif a.srri_icon == 'snowflake' %}
-                <span class="srri-dot srri-red" title="En‑dessous" aria-hidden="true"></span>
-              {% else %}{% endif %}
-              <span class="srri-calc" style="margin-left:6px; font-size:11px; color:#666;">{{ a.srri_calc }}</span>
-            {% endif %}
-          </td>
-          <td class="center">{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
+          </div>
+        </div>
+        <div class="contract-card-grid">
+          <div class="contract-item">
+            <div class="contract-label">Date début</div>
+            <div class="contract-value">{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</div>
+          </div>
           {% set dot_class = 'valo-neutral' %}
           {% set dot_title = 'Valorisation stable' %}
           {% set ecart = a.ecart_valo_mvt if a.ecart_valo_mvt is defined else None %}
@@ -1898,47 +2082,89 @@ function generateClientSynthese(){
           {% else %}
             {% set dot_title = 'Valorisation nulle ou négative' %}
           {% endif %}
-          <td style="text-align:right;">
-            <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
-          </td>
-          <td style="text-align:right;">{% if a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% endif %}</td>
-          <td style="text-align:right;">{% if a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <h3 style="margin-top:14px;">Supports consolidés (tous contrats)</h3>
-    <div class="table-responsive" style="margin-top:10px;">
-      <table id="supportsClient" class="table table-sm" style="width:100%; border-collapse:collapse; font-size:13px;">
-        <thead>
-          <tr>
-            <th>ISIN</th>
-            <th>Support</th>
-            <th>Contrats</th>
-            <th style="text-align:right;">Nb parts</th>
-            <th style="text-align:right;">Prix de revient</th>
-            <th style="text-align:right;">VL moyenne</th>
-            <th style="text-align:right;">Valorisation</th>
-            <th class="center">E</th>
-            <th class="center">S</th>
-            <th class="center">G</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in consolidated_supports %}
-          <tr>
-            <td>
-              {% if s.code_isin %}
-                <a href="#" class="consolidated-support-link" data-isin="{{ s.code_isin }}" data-name="{{ s.support_nom or '' }}">{{ s.code_isin }}</a>
-              {% else %}
-                —
+          <div class="contract-item contract-item-amount">
+            <div class="contract-label">Montant</div>
+            <div class="contract-value">
+              <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
+            </div>
+          </div>
+          <div class="contract-item contract-item-perf">
+            <div class="contract-label">Perf. 52s</div>
+            <div class="contract-value">{% if a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% endif %}</div>
+          </div>
+          <div class="contract-item contract-item-volat">
+            <div class="contract-label">Volat. 52s</div>
+            <div class="contract-value">{% if a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% endif %}</div>
+          </div>
+          <div class="contract-item contract-item-srri">
+            <div class="contract-label">SRRI</div>
+            <div class="contract-value">
+              {% if a.srri_icon %}
+                {% if a.srri_icon == 'fire' %}
+                  <span class="srri-dot srri-blue" title="Au‑dessus" aria-hidden="true"></span>
+                {% elif a.srri_icon == 'hands-praying' %}
+                  <span class="srri-dot srri-green" title="Identique" aria-hidden="true"></span>
+                {% elif a.srri_icon == 'snowflake' %}
+                  <span class="srri-dot srri-red" title="En‑dessous" aria-hidden="true"></span>
+                {% else %}{% endif %}
               {% endif %}
-            </td>
-            <td>{{ s.support_nom or '—' }}</td>
-            <td class="center">{{ s.contrats_count_str or '0' }}</td>
-            <td style="text-align:right;">{{ s.nb_parts_str or '—' }}</td>
-            <td style="text-align:right;">{{ s.prmp_str or '—' }}</td>
-            <td style="text-align:right;">
+              {% if a.SRRI is not none %}
+                <span class="sri-scale" aria-hidden="true">
+                  {% for i in range(1, 8) %}
+                    <span class="sri-scale-item {% if a.SRRI == i %}active{% endif %}">{{ i }}</span>
+                  {% endfor %}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="contract-item contract-item-sri">
+            <div class="contract-label">SRI</div>
+            <div class="contract-value">
+              {{ a.sri if a.sri is not none else '—' }}
+              {% if a.sri is not none %}
+                <span class="sri-scale" aria-hidden="true">
+                  {% for i in range(1, 8) %}
+                    <span class="sri-scale-item {% if a.sri == i %}active{% endif %}">{{ i }}</span>
+                  {% endfor %}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <hr style="border:0; border-top:3px solid #cbd5f5; margin:16px 0 12px;">
+    <h3 class="section-title-blue" style="margin-top:0;">Supports consolidés (tous contrats)</h3>
+    <div id="supportsList">
+      {% for s in consolidated_supports %}
+      <div class="support-card" data-isin="{{ s.code_isin or '' }}" data-name="{{ s.support_nom or '' }}" tabindex="0" role="button">
+        <div class="support-card-header">
+          <div class="support-title">
+            {% if s.code_isin %}
+              <a href="#" class="consolidated-support-link" data-isin="{{ s.code_isin }}" data-name="{{ s.support_nom or '' }}">{{ s.code_isin }}</a>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+            <span class="support-name">{{ s.support_nom or '—' }}</span>
+          </div>
+        </div>
+        <div class="support-card-grid">
+          <div class="support-item">
+            <div class="support-label">Contrats</div>
+            <div class="support-value">{{ s.contrats_count_str or '0' }}</div>
+          </div>
+          <div class="support-item support-item-parts">
+            <div class="support-label">Nb parts</div>
+            <div class="support-value">{{ s.nb_parts_str or '—' }}</div>
+          </div>
+          <div class="support-item support-item-prmp">
+            <div class="support-label">Prix de revient</div>
+            <div class="support-value">{{ s.prmp_str or '—' }}</div>
+          </div>
+          <div class="support-item support-item-vl">
+            <div class="support-label">VL moyenne</div>
+            <div class="support-value">
               {% set nav_class = 'nav-dot nav-neutral' %}
               {% set nav_title = 'VL indisponible' %}
               {% if s.prmp_consolide is not none and s.vl_moyenne is not none %}
@@ -1958,18 +2184,30 @@ function generateClientSynthese(){
               {% else %}
                 <span class="muted">-</span>
               {% endif %}
-            </td>
-            <td style="text-align:right;">{{ s.valo_str or '—' }}</td>
-            <td class="center">{{ s.noteE or '—' }}</td>
-            <td class="center">{{ s.noteS or '—' }}</td>
-            <td class="center">{{ s.noteG or '—' }}</td>
-          </tr>
-          {% endfor %}
-          {% if not consolidated_supports %}
-          <tr><td colspan="10" class="muted">Aucun support consolidé trouvé.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+            </div>
+          </div>
+          <div class="support-item support-item-valo">
+            <div class="support-label">Valorisation</div>
+            <div class="support-value">{{ s.valo_str or '—' }}</div>
+          </div>
+          <div class="support-item support-item-esg">
+            <div class="support-label">Env</div>
+            <div class="support-value">{{ s.noteE or '—' }}</div>
+          </div>
+          <div class="support-item support-item-esg">
+            <div class="support-label">Social</div>
+            <div class="support-value">{{ s.noteS or '—' }}</div>
+          </div>
+          <div class="support-item support-item-esg">
+            <div class="support-label">Gouv</div>
+            <div class="support-value">{{ s.noteG or '—' }}</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      {% if not consolidated_supports %}
+        <div class="muted">Aucun support consolidé trouvé.</div>
+      {% endif %}
     </div>
   </div>
 
@@ -2471,6 +2709,41 @@ function openClientMsgs(kind){
       return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
     }
 
+    const areaFillPlugin = {
+      id: 'valoMovsFill',
+      beforeDatasetsDraw(chart){
+        const metaValo = chart.getDatasetMeta(0);
+        const metaMovs = chart.getDatasetMeta(1);
+        if (!metaValo || !metaMovs || !metaValo.data || !metaMovs.data) return;
+        const len = Math.min(metaValo.data.length, metaMovs.data.length);
+        if (len < 2) return;
+        const ctxPlugin = chart.ctx;
+        ctxPlugin.save();
+        for (let i = 0; i < len - 1; i++){
+          const v0 = metaValo.data[i];
+          const v1 = metaValo.data[i + 1];
+          const m0 = metaMovs.data[i];
+          const m1 = metaMovs.data[i + 1];
+          if (!v0 || !v1 || !m0 || !m1) continue;
+          const yv0 = v0.$context.raw;
+          const yv1 = v1.$context.raw;
+          const ym0 = m0.$context.raw;
+          const ym1 = m1.$context.raw;
+          if (!isFinite(yv0) || !isFinite(yv1) || !isFinite(ym0) || !isFinite(ym1)) continue;
+          const sign = ((yv0 + yv1) / 2) - ((ym0 + ym1) / 2);
+          ctxPlugin.fillStyle = sign >= 0 ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.28)';
+          ctxPlugin.beginPath();
+          ctxPlugin.moveTo(v0.x, v0.y);
+          ctxPlugin.lineTo(v1.x, v1.y);
+          ctxPlugin.lineTo(m1.x, m1.y);
+          ctxPlugin.lineTo(m0.x, m0.y);
+          ctxPlugin.closePath();
+          ctxPlugin.fill();
+        }
+        ctxPlugin.restore();
+      }
+    };
+
     new Chart(ctx, {
       type: 'line',
       data: {
@@ -2495,6 +2768,7 @@ function openClientMsgs(kind){
           }
         ]
       },
+      plugins: [areaFillPlugin],
       options: {
         responsive: true,
         interaction: { mode: 'index', intersect: false },

@@ -1883,9 +1883,7 @@ $(document).ready(function () {
         });
     }
 
-    $('#supportsTable tbody').on('click', 'a.support-link', function(e){
-        e.preventDefault();
-        var code = $(this).data('isin');
+    function openSupportByCode(code){
         if (!code) return;
         openSupportModal();
         renderSupportModalLoading(code);
@@ -1907,6 +1905,12 @@ $(document).ready(function () {
                 if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
                 if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
             });
+    }
+
+    $('#supportsTable tbody').on('click', 'a.support-link', function(e){
+        e.preventDefault();
+        var code = $(this).data('isin');
+        openSupportByCode(code);
     });
 
     $('#supportModalClose').on('click', function(){ closeSupportModal(); });
@@ -1922,6 +1926,15 @@ $(document).ready(function () {
         if (!url) return;
         window.location.href = url;
     });
+    (function(){
+        try {
+            var params = new URLSearchParams(window.location.search);
+            var code = params.get('isin') || params.get('code_isin');
+            if (code){
+                openSupportByCode(code);
+            }
+        } catch(e) {}
+    })();
     $('#supportCompareToggle').on('click', function(){ toggleSupportCompare(); });
     $('#supportCompareBtn').on('click', function(){ 
         var term = ($('#supportCompareInput').val() || '').trim();
