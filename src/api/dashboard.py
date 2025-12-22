@@ -21569,7 +21569,7 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
         last_date_str = None
 
     # Récupérer les supports avec leur valo à cette date
-    results = db.execute(
+    rows = db.execute(
         text("""
             SELECT
                 s.code_isin,
@@ -21577,25 +21577,61 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
                 s.cat_gene AS categorie,
                 s.cat_geo AS zone_geo,
                 s.SRRI,
+                esg.notee AS noteE,
+                esg.notes AS noteS,
+                esg.noteg AS noteG,
                 SUM(h.valo) AS total_valo,
                 h.date
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
+            LEFT JOIN donnees_esg_etendu esg ON esg.isin = s.code_isin
             WHERE h.date = :last_date
-            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, h.date
+            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.notee, esg.notes, esg.noteg, h.date
             HAVING SUM(h.valo) > 0
             ORDER BY total_valo DESC
         """),
         {"last_date": last_date}
     ).fetchall()
+    supports = []
+    for row in rows or []:
+        mapping = row._mapping if hasattr(row, "_mapping") else {}
+        supports.append({
+            "code_isin": mapping.get("code_isin", getattr(row, "code_isin", None)),
+            "nom": mapping.get("nom", getattr(row, "nom", None)),
+            "categorie": mapping.get("categorie", getattr(row, "categorie", None)),
+            "zone_geo": mapping.get("zone_geo", getattr(row, "zone_geo", None)),
+            "SRRI": mapping.get("SRRI", getattr(row, "SRRI", None)),
+            "noteE": mapping.get("noteE", mapping.get("notee", getattr(row, "noteE", None))),
+            "noteS": mapping.get("noteS", mapping.get("notes", getattr(row, "noteS", None))),
+            "noteG": mapping.get("noteG", mapping.get("noteg", getattr(row, "noteG", None))),
+            "total_valo": float(mapping.get("total_valo", getattr(row, "total_valo", 0)) or 0),
+            "date": mapping.get("date", getattr(row, "date", None)),
+        })
+    try:
+        import math
+        max_valo = max((s.get("total_valo") or 0) for s in supports) if supports else 0
+        if max_valo > 0:
+            denom = math.log10(1 + max_valo)
+            for s in supports:
+                val = s.get("total_valo") or 0
+                if val > 0 and denom > 0:
+                    s["valo_log_pct"] = (math.log10(1 + val) / denom) * 100.0
+                else:
+                    s["valo_log_pct"] = 0.0
+        else:
+            for s in supports:
+                s["valo_log_pct"] = 0.0
+    except Exception:
+        for s in supports:
+            s["valo_log_pct"] = 0.0
 
     return templates.TemplateResponse(
         "dashboard_supports.html",
         {
             "request": request,
-            "supports": results,
+            "supports": supports,
             "last_date": last_date_str,
-            "total_supports": len(results),
+            "total_supports": len(supports),
         }
     )
 

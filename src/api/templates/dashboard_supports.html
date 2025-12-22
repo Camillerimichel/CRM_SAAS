@@ -30,26 +30,28 @@
         background: white;
         table-layout: fixed; /* respecter les largeurs de colonnes */
     }
-    /* En-têtes de tableau héritent du style global (base.html) */
-    thead input, thead select {
+    .filters-panel input, .filters-panel select {
         width: 100%;
         padding: 4px 6px; /* champs plus compacts */
         border: 1px solid #ccc;
         border-radius: 6px;
         font-size: 12px; /* police réduite */
     }
+    #supportsTable th,
+    #supportsTable td {
+        font-size: 13.5px;
+    }
     tbody td {
         padding: 6px 6px; /* cellules plus compactes */
         line-height: 1.2;
-        font-size: 12px;
         white-space: nowrap; /* évite les retours à la ligne */
     }
 
     /* Ajustement des largeurs de colonnes pour mieux répartir l'espace */
-    /* Colonnes: 1=ISIN, 2=Nom, 3=Catégorie, 4=Zone, 5=SRRI, 6=Valo */
+    /* Colonnes: 1=ISIN, 2=Nom, 3=Catégorie, 4=Zone, 5=SRRI, 6=E, 7=S, 8=G, 9=Valo */
     #supportsTable th:nth-child(1),
     #supportsTable td:nth-child(1) { /* Code ISIN */
-        width: 14%;
+        width: 12%;
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -59,21 +61,79 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    #supportsTable th:nth-child(3),
+    #supportsTable td:nth-child(3) { /* Catégorie */
+        width: 18%;
+    }
     #supportsTable th:nth-child(4),
     #supportsTable td:nth-child(4) { /* Zone géo */
-        width: 20%;
+        width: 12%;
+    }
+    #supportsTable th:nth-child(9),
+    #supportsTable td:nth-child(9) { /* Valo Total */
+        width: 12%;
     }
     #supportsTable th:nth-child(5),
     #supportsTable td:nth-child(5) { /* SRRI */
-        width: 10%;
+        width: 8%;
         text-align: center;
     }
+    #supportsTable th:nth-child(6),
+    #supportsTable td:nth-child(6),
+    #supportsTable th:nth-child(7),
+    #supportsTable td:nth-child(7),
+    #supportsTable th:nth-child(8),
+    #supportsTable td:nth-child(8) { /* ESG */
+        width: 4%;
+        text-align: center;
+    }
+    #supportsTable .esg-badge {
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 2px 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.2ch;
+        line-height: 1;
+        background:#e2e8f0;
+        color:#64748b;
+    }
+    #supportsTable .esg-badge[data-esg="A"] { background:#16a34a; color:#fff; }
+    #supportsTable .esg-badge[data-esg="B"] { background:#4ade80; color:#0f172a; }
+    #supportsTable .esg-badge[data-esg="C"] { background:#a3e635; color:#0f172a; }
+    #supportsTable .esg-badge[data-esg="D"] { background:#facc15; color:#0f172a; }
+    #supportsTable .esg-badge[data-esg="E"] { background:#fb923c; color:#0f172a; }
+    #supportsTable .esg-badge[data-esg="F"] { background:#f97316; color:#fff; }
+    #supportsTable .esg-badge[data-esg="G"] { background:#ef4444; color:#fff; }
     .valo-amount {
         font-weight: 600;
         color: #28a745;
         text-align: right;
         font-family: monospace;
     }
+    .valo-cell {
+        position: relative;
+        padding-left: 6px;
+        padding-right: 6px;
+    }
+    .valo-track {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        top: 50%;
+        transform: translateY(-50%);
+        height: 88%;
+        background: rgba(37, 99, 235, 0.08);
+        border-radius: 6px;
+        overflow: hidden;
+        z-index: 0;
+    }
+    .valo-bar {
+        height: 100%;
+        background: rgba(37, 99, 235, 0.22);
+    }
+    .valo-text { position: relative; z-index: 1; }
     .pagination-container {
         display: flex;
         justify-content: space-between;
@@ -104,6 +164,54 @@
     .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.85; }
     .badge-filter .x:hover { opacity:1; }
     .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+    .filters-panel {
+        display:grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap:10px;
+        background:#f8fafc;
+        border:1px solid #e2e8f0;
+        border-radius:10px;
+        padding:10px;
+        margin:0 0 10px 0;
+    }
+    .filters-controls {
+        display:flex;
+        gap:12px;
+        flex-wrap:wrap;
+        align-items:center;
+        margin:0 0 8px 0;
+    }
+    .filters-controls .dataTables_length,
+    .filters-controls .dataTables_filter {
+        margin:0;
+        font-size:12px;
+        color:#475569;
+    }
+    .filters-controls .dataTables_filter input {
+        margin-left:6px;
+        padding:4px 6px;
+        border:1px solid #ccc;
+        border-radius:6px;
+        font-size:12px;
+    }
+    .filters-controls .dataTables_length select {
+        margin-left:6px;
+        padding:4px 6px;
+        border:1px solid #ccc;
+        border-radius:6px;
+        font-size:12px;
+    }
+    .filter-field label {
+        display:block;
+        font-size:0.75rem;
+        font-weight:600;
+        color:#475569;
+        text-transform:uppercase;
+        letter-spacing:0.06em;
+        margin-bottom:4px;
+    }
+    .filters-actions { grid-column: 1 / -1; display:flex; justify-content:flex-end; }
+    .filters-actions .clear-btn { padding:6px 12px; font-size:12px; }
     .support-modal { position:fixed; inset:0; display:none; align-items:flex-start; justify-content:center; background:rgba(15,23,42,0.55); z-index:1000; padding:4rem 1rem 2rem; overflow-y:auto; }
     .support-modal.open { display:flex; }
     .support-modal__panel { background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(15,23,42,0.25); max-width:720px; width:100%; padding:1.5rem; position:relative; }
@@ -184,24 +292,68 @@
 
     <div class="table-container">
         <div id="restoreSupports" class="restore-note"><span class="badge">Filtres restaurés <a href="#" class="close" onclick="return resetRestoredSupports()">×</a></span></div>
-        <div id="quickToggleSup" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
-            <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+        <div id="filtersToggleSup" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+            <h3 style="margin:0; font-size:1.05rem;">Filtres</h3>
             <span class="chevron">▾</span>
         </div>
-        <div id="quickSectionSup" style="display:none;">
-        <div class="toolbar">
-            <div class="chips" id="supportChips">
-                <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
-                <a class="chip" href="#" onclick="return chipSrri('')">SRRI: Tous</a>
-                <a class="chip" href="#" onclick="return chipSrri('1')">SRRI: 1</a>
-                <a class="chip" href="#" onclick="return chipSrri('2')">SRRI: 2</a>
-                <a class="chip" href="#" onclick="return chipSrri('3')">SRRI: 3</a>
-                <a class="chip" href="#" onclick="return chipSrri('4')">SRRI: 4</a>
-                <a class="chip" href="#" onclick="return chipSrri('5')">SRRI: 5</a>
-                <a class="chip" href="#" onclick="return chipSrri('6')">SRRI: 6</a>
-                <a class="chip" href="#" onclick="return chipSrri('7')">SRRI: 7</a>
+        <div id="filtersSectionSup" style="display:none;">
+            <div id="filtersControlsSup" class="filters-controls"></div>
+            <div class="filters-panel">
+                <div class="filter-field">
+                    <label for="isin-filter">ISIN</label>
+                    <input type="text" id="isin-filter" placeholder="Filtrer...">
+                </div>
+                <div class="filter-field">
+                    <label for="nom-filter">Nom</label>
+                    <input type="text" id="nom-filter" placeholder="Filtrer...">
+                </div>
+                <div class="filter-field">
+                    <label for="categorie-filter">Catégorie</label>
+                    <select id="categorie-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filter-field">
+                    <label for="zone-filter">Zone géo</label>
+                    <select id="zone-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filter-field">
+                    <label for="srri-filter">SRRI</label>
+                    <select id="srri-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filter-field">
+                    <label for="env-filter">E</label>
+                    <select id="env-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filter-field">
+                    <label for="soc-filter">S</label>
+                    <select id="soc-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filter-field">
+                    <label for="gov-filter">G</label>
+                    <select id="gov-filter" multiple size="6"><option value="">Aucun</option></select>
+                </div>
+                <div class="filters-actions">
+                    <button type="button" class="clear-btn" onclick="clearFilters()">Remise à zéro</button>
+                </div>
             </div>
-        </div>
+            <div id="quickToggleSup" class="card accordion-toggle" style="margin-bottom:.5rem; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;">
+                <h3 style="margin:0; font-size:1.05rem;">Filtres rapides</h3>
+                <span class="chevron">▾</span>
+            </div>
+            <div id="quickSectionSup" style="display:none;">
+            <div class="toolbar">
+                <div class="chips" id="supportChips">
+                    <span style="color:#666; font-size:12px; margin-right:4px;">Raccourcis:</span>
+                    <a class="chip" href="#" onclick="return chipSrri('')">SRRI: Tous</a>
+                    <a class="chip" href="#" onclick="return chipSrri('1')">SRRI: 1</a>
+                    <a class="chip" href="#" onclick="return chipSrri('2')">SRRI: 2</a>
+                    <a class="chip" href="#" onclick="return chipSrri('3')">SRRI: 3</a>
+                    <a class="chip" href="#" onclick="return chipSrri('4')">SRRI: 4</a>
+                    <a class="chip" href="#" onclick="return chipSrri('5')">SRRI: 5</a>
+                    <a class="chip" href="#" onclick="return chipSrri('6')">SRRI: 6</a>
+                    <a class="chip" href="#" onclick="return chipSrri('7')">SRRI: 7</a>
+                </div>
+            </div>
+            </div>
         </div>
         <table id="supportsTable" class="display nowrap" style="width:100%">
             <thead>
@@ -211,26 +363,43 @@
                     <th>Catégorie</th>
                     <th>Zone Géo</th>
                     <th>SRRI</th>
-                    <th style="text-align:right;">Valo Total</th>
-                </tr>
-                <tr>
-                    <th><input type="text" id="isin-filter" placeholder="Filtrer..."></th>
-                    <th><input type="text" id="nom-filter" placeholder="Filtrer..."></th>
-                    <th><select id="categorie-filter" multiple size="6"><option value="">Aucun</option></select></th>
-                    <th><select id="zone-filter" multiple size="6"><option value="">Aucun</option></select></th>
-                    <th><select id="srri-filter" multiple size="6"><option value="">Aucun</option></select></th>
-                    <th></th>
+                    <th>E</th>
+                    <th>S</th>
+                    <th>G</th>
+                    <th style="text-align:right;">VALO TOTALE</th>
                 </tr>
             </thead>
             <tbody>
+                {% set supports_total_valo = namespace(val=0) %}
                 {% for s in supports %}
+                  {% set supports_total_valo.val = supports_total_valo.val + (s.total_valo|float) %}
+                {% endfor %}
+                {% for s in supports %}
+                {% set valo_num = s.total_valo|float %}
+                {% set valo_pct = valo_num / supports_total_valo.val * 100 if supports_total_valo.val else 0 %}
+                {% if valo_pct < 0 %}{% set valo_pct = 0 %}{% endif %}
+                {% if valo_pct > 100 %}{% set valo_pct = 100 %}{% endif %}
+                {% set log_pct = s.valo_log_pct if s.valo_log_pct is not none else 0 %}
+                {% if log_pct < 0 %}{% set log_pct = 0 %}{% endif %}
+                {% if log_pct > 100 %}{% set log_pct = 100 %}{% endif %}
                 <tr>
                     <td><a href="#" class="support-link" data-isin="{{ s.code_isin }}">{{ s.code_isin }}</a></td>
                     <td>{{ s.nom }}</td>
                     <td>{{ s.categorie }}</td>
                     <td>{{ s.zone_geo }}</td>
                     <td>{{ s.SRRI }}</td>
-                    <td class="valo-amount">{{ s.total_valo }}</td>
+                    {% set noteE_raw = (s.noteE|string)|upper if s.noteE is not none else '' %}
+                    {% set noteS_raw = (s.noteS|string)|upper if s.noteS is not none else '' %}
+                    {% set noteG_raw = (s.noteG|string)|upper if s.noteG is not none else '' %}
+                    <td class="dt-center"><span class="esg-badge" data-esg="{{ noteE_raw[:1] if noteE_raw else '' }}">{{ noteE_raw if noteE_raw else '—' }}</span></td>
+                    <td class="dt-center"><span class="esg-badge" data-esg="{{ noteS_raw[:1] if noteS_raw else '' }}">{{ noteS_raw if noteS_raw else '—' }}</span></td>
+                    <td class="dt-center"><span class="esg-badge" data-esg="{{ noteG_raw[:1] if noteG_raw else '' }}">{{ noteG_raw if noteG_raw else '—' }}</span></td>
+                    <td class="valo-amount valo-cell" data-order="{{ valo_num }}" data-search="{{ valo_num }}" title="{{ '%.1f'|format(valo_pct) }} %">
+                        <div class="valo-track">
+                            <div class="valo-bar" style="width: {{ '%.1f'|format(log_pct) }}%;"></div>
+                        </div>
+                        <span class="valo-text">{{ '{:,.2f}'.format(valo_num).replace(',', ' ').replace('.', ',') }}</span>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -370,30 +539,41 @@
 <script>
 $(document).ready(function () {
     var table = $('#supportsTable').DataTable({
-        order: [[5, "desc"]],
+        order: [[8, "desc"]],
         pageLength: 25,
         fixedHeader: true,
         columnDefs: [
             {
-                targets: 5, // colonne Valo Total
+                targets: 8, // colonne Valo Total
                 render: $.fn.dataTable.render.number(' ', ',', 0, '')
-            }
+            },
+            { targets: [4,5,6,7], className: 'dt-center' }
         ],
         initComplete: function () {
             var api = this.api();
 
             // remplir selects avec valeurs uniques et filtrage multi
-            api.columns([2,3,4]).every(function () {
+            var filterMap = {
+                2: '#categorie-filter',
+                3: '#zone-filter',
+                4: '#srri-filter',
+                5: '#env-filter',
+                6: '#soc-filter',
+                7: '#gov-filter'
+            };
+            api.columns(Object.keys(filterMap).map(Number)).every(function () {
                 var column = this;
                 var idx = column.index();
-                var select = $('#supportsTable thead tr:eq(1) th').eq(idx).find('select');
+                var select = $(filterMap[idx]);
 
                 // option 'Aucun'
                 if (select.find('option[value=""]').length === 0) {
                     select.append('<option value="">Aucun</option>');
                 }
                 column.data().unique().sort().each(function (d) {
-                    if (d) select.append('<option value="'+d+'">'+d+'</option>');
+                    if (!d) return;
+                    var text = $('<div>').html(d).text().trim();
+                    if (text) select.append('<option value="'+text+'">'+text+'</option>');
                 });
 
                 // Permet de sélectionner/désélectionner plusieurs options par simple clic (sans Ctrl/Cmd)
@@ -427,11 +607,14 @@ $(document).ready(function () {
                     // Mettre à jour l'URL
                     try {
                         var params = new URLSearchParams(window.location.search);
-                        var key = (idx===2?'categorie':(idx===3?'zone':'srri'));
+                        var keyMap = {2:'categorie',3:'zone',4:'srri',5:'env',6:'soc',7:'gov'};
+                        var key = keyMap[idx];
                         var filtered = (vals||[]).filter(v=>v && v!=='');
-                        if (filtered.length) params.set(key, filtered.join(',')); else params.delete(key);
-                        var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
-                        window.history.replaceState({}, '', newUrl);
+                        if (key) {
+                          if (filtered.length) params.set(key, filtered.join(',')); else params.delete(key);
+                          var newUrl = window.location.pathname + (params.toString()?('?'+params.toString()):'');
+                          window.history.replaceState({}, '', newUrl);
+                        }
                     } catch(e) {}
                     // Sauver état
                     try { saveSupportsState(); } catch(e) {}
@@ -455,7 +638,7 @@ $(document).ready(function () {
               try {
                 var params = new URLSearchParams(window.location.search);
                 function applyMulti(param, sel){ var val=params.get(param); if(!val) return false; var list=val.split(',').map(s=>s.trim()).filter(Boolean); if(!list.length) return false; var found=[]; $(sel+' option').each(function(){ var v=$(this).val(); if(v && list.indexOf(v)!==-1){ found.push(v);} }); if(found.length){ $(sel).val(found).trigger('change'); return true; } return false; }
-                var used=false; used = applyMulti('srri', '#srri-filter') || used; used = applyMulti('categorie', '#categorie-filter') || used; used = applyMulti('zone', '#zone-filter') || used;
+                var used=false; used = applyMulti('srri', '#srri-filter') || used; used = applyMulti('categorie', '#categorie-filter') || used; used = applyMulti('zone', '#zone-filter') || used; used = applyMulti('env', '#env-filter') || used; used = applyMulti('soc', '#soc-filter') || used; used = applyMulti('gov', '#gov-filter') || used;
                 if (!used){
                   var raw = localStorage.getItem('supports_filters');
                   if (raw){
@@ -467,6 +650,9 @@ $(document).ready(function () {
                       if (Array.isArray(st.categorie) && st.categorie.length) { $('#categorie-filter').val(st.categorie).trigger('change'); restored=true; }
                       if (Array.isArray(st.zone) && st.zone.length) { $('#zone-filter').val(st.zone).trigger('change'); restored=true; }
                       if (Array.isArray(st.srri) && st.srri.length) { $('#srri-filter').val(st.srri).trigger('change'); restored=true; }
+                      if (Array.isArray(st.env) && st.env.length) { $('#env-filter').val(st.env).trigger('change'); restored=true; }
+                      if (Array.isArray(st.soc) && st.soc.length) { $('#soc-filter').val(st.soc).trigger('change'); restored=true; }
+                      if (Array.isArray(st.gov) && st.gov.length) { $('#gov-filter').val(st.gov).trigger('change'); restored=true; }
                       if (restored) { try{ document.getElementById('restoreSupports').style.display='block'; }catch(e){} }
                     }
                   }
@@ -493,6 +679,14 @@ $(document).ready(function () {
             } catch(e){}
         }
     });
+    try {
+        var wrapper = $('#supportsTable_wrapper');
+        var host = $('#filtersControlsSup');
+        if (wrapper.length && host.length) {
+            host.append(wrapper.find('.dataTables_length'));
+            host.append(wrapper.find('.dataTables_filter'));
+        }
+    } catch(e) {}
 
     // filtres texte multiples (séparés par virgule ou espace)
     function multiTextSearch(value, columnIdx) {
@@ -587,6 +781,9 @@ $(document).ready(function () {
           categorie: ($('#categorie-filter').val()||[]).filter(v=>v&&v!==''),
           zone: ($('#zone-filter').val()||[]).filter(v=>v&&v!==''),
           srri: ($('#srri-filter').val()||[]).filter(v=>v&&v!==''),
+          env: ($('#env-filter').val()||[]).filter(v=>v&&v!==''),
+          soc: ($('#soc-filter').val()||[]).filter(v=>v&&v!==''),
+          gov: ($('#gov-filter').val()||[]).filter(v=>v&&v!==''),
         };
         localStorage.setItem('supports_filters', JSON.stringify(st));
       } catch(e) {}
@@ -601,13 +798,13 @@ $(document).ready(function () {
     window.clearFilters = function() {
         $('#isin-filter, #nom-filter').val('');
         // Réinitialise les sélecteurs sur 'Aucun'
-        $('#categorie-filter, #zone-filter, #srri-filter').each(function(){
+        $('#categorie-filter, #zone-filter, #srri-filter, #env-filter, #soc-filter, #gov-filter').each(function(){
             $(this).find('option').prop('selected', false);
             $(this).find('option[value=""]').prop('selected', true);
             $(this).trigger('change');
         });
         table.search('').columns().search('').draw();
-        try { var params=new URLSearchParams(window.location.search); ['categorie','zone','srri'].forEach(k=>params.delete(k)); var newUrl=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', newUrl); } catch(e) {}
+        try { var params=new URLSearchParams(window.location.search); ['categorie','zone','srri','env','soc','gov'].forEach(k=>params.delete(k)); var newUrl=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', newUrl); } catch(e) {}
         try { localStorage.removeItem('supports_filters'); } catch(e) {}
         };
     (function(){
@@ -620,6 +817,21 @@ $(document).ready(function () {
           localStorage.setItem('sup_quick_open',o?'1':'');
         }
         var stored = localStorage.getItem('sup_quick_open');
+        var initial = stored === null ? false : (stored === '1');
+        setOpen(initial);
+        t.addEventListener('click',function(){setOpen(s.style.display==='none');});
+      }catch(e){}
+    })();
+    (function(){
+      try{
+        var t=document.getElementById('filtersToggleSup'),s=document.getElementById('filtersSectionSup');
+        if(!t||!s)return;
+        function setOpen(o){
+          s.style.display=o?'':'none';
+          t.classList.toggle('collapsed',!o);
+          localStorage.setItem('sup_filters_open',o?'1':'');
+        }
+        var stored = localStorage.getItem('sup_filters_open');
         var initial = stored === null ? false : (stored === '1');
         setOpen(initial);
         t.addEventListener('click',function(){setOpen(s.style.display==='none');});
@@ -654,6 +866,19 @@ $(document).ready(function () {
       try {
         var srriVals = ($('#srri-filter').val()||[]).filter(function(v){ return v && v!==''; });
         if (srriVals.length){ makeBadge('SRRI: '+srriVals.join(', '), function(){ $('#srri-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      // ESG
+      try {
+        var envVals = ($('#env-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (envVals.length){ makeBadge('E: '+envVals.join(', '), function(){ $('#env-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      try {
+        var socVals = ($('#soc-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (socVals.length){ makeBadge('S: '+socVals.join(', '), function(){ $('#soc-filter').val(['']).trigger('change'); }); }
+      } catch(e) {}
+      try {
+        var govVals = ($('#gov-filter').val()||[]).filter(function(v){ return v && v!==''; });
+        if (govVals.length){ makeBadge('G: '+govVals.join(', '), function(){ $('#gov-filter').val(['']).trigger('change'); }); }
       } catch(e) {}
       // Optionnel: ISIN / Nom si non vides
       try { var isin = $('#isin-filter').val()||''; if (isin){ makeBadge('ISIN: '+isin, function(){ $('#isin-filter').val('').trigger('change'); }); } } catch(e) {}
