@@ -115,6 +115,33 @@
         cursor: pointer;
         font-weight: bold;
     }
+    .sim-grid { display:grid; grid-template-columns: repeat(4, minmax(126px, 1fr)); gap:12px; align-items:end; margin-top:12px; width:90%; }
+    .sim-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+    .sim-field label { font-size:12px; color:#4b5563; font-weight:600; }
+    .sim-field input, .sim-field select { padding:4px 8px; border:1px solid #cbd5e1; border-radius:8px; font-size:12px; height:24px; box-sizing:border-box; }
+    #sim-capital, #sim-periodic, #sim-period { width:90%; }
+    #sim-inflation { width:80%; }
+    .sim-error { margin-top:8px; color:#b91c1c; font-weight:600; font-size:12px; display:none; }
+    .sim-top-row { display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:16px; align-items:start; margin-top:10px; }
+    .sim-scenarios { min-width:0; overflow-x:auto; }
+    .sim-scenarios > div { margin-top:0; }
+    .sim-scenarios table { table-layout:fixed; width:100%; }
+    .sim-scenarios-table th { text-transform:none; font-size:0.72rem; letter-spacing:0; padding:6px; line-height:1.1; white-space:normal; word-break:break-word; }
+    .sim-inputs { min-width:0; }
+    .sim-inputs .sim-grid { margin-top:0; }
+    .sim-chart-row { display:flex; gap:16px; align-items:stretch; flex-wrap:wrap; margin-top:10px; }
+    #allocSimChart { flex:1 1 560px; min-width:320px; }
+    .sim-summary { border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; padding:12px 14px; margin-top:10px; }
+    .sim-summary-title { font-weight:700; margin-bottom:8px; }
+    .sim-summary-row { display:flex; justify-content:flex-start; gap:8px; font-size:12px; margin:6px 0; }
+    .sim-summary-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .sim-summary-table th { background: var(--primary); color: #fff; font-weight: 600; text-transform: none; font-size: .8rem; letter-spacing: .02em; padding: .65rem .6rem; border-right: 1px solid rgba(255,255,255,.2); }
+    .sim-summary-table th:last-child { border-right: none; }
+    .sim-summary-table th.num { text-align:right; }
+    .sim-summary-table td { padding:6px 8px; border-bottom:1px solid #eef2f7; }
+    .sim-summary-table td.num { text-align:right; font-variant-numeric: tabular-nums; }
+    .sim-summary-table tr:last-child td { border-bottom:none; }
+    .sim-summary-body { margin-top:8px; }
 </style>
 
 <div class="main-container">
@@ -171,12 +198,13 @@
                       <button
                         type="button"
                         class="seeBtn"
+                        data-aid="{{ a.id }}"
                         data-nom="{{ a.nom }}"
-                        aria-label="Voir l'allocation"
-                        title="Voir l'allocation"
+                        aria-label="Voir le graphique performance et volatilité"
+                        title="Voir le graphique performance et volatilité"
                         style="border:none; background:none; padding:0; cursor:pointer; color:inherit;"
                       >
-                        <i class="fa-solid fa-eye"></i>
+                        <i class="fa-solid fa-chart-line"></i>
                       </button>
                     </td>
                     <td>{{ a.nom }}</td>
@@ -240,15 +268,16 @@
         </table>
     </div>
 
-    <div class="card alloc-perf-card" style="margin-top:1.5rem;">
+    <div id="allocPerfCard" class="card alloc-perf-card" style="margin-top:1.5rem;">
         <h3>Performance et Volatilité</h3>
         <div id="sicavChart" style="height: 280px;"></div>
     </div>
-    
-    <div class="pagination-container">
-        <div id="results-info"></div>
-        <button class="clear-btn" onclick="clearFilters()">🗑️ Effacer</button>
+
+    <div id="allocSimCard" class="card alloc-perf-card" style="margin-top:1.5rem; display:none;">
+        <h3>Simulations</h3>
+        <div id="allocSimBody" class="muted">Choisissez une offre pour afficher les simulations.</div>
     </div>
+    
 </div>
 
 <!-- Modal SRI allocations -->
@@ -360,6 +389,125 @@ $(document).ready(function () {
     window.resetRestoredAllocations = function(){ try{ document.getElementById('restoreAllocations').style.display='none'; }catch(e){}; try{ window.clearFilters(); }catch(e){}; return false; };
 
     // Popup SRI allocations
+    var rhpMap = { "1": 3, "2": 5, "3": 5, "4": 8 };
+    var baseCap = 10000;
+    var currentSimAid = null;
+    var currentSimSm = null;
+    var currentSimRhpYears = null;
+
+    function fmt(val, digits){ if(val === null || val === undefined) return '—'; var n=parseFloat(val); if(!isFinite(n)) return '—'; return digits? n.toFixed(digits): n; }
+    function fmtEuro(val){
+        if(val === null || val === undefined || !isFinite(val)) return '—';
+        return new Intl.NumberFormat('fr-FR', {minimumFractionDigits:0, maximumFractionDigits:0}).format(val) + ' €';
+    }
+    function computeScenarios(smObj, rhpYears){
+        if(!smObj) return null;
+        var sigma = parseFloat(smObj.sigma), mu1 = parseFloat(smObj.mu1), mu2 = parseFloat(smObj.mu2), m1 = parseFloat(smObj.m1);
+        if(!isFinite(sigma) || !isFinite(mu1) || !isFinite(mu2) || !isFinite(m1)) return null;
+        var N = Math.max(1, Math.round(rhpYears * 52));
+        function scenTension(){
+            var za = -2.33, w = 1.0, sqrtN = Math.sqrt(N);
+            var term = za
+              + ((Math.pow(za,2) - 1)/6) * mu1 / sqrtN
+              + ((Math.pow(za,3) - 3*za)/24) * mu2 / N
+              - ((2*Math.pow(za,3) - 5*za)/36) * Math.pow(mu1,2) / N;
+            return Math.exp(w * sigma * sqrtN * term - 0.5 * Math.pow(w*sigma,2) * N);
+        }
+        function scenDefav(){
+            var sqrtN = Math.sqrt(N);
+            return Math.exp(
+                m1 * N
+                + sigma * sqrtN * (
+                    -1.28
+                    + 0.107 * mu1 / sqrtN
+                    + 0.0724 * mu2 / N
+                    - 0.0611 * Math.pow(mu1,2) / N
+                )
+                - 0.5 * sigma * sigma * N
+            );
+        }
+        function scenInter(){
+            return Math.exp(m1 * N - sigma * mu1 / 6 - 0.5 * sigma * sigma * N);
+        }
+        function scenFav(){
+            var sqrtN = Math.sqrt(N);
+            return Math.exp(
+                m1 * N
+                + sigma * sqrtN * (
+                    1.28
+                    + 0.107 * mu1 / sqrtN
+                    + 0.0724 * mu2 / N
+                    - 0.0611 * Math.pow(mu1,2) / N
+                )
+                - 0.5 * sigma * sigma * N
+            );
+        }
+        return {
+            tension: scenTension(),
+            defav: scenDefav(),
+            inter: scenInter(),
+            fav: scenFav(),
+            N: N
+        };
+    }
+    function scenTensionFactor(smObj, rhpYears){
+        if(!smObj) return null;
+        var sigma = parseFloat(smObj.sigma), mu1 = parseFloat(smObj.mu1), mu2 = parseFloat(smObj.mu2);
+        if(!isFinite(sigma) || !isFinite(mu1) || !isFinite(mu2)) return null;
+        var N = Math.max(1, Math.round(rhpYears * 52));
+        var za = -2.33, w = 1.0, sqrtN = Math.sqrt(N);
+        var term = za + ((Math.pow(za,2) - 1)/6) * mu1 / sqrtN
+                   + ((Math.pow(za,3) - 3*za)/24) * mu2 / N
+                   - ((2*Math.pow(za,3) - 5*za)/36) * Math.pow(mu1,2) / N;
+        return Math.exp(w * sigma * sqrtN * term - 0.5 * Math.pow(w * sigma,2) * N);
+    }
+    function buildScenRows(smObj, yearsList, rhpYears){
+        var rows = [];
+        if(!yearsList || !yearsList.length) return rows;
+        yearsList.forEach(function(y){
+            var sc = computeScenarios(smObj, y);
+            if(!sc) return;
+            function rowVal(factor){
+                if(factor===null || factor===undefined || !isFinite(factor)) return {euro:'—', pct:'—'};
+                var v = factor * baseCap;
+                var pct = ((v - baseCap)/baseCap)*100;
+                return {euro: fmtEuro(v), pct: (isFinite(pct)? pct.toFixed(2)+' %':'—')};
+            }
+            var t = rowVal(sc.tension);
+            var d = rowVal(sc.defav);
+            var i = rowVal(sc.inter);
+            var f = rowVal(sc.fav);
+            rows.push({
+                label: (y === 1 ? '1 an' : (y === rhpYears/2 ? 'Demi-vie ('+y+' ans)' : (y === rhpYears ? 'Vie ('+y+' ans)' : (y+' ans')))),
+                t: t, d: d, i: i, f: f
+            });
+        });
+        return rows;
+    }
+    function buildScenarioTableHtml(smObj, rhpYears){
+        var html = '';
+        html += '<div style="margin-top:10px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">';
+        html += '<div style="font-weight:600; margin-bottom:40px; font-size:0.76rem;">Scénarios de tension (Cornish-Fischer) sur une base de 10 000 €</div>';
+        var scenRows = buildScenRows(smObj, [1, rhpYears/2, rhpYears], rhpYears);
+        if(scenRows && scenRows.length){
+            html += '<table class="table sim-scenarios-table" style="width:100%; font-size:0.95rem; margin-top:6px;"><thead><tr>';
+            html += '<th style="text-align:left;">Horizon</th><th style="text-align:right;">Tension</th><th style="text-align:right;">Défavorable</th><th style="text-align:right;">Intermédiaire</th><th style="text-align:right;">Favorable</th>';
+            html += '</tr></thead><tbody>';
+            scenRows.forEach(function(row){
+                html += '<tr><td style="text-align:left;">'+row.label+'</td>';
+                html += '<td style="text-align:right;">'+row.t.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.t.pct+'</em></td>';
+                html += '<td style="text-align:right;">'+row.d.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.d.pct+'</em></td>';
+                html += '<td style="text-align:right;">'+row.i.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.i.pct+'</em></td>';
+                html += '<td style="text-align:right;">'+row.f.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.f.pct+'</em></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+        } else {
+            html += '<div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>';
+        }
+        html += '</div>';
+        return html;
+    }
     function openAllocSri(btn){
         var aid = btn.getAttribute('data-aid');
         var nom = btn.getAttribute('data-nom') || 'Allocation';
@@ -368,102 +516,10 @@ $(document).ready(function () {
         if(!sm){
             document.getElementById('allocSriBody').innerHTML = '<div class="muted">Aucune donnée SRI disponible.</div>';
         } else {
-            function fmt(val, digits){ if(val === null || val === undefined) return '—'; var n=parseFloat(val); if(!isFinite(n)) return '—'; return digits? n.toFixed(digits): n; }
-            function computeScenarios(smObj, rhpYears){
-                if(!smObj) return null;
-                var sigma = parseFloat(smObj.sigma), mu1 = parseFloat(smObj.mu1), mu2 = parseFloat(smObj.mu2), m1 = parseFloat(smObj.m1);
-                if(!isFinite(sigma) || !isFinite(mu1) || !isFinite(mu2) || !isFinite(m1)) return null;
-                var N = Math.max(1, Math.round(rhpYears * 52));
-                function scenTension(){
-                    var za = -2.33, w = 1.0, sqrtN = Math.sqrt(N);
-                    var term = za
-                      + ((Math.pow(za,2) - 1)/6) * mu1 / sqrtN
-                      + ((Math.pow(za,3) - 3*za)/24) * mu2 / N
-                      - ((2*Math.pow(za,3) - 5*za)/36) * Math.pow(mu1,2) / N;
-                    return Math.exp(w * sigma * sqrtN * term - 0.5 * Math.pow(w*sigma,2) * N);
-                }
-                function scenDefav(){
-                    var sqrtN = Math.sqrt(N);
-                    return Math.exp(
-                        m1 * N
-                        + sigma * sqrtN * (
-                            -1.28
-                            + 0.107 * mu1 / sqrtN
-                            + 0.0724 * mu2 / N
-                            - 0.0611 * Math.pow(mu1,2) / N
-                        )
-                        - 0.5 * sigma * sigma * N
-                    );
-                }
-                function scenInter(){
-                    return Math.exp(m1 * N - sigma * mu1 / 6 - 0.5 * sigma * sigma * N);
-                }
-                function scenFav(){
-                    var sqrtN = Math.sqrt(N);
-                    return Math.exp(
-                        m1 * N
-                        + sigma * sqrtN * (
-                            1.28
-                            + 0.107 * mu1 / sqrtN
-                            + 0.0724 * mu2 / N
-                            - 0.0611 * Math.pow(mu1,2) / N
-                        )
-                        - 0.5 * sigma * sigma * N
-                    );
-                }
-                return {
-                    tension: scenTension(),
-                    defav: scenDefav(),
-                    inter: scenInter(),
-                    fav: scenFav(),
-                    N: N
-                };
-            }
-            function scenTensionFactor(smObj, rhpYears){
-                if(!smObj) return null;
-                var sigma = parseFloat(smObj.sigma), mu1 = parseFloat(smObj.mu1), mu2 = parseFloat(smObj.mu2);
-                if(!isFinite(sigma) || !isFinite(mu1) || !isFinite(mu2)) return null;
-                var N = Math.max(1, Math.round(rhpYears * 52));
-                var za = -2.33, w = 1.0, sqrtN = Math.sqrt(N);
-                var term = za + ((Math.pow(za,2) - 1)/6) * mu1 / sqrtN
-                           + ((Math.pow(za,3) - 3*za)/24) * mu2 / N
-                           - ((2*Math.pow(za,3) - 5*za)/36) * Math.pow(mu1,2) / N;
-                return Math.exp(w * sigma * sqrtN * term - 0.5 * Math.pow(w * sigma,2) * N);
-            }
-            function fmtEuro(val){
-                if(val === null || val === undefined || !isFinite(val)) return '—';
-                return new Intl.NumberFormat('fr-FR', {minimumFractionDigits:0, maximumFractionDigits:0}).format(val) + ' €';
-            }
-            // RHP par allocation (id)
-            var rhpMap = { "1": 3, "2": 5, "3": 5, "4": 8 };
             var rhpYears = rhpMap[String(aid)] || 5;
-            var baseCap = 10000;
             var scenFactor = scenTensionFactor(sm, rhpYears);
             var scenValue = (scenFactor !== null) ? baseCap * scenFactor : null;
             var scenPct = (scenFactor !== null) ? (scenFactor - 1) * 100 : null;
-            function buildScenRows(yearsList){
-                var rows = [];
-                if(!yearsList || !yearsList.length) return rows;
-                yearsList.forEach(function(y){
-                    var sc = computeScenarios(sm, y);
-                    if(!sc) return;
-                    function rowVal(factor){
-                        if(factor===null || factor===undefined || !isFinite(factor)) return {euro:'—', pct:'—'};
-                        var v = factor * baseCap;
-                        var pct = ((v - baseCap)/baseCap)*100;
-                        return {euro: fmtEuro(v), pct: (isFinite(pct)? pct.toFixed(2)+' %':'—')};
-                    }
-                    var t = rowVal(sc.tension);
-                    var d = rowVal(sc.defav);
-                    var i = rowVal(sc.inter);
-                    var f = rowVal(sc.fav);
-                    rows.push({
-                        label: (y === 1 ? '1 an' : (y === rhpYears/2 ? 'Demi-vie ('+y+' ans)' : (y === rhpYears ? 'Vie ('+y+' ans)' : (y+' ans')))),
-                        t: t, d: d, i: i, f: f
-                    });
-                });
-                return rows;
-            }
             var html = '';
             html += '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; margin-bottom:8px;">';
             html += '<div style="flex:1; min-width:200px;">';
@@ -473,28 +529,7 @@ $(document).ready(function () {
             html += '</div>';
             html += '<div style="min-width:120px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#f8fafc; text-align:center;"><div class="muted" style="font-size:0.9rem;">SRI</div><div style="font-size:1.6rem; font-weight:800; color:#1f2937;">'+(sm.sri??'—')+'</div></div>';
             html += '</div>';
-            // Tableau scénarios (format clients)
-            html += '<div style="margin-top:10px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">';
-            html += '<div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (Cornish-Fisher) sur une base de 10 000 €</div>';
-            var scenRows = buildScenRows([1, rhpYears/2, rhpYears]);
-            if(scenRows && scenRows.length){
-                html += '<table class="table" style="width:100%; font-size:0.95rem; margin-top:6px;"><thead><tr>';
-                html += '<th style="text-align:left;">Horizon</th><th style="text-align:right;">Tension</th><th style="text-align:right;">Défavorable</th><th style="text-align:right;">Intermédiaire</th><th style="text-align:right;">Favorable</th>';
-                html += '</tr></thead><tbody>';
-                scenRows.forEach(function(row){
-                    html += '<tr><td style="text-align:left;">'+row.label+'</td>';
-                    html += '<td style="text-align:right;">'+row.t.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.t.pct+'</em></td>';
-                    html += '<td style="text-align:right;">'+row.d.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.d.pct+'</em></td>';
-                    html += '<td style="text-align:right;">'+row.i.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.i.pct+'</em></td>';
-                    html += '<td style="text-align:right;">'+row.f.euro+'<br><em style="font-size:0.85em; color:#4b5563;">'+row.f.pct+'</em></td>';
-                    html += '</tr>';
-                });
-                html += '</tbody></table>';
-                html += '<div class="muted" style="font-size:0.85rem;">Calculs Cornish-Fisher (tension/défavorable/intermédiaire/favorable) sur 1 an, demi-vie (4 ans), vie (8 ans) + RHP spécifique.</div>';
-            } else {
-                html += '<div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>';
-            }
-            html += '</div>';
+            html += buildScenarioTableHtml(sm, rhpYears);
             html += '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin-top:6px;">';
             html += '<div class="kpi-mini sri-card" style="padding:8px; border:1px solid var(--border); border-radius:10px;"><div class="muted">M0 (obs.)</div><div class="kv">'+fmt(sm.m0)+'</div></div>';
             html += '<div class="kpi-mini sri-card" style="padding:8px; border:1px solid var(--border); border-radius:10px;"><div class="muted">M1</div><div class="kv">'+fmt(sm.m1,6)+'</div></div>';
@@ -506,6 +541,275 @@ $(document).ready(function () {
             document.getElementById('allocSriBody').innerHTML = html;
         }
         document.getElementById('allocSriModal').style.display = 'flex';
+    }
+    function renderAllocSimulations(aid){
+        var simCard = document.getElementById('allocSimCard');
+        var simBody = document.getElementById('allocSimBody');
+        if(!simCard || !simBody) return;
+        var sm = sriMetrics[aid] || null;
+        currentSimAid = aid || null;
+        currentSimSm = sm || null;
+        if(!sm){
+            simBody.innerHTML = '<div class="muted">Aucune donnée SRI disponible pour les simulations.</div>';
+            currentSimRhpYears = null;
+        } else {
+            var rhpYears = rhpMap[String(aid)] || 5;
+            currentSimRhpYears = rhpYears;
+            var html = '';
+            html += '<div class="sim-top-row">';
+            html += '  <div class="sim-scenarios">' + buildScenarioTableHtml(sm, rhpYears) + '</div>';
+            html += '  <div class="sim-inputs">';
+            html += '    <div id="allocSimSummary" class="sim-summary">';
+            html += '      <div class="sim-grid">';
+            html += '        <div class="sim-field"><label for="sim-capital">Investi (€)</label><input id="sim-capital" type="number" min="10000" step="100" value="10000"></div>';
+            html += '        <div class="sim-field"><label for="sim-periodic">Vst. périodique (€)</label><input id="sim-periodic" type="number" min="0" step="50" value="0"></div>';
+            html += '        <div class="sim-field"><label for="sim-period">Périodicité</label><select id="sim-period"><option value="monthly">Mensuelle</option><option value="quarterly">Trimestrielle</option><option value="yearly">Annuelle</option></select></div>';
+            html += '        <div class="sim-field"><label for="sim-inflation">Inflation/an</label><input id="sim-inflation" type="number" min="0.01" max="4.99" step="0.1" value="2.0"></div>';
+            html += '      </div>';
+            html += '      <div id="sim-error" class="sim-error"></div>';
+            html += '      <div id="allocSimSummaryBody" class="sim-summary-body"></div>';
+            html += '    </div>';
+            html += '  </div>';
+            html += '</div>';
+            html += '<div class="sim-chart-row">';
+            html += '  <div id="allocSimChart" style="height:320px;"></div>';
+            html += '</div>';
+            simBody.innerHTML = html;
+            bindSimControls();
+        }
+        simCard.style.display = '';
+    }
+    function showSimError(msg){
+        var el = document.getElementById('sim-error');
+        if(!el) return;
+        if(msg){
+            el.textContent = msg;
+            el.style.display = 'block';
+        } else {
+            el.textContent = '';
+            el.style.display = 'none';
+        }
+    }
+    function readSimInputs(){
+        var capEl = document.getElementById('sim-capital');
+        var perEl = document.getElementById('sim-periodic');
+        var perSel = document.getElementById('sim-period');
+        var infEl = document.getElementById('sim-inflation');
+        if(!capEl || !perEl || !perSel || !infEl) return null;
+        var capital = parseFloat(String(capEl.value).replace(',', '.'));
+        var periodic = parseFloat(String(perEl.value).replace(',', '.'));
+        var inflationPct = parseFloat(String(infEl.value).replace(',', '.'));
+        if(!isFinite(capital) || capital < 10000) return { error: 'Le capital investi doit être ≥ 10 000 €.' };
+        if(!isFinite(periodic) || periodic < 0) return { error: 'Les versements périodiques doivent être ≥ 0 €.' };
+        if(!isFinite(inflationPct) || inflationPct <= 0 || inflationPct >= 5) return { error: "L'inflation doit être > 0% et < 5%." };
+        var periodYears = 1;
+        if(perSel.value === 'monthly') periodYears = 1 / 12;
+        else if(perSel.value === 'quarterly') periodYears = 1 / 4;
+        return {
+            capital: capital,
+            periodic: periodic,
+            periodYears: periodYears,
+            inflationRate: inflationPct / 100
+        };
+    }
+    function updateSimSummary(totalContrib, finalValues){
+        var el = document.getElementById('allocSimSummaryBody');
+        if(!el) return;
+        if(!finalValues){
+            el.innerHTML = '<div class="muted">Données indisponibles.</div>';
+            return;
+        }
+        var fmtE = function(val){
+            if(val === null || val === undefined || !isFinite(val)) return '—';
+            var formatted = new Intl.NumberFormat('fr-FR', {maximumFractionDigits:0}).format(val);
+            formatted = formatted.replace(/[\u00A0\u202F]/g, ' ');
+            return formatted + ' €';
+        };
+        var fmtPct = function(val){
+            if(val === null || val === undefined || !isFinite(val)) return '—';
+            var pct = val * 100;
+            var sign = pct > 0 ? '+' : '';
+            return sign + pct.toFixed(2).replace('.', ',') + ' %';
+        };
+        var html = '';
+        html += '<div class="sim-summary-row" style="margin-bottom:6px;"><span>Total versements</span><strong>'+fmtE(totalContrib)+'</strong></div>';
+        html += '<table class="sim-summary-table">';
+        html += '<thead><tr>';
+        html += '<th></th><th class="num">Valeur finale</th><th class="num">Gains/pertes</th><th class="num">Taux annuel</th>';
+        html += '</tr></thead><tbody>';
+        function row(label, data){
+            html += '<tr>';
+            html += '<td>'+label+'</td>';
+            html += '<td class="num">'+fmtE(data.final)+'</td>';
+            html += '<td class="num">'+fmtE(data.gain)+'</td>';
+            html += '<td class="num">'+fmtPct(data.rate)+'</td>';
+            html += '</tr>';
+        }
+        row('Tension', finalValues.tension);
+        row('Défavorable', finalValues.defav);
+        row('Intermédiaire', finalValues.inter);
+        row('Favorable', finalValues.fav);
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+    function bindSimControls(){
+        var capEl = document.getElementById('sim-capital');
+        var perEl = document.getElementById('sim-periodic');
+        var perSel = document.getElementById('sim-period');
+        var infEl = document.getElementById('sim-inflation');
+        if(!capEl || !perEl || !perSel || !infEl) return;
+        [capEl, perEl, perSel, infEl].forEach(function(el){
+            el.addEventListener('input', updateSimChart);
+            el.addEventListener('change', updateSimChart);
+        });
+        updateSimChart();
+    }
+    function updateSimChart(){
+        if(!currentSimSm || !currentSimRhpYears) return;
+        var inputs = readSimInputs();
+        if(!inputs){
+            showSimError('Paramètres de simulation indisponibles.');
+            updateSimSummary(null, null);
+            return;
+        }
+        if(inputs.error){
+            showSimError(inputs.error);
+            updateSimSummary(null, null);
+            return;
+        }
+        showSimError('');
+        var simChartEl = document.getElementById('allocSimChart');
+        if(!simChartEl) return;
+        var periodYears = inputs.periodYears;
+        var nPeriods = Math.max(1, Math.round(currentSimRhpYears / periodYears));
+        var periodsPerYear = Math.round(1 / periodYears);
+        var scenarios = [
+            { key: 'tension', name: 'Tension', color: '#ef4444' },
+            { key: 'defav', name: 'Défavorable', color: '#f59e0b' },
+            { key: 'inter', name: 'Intermédiaire', color: '#3b82f6' },
+            { key: 'fav', name: 'Favorable', color: '#22c55e' }
+        ];
+        var realFactors = {};
+        var realCum = {};
+        var invalid = false;
+        for(var s=0; s<scenarios.length; s++){
+            var key = scenarios[s].key;
+            realFactors[key] = [];
+            realCum[key] = [];
+            var running = 0;
+            for(var i=0; i<=nPeriods; i++){
+                var tYears = i * periodYears;
+                var factor = 1;
+                if(i > 0){
+                    var sc = computeScenarios(currentSimSm, tYears);
+                    factor = sc ? sc[key] : null;
+                }
+                if(!isFinite(factor)) { factor = null; invalid = true; }
+                var realFactor = (factor === null) ? null : (factor / Math.pow(1 + inputs.inflationRate, tYears));
+                if(!isFinite(realFactor)) { realFactor = null; invalid = true; }
+                realFactors[key].push(realFactor);
+                running += (realFactor === null ? 0 : realFactor);
+                realCum[key].push(running);
+            }
+        }
+        if(invalid){
+            showSimError("Métriques SRI insuffisantes pour la simulation.");
+            updateSimSummary(null, null);
+            return;
+        }
+        var xVals = [];
+        for(var j=0; j<=nPeriods; j++){
+            xVals.push(parseFloat((j * periodYears).toFixed(4)));
+        }
+        var traces = [];
+        var finalValues = { tension: null, defav: null, inter: null, fav: null };
+        for(var s2=0; s2<scenarios.length; s2++){
+            var scKey = scenarios[s2].key;
+            var yVals = [];
+            for(var k=0; k<=nPeriods; k++){
+                var rf = realFactors[scKey][k];
+                if(rf === null){
+                    yVals.push(null);
+                    continue;
+                }
+                var base = inputs.capital * rf;
+                var contrib = k > 0 ? inputs.periodic * realCum[scKey][k - 1] : 0;
+                yVals.push(base + contrib);
+            }
+            finalValues[scKey] = yVals[yVals.length - 1];
+            traces.push({
+                x: xVals,
+                y: yVals,
+                type: 'scatter',
+                mode: 'lines',
+                name: scenarios[s2].name,
+                line: { color: scenarios[s2].color, width: 2 },
+                hovertemplate: '%{x:.2f} ans<br>%{y:,.0f} €<extra></extra>'
+            });
+        }
+        var layout = {
+            margin: { l: 60, r: 20, t: 10, b: 40 },
+            xaxis: { title: 'Années', tickformat: '.1f', automargin: true },
+            yaxis: { title: 'Euros constants', tickformat: ',.0f', automargin: true },
+            legend: { orientation: 'h', x: 0, y: 1.15 }
+        };
+        var config = { displayModeBar: true, responsive: true };
+        try { Plotly.react(simChartEl, traces, layout, config); }
+        catch(e) { Plotly.newPlot(simChartEl, traces, layout, config); }
+        var totalContrib = inputs.capital + (inputs.periodic * nPeriods);
+        function accumFactor(r, n){
+            if (Math.abs(r) < 1e-8) return n;
+            return (Math.pow(1 + r, n) - 1) / r;
+        }
+        function solveRate(capital, periodic, finalValue, n){
+            if (!isFinite(finalValue) || n <= 0) return null;
+            if (capital <= 0 && periodic <= 0) return null;
+            if (periodic === 0){
+                if (capital <= 0 || finalValue <= 0) return null;
+                return Math.pow(finalValue / capital, 1 / n) - 1;
+            }
+            function f(r){
+                var pow = Math.pow(1 + r, n);
+                var fv = (capital * pow) + (periodic * accumFactor(r, n));
+                return fv - finalValue;
+            }
+            var low = -0.999;
+            var high = 0.5;
+            var fLow = f(low);
+            var fHigh = f(high);
+            var guard = 0;
+            while (fHigh < 0 && high < 10 && guard < 40){
+                high *= 2;
+                fHigh = f(high);
+                guard++;
+            }
+            if ((fLow > 0 && fHigh > 0) || (fLow < 0 && fHigh < 0)) return null;
+            for (var i = 0; i < 80; i++){
+                var mid = (low + high) / 2;
+                var fMid = f(mid);
+                if (!isFinite(fMid)) return null;
+                if (Math.abs(fMid) < 1e-10) return mid;
+                if (fMid > 0){
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            return (low + high) / 2;
+        }
+        var summaryData = {};
+        scenarios.forEach(function(sc){
+            var finalVal = finalValues[sc.key];
+            var gain = (isFinite(finalVal) ? (finalVal - totalContrib) : null);
+            var ratePerPeriod = solveRate(inputs.capital, inputs.periodic, finalVal, nPeriods);
+            var rateNominal = (ratePerPeriod !== null) ? (ratePerPeriod * periodsPerYear) : null;
+            summaryData[sc.key] = {
+                final: finalVal,
+                gain: gain,
+                rate: rateNominal
+            };
+        });
+        updateSimSummary(totalContrib, summaryData);
     }
     function closeAllocSri(){ document.getElementById('allocSriModal').style.display='none'; }
     window.closeAllocSri = closeAllocSri;
@@ -617,7 +921,13 @@ $(document).ready(function () {
     // Actions Voir + boutons de fenêtre
     $(document).on('click', '.seeBtn', function(){
         var nom = $(this).data('nom');
+        var aid = $(this).data('aid');
         buildSeriesForNom(nom);
+        renderAllocSimulations(aid);
+        var perfCard = document.getElementById('allocPerfCard');
+        if (perfCard) {
+            perfCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     });
     $('.rangeBtn').on('click', function(){ applyRange($(this).data('range')); });
 
@@ -626,8 +936,12 @@ $(document).ready(function () {
         var firstBtn = document.querySelector('#allocationsTable tbody .seeBtn');
         if (firstBtn) {
             var firstNom = firstBtn.getAttribute('data-nom');
+            var firstAid = firstBtn.getAttribute('data-aid');
             if (firstNom) {
                 buildSeriesForNom(firstNom);
+            }
+            if (firstAid) {
+                renderAllocSimulations(firstAid);
             }
         }
     } catch(e) {}
