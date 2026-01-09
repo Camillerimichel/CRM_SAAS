@@ -130,6 +130,9 @@
     const label = document.querySelector('[data-base-toggle-label]');
     if (!details || !label) return;
     details.open = false;
+    if (window.location.hash === '#outils-import' || window.location.search.includes('esg_import_status=')) {
+      details.open = true;
+    }
     const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
     details.addEventListener('toggle', setLabel);
     setLabel();
@@ -634,6 +637,39 @@
       Le calcul SRI allocations a échoué. Consulte les logs pour le détail.
     </div>
   {% endif %}
+  {% set esg_import_status = request.query_params.get('esg_import_status') %}
+  {% set esg_import_rows = request.query_params.get('esg_import_rows') %}
+  {% set esg_import_fetch = request.query_params.get('esg_import_fetch') %}
+  {% set esg_import_skip = request.query_params.get('esg_import_skip') %}
+  {% set esg_import_missing = request.query_params.get('esg_import_missing') %}
+  {% if esg_import_status == 'ok' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+      Import ESG termine : {{ esg_import_rows or 0 }} ecrit(s), {{ esg_import_fetch or 0 }} lu(s), {{ esg_import_skip or 0 }} ignore(s).
+      {% if esg_import_missing and esg_import_missing != '0' %}
+        <br><span class="muted">Colonnes non trouvees dans esg_fonds : {{ esg_import_missing }}.</span>
+      {% endif %}
+    </div>
+  {% elif esg_import_status == 'error' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+      L'import ESG a echoue. Consulte les logs pour le detail.
+    </div>
+  {% endif %}
+  {% set esg_legacy_status = request.query_params.get('esg_legacy_status') %}
+  {% set esg_legacy_rows = request.query_params.get('esg_legacy_rows') %}
+  {% set esg_legacy_cols = request.query_params.get('esg_legacy_cols') %}
+  {% set esg_legacy_errors = request.query_params.get('esg_legacy_errors') %}
+  {% if esg_legacy_status == 'ok' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#dcfce7; color:#166534;">
+      Migration ESG legacy terminee : {{ esg_legacy_rows or 0 }} ligne(s), {{ esg_legacy_cols or 0 }} colonne(s).
+      {% if esg_legacy_errors and esg_legacy_errors != '0' %}
+        <br><span class="muted">Erreurs: {{ esg_legacy_errors }}.</span>
+      {% endif %}
+    </div>
+  {% elif esg_legacy_status == 'error' %}
+    <div style="margin-bottom:8px; padding:10px 12px; border-radius:8px; background:#fee2e2; color:#b91c1c;">
+      La migration ESG legacy a echoue. Consulte les logs pour le detail.
+    </div>
+  {% endif %}
   <style>
     .base-action-btn {
       background:#e1ebff !important;
@@ -652,6 +688,12 @@
     }
   </style>
   <div data-action-group="base-tools" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; align-items:stretch; margin-top:12px;">
+    <form method="post" action="/dashboard/superadmin/import-esg" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Import ESG (CRM_ESG)">Import ESG (CRM_ESG)</button>
+    </form>
+    <form method="post" action="/dashboard/superadmin/esg-legacy-migrate" style="display:flex; align-items:stretch;">
+      <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Migration ESG legacy">Migration ESG legacy</button>
+    </form>
     <form method="post" action="/dashboard/superadmin/recompute-srri" style="display:flex; align-items:stretch;">
       <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques de tous les clients">Calcul des niveaux de risques de tous les clients</button>
     </form>
@@ -672,6 +714,68 @@
     </form>
   </div>
 </div>
+  </details>
+</div>
+
+<div class="card" id="cron-jobs" style="margin-top:1rem;">
+  <details data-cron-details style="border:0; padding:0;">
+    <summary style="list-style:none; cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
+        <div style="flex:1; text-align:center;">
+          <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Automatisations (cron)</h2>
+          <p class="muted" style="margin:0;">Liste des jobs planifies et dernier statut connu.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <div class="muted" style="font-size:0.9rem;">{{ scheduled_jobs|length if scheduled_jobs else 0 }} job(s)</div>
+          <span class="btn btn-secondary" data-cron-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
+        </div>
+      </div>
+    </summary>
+    <div style="margin-top:12px;">
+      {% if scheduled_jobs %}
+        <div style="display:grid; gap:12px;">
+          {% for job in scheduled_jobs %}
+            {% set log = job.last_log %}
+            {% set st = log.status if log else '' %}
+            {% set status_label = 'OK' if st == 'ok' else ('Erreur' if st == 'error' else ('En cours' if st else 'Jamais')) %}
+            {% set start_str = log.started_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.started_at else '—' %}
+            {% set end_str = log.ended_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.ended_at else '—' %}
+            {% set dur_str = '%.2fs'|format(log.duration_seconds) if log and log.duration_seconds is not none else '—' %}
+            {% set msg_str = log.message[:160] if log and log.message else '—' %}
+            <div style="padding:12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; display:grid; gap:8px;">
+              <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;">
+                <div style="font-weight:600;">{{ job.label or job.code }}</div>
+                {% if st == 'ok' %}
+                  <span class="btn" style="background:#22c55e; color:#fff; cursor:default;">OK</span>
+                {% elif st == 'error' %}
+                  <span class="btn" style="background:#ef4444; color:#fff; cursor:default;">Erreur</span>
+                {% elif st %}
+                  <span class="btn" style="background:#f97316; color:#fff; cursor:default;">En cours</span>
+                {% else %}
+                  <span class="btn" style="background:#e5e7eb; color:#111827; cursor:default;">Jamais</span>
+                {% endif %}
+              </div>
+              <div class="muted">Planif : {{ job.schedule or '—' }}</div>
+              {% if job.description %}<div class="muted">{{ job.description }}</div>{% endif %}
+              <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <div><span class="muted">Debut :</span> {{ start_str }}</div>
+                <div><span class="muted">Fin :</span> {{ end_str }}</div>
+                <div><span class="muted">Duree :</span> {{ dur_str }}</div>
+              </div>
+              <div class="muted">Message : {{ msg_str }}</div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a class="btn btn-secondary" href="/dashboard/superadmin#suivi-logs" style="background:#f3f4f6; color:#111827;">Voir logs</a>
+                {% if job.action_anchor %}
+                  <a class="btn btn-secondary" href="/dashboard/superadmin{{ job.action_anchor }}" style="background:#f3f4f6; color:#111827;">Lancer manuellement</a>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted" style="margin-top:10px;">Aucun job planifie pour l'instant.</p>
+      {% endif %}
+    </div>
   </details>
 </div>
 
@@ -807,6 +911,18 @@
     </div>
   </details>
 </div>
+<script>
+  (function() {
+    const details = document.querySelector('[data-cron-details]');
+    const label = document.querySelector('[data-cron-toggle-label]');
+    if (!details || !label) return;
+    details.open = false;
+    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
+    if (window.location.hash === '#cron-jobs') details.open = true;
+    details.addEventListener('toggle', setLabel);
+    setLabel();
+  })();
+</script>
 <script>
   (function() {
     const details = document.querySelector('[data-log-details]');

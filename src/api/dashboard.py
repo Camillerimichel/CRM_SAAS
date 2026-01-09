@@ -1,4 +1,5 @@
 import logging
+import os
 import base64
 import re
 import secrets
@@ -36,6 +37,8 @@ from src.services.evenements import (
     add_statut_to_evenement,
     create_envoi,
 )
+from src.services.esg_import import sync_esg_fonds
+from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
@@ -229,6 +232,94 @@ FINANCE_CACHE: dict = {}
 HOME_CACHE: dict = {}
 ESG_FIELDS_CACHE: dict = {}
 ESG_GLOBAL_CACHE: dict = {}
+ESG_COLUMNS_CACHE: dict = {}
+ESG_CANON_TABLE = "esg_fonds_norm"
+ESG_FIELDS_TABLE = "esg_fonds_norm"
+ESG_LEGACY_MODE = os.getenv("ESG_LEGACY_MODE", "warn").strip().lower()
+ESG_LEGACY_ENABLED = ESG_LEGACY_MODE not in ("off", "strict", "disabled", "0", "false", "no")
+ESG_LEGACY_ALIASES = {
+    "wasteefficiency": "waste_efficiency",
+    "waterefficiency": "water_efficiency",
+    "executivepay": "executive_pay",
+    "boardindependence": "board_independence",
+    "environmentalgood": "environmental_good",
+    "environmentalharm": "environmental_harm",
+    "socialgood": "social_good",
+    "socialharm": "social_harm",
+    "numberofemployees": "number_of_employees",
+    "avgperemployeespend": "average_per_employee_spend",
+    "pctfemaleboard": "pct_female_board",
+    "pctfemaleexec": "pct_female_executives",
+    "genderpaygap": "gender_pay_gap",
+    "boardgenderdiversity": "board_gender_diversity",
+    "ghgintensityvalue": "ghg_intensity_value",
+    "biodiversity": "biodiversity",
+    "emissionstowater": "emissions_to_water",
+    "hazardouswaste": "hazardous_waste",
+    "scope1and2carbonintensity": "scope_1_and_2_carbon_intensity",
+    "scope3carbonintensity": "scope_3_carbon_intensity",
+    "carbontrend": "carbon_trend",
+    "temperaturescore": "temperature_score",
+    "exposuretofossilfuels": "exposure_to_fossil_fuels",
+    "renewableenergy": "renewable_energy",
+    "climateimpactrevenue": "climate_impact_revenue",
+    "climatechangepositive": "climate_change_positive",
+    "climatechangenegative": "climate_change_negative",
+    "climatechangenet": "climate_change_net",
+    "naturalresourcepositive": "natural_resource_positive",
+    "naturalresourcenegative": "natural_resource_negative",
+    "naturalresourcenet": "natural_resource_net",
+    "pollutionpositive": "pollution_positive",
+    "pollutionnegative": "pollution_negative",
+    "pollutionnet": "pollution_net",
+    "avoidingwaterscarcity": "avoiding_water_scarcity",
+    "sfdrbiodiversitypai": "sfdr_biodiversity_pai",
+    "controversialweapons": "controversial_weapons",
+    "violationsungc": "violations_ungc",
+    "processesungc": "processes_ungc",
+    "notee": "note_e",
+    "notes": "note_s",
+    "noteg": "note_g",
+    "nom": "name",
+}
+ESG_UI_ALLOWLIST = {
+    "company_name",
+    "sector1",
+    "mcap_usd",
+    "revenue_usd",
+    "processes_ungc",
+    "exposure_to_fossil_fuels",
+    "renewable_energy",
+    "waste_efficiency",
+    "water_efficiency",
+    "pollution__positive_revenue",
+    "environmental_good",
+    "social_good",
+    "average_per_employee_spend",
+    "pct_female_executives",
+    "board_gender_diversity",
+    "pct_female_board",
+    "board_independence",
+    "avoiding_water_scarcity",
+    "ghg_intensity_value",
+    "emissions_to_water",
+    "hazardous_waste",
+    "scope_1_and_2_carbon_intensity",
+    "scope_3_carbon_intensity",
+    "carbon_trend",
+    "temperature_score",
+    "environmental_harm",
+    "climate_change__negative_revenue",
+    "pollution__negative_revenue",
+    "social_harm",
+    "gender_pay_gap",
+    "executive_pay",
+    "note_e",
+    "note_s",
+    "note_g",
+    "note_esg",
+    "evic",
+}
 
 
 def _matches_keywords(text: str) -> bool:
@@ -968,8 +1059,178 @@ def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
         "tasks_type_total": tasks_type_total,
     }
 
+def _normalize_identifier(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def _normalize_field_key(value: str | None) -> str:
+    if not value:
+        return ""
+    if ESG_LEGACY_ENABLED:
+        return _normalize_identifier(value)
+    return str(value).strip().lower()
+
+
+def _find_esg_legacy_fields(fields: list[str]) -> tuple[list[str], dict[str, str]]:
+    legacy_map = {}
+    for alias_key, canonical in ESG_LEGACY_ALIASES.items():
+        legacy_map[_normalize_identifier(alias_key)] = canonical
+    deprecated_fields: list[str] = []
+    resolved_map: dict[str, str] = {}
+    for field in fields or []:
+        canonical = legacy_map.get(_normalize_identifier(field))
+        if canonical:
+            deprecated_fields.append(field)
+            resolved_map[field] = canonical
+    return deprecated_fields, resolved_map
+
+
+def _get_esg_available_cols(db: Session, table_name: str, debug: bool = False) -> tuple[list[str], dict]:
+    now = perf_counter()
+    cache_key = f"cols:{table_name}"
+    cached = ESG_COLUMNS_CACHE.get(cache_key)
+    if cached and (now - cached.get("ts", 0)) < 3600:
+        return cached["cols"], cached.get("debug", {}) if debug else {}
+
+    cols: list[str] = []
+    debug_info: dict = {"source": "", "raw_cols": []}
+    try:
+        ok = False
+        try:
+            rows_cols = db.execute(text(f"SHOW COLUMNS FROM {table_name}")).fetchall()
+            if rows_cols:
+                debug_info = {
+                    "source": "SHOW COLUMNS",
+                    "raw_cols": [
+                        str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field"))
+                        if hasattr(rc, "_mapping") else str(rc[0]) for rc in rows_cols
+                    ],
+                }
+                cols = [str(rc[0]) for rc in rows_cols if rc and rc[0]]
+                ok = True
+        except Exception:
+            ok = False
+        if not ok:
+            try:
+                rows_cols = db.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+                debug_info = {"source": f"PRAGMA table_info({table_name})", "raw_cols": [str(rc[1]) for rc in (rows_cols or [])]}
+                cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
+                ok = True
+            except Exception:
+                ok = False
+        if not ok:
+            try:
+                row1 = db.execute(text(f"SELECT * FROM {table_name} LIMIT 1")).first()
+                if row1 is not None:
+                    keys = list(getattr(row1, "_mapping", {}).keys())
+                    debug_info = {"source": "SELECT * LIMIT 1", "raw_cols": [str(k) for k in keys]}
+                    cols = [str(k) for k in keys if k]
+                ok = True
+            except Exception:
+                ok = False
+    except Exception:
+        cols = []
+        debug_info = {"source": "ERROR", "raw_cols": []}
+
+    seen = set()
+    uniq = []
+    for col in cols:
+        if col in seen:
+            continue
+        seen.add(col)
+        uniq.append(col)
+    cols = uniq
+    ESG_COLUMNS_CACHE[cache_key] = {"ts": now, "cols": cols, "debug": debug_info}
+    return cols, (debug_info if debug else {})
+
+
+def _resolve_esg_fields(
+    db: Session,
+    fields: list[str],
+    table_name: str = ESG_CANON_TABLE,
+    debug: bool = False,
+) -> tuple[list[tuple[str, str | None]], list[tuple[str, str]], dict]:
+    available_cols, cols_debug = _get_esg_available_cols(db, table_name, debug=debug)
+    col_lookup: dict[str, str] = {}
+    for col in available_cols:
+        key = _normalize_field_key(col)
+        if key and key not in col_lookup:
+            col_lookup[key] = col
+    if ESG_LEGACY_ENABLED:
+        for alias_key, canonical in ESG_LEGACY_ALIASES.items():
+            canon_key = _normalize_identifier(canonical)
+            canon_col = col_lookup.get(canon_key)
+            if canon_col:
+                alias_norm = _normalize_identifier(alias_key)
+                col_lookup.setdefault(alias_norm, canon_col)
+    resolved_pairs: list[tuple[str, str | None]] = []
+    seen_cols = set()
+    for field_name in fields or []:
+        col = col_lookup.get(_normalize_field_key(field_name))
+        if col in seen_cols:
+            col = None
+        if col:
+            seen_cols.add(col)
+        resolved_pairs.append((field_name, col))
+    valid_pairs = [(orig, col) for orig, col in resolved_pairs if col]
+    debug_info = {"table": table_name, "cols": cols_debug, "legacy_mode": ESG_LEGACY_MODE} if debug else {}
+    return resolved_pairs, valid_pairs, debug_info
+
+
+def _quote_esg_ident(value: str) -> str:
+    safe = str(value).replace("`", "``")
+    return f"`{safe}`"
+
+
+def _fetch_esg_map(
+    db: Session,
+    isins: set[str] | list[str],
+    columns: list[str],
+    table_name: str = ESG_CANON_TABLE,
+    isin_col: str = "isin",
+    debug: bool = False,
+) -> tuple[dict[str, dict[str, float]], dict | None]:
+    if not isins or not columns:
+        return {}, None
+
+    alias_pairs = [(col, f"c{idx}") for idx, col in enumerate(columns)]
+    col_expr = ", ".join(f"{_quote_esg_ident(col)} AS {alias}" for col, alias in alias_pairs)
+    isin_list = list(isins)
+    placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
+    params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
+    q_esg = text(
+        f"SELECT {_quote_esg_ident(isin_col)} AS isin, {col_expr} "
+        f"FROM {_quote_esg_ident(table_name)} WHERE {_quote_esg_ident(isin_col)} IN ({placeholders})"
+    )
+    esg_map: dict[str, dict[str, float]] = {}
+    try:
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            isin = mm.get("isin") or mm.get("ISIN")
+            if not isin:
+                continue
+            d = {}
+            for col, alias in alias_pairs:
+                try:
+                    val = mm.get(alias)
+                except Exception:
+                    val = None
+                try:
+                    d[col] = float(val) if val is not None else None
+                except Exception:
+                    d[col] = None
+            esg_map[isin] = d
+    except Exception:
+        esg_map = {}
+    debug_info = {"sql": q_esg.text, "params": params, "table": table_name} if debug else None
+    return esg_map, debug_info
+
+
 def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]:
-    """Retourne les champs ESG (colonnes de esg_fonds) avec cache (TTL 1h)."""
+    """Retourne les champs ESG (colonnes normalisées) avec cache (TTL 1h)."""
     now = perf_counter()
     cached = ESG_FIELDS_CACHE.get("fields")
     if cached and (now - cached.get("ts", 0)) < 3600:
@@ -978,54 +1239,22 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
     esg_fields: list[dict] = []
     esg_fields_debug: dict = {"source": "", "raw_cols": [], "final": []}
     try:
-        ok = False
-        # MariaDB/MySQL
-        try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
-            if rows_cols:
-                esg_fields_debug = {"source": "SHOW COLUMNS", "raw_cols": [str(getattr(getattr(rc, '_mapping', {}), 'get', lambda *_: rc[0])('Field')) if hasattr(rc, '_mapping') else str(rc[0]) for rc in rows_cols], "final": []}
-                for rc in rows_cols:
-                    col = rc[0]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    esg_fields.append({"col": col, "label": col})
-                ok = True
-        except Exception:
-            ok = False
-        # SQLite fallback
-        if not ok:
-            try:
-                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
-                esg_fields_debug = {"source": "PRAGMA table_info(esg_fonds)", "raw_cols": [str(rc[1]) for rc in (rows_cols or [])], "final": []}
-                def _labelize(name: str) -> str:
-                    if not name:
-                        return name
-                    s = str(name).replace('_', ' ')
-                    import re as _re
-                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
-                    return s.strip().capitalize()
-                for rc in rows_cols or []:
-                    col = rc[1]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    esg_fields.append({"col": col, "label": _labelize(col)})
-                ok = True
-            except Exception:
-                ok = False
-        # Generic fallback
-        if not ok:
-            try:
-                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
-                if row1 is not None:
-                    keys = list(getattr(row1, "_mapping", {}).keys())
-                    esg_fields_debug = {"source": "SELECT * LIMIT 1", "raw_cols": [str(k) for k in keys], "final": []}
-                    for k in keys:
-                        if str(k).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields.append({"col": k, "label": k})
-                ok = True
-            except Exception:
-                ok = False
+        available_cols, cols_debug = _get_esg_available_cols(db, ESG_FIELDS_TABLE, debug=True)
+        esg_fields_debug = cols_debug or {"source": "", "raw_cols": []}
+        def _labelize(name: str) -> str:
+            if not name:
+                return name
+            s = str(name).replace("_", " ")
+            s = re.sub(r"(?<!^)([A-Z])", r" \\1", s)
+            return s.strip().capitalize()
+        use_labelize = str(esg_fields_debug.get("source", "")).startswith("PRAGMA")
+        for col in available_cols or []:
+            if str(col).lower() in ("isin", "company name", "name", "nom"):
+                continue
+            if ESG_UI_ALLOWLIST and str(col) not in ESG_UI_ALLOWLIST:
+                continue
+            label = _labelize(col) if use_labelize else col
+            esg_fields.append({"col": col, "label": label})
     except Exception:
         esg_fields = []
         esg_fields_debug = {"source": "ERROR", "raw_cols": [], "final": []}
@@ -1275,11 +1504,18 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
     except Exception:
         alloc_names = []
     fields, debug = _get_esg_fields(db, debug=True)
+    deprecated_aliases = [
+        {"alias": alias_key, "canonical": canonical}
+        for alias_key, canonical in ESG_LEGACY_ALIASES.items()
+    ]
     return {
         "status": "ok",
         "esg_fields": fields,
         "alloc_names": alloc_names,
         "debug": debug,
+        "deprecated_aliases": deprecated_aliases,
+        "legacy_mode": ESG_LEGACY_MODE,
+        "legacy_enabled": ESG_LEGACY_ENABLED,
         "dates": [],  # placeholder (si dates spécifiques à renvoyer plus tard)
     }
 
@@ -1760,12 +1996,6 @@ def _build_matplotlib_esg_bar_chart(
         return None
 
 
-def _normalize_identifier(value: str) -> str:
-    if value is None:
-        return ""
-    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
-
-
 def _compute_client_esg_comparison(
     db: Session,
     client_id: int,
@@ -1789,38 +2019,17 @@ def _compute_client_esg_comparison(
     if not sel_fields:
         return payload, debug_info
 
-    # Résolution des noms de colonnes (gestion des variantes orthographiques/accents)
-    try:
-        available_cols = []
-        ok = False
-        try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM donnees_esg_etendu")).fetchall()
-            if rows_cols:
-                available_cols = [str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field")) if hasattr(rc, "_mapping") else str(rc[0]) for rc in rows_cols]
-                ok = True
-        except Exception:
-            ok = False
-        if not ok:
-            rows_cols = db.execute(text("PRAGMA table_info(donnees_esg_etendu)")).fetchall()
-            available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
-    except Exception:
-        available_cols = []
-    col_lookup: dict[str, str] = {}
-    for col in available_cols:
-        key = _normalize_identifier(col)
-        if key and key not in col_lookup:
-            col_lookup[key] = col
-    resolved_pairs: list[tuple[str, str | None]] = []
-    seen_cols = set()
-    for field_name in sel_fields:
-        col = col_lookup.get(_normalize_identifier(field_name))
-        if col in seen_cols:
-            # éviter les doublons si l'utilisateur fournit plusieurs variantes pour la même colonne
-            col = None
-        if col:
-            seen_cols.add(col)
-        resolved_pairs.append((field_name, col))
-    valid_pairs = [(orig, col) for orig, col in resolved_pairs if col]
+    # Résolution des noms de colonnes (variantes legacy -> canonique)
+    resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
+        db=db,
+        fields=sel_fields,
+        table_name=ESG_CANON_TABLE,
+        debug=debug,
+    )
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
     payload["resolved_fields"] = [col for _, col in valid_pairs]
     payload["resolved_pairs"] = [{"requested": orig, "resolved": col} for orig, col in resolved_pairs]
     payload["unmatched_fields"] = [orig for orig, col in resolved_pairs if not col]
@@ -1986,41 +2195,20 @@ def _compute_client_esg_comparison(
             debug_info["allocation"] = debug_alloc
         return payload, debug_info
 
-    # Chargement des colonnes ESG
-    def _quote_col(c: str) -> str:
-        c = c.strip()
-        return f"`{c}`"
-
-    aliases = [(col, f"c{idx}") for idx, (orig, col) in enumerate(valid_pairs)]
-    col_expr = ", ".join(f"{_quote_col(col)} AS {alias}" for col, alias in aliases)
+    # Chargement des colonnes ESG normalisées
     esg_map: dict[str, dict[str, float]] = {}
     debug_esg: dict | None = {"isin_count": len(all_isins), "query": None} if debug else None
-    try:
-        isin_list = list(all_isins)
-        placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
-        params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
-        q_esg = text(f"SELECT isin, {col_expr} FROM donnees_esg_etendu WHERE isin IN ({placeholders})")
-        rows_esg = db.execute(q_esg, params).fetchall()
-        for row in rows_esg or []:
-            mm = row._mapping
-            isin = mm.get("isin")
-            if not isin:
-                continue
-            d = {}
-            for (col, alias) in aliases:
-                try:
-                    val = mm.get(alias)
-                except Exception:
-                    val = None
-                try:
-                    d[col] = float(val) if val is not None else None
-                except Exception:
-                    d[col] = None
-            esg_map[isin] = d
-        if debug_esg is not None:
-            debug_esg["query"] = {"sql": q_esg.text, "params": params}
-    except Exception:
-        esg_map = {}
+    esg_cols = [col for _, col in valid_pairs]
+    esg_map, esg_query_debug = _fetch_esg_map(
+        db=db,
+        isins=all_isins,
+        columns=esg_cols,
+        table_name=ESG_CANON_TABLE,
+        isin_col="isin",
+        debug=debug,
+    )
+    if debug_esg is not None:
+        debug_esg["query"] = esg_query_debug
 
     results = []
     for original_name, column_name in valid_pairs:
@@ -2122,40 +2310,13 @@ def _compute_support_esg_comparison(
     if not sel_fields or not support_isin:
         return payload, debug_info
 
-    # Résolution des colonnes ESG disponibles
-    try:
-        available_cols = []
-        ok = False
-        try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
-            if rows_cols:
-                available_cols = [
-                    str(getattr(getattr(rc, "_mapping", {}), "get", lambda *_: rc[0])("Field")) if hasattr(rc, "_mapping") else str(rc[0])
-                    for rc in rows_cols
-                ]
-                ok = True
-        except Exception:
-            ok = False
-        if not ok:
-            rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
-            available_cols = [str(rc[1]) for rc in rows_cols or [] if rc and len(rc) > 1 and rc[1]]
-    except Exception:
-        available_cols = []
-    col_lookup: dict[str, str] = {}
-    for col in available_cols:
-        key = _normalize_identifier(col)
-        if key and key not in col_lookup:
-            col_lookup[key] = col
-    resolved_pairs: list[tuple[str, str | None]] = []
-    seen_cols = set()
-    for field_name in sel_fields:
-        col = col_lookup.get(_normalize_identifier(field_name))
-        if col in seen_cols:
-            col = None
-        if col:
-            seen_cols.add(col)
-        resolved_pairs.append((field_name, col))
-    valid_pairs = [(orig, col) for orig, col in resolved_pairs if col]
+    # Résolution des colonnes ESG disponibles (legacy -> canonique)
+    resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
+        db=db,
+        fields=sel_fields,
+        table_name=ESG_CANON_TABLE,
+        debug=debug,
+    )
     payload["resolved_fields"] = [col for _, col in valid_pairs]
     payload["unmatched_fields"] = [orig for orig, col in resolved_pairs if not col]
     if not valid_pairs:
@@ -2260,40 +2421,19 @@ def _compute_support_esg_comparison(
             debug_info["allocation"] = debug_alloc
         return payload, debug_info
 
-    def _quote_col(c: str) -> str:
-        c = c.strip()
-        return f"`{c}`"
-
-    aliases = [(col, f"c{idx}") for idx, (orig, col) in enumerate(valid_pairs)]
-    col_expr = ", ".join(f"{_quote_col(col)} AS {alias}" for col, alias in aliases)
+    esg_cols = [col for _, col in valid_pairs]
     esg_map: dict[str, dict[str, float]] = {}
     debug_esg: dict | None = {"isin_count": len(all_isins), "query": None} if debug else None
-    try:
-        isin_list = list(all_isins)
-        placeholders = ",".join([f":i{idx}" for idx in range(len(isin_list))])
-        params = {f"i{idx}": val for idx, val in enumerate(isin_list)}
-        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
-        rows_esg = db.execute(q_esg, params).fetchall()
-        for row in rows_esg or []:
-            mm = row._mapping
-            isin = mm.get("ISIN")
-            if not isin:
-                continue
-            d = {}
-            for (col, alias) in aliases:
-                try:
-                    val = mm.get(alias)
-                except Exception:
-                    val = None
-                try:
-                    d[col] = float(val) if val is not None else None
-                except Exception:
-                    d[col] = None
-            esg_map[isin] = d
-        if debug_esg is not None:
-            debug_esg["query"] = {"sql": q_esg.text, "params": params}
-    except Exception:
-        esg_map = {}
+    esg_map, esg_query_debug = _fetch_esg_map(
+        db=db,
+        isins=all_isins,
+        columns=esg_cols,
+        table_name=ESG_CANON_TABLE,
+        isin_col="isin",
+        debug=debug,
+    )
+    if debug_esg is not None:
+        debug_esg["query"] = esg_query_debug
 
     results = []
     for original_name, column_name in valid_pairs:
@@ -10911,13 +11051,13 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     orias_detail = locals().get("orias_detail", None)
 
     # Comparatif contrats: au-dessus / identique / en-dessous du risque (SRRI contrat vs calculé)
-    try:
+    def _compute_aff_risk_stats(affaire_id_col):
         subq_aff = (
             db.query(
-                HistoriqueAffaire.id.label("affaire_id"),
+                affaire_id_col.label("affaire_id"),
                 func.max(HistoriqueAffaire.date).label("last_date")
             )
-            .group_by(HistoriqueAffaire.id)
+            .group_by(affaire_id_col)
             .subquery()
         )
         norm_vol = case((func.abs(HistoriqueAffaire.volat) <= 1, HistoriqueAffaire.volat * 100.0), else_=HistoriqueAffaire.volat)
@@ -10942,7 +11082,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             .join(subq_aff, subq_aff.c.affaire_id == Affaire.id)
             .join(
                 HistoriqueAffaire,
-                (HistoriqueAffaire.id == subq_aff.c.affaire_id) &
+                (affaire_id_col == subq_aff.c.affaire_id) &
                 (HistoriqueAffaire.date == subq_aff.c.last_date)
             )
             .filter(
@@ -10951,19 +11091,35 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
             )
             .one()
         )
-        compare_counts = {
-            "above": int(agg.cnt_above or 0),
-            "equal": int(agg.cnt_equal or 0),
-            "below": int(agg.cnt_below or 0),
-        }
-        compare_amounts = {
-            "above": float(agg.amt_above or 0.0),
-            "equal": float(agg.amt_equal or 0.0),
-            "below": float(agg.amt_below or 0.0),
-        }
-    except Exception:
+        return (
+            {
+                "above": int(agg.cnt_above or 0),
+                "equal": int(agg.cnt_equal or 0),
+                "below": int(agg.cnt_below or 0),
+            },
+            {
+                "above": float(agg.amt_above or 0.0),
+                "equal": float(agg.amt_equal or 0.0),
+                "below": float(agg.amt_below or 0.0),
+            },
+        )
+
+    compare_counts = None
+    compare_amounts = None
+    try:
+        compare_counts, compare_amounts = _compute_aff_risk_stats(HistoriqueAffaire.id_affaire)
+    except Exception as exc:
+        logger.exception("Failed SRRI compare on id_affaire", exc_info=exc)
+    if not compare_counts:
         compare_counts = {"above": 0, "equal": 0, "below": 0}
+    if not compare_amounts:
         compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
+    if total_affaires and not any(compare_counts.values()):
+        try:
+            compare_counts, compare_amounts = _compute_aff_risk_stats(HistoriqueAffaire.id)
+        except Exception:
+            compare_counts = {"above": 0, "equal": 0, "below": 0}
+            compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
 
     # Comparatif clients: client vs risque (SRRI client vs SRRI historique courant)
     try:
@@ -11034,7 +11190,16 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         total_valo_safe = 0.0
 
     cli_under_pct = _format_pct(cli_amounts.get("above", 0.0), total_valo_safe)
-    aff_under_pct = _format_pct(compare_amounts.get("above", 0.0), total_valo_safe)
+    aff_total_valo_safe = 0.0
+    try:
+        aff_total_valo_safe = sum(float(v or 0.0) for v in compare_amounts.values())
+    except Exception:
+        aff_total_valo_safe = 0.0
+    aff_under_pct = _format_pct(compare_amounts.get("above", 0.0), aff_total_valo_safe)
+    cli_total_count = sum(int(v or 0) for v in cli_counts.values())
+    aff_total_count = sum(int(v or 0) for v in compare_counts.values())
+    cli_risk_pct = {k: _format_pct(v, cli_total_count) for k, v in cli_counts.items()}
+    aff_risk_pct = {k: _format_pct(v, aff_total_count) for k, v in compare_counts.items()}
 
     # ------- Tâches / événements (lazy, chargées via /dashboard/tasks/summary) -------
     try:
@@ -11572,11 +11737,13 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "aff_risk_amounts": compare_amounts,
         "aff_risk_amounts_fmt": compare_amounts_fmt,
         "aff_risk_under_pct": aff_under_pct,
+        "aff_risk_pct": aff_risk_pct,
         # Infos clients vs risque
         "cli_risk_counts": cli_counts,
         "cli_risk_amounts": cli_amounts,
         "cli_risk_amounts_fmt": cli_amounts_fmt,
         "cli_risk_under_pct": cli_under_pct,
+        "cli_risk_pct": cli_risk_pct,
         # Analyse financière (supports)
         "finance_supports": finance_supports,
         "finance_total_valo": finance_total_valo,
@@ -17106,12 +17273,12 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                    h.vl AS vl,
                    h.prmp AS prmp,
                    h.valo AS valo,
-                   esg.noteE AS noteE,
-                   esg.noteS AS noteS,
-                   esg.noteG AS noteG
+                   esg.note_e AS noteE,
+                   esg.note_s AS noteS,
+                   esg.note_g AS noteG
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
-            LEFT JOIN donnees_esg_etendu esg ON esg.isin = s.code_isin
+            LEFT JOIN esg_fonds_norm esg ON esg.isin = s.code_isin
             WHERE h.id_source = :aid AND h.date = :d
             """
         )
@@ -17481,69 +17648,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         alloc_names = []
 
     # Champs ESG disponibles (colonnes de esg_fonds, hors identifiants texte)
-    # On renvoie à la fois le nom de colonne et un libellé lisible.
-    esg_fields: list[dict] = []
-    esg_field_labels: dict[str, str] = {}
-    # Fallback multi-SGBD: SHOW COLUMNS (MySQL/MariaDB) -> PRAGMA (SQLite) -> SELECT * LIMIT 1
-    try:
-        ok = False
-        try:
-            rows_cols = db.execute(text("SHOW COLUMNS FROM esg_fonds")).fetchall()
-            if rows_cols:
-                for rc in rows_cols:
-                    col = rc[0]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    esg_fields.append({"col": col, "label": col})
-                ok = True
-        except Exception:
-            ok = False
-        if not ok:
-            try:
-                rows_cols = db.execute(text("PRAGMA table_info(esg_fonds)")).fetchall()
-                def _labelize(name: str) -> str:
-                    # Transforme camelCase / snake_case en libellé lisible
-                    if not name:
-                        return name
-                    s = str(name)
-                    s = s.replace('_', ' ')
-                    # insert spaces before capitals
-                    import re as _re
-                    s = _re.sub(r'(?<!^)([A-Z])', r' \1', s)
-                    return s.strip().capitalize()
-                for rc in rows_cols or []:
-                    col = rc[1]
-                    if str(col).lower() in ("isin", "company name"):
-                        continue
-                    label = _labelize(col)
-                    esg_fields.append({"col": col, "label": label})
-                ok = True
-            except Exception:
-                ok = False
-        if not ok:
-            try:
-                row1 = db.execute(text("SELECT * FROM esg_fonds LIMIT 1")).first()
-                if row1 is not None:
-                    for k in row1._mapping.keys():
-                        if str(k).lower() in ("isin", "company name"):
-                            continue
-                        esg_fields.append({"col": k, "label": k})
-                ok = True
-            except Exception:
-                ok = False
-    except Exception:
-        pass
-    # Déduplique et trie par libellé
-    seen = set()
-    uniq = []
-    for it in esg_fields:
-        key = str(it.get("col"))
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(it)
-    esg_fields = sorted(uniq, key=lambda x: str(x.get("label","" )).lower())
-    esg_field_labels = { it["col"]: it["label"] for it in esg_fields }
+    esg_fields, _esg_debug = _get_esg_fields(db, debug=False)
+    esg_field_labels = {it["col"]: it["label"] for it in esg_fields}
     # RH list pour affectation des tâches
     rh_list = fetch_rh_list(db)
 
@@ -17624,6 +17730,17 @@ _DEFAULT_LOG_TYPES = [
     ("sri_clients", "Calculs SRI clients"),
     ("sri_affaires", "Calculs SRI affaires"),
     ("sri_allocations", "Calculs SRI allocations"),
+    ("esg_import", "Import ESG (CRM_ESG)"),
+    ("esg_legacy_migrate", "Migration ESG legacy (noms)"),
+]
+SCHEDULED_JOBS = [
+    {
+        "code": "esg_import",
+        "label": "Import ESG (CRM_ESG)",
+        "schedule": "Tous les jours a 23:00 (UTC)",
+        "description": "Synchronise esg_fonds depuis CRM_ESG.",
+        "action_anchor": "#outils-import",
+    },
 ]
 
 _SRI_N_PERIODS = 104  # horizon annualisé pour VaR/VeV (par ex. 2 ans hebdo)
@@ -17713,6 +17830,59 @@ def _ensure_default_log_types(db: Session) -> list[dict]:
     except Exception:
         logger.exception("Unable to load log types")
         return []
+
+
+def _fetch_latest_logs_by_code(db: Session, codes: list[str]) -> dict[str, dict]:
+    if not codes:
+        return {}
+    limit = max(10, len(codes) * 8)
+    rows = db.execute(
+        text(
+            """
+            SELECT
+              lt.code AS code,
+              ls.status,
+              ls.started_at,
+              ls.ended_at,
+              ls.duration_seconds,
+              ls.message
+            FROM log_suivi ls
+            JOIN log_type lt ON lt.id = ls.log_type_id
+            WHERE lt.code IN :codes
+            ORDER BY ls.started_at DESC
+            LIMIT :lim
+            """
+        ).bindparams(bindparam("codes", expanding=True)),
+        {"codes": tuple(codes), "lim": limit},
+    ).fetchall()
+    latest: dict[str, dict] = {}
+    for row in rows or []:
+        m = row._mapping if hasattr(row, "_mapping") else {}
+        code = m.get("code") or (row[0] if row else None)
+        if not code or code in latest:
+            continue
+        latest[code] = {
+            "status": m.get("status") if m else row[1],
+            "started_at": m.get("started_at") if m else row[2],
+            "ended_at": m.get("ended_at") if m else row[3],
+            "duration_seconds": m.get("duration_seconds") if m else row[4],
+            "message": m.get("message") if m else row[5],
+        }
+        if len(latest) >= len(codes):
+            break
+    return latest
+
+
+def _build_scheduled_jobs(db: Session) -> list[dict]:
+    codes = [job.get("code") for job in SCHEDULED_JOBS if job.get("code")]
+    latest_logs = _fetch_latest_logs_by_code(db, codes)
+    enriched: list[dict] = []
+    for job in SCHEDULED_JOBS:
+        code = job.get("code")
+        item = dict(job)
+        item["last_log"] = latest_logs.get(code) if code else None
+        enriched.append(item)
+    return enriched
 
 
 def _start_log_entry(db: Session, log_code: str, log_label: str, user_id: int | None, ip: str | None) -> int | None:
@@ -19561,6 +19731,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     logs_suivi: list[dict] = []
     total_logs = 0
     log_types: list[dict] = []
+    scheduled_jobs: list[dict] = []
     try:
         log_types = _ensure_default_log_types(db)
         logs_suivi, total_logs = _fetch_logs(
@@ -19571,10 +19742,12 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             limit=log_per_page,
             offset=log_offset,
         )
+        scheduled_jobs = _build_scheduled_jobs(db)
     except Exception:
         logs_suivi = []
         total_logs = 0
         log_types = []
+        scheduled_jobs = []
 
     # Pagination sociétés
     page_count = math.ceil(total_societes / per_page) if per_page else 1
@@ -19617,6 +19790,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "client_search_term": client_search_term,
             "selected_client_form": selected_client_form,
             "logs_suivi": logs_suivi,
+            "scheduled_jobs": scheduled_jobs,
             "log_types": log_types,
             "log_page": log_page,
             "log_page_count": log_page_count,
@@ -19912,6 +20086,146 @@ def dashboard_superadmin_toggle_auth(
     qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
     target_url = "/dashboard/superadmin"
     target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/import-esg", response_class=RedirectResponse)
+def dashboard_superadmin_import_esg(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Import ESG referentiel data from CRM_ESG into esg_fonds."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="esg_import",
+        log_label="Import ESG (CRM_ESG)",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        stats = sync_esg_fonds(db)
+        ESG_FIELDS_CACHE.clear()
+        ESG_COLUMNS_CACHE.clear()
+        ESG_GLOBAL_CACHE.clear()
+        elapsed = perf_counter() - started
+        missing = stats.get("missing_columns") or []
+        missing_note = ""
+        if missing:
+            preview = ", ".join(missing[:12])
+            suffix = "..." if len(missing) > 12 else ""
+            missing_note = f" Missing columns: {preview}{suffix}."
+        message = (
+            "ESG import OK: "
+            f"{stats.get('written')} rows written, "
+            f"{stats.get('fetched')} fetched, "
+            f"{stats.get('skipped')} skipped."
+            f"{missing_note}"
+        )
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=message,
+            duration_seconds=elapsed,
+        )
+        qs = urlencode(
+            {
+                "esg_import_status": "ok",
+                "esg_import_rows": stats.get("written", 0),
+                "esg_import_fetch": stats.get("fetched", 0),
+                "esg_import_skip": stats.get("skipped", 0),
+                "esg_import_missing": len(missing),
+            }
+        )
+    except Exception as exc:
+        db.rollback()
+        elapsed = perf_counter() - started
+        logger.exception("ESG import failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"ESG import failed: {exc}",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"esg_import_status": "error"})
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+@router.post("/superadmin/esg-legacy-migrate", response_class=RedirectResponse)
+def dashboard_superadmin_esg_legacy_migrate(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Migrate legacy ESG field names stored in preference-like columns."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="esg_legacy_migrate",
+        log_label="Migration ESG legacy (noms)",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        stats = migrate_esg_legacy_fields(db)
+        elapsed = perf_counter() - started
+        message = (
+            "Migration ESG legacy OK: "
+            f"{stats.rows_updated} lignes mises a jour, "
+            f"{stats.columns_updated} colonnes impactees."
+        )
+        if stats.errors:
+            message += f" Erreurs: {len(stats.errors)}."
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=message,
+            duration_seconds=elapsed,
+        )
+        qs = urlencode(
+            {
+                "esg_legacy_status": "ok",
+                "esg_legacy_rows": stats.rows_updated,
+                "esg_legacy_cols": stats.columns_updated,
+                "esg_legacy_errors": len(stats.errors),
+            }
+        )
+    except Exception as exc:
+        db.rollback()
+        elapsed = perf_counter() - started
+        logger.exception("ESG legacy migration failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"Migration ESG legacy failed: {exc}",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"esg_legacy_status": "error"})
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
     return RedirectResponse(url=target_url, status_code=303)
 
 
@@ -20833,6 +21147,24 @@ def dashboard_affaire_esg(
         sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+    resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
+        db=db,
+        fields=sel_fields,
+        table_name=ESG_CANON_TABLE,
+        debug=bool(debug),
+    )
+    if not valid_pairs:
+        payload = {
+            "error": "Aucun champ ESG valide.",
+            "unmatched_fields": [orig for orig, col in resolved_pairs if not col],
+        }
+        if deprecated_fields:
+            payload["deprecated_fields"] = deprecated_fields
+            payload["deprecated_map"] = deprecated_map
+        return payload
+    resolved_cols = [col for _, col in valid_pairs]
+    resolved_cols = [col for _, col in valid_pairs]
 
     # Date de référence affaire
     debug_info = {"affaire_query": None, "alloc_query": None, "esg_query": None}
@@ -20949,55 +21281,26 @@ def dashboard_affaire_esg(
     if not all_isins:
         return {"fields": sel_fields, "results": []}
 
-    # Charger les valeurs ESG pour ces ISIN
-    # Quoter les champs pour compatibilité MySQL (noms avec espaces/traits)
-    def quote_col(c: str) -> str:
-        c = c.strip()
-        if not c:
-            return c
-        # utiliser backticks
-        return f"`{c}`"
-
-    # Construire des alias sûrs pour récupérer les colonnes (évite problèmes d'espaces/traits)
-    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
-    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
-    esg_map: dict[str, dict[str, float]] = {}
-    try:
-        # Construire une liste de paramètres
-        isin_list = list(all_isins)
-        # Créer placeholders
-        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
-        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
-        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
-        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
-        rows_esg = db.execute(q_esg, params).fetchall()
-        for row in rows_esg or []:
-            mm = row._mapping
-            isin = mm.get("ISIN")
-            if not isin:
-                continue
-            d = {}
-            for (f, al) in aliases:
-                try:
-                    val = mm.get(al)
-                except Exception:
-                    val = None
-                try:
-                    d[f] = float(val) if val is not None else None
-                except Exception:
-                    d[f] = None
-            esg_map[isin] = d
-    except Exception:
-        esg_map = {}
+    # Charger les valeurs ESG pour ces ISIN (table normalisée)
+    esg_cols = [col for _, col in valid_pairs]
+    esg_map, esg_query_debug = _fetch_esg_map(
+        db=db,
+        isins=all_isins,
+        columns=esg_cols,
+        table_name=ESG_CANON_TABLE,
+        isin_col="isin",
+        debug=bool(debug),
+    )
+    debug_info["esg_query"] = esg_query_debug
 
     # Calcul des indicateurs pondérés et normalisés (indice = 100)
     results = []
-    for f in sel_fields:
+    for original_name, column_name in valid_pairs:
         # affaire
         aff_val = 0.0
         aff_wsum = 0.0
         for isin, w in affaire_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
+            v = (esg_map.get(isin) or {}).get(column_name)
             if v is None:
                 continue
             aff_val += float(w) * float(v)
@@ -21008,7 +21311,7 @@ def dashboard_affaire_esg(
         idx_val = 0.0
         idx_wsum = 0.0
         for isin, w in alloc_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
+            v = (esg_map.get(isin) or {}).get(column_name)
             if v is None:
                 continue
             idx_val += float(w) * float(v)
@@ -21016,12 +21319,12 @@ def dashboard_affaire_esg(
         idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
 
         # ajouter compteurs de présence par champ
-        aff_present = sum(1 for isin,_w in affaire_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
-        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        aff_present = sum(1 for isin,_w in affaire_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
+        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
         if aff_val is None or idx_val is None or idx_val == 0:
-            results.append({"field": f, "index": None, "affaire": None, "aff_present": aff_present, "idx_present": idx_present})
+            results.append({"field": original_name, "index": None, "affaire": None, "aff_present": aff_present, "idx_present": idx_present})
         else:
-            results.append({"field": f, "index": 100.0, "affaire": (aff_val / idx_val) * 100.0, "aff_present": aff_present, "idx_present": idx_present})
+            results.append({"field": original_name, "index": 100.0, "affaire": (aff_val / idx_val) * 100.0, "aff_present": aff_present, "idx_present": idx_present})
 
     payload = {
         "fields": sel_fields,
@@ -21031,6 +21334,9 @@ def dashboard_affaire_esg(
         "alloc_date": alloc_date_val,
         "results": results,
     }
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
     if debug:
         payload["debug"] = {
             "affaire": {
@@ -21073,6 +21379,7 @@ def dashboard_client_esg(
         sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
 
     payload, debug_payload = _compute_client_esg_comparison(
         db=db,
@@ -21086,6 +21393,9 @@ def dashboard_client_esg(
     )
     if debug and debug_payload is not None:
         payload["debug"] = debug_payload
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
     return payload
 
 
@@ -21104,6 +21414,7 @@ def dashboard_support_esg(
         sel_fields = [f.strip() for f in fields.split(",") if f and f.strip()]
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
 
     payload, debug_payload = _compute_support_esg_comparison(
         db=db,
@@ -21116,6 +21427,9 @@ def dashboard_support_esg(
     )
     if debug and debug_payload is not None:
         payload["debug"] = debug_payload
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
     return payload
 
 
@@ -21136,6 +21450,22 @@ def dashboard_global_esg(
         sel_fields = [f.strip() for f in fields.split(',') if f and f.strip()]
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+    resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
+        db=db,
+        fields=sel_fields,
+        table_name=ESG_CANON_TABLE,
+        debug=bool(debug),
+    )
+    if not valid_pairs:
+        payload = {
+            "error": "Aucun champ ESG valide.",
+            "unmatched_fields": [orig for orig, col in resolved_pairs if not col],
+        }
+        if deprecated_fields:
+            payload["deprecated_fields"] = deprecated_fields
+            payload["deprecated_map"] = deprecated_map
+        return payload
 
     cache_key = (
         alloc or "",
@@ -21159,7 +21489,7 @@ def dashboard_global_esg(
             c = str(c).replace('"', '""')
             return f'"{c}"'
 
-        select_expr = ",\n  ".join([f"SUM(w.w * ef.{_quote_ident(col)}) AS {_quote_ident(col)}" for col in sel_fields])
+        select_expr = ",\n  ".join([f"SUM(w.w * ef.{_quote_ident(col)}) AS {_quote_ident(col)}" for col in resolved_cols])
 
         # 1) Valeurs portefeuille global (Top 10 par valorisation à MAX(date))
         sql_portfolio = f"""
@@ -21188,14 +21518,14 @@ weights AS (
 SELECT
   {select_expr}
 FROM weights w
-LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
+LEFT JOIN `esg_fonds_norm` ef ON ef.isin = w.isin
 """
 
         row_port = db.execute(text(sql_portfolio)).fetchone()
         port_map = {}
         if row_port is not None:
             mm = getattr(row_port, "_mapping", row_port)
-            for f in sel_fields:
+            for f in resolved_cols:
                 try:
                     v = mm.get(f)
                 except Exception:
@@ -21223,7 +21553,7 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
                 ), {"n": alloc}).scalar()
 
         sql_index = None
-        idx_map = {f: None for f in sel_fields}
+        idx_map = {f: None for f in resolved_cols}
         if alloc and alloc_date_val:
             sql_index = f"""
 WITH last_date AS (
@@ -21250,12 +21580,12 @@ weights AS (
 SELECT
   {select_expr}
 FROM weights w
-LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
+LEFT JOIN `esg_fonds_norm` ef ON ef.isin = w.isin
 """
             row_idx = db.execute(text(sql_index), {"n": alloc, "d": alloc_date_val}).fetchone()
             if row_idx is not None:
                 mm2 = getattr(row_idx, "_mapping", row_idx)
-                for f in sel_fields:
+                for f in resolved_cols:
                     try:
                         v2 = mm2.get(f)
                     except Exception:
@@ -21267,12 +21597,12 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
 
         # 3) Résultats normalisés: indice=100 et portefeuille = (port/index) * 100
         results_norm = []
-        for f in sel_fields:
-            p = port_map.get(f)
-            q = idx_map.get(f)
+        for original_name, column_name in valid_pairs:
+            p = port_map.get(column_name)
+            q = idx_map.get(column_name)
             if p is None or q is None or q == 0:
                 results_norm.append({
-                    "field": f,
+                    "field": original_name,
                     "index": None,
                     "global": None,
                     "index_raw": q,
@@ -21280,7 +21610,7 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
                 })
             else:
                 results_norm.append({
-                    "field": f,
+                    "field": original_name,
                     "index": (q / q) * 100.0,
                     "global": (p / q) * 100.0,
                     "index_raw": q,
@@ -21295,6 +21625,9 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
             "alloc_date": alloc_date_val,
             "results": results_norm,
         }
+        if deprecated_fields:
+            payload_top["deprecated_fields"] = deprecated_fields
+            payload_top["deprecated_map"] = deprecated_map
         if debug:
             payload_top["debug"] = {
                 "sql_portfolio": sql_portfolio,
@@ -21432,6 +21765,9 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
             "alloc_date": alloc_date_val,
             "results": [],
         }
+        if deprecated_fields:
+            payload["deprecated_fields"] = deprecated_fields
+            payload["deprecated_map"] = deprecated_map
         if debug:
             payload["debug"] = {
                 "global": {
@@ -21454,47 +21790,22 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
             }
         return payload
 
-    def quote_col(c: str) -> str:
-        c = c.strip()
-        if not c:
-            return c
-        return f"`{c}`"
-
-    aliases = [(c, f"c{idx}") for idx, c in enumerate(sel_fields)]
-    col_expr = ", ".join(f"{quote_col(c)} AS {al}" for c, al in aliases)
-    esg_map: dict[str, dict[str, float]] = {}
-    try:
-        isin_list = list(all_isins)
-        placeholders = ",".join([":i%d" % idx for idx in range(len(isin_list))])
-        params = { ("i%d" % idx): val for idx, val in enumerate(isin_list) }
-        q_esg = text(f"SELECT ISIN, {col_expr} FROM esg_fonds WHERE ISIN IN ({placeholders})")
-        debug_info["esg_query"] = {"sql": q_esg.text, "params": {**params}}
-        rows_esg = db.execute(q_esg, params).fetchall()
-        for row in rows_esg or []:
-            mm = row._mapping
-            isin = mm.get("ISIN")
-            if not isin:
-                continue
-            d = {}
-            for (f, al) in aliases:
-                try:
-                    val = mm.get(al)
-                except Exception:
-                    val = None
-                try:
-                    d[f] = float(val) if val is not None else None
-                except Exception:
-                    d[f] = None
-            esg_map[isin] = d
-    except Exception:
-        esg_map = {}
+    esg_map, esg_query_debug = _fetch_esg_map(
+        db=db,
+        isins=all_isins,
+        columns=resolved_cols,
+        table_name=ESG_CANON_TABLE,
+        isin_col="isin",
+        debug=bool(debug),
+    )
+    debug_info["esg_query"] = esg_query_debug
 
     results = []
-    for f in sel_fields:
+    for original_name, column_name in valid_pairs:
         g_val = 0.0
         g_wsum = 0.0
         for isin, w in global_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
+            v = (esg_map.get(isin) or {}).get(column_name)
             if v is None:
                 continue
             g_val += float(w) * float(v)
@@ -21504,20 +21815,20 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
         idx_val = 0.0
         idx_wsum = 0.0
         for isin, w in alloc_weights.items():
-            v = (esg_map.get(isin) or {}).get(f)
+            v = (esg_map.get(isin) or {}).get(column_name)
             if v is None:
                 continue
             idx_val += float(w) * float(v)
             idx_wsum += float(w)
         idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
 
-        g_present = sum(1 for isin,_w in global_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
-        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(f) is not None)
+        g_present = sum(1 for isin,_w in global_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
+        idx_present = sum(1 for isin,_w in alloc_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
 
         if g_val is None or idx_val is None or idx_val == 0:
-            results.append({"field": f, "index": None, "global": None, "global_present": g_present, "idx_present": idx_present})
+            results.append({"field": original_name, "index": None, "global": None, "global_present": g_present, "idx_present": idx_present})
         else:
-            results.append({"field": f, "index": 100.0, "global": (g_val / idx_val) * 100.0, "global_present": g_present, "idx_present": idx_present})
+            results.append({"field": original_name, "index": 100.0, "global": (g_val / idx_val) * 100.0, "global_present": g_present, "idx_present": idx_present})
 
     payload = {
         "fields": sel_fields,
@@ -21527,6 +21838,9 @@ LEFT JOIN esg_fonds ef ON ef.ISIN = w.isin
         "alloc_date": alloc_date_val,
         "results": results,
     }
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
     if debug:
         payload["debug"] = {
             "global": {
@@ -21577,16 +21891,16 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
                 s.cat_gene AS categorie,
                 s.cat_geo AS zone_geo,
                 s.SRRI,
-                esg.notee AS noteE,
-                esg.notes AS noteS,
-                esg.noteg AS noteG,
+                esg.note_e AS noteE,
+                esg.note_s AS noteS,
+                esg.note_g AS noteG,
                 SUM(h.valo) AS total_valo,
                 h.date
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
-            LEFT JOIN donnees_esg_etendu esg ON esg.isin = s.code_isin
+            LEFT JOIN esg_fonds_norm esg ON esg.isin = s.code_isin
             WHERE h.date = :last_date
-            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.notee, esg.notes, esg.noteg, h.date
+            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e, esg.note_s, esg.note_g, h.date
             HAVING SUM(h.valo) > 0
             ORDER BY total_valo DESC
         """),
@@ -21601,9 +21915,9 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
             "categorie": mapping.get("categorie", getattr(row, "categorie", None)),
             "zone_geo": mapping.get("zone_geo", getattr(row, "zone_geo", None)),
             "SRRI": mapping.get("SRRI", getattr(row, "SRRI", None)),
-            "noteE": mapping.get("noteE", mapping.get("notee", getattr(row, "noteE", None))),
-            "noteS": mapping.get("noteS", mapping.get("notes", getattr(row, "noteS", None))),
-            "noteG": mapping.get("noteG", mapping.get("noteg", getattr(row, "noteG", None))),
+            "noteE": mapping.get("noteE", mapping.get("note_e", getattr(row, "noteE", None))),
+            "noteS": mapping.get("noteS", mapping.get("note_s", getattr(row, "noteS", None))),
+            "noteG": mapping.get("noteG", mapping.get("note_g", getattr(row, "noteG", None))),
             "total_valo": float(mapping.get("total_valo", getattr(row, "total_valo", 0)) or 0),
             "date": mapping.get("date", getattr(row, "date", None)),
         })
@@ -24232,12 +24546,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       SUM(ls.prmp * COALESCE(ls.nbuc, 1)) / NULLIF(SUM(COALESCE(ls.nbuc, 0)), 0) AS prmp_consolide,
                       SUM(ls.vl * COALESCE(ls.nbuc, 1)) / NULLIF(SUM(COALESCE(ls.nbuc, 0)), 0) AS vl_moyenne,
                       COUNT(DISTINCT ls.id_source) AS contrats_count,
-                      esg.notee AS noteE,
-                      esg.notes AS noteS,
-                      esg.noteg AS noteG
+                      esg.note_e AS noteE,
+                      esg.note_s AS noteS,
+                      esg.note_g AS noteG
                     FROM latest_supports ls
-                    LEFT JOIN donnees_esg_etendu esg ON esg.isin = ls.code_isin
-                    GROUP BY ls.code_isin, ls.support_nom, esg.notee, esg.notes, esg.noteg
+                    LEFT JOIN esg_fonds_norm esg ON esg.isin = ls.code_isin
+                    GROUP BY ls.code_isin, ls.support_nom, esg.note_e, esg.note_s, esg.note_g
                     ORDER BY valo_totale DESC
                     """
                 ),
