@@ -49,6 +49,14 @@ EXPORT_FIELDS = [
     "evic",
 ]
 
+GRADE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
+GRADE_COLUMNS = {
+    "note_e": "note_e_grade",
+    "note_s": "note_s_grade",
+    "note_g": "note_g_grade",
+    "note_esg": "note_esg_grade",
+}
+
 
 @dataclass(frozen=True)
 class CrmEsgConfig:
@@ -177,6 +185,57 @@ def _build_upsert_sql(write_columns: list[str]) -> str:
     return f"INSERT IGNORE INTO esg_fonds ({cols_sql}) VALUES ({vals_sql})"
 
 
+def _assign_septile_grades(rows: list[tuple[str, object]]) -> dict[str, str]:
+    if not rows:
+        return {}
+    def _score_key(item: tuple[str, object]) -> tuple[float, str]:
+        score = item[1]
+        try:
+            score_val = float(score)
+        except Exception:
+            score_val = float("-inf")
+        return (-score_val, str(item[0] or ""))
+    ordered = sorted(rows, key=_score_key)
+    total = len(ordered)
+    base = total // len(GRADE_LETTERS)
+    extra = total % len(GRADE_LETTERS)
+    grades: dict[str, str] = {}
+    idx = 0
+    for bucket, letter in enumerate(GRADE_LETTERS):
+        size = base + (1 if bucket < extra else 0)
+        for _ in range(size):
+            if idx >= total:
+                break
+            isin = ordered[idx][0]
+            if isin:
+                grades[str(isin)] = letter
+            idx += 1
+    return grades
+
+
+def _recompute_esg_grades(db: Session, table_columns: set[str]) -> dict[str, int]:
+    updated_counts: dict[str, int] = {}
+    for score_col, grade_col in GRADE_COLUMNS.items():
+        if score_col not in table_columns or grade_col not in table_columns:
+            continue
+        rows = db.execute(
+            text(f"SELECT isin, `{score_col}` FROM esg_fonds WHERE `{score_col}` IS NOT NULL")
+        ).fetchall()
+        values = [(r[0], r[1]) for r in rows or [] if r and r[0] is not None]
+        grade_map = _assign_septile_grades(values)
+        if grade_map:
+            db.execute(
+                text(f"UPDATE esg_fonds SET `{grade_col}` = :grade WHERE isin = :isin"),
+                [{"isin": isin, "grade": grade} for isin, grade in grade_map.items()],
+            )
+        db.execute(
+            text(f"UPDATE esg_fonds SET `{grade_col}` = NULL WHERE `{score_col}` IS NULL")
+        )
+        updated_counts[grade_col] = len(grade_map)
+    db.commit()
+    return updated_counts
+
+
 def sync_esg_fonds(
     db: Session,
     isins: Iterable[str] | None = None,
@@ -219,6 +278,13 @@ def sync_esg_fonds(
             break
         offset += config.page_size
 
+    grade_updates = {}
+    try:
+        grade_updates = _recompute_esg_grades(db, table_columns)
+    except Exception:
+        db.rollback()
+        grade_updates = {}
+
     return {
         "fetched": total_fetched,
         "written": total_written,
@@ -226,4 +292,5 @@ def sync_esg_fonds(
         "missing_columns": missing_columns,
         "write_columns": write_columns,
         "base_url": config.base_url,
+        "grade_updates": grade_updates,
     }
