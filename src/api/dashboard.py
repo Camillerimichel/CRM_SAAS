@@ -37,7 +37,7 @@ from src.services.evenements import (
     add_statut_to_evenement,
     create_envoi,
 )
-from src.services.esg_import import sync_esg_fonds
+from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
@@ -17273,12 +17273,12 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                    h.vl AS vl,
                    h.prmp AS prmp,
                    h.valo AS valo,
-                   esg.note_e AS noteE,
-                   esg.note_s AS noteS,
-                   esg.note_g AS noteG
+                   esg.note_e_grade AS noteE,
+                   esg.note_s_grade AS noteS,
+                   esg.note_g_grade AS noteG
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
-            LEFT JOIN esg_fonds_norm esg ON esg.isin = s.code_isin
+            LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
             WHERE h.id_source = :aid AND h.date = :d
             """
         )
@@ -20164,6 +20164,68 @@ def dashboard_superadmin_import_esg(
     return RedirectResponse(url=target_url, status_code=303)
 
 
+@router.post("/superadmin/recompute-esg-grades", response_class=RedirectResponse)
+def dashboard_superadmin_recompute_esg_grades(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Recompute ESG grade letters based on current numeric notes."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+
+    ip = request.client.host if request and request.client else None
+    log_id = _start_log_entry(
+        db,
+        log_code="esg_grades_recompute",
+        log_label="Recalcul ESG (septiles)",
+        user_id=current_user_id,
+        ip=ip,
+    )
+    started = perf_counter()
+    try:
+        table_columns = _fetch_esg_fonds_columns(db)
+        updates = _recompute_esg_grades(db, table_columns)
+        elapsed = perf_counter() - started
+        details = ", ".join(f"{col}={count}" for col, count in (updates or {}).items())
+        message = f"ESG grades recomputed. {details}" if details else "ESG grades recomputed."
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="ok",
+            message=message,
+            duration_seconds=elapsed,
+        )
+        qs = urlencode(
+            {
+                "esg_grades_status": "ok",
+                "esg_grades_note_e": updates.get("note_e_grade", 0),
+                "esg_grades_note_s": updates.get("note_s_grade", 0),
+                "esg_grades_note_g": updates.get("note_g_grade", 0),
+                "esg_grades_note_esg": updates.get("note_esg_grade", 0),
+            }
+        )
+    except Exception as exc:
+        db.rollback()
+        elapsed = perf_counter() - started
+        logger.exception("ESG grades recompute failed")
+        _finish_log_entry(
+            db,
+            log_id=log_id,
+            status="error",
+            message=f"ESG grades recompute failed: {exc}",
+            duration_seconds=elapsed,
+        )
+        qs = urlencode({"esg_grades_status": "error"})
+
+    target_url = f"/dashboard/superadmin?{qs}#outils-import" if qs else "/dashboard/superadmin#outils-import"
+    return RedirectResponse(url=target_url, status_code=303)
+
+
 @router.post("/superadmin/esg-legacy-migrate", response_class=RedirectResponse)
 def dashboard_superadmin_esg_legacy_migrate(
     request: Request,
@@ -21891,16 +21953,16 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
                 s.cat_gene AS categorie,
                 s.cat_geo AS zone_geo,
                 s.SRRI,
-                esg.note_e AS noteE,
-                esg.note_s AS noteS,
-                esg.note_g AS noteG,
+                esg.note_e_grade AS noteE,
+                esg.note_s_grade AS noteS,
+                esg.note_g_grade AS noteG,
                 SUM(h.valo) AS total_valo,
                 h.date
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
-            LEFT JOIN esg_fonds_norm esg ON esg.isin = s.code_isin
+            LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
             WHERE h.date = :last_date
-            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e, esg.note_s, esg.note_g, h.date
+            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e_grade, esg.note_s_grade, esg.note_g_grade, h.date
             HAVING SUM(h.valo) > 0
             ORDER BY total_valo DESC
         """),
@@ -24546,12 +24608,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       SUM(ls.prmp * COALESCE(ls.nbuc, 1)) / NULLIF(SUM(COALESCE(ls.nbuc, 0)), 0) AS prmp_consolide,
                       SUM(ls.vl * COALESCE(ls.nbuc, 1)) / NULLIF(SUM(COALESCE(ls.nbuc, 0)), 0) AS vl_moyenne,
                       COUNT(DISTINCT ls.id_source) AS contrats_count,
-                      esg.note_e AS noteE,
-                      esg.note_s AS noteS,
-                      esg.note_g AS noteG
+                      esg.note_e_grade AS noteE,
+                      esg.note_s_grade AS noteS,
+                      esg.note_g_grade AS noteG
                     FROM latest_supports ls
-                    LEFT JOIN esg_fonds_norm esg ON esg.isin = ls.code_isin
-                    GROUP BY ls.code_isin, ls.support_nom, esg.note_e, esg.note_s, esg.note_g
+                    LEFT JOIN esg_fonds esg ON esg.isin = ls.code_isin
+                    GROUP BY ls.code_isin, ls.support_nom, esg.note_e_grade, esg.note_s_grade, esg.note_g_grade
                     ORDER BY valo_totale DESC
                     """
                 ),
