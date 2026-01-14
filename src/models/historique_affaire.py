@@ -5,6 +5,7 @@ class HistoriqueAffaire(Base):
     __tablename__ = "mariadb_historique_affaire_w"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id_affaire = Column(Integer, ForeignKey("mariadb_affaires.id"), index=True, nullable=True)
     date = Column(DateTime, nullable=True)
     valo = Column(Float, nullable=True)
     mouvement = Column(Float, nullable=True)
