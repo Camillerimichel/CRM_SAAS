@@ -133,22 +133,22 @@
     #mvTablePos, #mvTableNeg { table-layout: fixed; width: 100%; }
     /* Date plus compacte */
     #mvTablePos th:nth-child(1), #mvTablePos td:nth-child(1),
-    #mvTableNeg th:nth-child(1), #mvTableNeg td:nth-child(1) { width: 9ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #mvTableNeg th:nth-child(1), #mvTableNeg td:nth-child(1) { width: 11ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Règle (plus compacte) */
     #mvTablePos th:nth-child(2), #mvTablePos td:nth-child(2),
     #mvTableNeg th:nth-child(2), #mvTableNeg td:nth-child(2) { width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Support (peut être long) → autoriser le retour à la ligne et agrandir (un peu moins large) */
     #mvTablePos th:nth-child(3), #mvTablePos td:nth-child(3),
-    #mvTableNeg th:nth-child(3), #mvTableNeg td:nth-child(3) { width: auto; min-width: 56ch; white-space: normal; word-break: break-word; }
+    #mvTableNeg th:nth-child(3), #mvTableNeg td:nth-child(3) { width: auto; min-width: 40ch; white-space: normal; word-break: break-word; }
     /* Valeurs numériques à droite */
     /* Colonne Montant un peu plus large pour éviter la troncature du sous-total */
     #mvTablePos th:nth-child(4), #mvTablePos td:nth-child(4),
     #mvTableNeg th:nth-child(4), #mvTableNeg td:nth-child(4) { white-space: nowrap; width: 14ch; }
     /* Autres numériques compacts */
     #mvTablePos th:nth-child(5), #mvTablePos td:nth-child(5),
+    #mvTableNeg th:nth-child(5), #mvTableNeg td:nth-child(5) { white-space: nowrap; width: 8ch; }
     #mvTablePos th:nth-child(6), #mvTablePos td:nth-child(6),
     #mvTablePos th:nth-child(7), #mvTablePos td:nth-child(7),
-    #mvTableNeg th:nth-child(5), #mvTableNeg td:nth-child(5),
     #mvTableNeg th:nth-child(6), #mvTableNeg td:nth-child(6),
     #mvTableNeg th:nth-child(7), #mvTableNeg td:nth-child(7) { white-space: nowrap; width: 10ch; }
     /* Cacher filtres/pagination DataTables */

@@ -78,10 +78,10 @@
     padding:6px 10px;
     margin-bottom:6px;
   }
-  .section-toggle-row .accordion-toggle.active {
+  .section-toggle-row .accordion-toggle.active:not(#avisToggle):not(#riskToggle) {
     color: var(--primary-600) !important;
   }
-  .section-toggle-row .accordion-toggle.active i {
+  .section-toggle-row .accordion-toggle.active:not(#avisToggle):not(#riskToggle) i {
     color: var(--primary-600) !important;
   }
   /* Equal-size pie charts */
@@ -90,6 +90,13 @@
   .pie-card { display: flex; flex-direction: column; height: 300px; overflow: hidden; }
   .pie-card canvas { flex: 1 1 auto; display:block; }
   .chart-title { font-size: 0.95rem; margin: 0 0 4px 0; }
+  .chart-frame {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.03), rgba(15, 23, 42, 0));
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 12px 6px 12px;
+  }
+  .chart-frame canvas { width: 100% !important; }
   .accordion-toggle h3 { font-size: 1.05rem !important; margin: 0; font-weight: 600; }
   .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
@@ -104,6 +111,19 @@
   .aff-support-link:hover { text-decoration:none; }
   #reportSection table tbody tr:nth-child(even) { background:#eff6ff; }
   #reportSection table tbody tr:nth-child(odd) { background:#fff; }
+  .pdf-pill-icon {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    background:var(--primary-600);
+    color:#fff;
+    font-weight:700;
+    font-size:11px;
+    letter-spacing:0.03em;
+  }
   .esg-grade {
     display:inline-flex;
     align-items:center;
@@ -146,13 +166,13 @@
   }
   #invToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   #invToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
-  #invToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed), #riskToggle:not(.collapsed) {
+  #invToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed) {
     background: transparent !important;
     color: var(--primary-600);
     border-color: transparent !important;
     box-shadow:none !important;
   }
-  #invToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) *, #riskToggle:not(.collapsed) * {
+  #invToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) * {
     color: var(--primary-600) !important;
   }
   #invToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
@@ -257,8 +277,21 @@
     box-shadow:var(--shadow-sm);
   }
   #avisToggle .chevron,
-  #avisToggle .badge,
-  #avisToggle i { color:var(--muted); }
+  #avisToggle .badge { color:var(--muted); }
+  #avisToggle i,
+  #riskToggle i {
+    color: #000 !important;
+  }
+  #riskToggle,
+  #riskToggle * {
+    color: #000 !important;
+  }
+  #avisToggle span,
+  #avisToggle h3,
+  #riskToggle span,
+  #riskToggle h3 {
+    color: #000 !important;
+  }
   #avisToggle:not(.collapsed) {
     background:#fff;
     color:var(--text);
@@ -308,21 +341,20 @@
 <!-- Modal: Messages/Tâches affaire (filtré par type réglementaire / non réglementaire) -->
 <style>
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items: center; justify-content: center; z-index: 9999; }
-  .modal-card { background: #fff; border-radius: 12px; width: 780px; max-width: 95vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+  .modal-card { background: #fff; border-radius: 12px; width: 980px; max-width: 96vw; max-height: 92vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
   .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
   .modal-header h3 { margin: 0; font-size: 1.05rem; }
   .modal-body { padding: 12px 14px; }
   .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
   /* Harmonisation colonnes pop-up Messages (affaire) */
-  #affMsgsTable { table-layout: fixed; width: 100%; }
-  #affMsgsTable th:nth-child(1), #affMsgsTable td:nth-child(1) { width: 13%; }
-  #affMsgsTable th:nth-child(2), #affMsgsTable td:nth-child(2) { width: 15%; }
-  #affMsgsTable th:nth-child(3), #affMsgsTable td:nth-child(3) { width: 13%; }
-  #affMsgsTable th:nth-child(4), #affMsgsTable td:nth-child(4) { width: 10%; }
-  #affMsgsTable th:nth-child(5), #affMsgsTable td:nth-child(5) { width: 26%; }
-  #affMsgsTable th:nth-child(6), #affMsgsTable td:nth-child(6) { width: 7%; text-align:center; }
-  #affMsgsTable th:nth-child(7), #affMsgsTable td:nth-child(7) { width: 7%; text-align:center; }
-  #affMsgsTable th:nth-child(8), #affMsgsTable td:nth-child(8) { width: 9%; text-align:center; }
+  #affMsgsTable { table-layout: fixed; width: 100%; font-size: 12px; }
+  #affMsgsTable th { font-size: 11px; }
+  #affMsgsTable th:nth-child(1), #affMsgsTable td:nth-child(1) { width: 12%; }
+  #affMsgsTable th:nth-child(2), #affMsgsTable td:nth-child(2) { width: 36%; }
+  #affMsgsTable th:nth-child(3), #affMsgsTable td:nth-child(3) { width: 14%; }
+  #affMsgsTable th:nth-child(4), #affMsgsTable td:nth-child(4) { width: 6%; }
+  #affMsgsTable th:nth-child(5), #affMsgsTable td:nth-child(5) { width: 34%; }
+  #affMsgsTable th:nth-child(6), #affMsgsTable td:nth-child(6) { width: 6%; text-align:center; }
   #affMsgsTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #affMsgsTable td:nth-child(5) { white-space: normal; word-break: break-word; }
 </style>
@@ -341,8 +373,6 @@
             <th>Catégorie</th>
             <th>Statut</th>
             <th>Commentaire</th>
-            <th>ID (row.id)</th>
-            <th>ID (evenement_id)</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -441,7 +471,7 @@
       {% endif %}
       {% if affaire %}
         <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="generateAffaireSynthese()" title="Synthèse PDF">
-          <i class="fa-solid fa-file-pdf"></i>
+          <span class="pdf-pill-icon">PDF</span>
         </button>
       {% endif %}
       <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem;" onclick="openAffAdminGroups()" title="Administration">
@@ -531,12 +561,28 @@
   .sri-card {
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     cursor: pointer;
+    text-align: center;
   }
+  .sri-card .kv { display: block; text-align: center; }
   .sri-card.active {
     transform: scale(1.03);
     box-shadow: 0 10px 24px rgba(0,0,0,0.12);
     border-color: var(--primary, #4f46e5);
   }
+  .sri-toggle {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:#f8fafc;
+    cursor:pointer;
+    margin-top:12px;
+  }
+  .sri-toggle .chevron { transition: transform .2s ease; font-size:1rem; }
+  .sri-toggle.collapsed .chevron { transform: rotate(-90deg); }
 </style>
 <div id="sriModalAff" class="modal-overlay" onclick="if(event.target===this) closeSriModalAff()">
   <div class="modal-card" style="width:720px; max-width:95vw;">
@@ -556,41 +602,6 @@
           <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center;">
             <div class="muted" style="font-size:0.9rem;">SRI</div>
             <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
-          </div>
-        </div>
-        <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="M0 = nombre d'observations sur la période.">M0 (observations)</div><div class="kv">{{ sm.m0 if sm.m0 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="M1 = moyenne de tous les rendements observés dans l'échantillon.">M1 (moyenne)</div><div class="kv">{{ '%.6f'|format(sm.m1) if sm.m1 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="M2 = ∑(ri - M1)² / M0 (variance).">M2</div><div class="kv">{{ '%.6f'|format(sm.m2) if sm.m2 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="M3 = ∑(ri - M1)³ / M0.">M3</div><div class="kv">{{ '%.6f'|format(sm.m3) if sm.m3 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="M4 = ∑(ri - M1)⁴ / M0.">M4</div><div class="kv">{{ '%.6f'|format(sm.m4) if sm.m4 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="σ = √(M2) (volatilité).">Sigma</div><div class="kv">{{ '%.6f'|format(sm.sigma) if sm.sigma is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="µ1 = M3 / σ³ (coefficient d'asymétrie).">µ1 (skew)</div><div class="kv">{{ '%.6f'|format(sm.mu1) if sm.mu1 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="µ2 = (M4 / σ⁴) - 3 (excès de kurtosis).">µ2 (kurtosis)</div><div class="kv">{{ '%.6f'|format(sm.mu2) if sm.mu2 is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="VaR Cornish-Fisher : σ√N(-1,96 + 0,474 µ1/√N - 0,0687 µ2/N + 0,146 µ1²/N) - 0,5 σ² N.">Var CF</div><div class="kv">{{ '%.6f'|format(sm.var_cf) if sm.var_cf is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="VeV = {√(3,842 - 2*VaR) - 1,96} / √(T), T en années (RHP).">VeV</div><div class="kv">{{ '%.6f'|format(sm.vev) if sm.vev is not none else '—' }}</div>
-          </div>
-          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
-            <div class="muted sri-tip" data-tip="Nombre de périodes de négociation durant la RHP (dans l'avenir).">Périodes (n)</div><div class="kv">{{ sm.n_periods if sm.n_periods is not none else '—' }}</div>
           </div>
         </div>
         <div style="margin-top:14px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:#f9fafb;">
@@ -644,6 +655,45 @@
             <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
           {% endif %}
         </div>
+        <div id="sriMetricsToggle" class="sri-toggle collapsed">
+          <span style="font-weight:600;">Détails des métriques (M0 → Périodes)</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div id="sriMetricsPanel" style="margin-top:10px; display:none; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M0 = nombre d'observations sur la période.">M0 (observations)</div><div class="kv">{{ sm.m0 if sm.m0 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M1 = moyenne de tous les rendements observés dans l'échantillon.">M1 (moyenne)</div><div class="kv">{{ '%.6f'|format(sm.m1) if sm.m1 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M2 = ∑(ri - M1)² / M0 (variance).">M2</div><div class="kv">{{ '%.6f'|format(sm.m2) if sm.m2 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M3 = ∑(ri - M1)³ / M0.">M3</div><div class="kv">{{ '%.6f'|format(sm.m3) if sm.m3 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="M4 = ∑(ri - M1)⁴ / M0.">M4</div><div class="kv">{{ '%.6f'|format(sm.m4) if sm.m4 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="σ = √(M2) (volatilité).">Sigma</div><div class="kv">{{ '%.6f'|format(sm.sigma) if sm.sigma is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="µ1 = M3 / σ³ (coefficient d'asymétrie).">µ1 (skew)</div><div class="kv">{{ '%.6f'|format(sm.mu1) if sm.mu1 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="µ2 = (M4 / σ⁴) - 3 (excès de kurtosis).">µ2 (kurtosis)</div><div class="kv">{{ '%.6f'|format(sm.mu2) if sm.mu2 is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="VaR Cornish-Fisher : σ√N(-1,96 + 0,474 µ1/√N - 0,0687 µ2/N + 0,146 µ1²/N) - 0,5 σ² N.">Var CF</div><div class="kv">{{ '%.6f'|format(sm.var_cf) if sm.var_cf is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="VeV = {√(3,842 - 2*VaR) - 1,96} / √(T), T en années (RHP).">VeV</div><div class="kv">{{ '%.6f'|format(sm.vev) if sm.vev is not none else '—' }}</div>
+          </div>
+          <div class="kpi-mini sri-card" style="padding:10px; border:1px solid var(--border); border-radius:10px;">
+            <div class="muted sri-tip" data-tip="Nombre de périodes de négociation durant la RHP (dans l'avenir).">Périodes (n)</div><div class="kv">{{ sm.n_periods if sm.n_periods is not none else '—' }}</div>
+          </div>
+        </div>
       {% else %}
         <p class="muted">Aucune métrique SRI disponible pour cette affaire.</p>
       {% endif %}
@@ -660,6 +710,15 @@
         card.classList.toggle('active');
       });
     });
+    var toggle = document.getElementById('sriMetricsToggle');
+    var panel = document.getElementById('sriMetricsPanel');
+    if (toggle && panel){
+      toggle.addEventListener('click', function(){
+        var isHidden = panel.style.display === 'none';
+        panel.style.display = isHidden ? 'grid' : 'none';
+        toggle.classList.toggle('collapsed', !isHidden);
+      });
+    }
   })();
 </script>
 
@@ -854,8 +913,9 @@
     </h3>
   </div>
   <div id="graphValoPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
-    <canvas id="chartValo" height="120"></canvas>
-    <small class="muted">Courbes sans points; axes ajustés automatiquement.</small>
+    <div class="chart-frame">
+      <canvas id="chartValo" height="546"></canvas>
+    </div>
     <div style="margin-top:8px;">
       <button class="rangeBtn" data-range="90">3M</button>
       <button class="rangeBtn" data-range="180">6M</button>
@@ -874,7 +934,7 @@
     </h3>
   </div>
   <div id="graphPerfPanel" class="accordion-panel" style="padding:12px 14px; border-top:1px solid var(--border);">
-    <canvas id="chartAnnuel" height="120"></canvas>
+    <canvas id="chartAnnuel" height="140"></canvas>
   </div>
 </div>
 
@@ -904,7 +964,9 @@
         <button class="rangeBtnCmp" data-range="30">1 mois</button>
       </div>
     </div>
-    <canvas id="chartSicav" height="120" style="margin-top:8px;"></canvas>
+    <div class="chart-frame" style="margin-top:8px;">
+      <canvas id="chartSicav" height="546"></canvas>
+    </div>
   </div>
 </div>
 
@@ -1021,7 +1083,7 @@ function openAffMsgs(kind){
     const tr = document.createElement('tr');
     function td(v){ const td = document.createElement('td'); td.textContent = v==null?'':v; return td; }
     function tdEl(el){ const td = document.createElement('td'); td.appendChild(el); return td; }
-    tr.appendChild(td(ev.date_evenement||''));
+    tr.appendChild(td((ev.date_evenement||'').toString().slice(0,10)));
     tr.appendChild(td(ev.type_libelle||''));
     tr.appendChild(td(ev.type_categorie||''));
     // Statut cliquable vers la page d'édition (nouvel onglet)
@@ -1065,12 +1127,6 @@ function openAffMsgs(kind){
     tr.appendChild(ctd);
     // Action
     const actionTd = document.createElement('td');
-    const idRawTd = document.createElement('td');
-    idRawTd.textContent = (ev && ev.id != null && ev.id !== '') ? ev.id : '—';
-    const idAltTd = document.createElement('td');
-    idAltTd.textContent = (ev && ev.evenement_id != null && ev.evenement_id !== '') ? ev.evenement_id : '—';
-    tr.appendChild(idRawTd);
-    tr.appendChild(idAltTd);
     if (evId){
       const editLink = document.createElement('a');
       editLink.className='btn btn-choice';
@@ -1361,6 +1417,9 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const d = parsedDates[idx];
       return (d && !isNaN(d.getTime())) ? d.getFullYear() : null;
     };
+    const gridSoft = 'rgba(15, 23, 42, 0.08)';
+    const textMuted = '#000';
+    const movementColor = '#0f766e';
     const allMin = Math.min(...V, ...C);
     const allMax = Math.max(...V, ...C);
     const margin = (allMax - allMin) * 0.1 || 1;
@@ -1372,27 +1431,39 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           data: V,
           borderColor: primaryColor,
           fill: false,
+          borderWidth: 1.8,
+          tension: 0.35,
           pointRadius: 0,
-          pointHoverRadius: 0
+          pointHoverRadius: 3,
+          pointHitRadius: 10,
+          spanGaps: true
         },
         {
           label: 'Cumul mouvements',
           data: C,
-          borderColor: '#ff6b6b',
+          borderColor: movementColor,
           fill: false,
+          borderWidth: 1.4,
+          tension: 0.25,
           pointRadius: 0,
-          pointHoverRadius: 0
+          pointHoverRadius: 3,
+          pointHitRadius: 10,
+          spanGaps: true
         },
       ]},
       options: {
         responsive:true,
-        interaction:{mode:'index', intersect:false},
+        maintainAspectRatio:false,
+        interaction:{mode:'index', intersect:false, axis:'x'},
         stacked:false,
+        layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
         scales: {
           x: {
             ticks: {
               autoSkip: false,
               maxRotation: 0,
+              color: textMuted,
+              font: { size: 11, weight: '700' },
               callback: (val, idx) => {
                 const y = yearAt(idx);
                 const prev = yearAt(idx - 1);
@@ -1403,29 +1474,55 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
               color: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
+                return y && y !== prev ? 'rgba(15, 23, 42, 0.3)' : 'rgba(0, 0, 0, 0)';
               },
               lineWidth: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 2 : 0.5;
+                return y && y !== prev ? 1.6 : 0;
               }
-            }
+            },
+            border: { display: false }
           },
           y: {
             type:'linear',
             position:'left',
             suggestedMin: allMin - margin,
             suggestedMax: allMax + margin,
-            ticks:{ callback:v=> v.toLocaleString('fr-FR')+' €' },
-            border:{ color: primaryColor },
-            title:{ display:true, text:'Valorisation / Cumul mouvements', color: primaryColor }
+            ticks:{
+              callback:v=> v.toLocaleString('fr-FR')+' €',
+              color: textMuted,
+              font: { size: 11, weight: '700' }
+            },
+            grid: { color: gridSoft },
+            border: { display: false }
           }
         },
         plugins:{
           fillDiffBetween:{ positiveColor: 'rgba(34, 197, 94, 0.16)', negativeColor: 'rgba(239, 68, 68, 0.16)' },
-          legend:{ display:true },
+          legend:{
+            display:true,
+            position:'top',
+            align:'start',
+            labels:{
+              usePointStyle:true,
+              pointStyle:'line',
+              boxWidth:28,
+              color:'#334155',
+              font:{ size:12, weight:'600' }
+            }
+          },
           tooltip:{
+            backgroundColor: '#0f172a',
+            titleColor: '#f8fafc',
+            bodyColor: '#f8fafc',
+            borderColor: 'rgba(148, 163, 184, 0.4)',
+            borderWidth: 1,
+            padding: 10,
+            caretPadding: 6,
+            displayColors: true,
+            titleFont: { size: 12, weight: '700' },
+            bodyFont: { size: 12 },
             callbacks:{
               label: function(ctx){
                 const y = ctx.parsed.y;
@@ -1537,8 +1634,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           const meta = chart.getDatasetMeta(0); // perf dataset index 0
           if (!meta || !meta.data) return;
           ctx.save();
-          ctx.fillStyle = primaryColor;
-          ctx.font = '12px sans-serif';
+          ctx.fillStyle = '#000';
+          ctx.font = '700 12px sans-serif';
           meta.data.forEach((bar, idx)=>{
             const value = data.datasets[0].data[idx];
             if (value === null || typeof value === 'undefined') return;
@@ -1555,9 +1652,10 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#ff6b6b', backgroundColor: '#ff6b6b', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
       ]},
       options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{
-          y:{ position:'left', ticks:{ callback:v=> v+' %' } },
-          y2:{ position:'right', min:1, max:8, ticks:{ stepSize:1, callback:v=> v, color:'#ff6b6b' }, grid:{ drawOnChartArea:false }, border:{ color:'#ff6b6b' }, title:{ display:true, text:'SRRI', color:'#ff6b6b' } }
-        }, plugins:{ legend:{ display:true }, datalabels:{ anchor:'end', align:'end', color:(ctx)=> ctx.dataset && ctx.dataset.yAxisID==='y2' ? '#ff6b6b' : primaryColor, formatter:(value, ctx)=> {
+          x:{ ticks:{ color:'#000', font:{ weight:'700' } } },
+          y:{ position:'left', ticks:{ callback:v=> v+' %', color:'#000', font:{ weight:'700' } } },
+          y2:{ position:'right', min:1, max:8, ticks:{ stepSize:1, callback:v=> v, color:'#000', font:{ weight:'700' } }, grid:{ drawOnChartArea:false }, border:{ color:'#000' }, title:{ display:true, text:'SRRI', color:'#000' } }
+        }, plugins:{ legend:{ display:true, position:'top', align:'start', labels:{ usePointStyle:true, pointStyle:'line', boxWidth:28, color:'#334155', font:{ size:12, weight:'600' } } }, datalabels:{ anchor:'end', align:'end', color:'#000', formatter:(value, ctx)=> {
             if (value === null || typeof value === 'undefined') return '';
             if (ctx.dataset && ctx.dataset.yAxisID === 'y2') {
               const num = Number(value);
@@ -1567,7 +1665,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
             const numVal = Number(value);
             if (!isFinite(numVal)) return '';
             return numVal.toFixed(2)+' %';
-          }, font:{ size:10 } } } }
+          }, font:{ size:10, weight:'700' } } } }
     });
   } catch(err){
     console.error('Affaire SRRI chart error', err);
@@ -1575,7 +1673,6 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
 
   // Chart 3: SICAV comparatif (aligné sur dates de l'affaire)
   const ctx3 = document.getElementById('chartSicav').getContext('2d');
-  const colors = ['#ff6b6b']; // allocations en rouge
   let chart3;
   let currentRange3 = 'all';
   function filterRangeByDays(list, range){
@@ -1627,12 +1724,37 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       if (base === 0) return vals.map(_ => 100);
       return vals.map(v => isFinite(v) ? (v / base) * 100 : null);
     }
+    const gridSoft = 'rgba(15, 23, 42, 0.08)';
+    const allocColor = '#0f766e';
+    const portfolioColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#2456a6').trim();
     const datasets = [];
-    datasets.push({ label:'{{ affaire.ref if affaire else "Affaire" }} (base 100)', data: normalizeSeries(affMap, labels), borderColor:(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#2456a6').trim(), fill:false, pointRadius:0, pointHoverRadius:0 });
+    datasets.push({
+      label:'{{ affaire.ref if affaire else "Affaire" }} (base 100)',
+      data: normalizeSeries(affMap, labels),
+      borderColor: portfolioColor,
+      borderWidth: 1.8,
+      fill:false,
+      tension: 0.35,
+      pointRadius:0,
+      pointHoverRadius:3,
+      pointHitRadius:10,
+      spanGaps: true
+    });
     (selected||[]).forEach((name, idx)=>{
       const arr = allocSeries[name] || [];
       const map = new Map(arr.map(p=> [p.date, parseFloat(p.sicav)]));
-      datasets.push({ label:name+' (base 100)', data: normalizeSeries(map, labels), borderColor: '#ff6b6b', fill:false, pointRadius:0, pointHoverRadius:0 });
+      datasets.push({
+        label:name+' (base 100)',
+        data: normalizeSeries(map, labels),
+        borderColor: allocColor,
+        borderWidth: 1.6,
+        fill:false,
+        tension: 0.35,
+        pointRadius:0,
+        pointHoverRadius:3,
+        pointHitRadius:10,
+        spanGaps: true
+      });
     });
     const areaFillPluginCmp = {
       id: 'allocFillCmp',
@@ -1684,8 +1806,15 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       data:{ labels: xIndexes, datasets },
       options:{
         responsive:true,
+        maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false, axis:'x' },
+        layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
         scales:{
-          y:{ ticks:{ callback:v=> v.toFixed(0) } },
+          y:{
+            ticks:{ callback:v=> v.toFixed(0), color:'#000', font:{ size:11, weight:'700' } },
+            grid: { color: gridSoft },
+            border: { display: false }
+          },
           x:{
             type:'category',
             labels: xIndexes,
@@ -1694,17 +1823,31 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
               callback: function(val){
                 return yearCenters.has(val) ? yearCenters.get(val) : '';
               },
-              maxRotation: 0, minRotation: 0, align: 'center'
+              maxRotation: 0, minRotation: 0, align: 'center',
+              color:'#000',
+              font:{ size:11, weight:'700' }
             },
             grid:{
               drawOnChartArea: true,
-              color: function(ctx){ return yearLines.has(ctx.index) ? '#000' : 'rgba(0,0,0,0.05)'; },
-              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 2 : 1; }
-            }
+              color: function(ctx){ return yearLines.has(ctx.index) ? 'rgba(15, 23, 42, 0.3)' : 'rgba(0,0,0,0)'; },
+              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 1.6 : 0; }
+            },
+            border: { display: false }
           }
         },
         plugins:{
-          legend:{ display:true },
+          legend:{
+            display:true,
+            position:'top',
+            align:'start',
+            labels:{
+              usePointStyle:true,
+              pointStyle:'line',
+              boxWidth:28,
+              color:'#334155',
+              font:{ size:12, weight:'600' }
+            }
+          },
           tooltip:{
             displayColors:false,
             callbacks:{
@@ -1951,7 +2094,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
 
   <!-- Modale Administration Groupes (Affaire) -->
   <div id="affAdminGroupsModal" class="modal-overlay" data-tb-marker="AF_15" onclick="if(event.target===this) document.getElementById('affAdminGroupsModal').style.display='none'">
-    <div class="modal-card" data-tb-marker="AF_16">
+  <div class="modal-card" data-tb-marker="AF_16" style="width:420px; max-width:90vw;">
       <div class="modal-header">
         <h3><i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Groupes de l'affaire</h3>
         <button class="modal-close" onclick="document.getElementById('affAdminGroupsModal').style.display='none'">✕</button>
@@ -1972,8 +2115,6 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
             <tr>
               <th>Groupe</th>
               <th>Actif</th>
-              <th>Ajout</th>
-              <th>Retrait</th>
               <th></th>
             </tr>
           </thead>
@@ -2064,30 +2205,12 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           const tr = document.createElement('tr');
           const tdNom = document.createElement('td'); tdNom.textContent = nameById[link.groupe_id] || ('#'+link.groupe_id);
           const tdActif = document.createElement('td'); tdActif.textContent = (link.actif===1 || link.actif===null)?'Oui':'Non';
-          const tdAj = document.createElement('td'); tdAj.className='js-local-dt'; tdAj.setAttribute('data-iso', link.date_ajout || '');
-          const tdRt = document.createElement('td'); tdRt.className='js-local-dt'; tdRt.setAttribute('data-iso', link.date_retrait || '');
           const tdAct = document.createElement('td');
           const btn = document.createElement('button'); btn.className = 'btn btn-danger'; btn.textContent = 'Retirer'; btn.onclick = () => removeAffGroup(link.id);
           tdAct.appendChild(btn);
-          tr.appendChild(tdNom); tr.appendChild(tdActif); tr.appendChild(tdAj); tr.appendChild(tdRt); tr.appendChild(tdAct);
+          tr.appendChild(tdNom); tr.appendChild(tdActif); tr.appendChild(tdAct);
           body.appendChild(tr);
         });
-        // trigger client-side date localization
-        try { (function(){
-          var nodes = document.querySelectorAll('#affGroupsTable .js-local-dt');
-          nodes.forEach(function (el) {
-            var iso = el.getAttribute('data-iso') || (el.textContent || '').trim();
-            if (!iso) { el.textContent=''; return; }
-            var s = iso;
-            if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) {
-              s = s.replace(' ', 'T') + 'Z';
-            }
-            var d = new Date(s);
-            if (isNaN(d)) { el.textContent = iso; return; }
-            try { el.textContent = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }); }
-            catch(e){ el.textContent = d.toLocaleString(); }
-          });
-        })(); } catch(e){}
       }
       async function addAffGroup(){
         const sel = document.getElementById('affGroupsSelect');
