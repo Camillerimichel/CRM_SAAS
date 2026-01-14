@@ -68,6 +68,17 @@
   .risk-dot.red { background: #ef4444; }
   .risk-dot.green { background: #16a34a; }
   .risk-dot.blue { background: #3b82f6; }
+  .risk-pie {
+    width: 100%;
+    height: 110px;
+    max-height: 110px;
+  }
+  .risk-pie-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
+  }
   .tasks-kpis {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -243,15 +254,15 @@
           <div style="margin-top:8px;">
             <div class="risk-stat-row">
               <span class="risk-dot red"></span>
-              <span><strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque</span>
+              <span><strong>{{ cli_risk_pct.above }} % ({{ cli_risk_counts.above }})</strong> — Au‑dessus du risque</span>
             </div>
             <div class="risk-stat-row">
               <span class="risk-dot green"></span>
-              <span><strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque</span>
+              <span><strong>{{ cli_risk_pct.equal }} % ({{ cli_risk_counts.equal }})</strong> — Dans le risque</span>
             </div>
             <div class="risk-stat-row">
               <span class="risk-dot blue"></span>
-              <span><strong>{{ cli_risk_counts.below }}</strong> — En dessous du risque</span>
+              <span><strong>{{ cli_risk_pct.below }} % ({{ cli_risk_counts.below }})</strong> — En dessous du risque</span>
             </div>
             <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
               <span style="display:inline-flex; align-items:center; gap:6px;">
@@ -275,15 +286,15 @@
           <div style="margin-top:8px;">
             <div class="risk-stat-row">
               <span class="risk-dot blue"></span>
-              <span><strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque</span>
+              <span><strong>{{ aff_risk_pct.below }} % ({{ aff_risk_counts.below }})</strong> — En dessous du risque</span>
             </div>
             <div class="risk-stat-row">
               <span class="risk-dot green"></span>
-              <span><strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque</span>
+              <span><strong>{{ aff_risk_pct.equal }} % ({{ aff_risk_counts.equal }})</strong> — Dans le risque</span>
             </div>
             <div class="risk-stat-row">
               <span class="risk-dot red"></span>
-              <span><strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque</span>
+              <span><strong>{{ aff_risk_pct.above }} % ({{ aff_risk_counts.above }})</strong> — Au dessus du risque</span>
             </div>
             <div class="risk-stat-row" style="justify-content:center; margin-top:6px;">
               <span style="display:inline-flex; align-items:center; gap:6px;">
@@ -919,32 +930,23 @@
           <div class="risk-stat-row" data-tb-marker="TB_41" style="justify-content:flex-start;">
             <span class="risk-dot red"></span>
             <a href="/dashboard/clients?risk=above" target="_blank" rel="noopener noreferrer">
-              <strong>{{ cli_risk_counts.above }}</strong> — Au‑dessus du risque
+              <strong>{{ cli_risk_pct.above }} % ({{ cli_risk_counts.above }})</strong> — Au‑dessus du risque
             </a>
           </div>
           <div class="risk-stat-row" data-tb-marker="TB_42" style="justify-content:flex-start;">
             <span class="risk-dot green"></span>
             <a href="/dashboard/clients?risk=equal" target="_blank" rel="noopener noreferrer">
-              <strong>{{ cli_risk_counts.equal }}</strong> — Dans le risque
+              <strong>{{ cli_risk_pct.equal }} % ({{ cli_risk_counts.equal }})</strong> — Dans le risque
             </a>
           </div>
           <div class="risk-stat-row" data-tb-marker="TB_43" style="justify-content:flex-start;">
             <span class="risk-dot blue"></span>
             <a href="/dashboard/clients?risk=below" target="_blank" rel="noopener noreferrer">
-              <strong>{{ cli_risk_counts.below }}</strong> — Sous le risque
+              <strong>{{ cli_risk_pct.below }} % ({{ cli_risk_counts.below }})</strong> — Sous le risque
             </a>
           </div>
-          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:6px;">
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <i class="fa-solid fa-coins" style="color:var(--primary);"></i>
-              <strong>{{ cli_risk_amounts_fmt.above }}</strong> € — Montant sous risque
-            </span>
-          </div>
-          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:4px;">
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <i class="fa-solid fa-percent" style="color:var(--primary);"></i>
-              <strong>{{ cli_risk_under_pct }}</strong> % — Part sous risque
-            </span>
+          <div class="risk-pie-wrap">
+            <canvas id="chartClientsRiskPie" class="risk-pie"></canvas>
           </div>
         </div>
       </div>
@@ -968,34 +970,25 @@
         </div>
         <div data-tb-marker="TB_49" style="margin-top:8px; width:100%;">
           <div class="risk-stat-row" data-tb-marker="TB_50" style="justify-content:flex-start;">
-            <span class="risk-dot blue"></span>
+            <span class="risk-dot red"></span>
             <a href="/dashboard/affaires?risk=below" target="_blank" rel="noopener noreferrer">
-              <strong>{{ aff_risk_counts.below }}</strong> — En dessous du risque
+              <strong>{{ aff_risk_pct.below }} % ({{ aff_risk_counts.below }})</strong> — Au dessus du risque
             </a>
           </div>
           <div class="risk-stat-row" data-tb-marker="TB_51" style="justify-content:flex-start;">
             <span class="risk-dot green"></span>
             <a href="/dashboard/affaires?risk=equal" target="_blank" rel="noopener noreferrer">
-              <strong>{{ aff_risk_counts.equal }}</strong> — Dans le risque
+              <strong>{{ aff_risk_pct.equal }} % ({{ aff_risk_counts.equal }})</strong> — Dans le risque
             </a>
           </div>
           <div class="risk-stat-row" data-tb-marker="TB_52" style="justify-content:flex-start;">
-            <span class="risk-dot red"></span>
+            <span class="risk-dot blue"></span>
             <a href="/dashboard/affaires?risk=above" target="_blank" rel="noopener noreferrer">
-              <strong>{{ aff_risk_counts.above }}</strong> — Au dessus du risque
+              <strong>{{ aff_risk_pct.above }} % ({{ aff_risk_counts.above }})</strong> — En dessous du risque
             </a>
           </div>
-          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:6px;">
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <i class="fa-solid fa-coins" style="color:#dc2626;"></i>
-              <strong>{{ aff_risk_amounts_fmt.above }}</strong> € — Montant sous risque
-            </span>
-          </div>
-          <div class="risk-stat-row" style="justify-content:flex-start; margin-top:4px;">
-            <span style="display:inline-flex; align-items:center; gap:6px;">
-              <i class="fa-solid fa-percent" style="color:#dc2626;"></i>
-              <strong>{{ aff_risk_under_pct }}</strong> % — Part sous risque
-            </span>
+          <div class="risk-pie-wrap">
+            <canvas id="chartAffairesRiskPie" class="risk-pie"></canvas>
           </div>
         </div>
       </div>
@@ -1390,6 +1383,33 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     });
   }
 
+  function makePie(id, labels, data, colors) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const ctx = el.getContext('2d');
+    const total = data.reduce((sum, v) => sum + (Number(v) || 0), 0);
+    new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data, backgroundColor: colors }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context){
+                const val = Number(context.raw || 0);
+                const pct = total ? ((val / total) * 100) : 0;
+                return context.label + ': ' + pct.toFixed(1).replace('.', ',') + ' % (' + val + ')';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
   // Build charts (non cliquables)
   makeBar('chartClientsCount', cc.labels, cc.data, false);
   makeBar('chartAffairesCount', ac.labels, ac.data, false);
@@ -1398,6 +1418,21 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Buckets chart (first): height reduced above
   makeBarFill('chartClientsBuckets', cb_labels, cb_data, false);
   makeBarFill('chartContractsBuckets', ab_labels, ab_data, false);
+
+  const cliRiskCounts = {{ cli_risk_counts | tojson }};
+  const affRiskCounts = {{ aff_risk_counts | tojson }};
+  makePie(
+    'chartClientsRiskPie',
+    ['Au-dessus', 'Dans', 'Sous'],
+    [cliRiskCounts.above || 0, cliRiskCounts.equal || 0, cliRiskCounts.below || 0],
+    ['#ef4444', '#16a34a', '#3b82f6']
+  );
+  makePie(
+    'chartAffairesRiskPie',
+    ['Au-dessus', 'Dans', 'Sous'],
+    [affRiskCounts.above || 0, affRiskCounts.equal || 0, affRiskCounts.below || 0],
+    ['#ef4444', '#16a34a', '#3b82f6']
+  );
 
   // ------- Conformité: lazy load -------
   (function(){
