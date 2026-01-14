@@ -41,6 +41,17 @@ app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(groupes.router)
 
+
+@app.middleware("http")
+async def redirect_unauthorized_html(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 401 and request.url.path != "/login":
+        accept = (request.headers.get("accept") or "").lower()
+        xrw = (request.headers.get("x-requested-with") or "").lower()
+        if ("text/html" in accept or "*/*" in accept) and xrw != "xmlhttprequest":
+            return RedirectResponse(url="/login", status_code=303)
+    return response
+
 # Servir l'app React compilée (http://localhost:8000/app)
 
 

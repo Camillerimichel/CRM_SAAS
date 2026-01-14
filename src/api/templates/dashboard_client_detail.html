@@ -176,6 +176,28 @@
   .pie-card { background: transparent; border-radius: 0; padding: 0; box-shadow: none; display:flex; flex-direction:column; }
   .pie-card canvas { flex:1 1 auto; height: 220px !important; }
   .pie-card .chart-title { margin: 0 0 6px 0; font-size: 0.95rem; }
+  .chart-frame {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.03), rgba(15, 23, 42, 0));
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 12px 6px 12px;
+  }
+  .chart-frame canvas { width: 100% !important; }
+  .data-frame {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px;
+  }
+  .simu-split {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .simu-split .data-frame { flex: 1 1 280px; min-width: 200px; }
+  .simu-split .chart-frame { flex: 1 1 320px; min-width: 240px; margin-top: 0 !important; min-height: 260px; }
+  .simu-split .chart-frame canvas { height: 100% !important; }
   .dim-btn { padding:4px 8px; border:1px solid #ccc; border-radius:8px; background:#f8f9fa; cursor:pointer; font-size:12px; }
   .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
   .support-contract-link { color:#000 !important; text-decoration:underline; }
@@ -216,8 +238,62 @@
   #contractsTable { border-collapse: collapse; }
   #contractsTable .badge-closed { padding: 1px 6px; font-size: 10px; }
   /* Tableau allocations (Simulation financière) – lignes compactes */
-  #simuAllocTable { font-size: 12px; }
-  #simuAllocTable th, #simuAllocTable td { padding: 3px 6px; }
+  #simuAllocTable { font-size: 10px; }
+  #simuAllocTable th, #simuAllocTable td { padding: 3px 5px; }
+  #simuAllocTable th {
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 700;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  #simuAllocTable td { border-bottom: 1px solid #e2e8f0; color: #111827; }
+  #simuAllocTable tbody tr:nth-child(even) td { background: #f8fafc; }
+  #simuAllocTable th:nth-child(-n+4),
+  #simuAllocTable td:nth-child(-n+4) { font-size: 10px; }
+  #simuAllocTable th:nth-child(1),
+  #simuAllocTable td:nth-child(1) {
+    width: 26%;
+    max-width: 160px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #simuAllocTable th:nth-child(2),
+  #simuAllocTable td:nth-child(2),
+  #simuAllocTable th:nth-child(3),
+  #simuAllocTable td:nth-child(3) {
+    width: 14%;
+  }
+  #simuAllocTable th:nth-child(4),
+  #simuAllocTable td:nth-child(4) {
+    width: 8%;
+  }
+  #simuAllocTable th:nth-child(5),
+  #simuAllocTable td:nth-child(5) {
+    width: 10%;
+  }
+  #simuAllocTable .simu-weight {
+    font-size: 9px;
+    line-height: 1.1;
+    padding: 2px 4px;
+    height: 20px;
+    width: 6ch;
+    text-align: right;
+    box-sizing: border-box;
+  }
+  #simuAllocTable .simu-weight-display {
+    display: none;
+    font-size: 10px;
+    line-height: 1.1;
+    padding: 2px 4px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  #simuAllocTable.simu-inline-ready .simu-weight { display: none; }
+  #simuAllocTable.simu-inline-ready .simu-weight-display { display: inline-block; }
   /* RBAC UI hides */
   body[data-user-role="client"] .client-hide { display: none !important; }
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
@@ -2410,7 +2486,9 @@ function generateClientSynthese(){
       <span class="chevron">▾</span>
     </div>
     <div id="graphValoPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-      <canvas id="valoChart" height="120"></canvas>
+      <div class="chart-frame">
+        <canvas id="valoChart" height="120"></canvas>
+      </div>
     </div>
   </div>
   <div class="card" style="margin-bottom:10px;">
@@ -2445,7 +2523,9 @@ function generateClientSynthese(){
           <button class="rangeBtn" data-range="30">1 mois</button>
         </div>
       </div>
-    <canvas id="clientAllocChart" height="120"></canvas>
+      <div class="chart-frame">
+        <canvas id="clientAllocChart" height="120"></canvas>
+      </div>
   </div>
 </div>
 
@@ -2455,61 +2535,69 @@ function generateClientSynthese(){
       <span class="chevron">▾</span>
     </div>
   <div id="simuAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 10px 0;">
-    <div class="table-responsive">
-      <table id="simuAllocTable" class="table table-sm" style="width:100%; font-size:13px;">
-        <thead>
-          <tr>
-            <th>Allocation</th>
-            <th style="text-align:right;">Perf 52s</th>
-            <th style="text-align:right;">Volat.</th>
-            <th style="text-align:center;">SRRI</th>
-            <th style="text-align:right; white-space:nowrap; width:1%;">Répartitions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in allocation_simulation_rows or [] %}
-          <tr data-alloc="{{ row.nom }}">
-            <td>{{ row.nom }}</td>
-            <td style="text-align:right;">{% if row.perf_52 is not none %}{{ '%.2f'|format(row.perf_52 if row.perf_52|abs > 1 else row.perf_52*100) }} %{% else %}—{% endif %}</td>
-            <td style="text-align:right;">{% if row.volat is not none %}{{ '%.2f'|format(row.volat if row.volat|abs > 1 else row.volat*100) }} %{% else %}—{% endif %}</td>
-            <td style="text-align:center;"> 
-              {% set _srri = None %}
-              {% if row.volat is not none %}
-                {% set _v = row.volat %}
-                {% if _v|abs <= 1 %}
-                  {% set _v = _v * 100 %}
-                {% endif %}
-                {% if _v <= 0.5 %}
-                  {% set _srri = 1 %}
-                {% elif _v <= 2 %}
-                  {% set _srri = 2 %}
-                {% elif _v <= 5 %}
-                  {% set _srri = 3 %}
-                {% elif _v <= 10 %}
-                  {% set _srri = 4 %}
-                {% elif _v <= 15 %}
-                  {% set _srri = 5 %}
-                {% elif _v <= 25 %}
-                  {% set _srri = 6 %}
-                {% else %}
-                  {% set _srri = 7 %}
-                {% endif %}
-              {% endif %}
-              {{ _srri if _srri is not none else '—' }}
-            </td>
-            <td style="text-align:right; white-space:nowrap; width:1%;">
-              <input type="text"
-                     class="simu-weight"
-                     inputmode="decimal"
-                     pattern="^[0-9]+([\\.,][0-9]{0,2})?$"
-                     value="{{ '%.2f'|format(row.poids_pct or 0) }}"
-                     style="width:7ch; box-sizing:border-box; text-align:right; font-size:12px;" />
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="simu-split">
+      <div class="data-frame">
+        <div class="table-responsive">
+          <table id="simuAllocTable" class="table table-sm" style="width:100%;">
+            <thead>
+              <tr>
+                <th>Allocation</th>
+                <th style="text-align:right;">Perf 52s</th>
+                <th style="text-align:right;">Volat.</th>
+                <th style="text-align:center;">SRRI</th>
+                <th style="text-align:right; white-space:nowrap; width:1%;">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in allocation_simulation_rows or [] %}
+              <tr data-alloc="{{ row.nom }}">
+                <td>{{ row.nom }}</td>
+                <td style="text-align:right;">{% if row.perf_52 is not none %}{{ '%.2f'|format(row.perf_52 if row.perf_52|abs > 1 else row.perf_52*100) }} %{% else %}—{% endif %}</td>
+                <td style="text-align:right;">{% if row.volat is not none %}{{ '%.2f'|format(row.volat if row.volat|abs > 1 else row.volat*100) }} %{% else %}—{% endif %}</td>
+                <td style="text-align:center;"> 
+                  {% set _srri = None %}
+                  {% if row.volat is not none %}
+                    {% set _v = row.volat %}
+                    {% if _v|abs <= 1 %}
+                      {% set _v = _v * 100 %}
+                    {% endif %}
+                    {% if _v <= 0.5 %}
+                      {% set _srri = 1 %}
+                    {% elif _v <= 2 %}
+                      {% set _srri = 2 %}
+                    {% elif _v <= 5 %}
+                      {% set _srri = 3 %}
+                    {% elif _v <= 10 %}
+                      {% set _srri = 4 %}
+                    {% elif _v <= 15 %}
+                      {% set _srri = 5 %}
+                    {% elif _v <= 25 %}
+                      {% set _srri = 6 %}
+                    {% else %}
+                      {% set _srri = 7 %}
+                    {% endif %}
+                  {% endif %}
+                  {{ _srri if _srri is not none else '—' }}
+                </td>
+                <td style="text-align:right; white-space:nowrap; width:1%;">
+                  <span class="simu-weight-display">{{ '%.2f'|format(row.poids_pct or 0) }} %</span>
+                  <input type="text"
+                         class="simu-weight"
+                         inputmode="decimal"
+                         pattern="^[0-9]+([\\.,][0-9]{0,2})?$"
+                         value="{{ '%.2f'|format(row.poids_pct or 0) }}"
+                         />
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      <div id="simuAllocSrriChartWrap" class="chart-frame">
+        <canvas id="simuAllocSrriChart" height="110"></canvas>
+      </div>
+    </div>
     <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:6px;">
       <button id="simuAllocResetBtn" type="button" class="dim-btn" title="Remettre les répartitions calculées">Réinitialiser</button>
       <div class="muted" id="simuAllocSum" style="font-size:12px; text-align:right;"></div>
@@ -2518,10 +2606,8 @@ function generateClientSynthese(){
       Requête SQL (littérale) :
       <pre id="simuAllocSql" style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:12px; white-space:pre-wrap; margin-top:4px;">(chargement…)</pre>
     </div>
-    <div id="simuAllocSummary" class="muted" style="margin-top:8px; font-size:12px;"></div>
-    <div id="simuAllocSrriChartWrap" style="margin-top:12px;">
-      <canvas id="simuAllocSrriChart" height="110"></canvas>
-    </div>
+    <div class="muted" style="margin-top:8px; font-size:12px;">La répartition initiale est calculée selon les offres sur chaque contrat.</div>
+    <div id="simuAllocSummary" class="muted" style="margin-top:4px; font-size:12px;"></div>
     <div class="muted" style="font-size:12px; margin-top:8px; display:flex; align-items:center; gap:8px; display:none;">
       <span>Données (JSON) utilisées pour le graphique :</span>
       <button id="simuAllocExportCsv" type="button" class="dim-btn" style="padding:4px 8px; font-size:12px;">Exporter CSV</button>
@@ -2649,8 +2735,8 @@ function generateClientSynthese(){
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-// Chart.js: couleur par défaut (axes/labels) = bleu CSS
-try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+// Chart.js: couleur par défaut (axes/labels) = noir
+try { Chart.defaults.color = '#000'; } catch(e) {}
 // Messages/tâches client (modale) — même logique que la page Affaires
 const CLIENT_EVENTS_OPEN = {{ client_events_open | tojson }};
 function _normCatCl(s){
@@ -2895,6 +2981,9 @@ function openClientMsgs(kind){
     const normLabels = labels.map(d => (d||'').toString().slice(0,10));
     const parsedDates = normLabels.map(d => new Date(d));
     const primaryColorValo = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#1d4ed8';
+    const gridSoft = 'rgba(15, 23, 42, 0.08)';
+    const textMuted = '#000';
+    const movementColor = '#0f766e';
     function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
     function yearAt(index){
       const d = parsedDates[index];
@@ -2947,29 +3036,42 @@ function openClientMsgs(kind){
             borderColor: primaryColorValo,
             backgroundColor: 'transparent',
             fill: false,
+            borderWidth: 1.8,
+            tension: 0.35,
             pointRadius: 0,
-            pointHoverRadius: 0
+            pointHoverRadius: 3,
+            pointHitRadius: 10,
+            spanGaps: true
           },
           {
             label: 'Cumul mouvements',
             data: movs,
-            borderColor: '#ff6b6b',
+            borderColor: movementColor,
+            backgroundColor: 'transparent',
             fill: false,
+            borderWidth: 1.4,
+            tension: 0.25,
             pointRadius: 0,
-            pointHoverRadius: 0
+            pointHoverRadius: 3,
+            pointHitRadius: 10,
+            spanGaps: true
           }
         ]
       },
       plugins: [areaFillPlugin],
       options: {
         responsive: true,
-        interaction: { mode: 'index', intersect: false },
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false, axis: 'x' },
         stacked: false,
+        layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
         scales: {
           x: {
             ticks: {
               autoSkip: false,
               maxRotation: 0,
+              color: textMuted,
+              font: { size: 11, weight: '700' },
               callback: (val, idx) => {
                 const y = yearAt(idx);
                 const prev = yearAt(idx - 1);
@@ -2980,23 +3082,51 @@ function openClientMsgs(kind){
               color: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.08)';
+                return y && y !== prev ? 'rgba(15, 23, 42, 0.3)' : 'rgba(0, 0, 0, 0)';
               },
               lineWidth: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 2 : 0.5;
+                return y && y !== prev ? 1.6 : 0;
               }
-            }
+            },
+            border: { display: false }
           },
           y: {
             beginAtZero: false,
-            ticks: { callback: (v)=> euro(v) }
+            ticks: {
+              callback: (v)=> euro(v),
+              color: textMuted,
+              font: { size: 11, weight: '700' }
+            },
+            grid: { color: gridSoft },
+            border: { display: false }
           }
         },
         plugins: {
-          legend: { display: true },
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'start',
+            labels: {
+              usePointStyle: true,
+              pointStyle: 'line',
+              boxWidth: 28,
+              color: '#334155',
+              font: { size: 12, weight: '600' }
+            }
+          },
           tooltip: {
+            backgroundColor: '#0f172a',
+            titleColor: '#f8fafc',
+            bodyColor: '#f8fafc',
+            borderColor: 'rgba(148, 163, 184, 0.4)',
+            borderWidth: 1,
+            padding: 10,
+            caretPadding: 6,
+            displayColors: true,
+            titleFont: { size: 12, weight: '700' },
+            bodyFont: { size: 12 },
             callbacks: {
               label: function(context){
                 const y = context.parsed.y;
@@ -3118,8 +3248,8 @@ function openClientMsgs(kind){
         const meta = chart.getDatasetMeta(1); // perf dataset index 1 below
         if (!meta || !meta.data) return;
         ctx.save();
-        ctx.fillStyle = perfColor;
-        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#000';
+        ctx.font = '700 12px sans-serif';
         meta.data.forEach((bar, idx)=>{
           const value = data.datasets[1].data[idx];
           if (value === null || typeof value === 'undefined') return;
@@ -3140,8 +3270,8 @@ function openClientMsgs(kind){
         const ctx = chart.ctx;
         const mids = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5];
         ctx.save();
-        ctx.fillStyle = srriColor;
-        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#000';
+        ctx.font = '700 12px sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         // Place labels just inside the right axis to avoid clipping
@@ -3159,16 +3289,19 @@ function openClientMsgs(kind){
       data: {
         labels: (yearsClient||[]).map(String),
         datasets: [
-          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriBandColor, fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
+          { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriBandColor, fill: false, borderWidth: 1.4, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
           { type:'bar', label: 'Perf annuelle (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(37, 99, 235, 0.35)', borderWidth: 1, yAxisID: 'y', order: 2 }
         ]
       },
       options: {
         responsive: true,
         scales: {
+          x: {
+            ticks: { color: '#000', font: { weight: '700' } }
+          },
           y: {
             position: 'left',
-            ticks: { callback: v => v + ' %' },
+            ticks: { callback: v => v + ' %', color: '#000', font: { weight: '700' } },
             grid: {
               color: (ctx) => ctx.tick?.value === 0 ? '#1f2937' : 'rgba(0,0,0,0)',
               lineWidth: (ctx) => ctx.tick?.value === 0 ? 2 : 0,
@@ -3179,14 +3312,25 @@ function openClientMsgs(kind){
             position: 'right',
             min: 1,
             max: 8,
-            ticks: { display: false, stepSize: 1 },
+            ticks: { display: false, stepSize: 1, color: '#000' },
             grid: { drawOnChartArea: false },
-            title: { display: true, text: 'SRRI', color: srriColor },
-            border: { color: srriColor }
+            title: { display: true, text: 'SRRI', color: '#000' },
+            border: { color: '#000' }
           }
         },
         plugins: {
-          legend: { display: true },
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'start',
+            labels: {
+              usePointStyle: true,
+              pointStyle: 'line',
+              boxWidth: 28,
+              color: '#334155',
+              font: { size: 12, weight: '600' }
+            }
+          },
           tooltip: {
             callbacks: {
               label: ctx => {
@@ -3207,8 +3351,8 @@ function openClientMsgs(kind){
 
   // Graphique allocations (lignes) avec sélection et échelle ajustée
   (function(){
-    // Couleur par défaut pour Chart.js (axes/labels) = bleu CSS
-    try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
+    // Couleur par défaut pour Chart.js (axes/labels) = noir
+    try { Chart.defaults.color = '#000'; } catch(e) {}
     const allocSeries = {{ alloc_series | tojson }};
     const clientSicav = {{ client_sicav | tojson }};
     const sel = document.getElementById('allocSelectClient');
@@ -3292,8 +3436,9 @@ function openClientMsgs(kind){
       if (base === null) base = 1; // fallback
       return labels.map(d => { const v = map.get(d); return isFinite(v) ? +(v/base*100).toFixed(2) : null; });
     }
-    const allocColor = '#ff6b6b';
+    const allocColor = '#0f766e';
     const portfolioColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6';
+    const gridSoft = 'rgba(15, 23, 42, 0.08)';
     let chartAlloc;
     let currentRange = 'all';
     function drawAlloc(selected){
@@ -3309,15 +3454,30 @@ function openClientMsgs(kind){
     const allocData = normalize(allocMap, labels);
     const clientData = normalize(clientMap, labels);
       allVals = allVals.concat(allocData.filter(v=> v!=null && isFinite(v)), clientData.filter(v=> v!=null && isFinite(v)));
-      datasets.push({ label: name+' (base 100)', data: allocData, borderColor: allocColor, fill:false, pointRadius:0, pointHoverRadius:0 });
       datasets.push({
-        label: 'Portefeuille (base 100)',
+        label: name+' (base 100)',
+        data: allocData,
+        borderColor: allocColor,
+        borderWidth: 1.6,
+        fill:false,
+        tension: 0.35,
+        pointRadius:0,
+        pointHoverRadius:3,
+        pointHitRadius:10,
+        spanGaps: true
+      });
+      datasets.push({
+        label: 'Total des investissements du client (base 100)',
         data: clientData,
         borderColor: portfolioColor,
         backgroundColor: 'transparent',
         fill: false,
+        borderWidth: 1.8,
+        tension: 0.35,
         pointRadius:0,
-        pointHoverRadius:0
+        pointHoverRadius:3,
+        pointHitRadius:10,
+        spanGaps: true
       });
       if (!allVals.length) return;
       const min = Math.min.apply(null, allVals);
@@ -3374,26 +3534,48 @@ function openClientMsgs(kind){
       data: { labels: xIndexes, datasets },
       options: {
         responsive:true,
-        interaction:{ mode:'index', intersect:false },
+        maintainAspectRatio: false,
+        interaction:{ mode:'index', intersect:false, axis:'x' },
+        layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
         scales:{
-          y:{ suggestedMin: min - pad, suggestedMax: max + pad },
+          y:{
+            suggestedMin: min - pad,
+            suggestedMax: max + pad,
+            ticks: { color: '#000', font: { size: 11, weight: '700' } },
+            grid: { color: gridSoft },
+            border: { display: false }
+          },
           x:{
             type:'category',
             labels: xIndexes,
             ticks:{
               autoSkip: false,
               callback: function(val){ return yearCenters.has(val) ? yearCenters.get(val) : ''; },
-              maxRotation:0, minRotation:0, align:'center'
+              maxRotation:0, minRotation:0, align:'center',
+              color:'#000',
+              font: { size: 11, weight: '700' }
             },
             grid:{
               drawOnChartArea:true,
-              color: function(ctx){ return yearLines.has(ctx.index) ? '#000' : 'rgba(0,0,0,0.05)'; },
-              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 2 : 1; }
-            }
+              color: function(ctx){ return yearLines.has(ctx.index) ? 'rgba(15, 23, 42, 0.3)' : 'rgba(0,0,0,0)'; },
+              lineWidth: function(ctx){ return yearLines.has(ctx.index) ? 1.6 : 0; }
+            },
+            border: { display: false }
           }
         },
         plugins:{
-          legend:{ display:true },
+          legend:{
+            display:true,
+            position: 'top',
+            align: 'start',
+            labels: {
+              usePointStyle: true,
+              pointStyle: 'line',
+              boxWidth: 28,
+              color: '#334155',
+              font: { size: 12, weight: '600' }
+            }
+          },
           tooltip:{ callbacks:{ label:function(ctx){ const y = ctx.parsed.y; const idx = ctx.dataIndex; const port = clientData[idx] || 0; const alloc = allocData[idx] || 0; const delta = port - alloc; if (ctx.datasetIndex === 0){ return ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''); } const tag = delta >= 0 ? 'Gain' : 'Perte'; return [ctx.dataset.label+': '+(isFinite(y)?y.toFixed(2):''), tag+': '+(isFinite(delta)?delta.toFixed(2):'')]; } } }
         }
       }
@@ -3443,6 +3625,43 @@ function openClientMsgs(kind){
       const raw = (inp.value||'').replace(',', '.');
       const num = parseFloat(raw);
       return isFinite(num) ? num : NaN;
+    }
+    function setupInlineWeights(){
+      table.classList.add('simu-inline-ready');
+      table.querySelectorAll('tbody tr').forEach(tr=>{
+        const input = tr.querySelector('input.simu-weight');
+        const display = tr.querySelector('.simu-weight-display');
+        if (!input || !display) return;
+        function syncDisplay(){
+          const v = parseWeight(input);
+          display.textContent = formatPct(isFinite(v) ? v : 0);
+        }
+        syncDisplay();
+        display.addEventListener('click', function(){
+          display.style.display = 'none';
+          input.style.display = 'inline-block';
+          input.focus();
+          input.select();
+        });
+        input.addEventListener('focus', function(){
+          input.dataset.prev = input.value || '';
+        });
+        input.addEventListener('blur', function(){
+          syncDisplay();
+          input.style.display = 'none';
+          display.style.display = 'inline-block';
+        });
+        input.addEventListener('keydown', function(e){
+          if (e.key === 'Enter'){
+            e.preventDefault();
+            input.blur();
+          } else if (e.key === 'Escape'){
+            e.preventDefault();
+            input.value = input.dataset.prev || input.value;
+            input.blur();
+          }
+        });
+      });
     }
     function normalizeName(n){ return (n||'').trim().toLowerCase(); }
     function findSeriesName(name){
@@ -3801,8 +4020,8 @@ function openClientMsgs(kind){
               if (!yScale || !area) return;
               const ctx = chart.ctx;
               ctx.save();
-              ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text') || '#111827';
-              ctx.font = '12px sans-serif';
+              ctx.fillStyle = '#000';
+              ctx.font = '700 12px sans-serif';
               ctx.textAlign = 'right';
               ctx.textBaseline = 'middle';
               for (let v = 1; v <= 7; v++){
@@ -3830,9 +4049,10 @@ function openClientMsgs(kind){
             {
               label: 'Perf hebdo (%)',
               data: plotRows.map(r => isFinite(r.perf) ? +r.perf.toFixed(2) : null),
-              borderColor: '#10b981',
-              backgroundColor: 'rgba(16,185,129,0.15)',
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8',
+              backgroundColor: 'rgba(29, 78, 216, 0.12)',
               fill: false,
+              borderWidth: 1.4,
               tension: 0.2,
               pointRadius: 0,
               spanGaps: true,
@@ -3843,9 +4063,10 @@ function openClientMsgs(kind){
             datasets.push({
               label: 'Perf client (%)',
               data: clientPerfData,
-              borderColor: '#f97316',
-              backgroundColor: 'rgba(249,115,22,0.15)',
+              borderColor: '#0f766e',
+              backgroundColor: 'rgba(15, 118, 110, 0.12)',
               fill: false,
+              borderWidth: 1.4,
               tension: 0.2,
               pointRadius: 0,
               spanGaps: true,
@@ -3861,6 +4082,7 @@ function openClientMsgs(kind){
             },
             options:{
               responsive:true,
+              maintainAspectRatio:false,
               layout:{ padding:{ left:28 } },
               scales:{
                 y:{
@@ -3877,15 +4099,28 @@ function openClientMsgs(kind){
                   position:'right',
                   grid:{ drawOnChartArea:false },
                   ticks:{
-                    color:'#10b981',
+                    color:'#000',
                     callback:(v)=> (v?.toFixed ? v.toFixed(1) : v) + ''
                   },
-                  title:{ display:true, text:'Perf hebdo (%)', color:'#10b981' },
-                  border:{ color:'#10b981' }
+                  title:{ display:true, text:'Perf hebdo (%)', color:'#000' },
+                  border:{ color:'#000' }
                 },
                 x:{ ticks:{ maxRotation:0, minRotation:0, autoSkip:true, maxTicksLimit:6 } }
               },
-              plugins:{ legend:{ display:true, position:'top', labels:{ boxWidth:12, usePointStyle:true } } }
+              plugins:{
+                legend:{
+                  display:true,
+                  position:'top',
+                  align:'start',
+                  labels:{
+                    usePointStyle:true,
+                    pointStyle:'line',
+                    boxWidth:28,
+                    color:'#334155',
+                    font:{ size:12, weight:'600' }
+                  }
+                }
+              }
             }
           });
         }
@@ -3904,6 +4139,7 @@ function openClientMsgs(kind){
       renderResults();
     }
     // Afficher dès le chargement
+    setupInlineWeights();
     table.addEventListener('input', function(e){
       const inp = e.target.closest('input.simu-weight');
       if (!inp) return;
@@ -3914,6 +4150,8 @@ function openClientMsgs(kind){
         table.querySelectorAll('input.simu-weight').forEach(inp=>{
           const defVal = defaultValue(inp);
           inp.value = defVal.toFixed(2);
+          const display = inp.closest('td')?.querySelector('.simu-weight-display');
+          if (display) display.textContent = formatPct(defVal);
         });
         updateSum();
       });

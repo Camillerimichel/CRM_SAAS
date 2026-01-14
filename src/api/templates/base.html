@@ -1390,5 +1390,49 @@
         });
       }
     </script>
+    <script>
+      (function(){
+        function redirectToLogin(){
+          if (window.__authRedirecting) return;
+          window.__authRedirecting = true;
+          window.location.href = '/login';
+        }
+        if (window.fetch){
+          const origFetch = window.fetch;
+          window.fetch = function(){
+            return origFetch.apply(this, arguments).then(function(res){
+              if (res && res.status === 401){
+                redirectToLogin();
+                return res;
+              }
+              try {
+                const ct = (res && res.headers && res.headers.get('content-type')) || '';
+                if (ct && ct.indexOf('text') !== -1){
+                  res.clone().text().then(function(txt){
+                    if (txt && txt.indexOf('Unauthorized') !== -1){
+                      redirectToLogin();
+                    }
+                  }).catch(function(){});
+                }
+              } catch(e){}
+              return res;
+            });
+          };
+        }
+        if (window.XMLHttpRequest){
+          const origOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function(){
+            this.addEventListener('load', function(){
+              try {
+                if (this.status === 401 || (this.responseText && this.responseText.indexOf('Unauthorized') !== -1)){
+                  redirectToLogin();
+                }
+              } catch(e){}
+            });
+            return origOpen.apply(this, arguments);
+          };
+        }
+      })();
+    </script>
 </body>
 </html>
