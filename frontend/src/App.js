@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
 import Affaires from "./pages/Affaires";
@@ -8,15 +8,31 @@ import Supports from "./pages/Supports";
 import QuestionnaireRisque from "./pages/QuestionnaireRisque";
 import Veille from "./pages/Veille";
 
-const primaryNav = [
-  { key: "home", label: "Tableau de bord", view: "dashboard" },
-  { key: "clients", label: "Clients", view: "clients" },
-  { key: "affaires", label: "Affaires", view: "affaires" },
-  { key: "supports", label: "Supports", view: "supports" },
-  { key: "allocations", label: "Offres", view: "allocations" },
-  { key: "documents", label: "Documents", view: "documents" },
-  { key: "tasks", label: "Tâches", view: "tasks" },
-  { key: "admin", label: "Administration", view: "administration" },
+const navSections = [
+  {
+    title: "Pilotage",
+    items: [{ key: "home", label: "Tableau de bord", short: "TB", view: "dashboard" }],
+  },
+  {
+    title: "CRM",
+    items: [
+      { key: "clients", label: "Clients", short: "CL", view: "clients" },
+      { key: "affaires", label: "Affaires", short: "AF", view: "affaires" },
+    ],
+  },
+  {
+    title: "Opérations",
+    items: [
+      { key: "supports", label: "Supports", short: "SP", view: "supports" },
+      { key: "allocations", label: "Offres", short: "OF", view: "allocations" },
+      { key: "documents", label: "Documents", short: "DO", view: "documents" },
+      { key: "tasks", label: "Tâches", short: "TA", view: "tasks" },
+    ],
+  },
+  {
+    title: "Administration",
+    items: [{ key: "admin", label: "Administration", short: "AD", view: "administration" }],
+  },
 ];
 
 const moduleTabs = [
@@ -62,6 +78,8 @@ function ComingSoon({ title, description }) {
 
 function App() {
   const [activeView, setActiveView] = useState("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const renderView = useMemo(() => {
     switch (activeView) {
@@ -137,64 +155,123 @@ function App() {
 
   const handleNavigate = (view) => {
     setActiveView(view);
+    if (window.innerWidth <= 980) {
+      setSidebarOpen(false);
+    }
   };
+
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, []);
 
   const isPrimaryActive = (item) => {
     if (item.view === "dashboard") {
       return homeViews.has(activeView);
     }
-    if (item.view === "administration") {
-      return activeView === "administration";
-    }
     return activeView === item.view;
   };
 
+  const viewLabel = useMemo(() => {
+    const allNav = navSections.flatMap((section) => section.items);
+    const allViews = allNav.concat(moduleTabs);
+    const found = allViews.find((item) => item.view === activeView);
+    return found ? found.label : "CRM SAAS";
+  }, [activeView]);
+
   return (
-    <div className="app-shell">
-      <div className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <div className="brand-mark">CRM</div>
-            <div className="brand-text">
-              <p className="muted eyebrow">Suivi conforme du portefeuille</p>
-              <h1>CRM SAAS</h1>
-              <p className="muted">Interface locale · FastAPI + React</p>
-            </div>
+    <div
+      className={`app-shell${sidebarOpen ? " sidebar-open" : ""}${
+        sidebarCollapsed ? " sidebar-collapsed" : ""
+      }`}
+    >
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="brand-mark">CRM</div>
+          <div className="brand-text">
+            <p className="muted eyebrow">Suivi conforme du portefeuille</p>
+            <h1>CRM SAAS</h1>
+            <p className="muted">Interface locale · FastAPI + React</p>
           </div>
-          <span className="status-pill">En ligne</span>
         </div>
-        <nav className="nav-primary">
-          <div className="nav-inner">
-            {primaryNav.map((item) => (
+        <nav className="sidebar-nav">
+          {navSections.map((section) => (
+            <div key={section.title} className="sidebar-section">
+              <div className="sidebar-section-title">{section.title}</div>
+              {section.items.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`nav-link ${isPrimaryActive(item) ? "active" : ""}`}
+                  onClick={() => handleNavigate(item.view)}
+                >
+                  <span className="nav-short">{item.short}</span>
+                  <span className="nav-label">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <button
+            type="button"
+            className="collapse-toggle"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+            aria-pressed={sidebarCollapsed}
+          >
+            {sidebarCollapsed ? "Déplier le menu" : "Réduire le menu"}
+          </button>
+        </div>
+      </aside>
+      <div className="main">
+        <div className="topbar">
+          <div className="topbar-inner">
+            <div className="topbar-left">
               <button
-                key={item.key}
                 type="button"
-                className={`nav-link ${isPrimaryActive(item) ? "active" : ""}`}
-                onClick={() => handleNavigate(item.view)}
+                className="sidebar-toggle"
+                aria-label="Ouvrir la navigation"
+                onClick={() => setSidebarOpen(true)}
               >
-                {item.label}
+                ☰
+              </button>
+              <div>
+                <p className="eyebrow">Vue active</p>
+                <h2>{viewLabel}</h2>
+              </div>
+            </div>
+            <span className="status-pill">En ligne</span>
+          </div>
+        </div>
+
+        <div className="dash-tabs">
+          <div className="dash-tabs-inner">
+            {moduleTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`dash-tab ${activeView === tab.view ? "active" : ""}`}
+                onClick={() => handleNavigate(tab.view)}
+              >
+                {tab.label}
               </button>
             ))}
           </div>
-        </nav>
-      </div>
-
-      <div className="dash-tabs">
-        <div className="dash-tabs-inner">
-          {moduleTabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`dash-tab ${activeView === tab.view ? "active" : ""}`}
-              onClick={() => handleNavigate(tab.view)}
-            >
-              {tab.label}
-            </button>
-          ))}
         </div>
-      </div>
 
-      <main className="content">{renderView}</main>
+        <main className="content">{renderView}</main>
+      </div>
+      <button
+        type="button"
+        className="sidebar-backdrop"
+        aria-hidden="true"
+        onClick={() => setSidebarOpen(false)}
+      />
     </div>
   );
 }

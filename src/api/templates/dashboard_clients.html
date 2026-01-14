@@ -10,7 +10,7 @@
         border-radius: 15px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08);
         padding: 1.5rem;
-        margin: 1.2rem auto;
+        margin: 0.15rem auto;
     }
     .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
     .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
@@ -28,18 +28,25 @@
         margin-top: 0.75rem;
         border-radius: 12px;
         overflow: hidden;
-        box-shadow:
-          0 10px 25px rgba(15, 23, 42, 0.25),
-          0 18px 45px rgba(15, 23, 42, 0.18);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
     }
-    table { width: 100%; border-collapse: collapse; background: white; font-size: 1rem; }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        table-layout: fixed;
+    }
     #clientsTable th,
     #clientsTable td {
-        font-size: 18px;
+        font-size: 13.5px;
     }
-    thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; box-sizing:border-box; }
-    tbody td { padding: 10px 8px; }
-    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
+    thead input, thead select { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; box-sizing:border-box; }
+    tbody td {
+        padding: 4px 6px;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
     .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
     .btn-danger:hover { background:#dc2626; }
 </style>

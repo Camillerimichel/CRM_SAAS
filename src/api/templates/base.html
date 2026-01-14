@@ -31,7 +31,7 @@
             font-family: "Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
             font-size: 16px;
             line-height: 1.45;
-            padding-bottom: 90px; /* espace pour le menu bas fixe */
+            padding-bottom: 0;
         }
         h1, h2, h3 { margin: 0; font-weight: 700; color: var(--text); }
         h1 { font-size: 1.9rem; }
@@ -39,7 +39,127 @@
         h3 { font-size: 1.12rem; font-weight: 650; }
         .muted { color: var(--muted); }
 
-        /* En-tête / Brand */
+        /* Layout principal */
+        .app-shell {
+            display: grid;
+            grid-template-columns: 260px minmax(0, 1fr);
+            min-height: 100vh;
+        }
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            box-shadow: 0 16px 28px rgba(15,23,42,0.06);
+            padding: 18px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            z-index: 40;
+        }
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .brand-mark {
+            width: 46px;
+            height: 46px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            color: #fff;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+        }
+        .brand-text p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.3;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            font-weight: 700;
+        }
+        .brand-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text);
+        }
+        .sidebar-nav {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+        .sidebar-section-title {
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: .08em;
+            color: var(--muted);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .sidebar-nav a {
+            text-decoration: none;
+            color: var(--text);
+            font-weight: 700;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: transparent;
+            border: 1px solid transparent;
+            box-shadow: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all .15s ease;
+            width: 100%;
+            font-size: 16px;
+        }
+        .sidebar-nav a i { color: var(--primary-600); }
+        .sidebar-nav a:hover {
+            transform: translateX(4px);
+            border-color: transparent;
+            box-shadow: 0 10px 24px rgba(15,23,42,0.12);
+            background: #f8fafc;
+        }
+        .sidebar-nav a.active {
+            background: var(--primary-100);
+            color: var(--primary-600);
+            border-color: transparent;
+            box-shadow: none;
+        }
+        .sidebar-nav a.active i { color: var(--primary-600); }
+        .sidebar-footer {
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
+            display: grid;
+            gap: 10px;
+        }
+        .sidebar-user {
+            font-size: 0.92rem;
+            line-height: 1.35;
+        }
+        .sidebar-user strong { display: block; font-size: 0.98rem; }
+        .sidebar-logout button {
+            width: 100%;
+            background: transparent;
+            border: 1px solid rgba(0,0,0,0.08);
+            color: var(--text);
+            padding: 8px 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
         .topbar {
             position: sticky;
             top: 0;
@@ -58,29 +178,7 @@
             justify-content: space-between;
             gap: 14px;
         }
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .brand-mark {
-            width: 46px;
-            height: 46px;
-            border-radius: 12px;
-            display: grid;
-            place-items: center;
-            background: linear-gradient(135deg, #2563eb, #0ea5e9);
-            color: #fff;
-            font-weight: 800;
-            letter-spacing: 0.03em;
-        }
-        .brand-text h1 { font-size: 18px; }
-        .brand-text p {
-            margin: 0;
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.3;
-        }
+        .topbar-title h1 { font-size: 1.55rem; }
         .status-pill {
             display: inline-flex;
             align-items: center;
@@ -92,55 +190,50 @@
             font-weight: 700;
             font-size: 12px;
         }
-
-        /* Navigation */
-        nav {
-            padding: 0 18px 16px;
-        }
-        .nav-inner {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: flex-start;
-        }
-        nav a {
-            text-decoration: none;
+        .sidebar-toggle {
+            display: none;
+            border: 1px solid var(--border);
+            background: #fff;
             color: var(--text);
-            font-weight: 700;
-            padding: 10px 14px;
-            border-radius: 12px;
-            background: transparent;
-            border: 1px solid transparent;
-            box-shadow: none;
-            display: inline-flex;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .topbar-actions {
+            display: flex;
             align-items: center;
-            gap: 8px;
-            transition: all .15s ease;
-            width: auto;
-            min-width: 0;
-            font-size: 18px;
+            gap: 10px;
         }
-        nav a.nav-compact {
-            padding: 8px 10px;
+        .container { max-width: 1200px; margin: 1.2rem auto 2rem; padding: 0 1rem; width: 100%; }
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.35);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .2s ease;
+            z-index: 35;
         }
-        nav a i { color: var(--primary-600); }
-        nav a:hover {
-            transform: translateY(-2px) scale(1.03);
-            border-color: transparent;
-            box-shadow: 0 10px 24px rgba(15,23,42,0.18);
-        }
-        nav a.active {
-            background: transparent;
-            color: var(--primary-600);
-            border-color: transparent;
-            box-shadow: none;
-        }
-        nav a.active i { color: var(--primary-600); }
 
-        /* Mise en page */
-        .container { max-width: 1200px; margin: 1.2rem auto 2rem; padding: 0 1rem; }
+        @media (max-width: 980px) {
+            .app-shell { grid-template-columns: 1fr; }
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100vh;
+                width: min(85vw, 280px);
+                transform: translateX(-100%);
+                transition: transform .2s ease;
+            }
+            body.sidebar-open .sidebar { transform: translateX(0); }
+            body.sidebar-open .sidebar-backdrop {
+                opacity: 1;
+                pointer-events: all;
+            }
+            .sidebar-toggle { display: inline-grid; place-items: center; }
+        }
 
         /* Cartes */
         .card {
@@ -336,10 +429,13 @@
             align-items: center;
             justify-content: center;
             gap: 10px;
-            padding: 14px 20px;
+            padding: 14px 1rem;
             z-index: 1200;
             flex-wrap: wrap;
-            margin-top: 32px;
+            margin: 32px auto 0;
+            width: 100%;
+            max-width: 1200px;
+            box-sizing: border-box;
         }
         .bottom-menu button {
             border-radius: 10px;
@@ -399,36 +495,16 @@
 </head>
 {% set _role_hint = (request.headers.get('X-User-Role') or request.headers.get('X-User-Type') or request.cookies.get('user_role') or request.cookies.get('user_type') or request.query_params.get('role') or 'staff') | lower %}
 <body data-user-role="{{ _role_hint }}">
-    <!-- Header global -->
-    <div class="topbar">
-      <div class="topbar-inner">
-        <div class="brand">
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation principale">
+        <div class="sidebar-brand">
           <div class="brand-mark">CRM</div>
           <div class="brand-text">
-            <p class="muted" style="font-weight:700; text-transform:uppercase; letter-spacing:.06em;">Suivi conforme du portefeuille</p>
-            <h1>{% block header_title %}CRM SAAS{% endblock %}</h1>
-            {% block header_subtitle %}{% endblock %}
+            <p>Suivi conforme du portefeuille</p>
+            <div class="brand-title">CRM SAAS</div>
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div style="text-align:right; line-height:1.2;">
-            <div style="font-weight:700;">{{ request.cookies.get('user_name') or request.cookies.get('user_login') or 'Utilisateur' }}</div>
-            <div class="muted" style="font-size:0.9rem;">Rôle : {{ _role_hint }}</div>
-            {% if request.state.societe_gestion_nom %}
-              <div class="muted" style="font-size:0.9rem;">Société = {{ request.state.societe_gestion_nom }}</div>
-            {% endif %}
-          </div>
-          <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
-          <form method="post" action="/logout" style="display:inline;">
-            <button type="submit" style="background:transparent; border:1px solid rgba(0,0,0,0.08); color:var(--text); padding:6px 10px; border-radius:8px; cursor:pointer;">
-              <i class="fa-solid fa-right-from-bracket"></i> Déconnexion
-            </button>
-          </form>
-        </div>
-      </div>
-      <!-- Navigation unifiée -->
-      <nav>
-        <div class="nav-inner">
+        <nav class="sidebar-nav">
             {% set path = request.url.path if request and request.url else '' %}
             {% set _is_client = _role_hint == 'client' %}
             {% set _is_backoffice = _role_hint == 'back_office' %}
@@ -436,52 +512,93 @@
             {% set _is_directeur = _role_hint == 'directeur_commercial' %}
             {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
             {% set _is_commercial = _role_hint == 'commercial' %}
-            {% if not _is_client %}
-            <a href="/dashboard/clients" class="nav-compact {% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
-            {% endif %}
-            {% if not _is_client %}
-            <a href="/dashboard/affaires" class="nav-compact {% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
-            {% endif %}
-            {% if not _is_client and not _is_backoffice %}
-            <a href="/dashboard/supports" class="nav-compact {% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
-            <a href="/dashboard/allocations" class="nav-compact {% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
-            {% endif %}
-            {% if not _is_client %}
-            <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
-            <a href="/dashboard/taches" class="nav-compact {% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
-            {% endif %}
             {% if not _is_responsable_bo %}
-            <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
+            <div>
+              <div class="sidebar-section-title">Pilotage</div>
+              <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
+            </div>
+            {% endif %}
+            {% if not _is_client %}
+            <div>
+              <div class="sidebar-section-title">CRM</div>
+              <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
+              <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
+            </div>
+            {% endif %}
+            {% if not _is_client %}
+            <div>
+              <div class="sidebar-section-title">Opérations</div>
+              {% if not _is_backoffice %}
+              <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
+              <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
+              {% endif %}
+              <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
+              <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
+            </div>
             {% endif %}
             {% if not _is_client and not _is_backoffice and not _is_commercial %}
-            <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
-            {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
-            <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+            <div>
+              <div class="sidebar-section-title">Administration</div>
+              <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
+              {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
+              <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+              {% endif %}
+            </div>
             {% endif %}
+        </nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <strong>{{ request.cookies.get('user_name') or request.cookies.get('user_login') or 'Utilisateur' }}</strong>
+            <div class="muted">Rôle : {{ _role_hint }}</div>
+            {% if request.state.societe_gestion_nom %}
+              <div class="muted">Société = {{ request.state.societe_gestion_nom }}</div>
             {% endif %}
+          </div>
+          <form method="post" action="/logout" class="sidebar-logout">
+            <button type="submit"><i class="fa-solid fa-right-from-bracket"></i> Déconnexion</button>
+          </form>
         </div>
-      </nav>
-    </div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <div class="topbar-inner">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <button type="button" class="sidebar-toggle" aria-label="Ouvrir la navigation" onclick="toggleSidebar(true)">
+                <i class="fa-solid fa-bars"></i>
+              </button>
+              <div class="topbar-title">
+                <h1>{% block header_title %}CRM SAAS{% endblock %}</h1>
+                {% block header_subtitle %}{% endblock %}
+              </div>
+            </div>
+            <div class="topbar-actions">
+              <span class="status-pill"><i class="fa-solid fa-signal"></i> En ligne</span>
+            </div>
+          </div>
+        </div>
 
-    <!-- Contenu spécifique -->
-    <div class="container">
-        {% block content %}{% endblock %}
+        <!-- Contenu spécifique -->
+        <div class="container">
+            {% block content %}{% endblock %}
+            <div class="bottom-menu" role="navigation" aria-label="Liens légaux">
+              <button type="button" onclick="openFooterModal('mentions')"><i class="fa-solid fa-scale-balanced"></i> Mentions légales</button>
+              <button type="button" onclick="openFooterModal('contact')"><i class="fa-solid fa-envelope"></i> Nous contacter</button>
+              <button type="button" onclick="openFooterModal('reclamation')"><i class="fa-solid fa-triangle-exclamation"></i> Réclamations</button>
+              <button type="button" onclick="openFooterModal('der')"><i class="fa-solid fa-file-signature"></i> DER</button>
+              <button type="button" onclick="openFooterModal('rgpd')"><i class="fa-solid fa-shield-halved"></i> RGPD</button>
+              <button type="button" onclick="openFooterModal('conflits')"><i class="fa-solid fa-handshake-angle"></i> Conflits d'intérêts</button>
+              <button type="button" onclick="openFooterModal('charte')"><i class="fa-solid fa-scroll"></i> Charte de déontologie</button>
+            </div>
+        </div>
+      </div>
     </div>
+    <div class="sidebar-backdrop" onclick="toggleSidebar(false)" aria-hidden="true"></div>
 
     <div id="globalLoader" aria-hidden="true" role="status">
         <div class="loader-box">
             <div class="spinner"></div>
             <div class="loader-text">Veuillez patienter…</div>
         </div>
-    </div>
-    <div class="bottom-menu" role="navigation" aria-label="Liens légaux">
-      <button type="button" onclick="openFooterModal('mentions')"><i class="fa-solid fa-scale-balanced"></i> Mentions légales</button>
-      <button type="button" onclick="openFooterModal('contact')"><i class="fa-solid fa-envelope"></i> Nous contacter</button>
-      <button type="button" onclick="openFooterModal('reclamation')"><i class="fa-solid fa-triangle-exclamation"></i> Réclamations</button>
-      <button type="button" onclick="openFooterModal('der')"><i class="fa-solid fa-file-signature"></i> DER</button>
-      <button type="button" onclick="openFooterModal('rgpd')"><i class="fa-solid fa-shield-halved"></i> RGPD</button>
-      <button type="button" onclick="openFooterModal('conflits')"><i class="fa-solid fa-handshake-angle"></i> Conflits d'intérêts</button>
-      <button type="button" onclick="openFooterModal('charte')"><i class="fa-solid fa-scroll"></i> Charte de déontologie</button>
     </div>
 
     <!-- Modales footer -->
@@ -998,6 +1115,27 @@
         }
         window.showGlobalLoader = show;
         window.hideGlobalLoader = hide;
+      })();
+
+      (function(){
+        function setSidebar(open){
+          document.body.classList.toggle('sidebar-open', !!open);
+        }
+        window.toggleSidebar = function(open){
+          if (typeof open === 'boolean'){
+            setSidebar(open);
+          } else {
+            setSidebar(!document.body.classList.contains('sidebar-open'));
+          }
+        };
+        document.addEventListener('keydown', function(ev){
+          if (ev.key === 'Escape'){ setSidebar(false); }
+        });
+        document.addEventListener('click', function(ev){
+          if (window.innerWidth > 980) return;
+          var link = ev.target.closest('.sidebar-nav a');
+          if (link){ setSidebar(false); }
+        });
       })();
 
       // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
