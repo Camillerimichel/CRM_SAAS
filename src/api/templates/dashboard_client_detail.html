@@ -2162,12 +2162,13 @@ function generateClientSynthese(){
         </div>
       {% endif %}
     </div>
+    {% set sorted_client_affaires = client_affaires|sort(attribute='last_valo_numeric', reverse=true) %}
     {% set contracts_total = namespace(val=0) %}
-    {% for a in client_affaires %}
+    {% for a in sorted_client_affaires %}
       {% set contracts_total.val = contracts_total.val + (a.last_valo_numeric or 0) %}
     {% endfor %}
     <div id="contractsList" data-tb-marker="CL_16">
-      {% for a in client_affaires %}
+      {% for a in sorted_client_affaires %}
       <a href="/dashboard/affaires/{{ a.id }}" target="_blank" class="contract-card {% if a.date_cle %}highlight-cle{% endif %}">
         <div class="contract-card-header">
           <div class="contract-title">

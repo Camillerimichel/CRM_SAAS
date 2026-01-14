@@ -1077,13 +1077,13 @@
 <!-- Tâches (déplacé plus haut) -->
 
 <!-- Accordéon Rémunérations -->
-<div id="remToggle" class="card" data-tb-marker="TB_75" >
-  <h3 style="margin:0; font-size:1.05rem;">Rémunérations</h3>
+<div id="remToggle" class="card" data-tb-marker="TB_75" style="background:var(--primary); color:#fff;">
+  <h3 style="margin:0; font-size:1.05rem; color:#fff;">Rémunérations</h3>
 </div>
 <div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:block;">
   <!-- Sous-accordéon: Frais de gestion -->
-  <div id="remFraisToggle" class="card" data-tb-marker="TB_77" >
-    <h3 style="margin:0; font-size:1.0rem;">Frais de gestion</h3>
+<div id="remFraisToggle" class="card" data-tb-marker="TB_77" style="background:var(--primary); color:#fff;">
+    <h3 style="margin:0; font-size:1.0rem; color:#fff;">Frais de gestion</h3>
   </div>
   <div id="remFraisSection" data-tb-marker="TB_78" style="display:block;">
     <div class="card" data-tb-marker="TB_79" style="text-align:left;">
@@ -1199,10 +1199,10 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 </div>
 
 <!-- Bloc Rétrocession des supports (sans accordéon) -->
-<div id="retroToggle" class="card" data-tb-marker="TB_85" >
-  <h3 style="margin:0; font-size:1.05rem;">Rétrocession des supports</h3>
+<div id="retroToggle" class="card" data-tb-marker="TB_85" style="background:var(--primary); color:#fff;">
+  <h3 style="margin:0; font-size:1.05rem; color:#fff;">Rétrocession des supports</h3>
 </div>
-<div id="retroSection" data-tb-marker="TB_86" style="max-width:1100px; margin: 0 auto 1rem auto; display:none;">
+<div id="retroSection" data-tb-marker="TB_86" style="max-width:1100px; margin: 0 auto 1rem auto; display:block;">
   <div class="card" data-tb-marker="TB_87" style="text-align:left;">
     <h3 style="margin-top:0;">Rétrocession des supports</h3>
     {% if retro_error %}
@@ -1613,8 +1613,8 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
         // Cas spécifique Commissions : ne jamais masquer le bloc "Commissions sur frais de gestion" quand l'onglet est actif
         if (item.key === 'commissions'){
           // Pas d'accordéon : toujours visibles, jamais masqués
-          if (remFraisToggle) { remFraisToggle.style.display = 'none'; remFraisToggle.onclick = null; }
-          if (retroToggle)    { retroToggle.style.display    = 'none'; retroToggle.onclick = null; }
+          if (remFraisToggle) { remFraisToggle.onclick = null; }
+          if (retroToggle)    { retroToggle.onclick = null; }
           if (remFraisSection) remFraisSection.style.display = '';
           if (retroSection)    retroSection.style.display    = '';
         }
@@ -1753,6 +1753,17 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
 
   // Sous-accordéons Rémunérations (indépendants)
   (function(){
+    if (document.getElementById('dashTabs')) {
+      const remFraisSection = document.getElementById('remFraisSection');
+      const retroSection = document.getElementById('retroSection');
+      const remFraisToggle = document.getElementById('remFraisToggle');
+      const retroToggle = document.getElementById('retroToggle');
+      if (remFraisSection) remFraisSection.style.display = '';
+      if (retroSection) retroSection.style.display = '';
+      if (remFraisToggle) remFraisToggle.onclick = null;
+      if (retroToggle) retroToggle.onclick = null;
+      return;
+    }
     const pairs = [
       ['remFraisToggle','remFraisSection'],
     ];

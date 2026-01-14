@@ -487,15 +487,16 @@
           margin-top: 0.75rem;
           border-radius: 12px;
           overflow: hidden;
-          box-shadow:
-            0 10px 25px rgba(15, 23, 42, 0.25),
-            0 18px 45px rgba(15, 23, 42, 0.18);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         }
         table.tasks-table-condensed th,
-        table.tasks-table-condensed td { font-size: 18px; }
+        table.tasks-table-condensed td { font-size: 13.5px; }
         table.tasks-table-condensed thead th {
           padding-top: 6px;
           padding-bottom: 6px;
+        }
+        table.tasks-table-condensed {
+          table-layout: fixed;
         }
         /* Date (1) étroite et centrée */
         table.tasks-table-condensed thead th:nth-child(1),
@@ -527,6 +528,11 @@
         table.tasks-table-condensed tbody td:nth-child(6) {
           width: 140px;
           text-align: center;
+        }
+        table.tasks-table-condensed tbody td {
+          padding: 4px 6px;
+          line-height: 1.1;
+          white-space: nowrap;
         }
         table.tasks-table-condensed .wrap-2 { white-space: normal; word-break: break-word; }
         table.tasks-table-condensed td.status-cell {
@@ -802,12 +808,13 @@
               width: 100%;
               border-collapse: separate;
               border-spacing: 0;
-              font-size: 0.85rem;
+              font-size: 13.5px;
               margin-top: 0.7rem;
+              table-layout: fixed;
             }
             .reclam-pivot-table th {
               border: 1px solid #e2e8f0;
-              padding: 6px 8px;
+              padding: 6px 6px;
               text-align: center;
               white-space: normal;
               line-height: 1.2;
@@ -816,8 +823,21 @@
             }
             .reclam-pivot-table td {
               border: 1px solid #e2e8f0;
-              padding: 6px 8px;
+              padding: 6px 6px;
               text-align: center;
+              white-space: nowrap;
+              line-height: 1.2;
+            }
+            .reclam-pivot-table th[data-status="en analyses"],
+            .reclam-pivot-table td[data-status="en analyses"],
+            .reclam-pivot-table th[data-status="en analyse"],
+            .reclam-pivot-table td[data-status="en analyse"],
+            .reclam-pivot-table th[data-status="à faire"],
+            .reclam-pivot-table td[data-status="à faire"],
+            .reclam-pivot-table th[data-status="a faire"],
+            .reclam-pivot-table td[data-status="a faire"] {
+              min-width: 110px;
+              width: 110px;
               white-space: nowrap;
             }
             .reclam-pivot-table td.has-data { background:#f4f6f9; }
@@ -837,7 +857,7 @@
                 <tr>
                   <th>Type</th>
                   {% for status in reclam_pivot.statuses %}
-                    <th>{{ status }}</th>
+                    <th data-status="{{ status|lower }}">{{ status }}</th>
                   {% endfor %}
                 </tr>
                 <tr class="reclam-filter-row">
@@ -850,7 +870,7 @@
                     </select>
                   </th>
                   {% for status in reclam_pivot.statuses %}
-                    <th>
+                    <th data-status="{{ status|lower }}">
                       <select class="pivot-status-filter" data-status="{{ status|lower }}" onchange="filterReclamPivot()" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:8px; border:1px solid var(--border);">
                         <option value="">Tous</option>
                         <option value="has">> 0</option>

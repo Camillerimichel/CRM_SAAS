@@ -15,28 +15,26 @@
 
 {% block content %}
 <style>
-  .main-container { background: #fff; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 2rem; margin: 2rem auto; }
+  .main-container { background: #fff; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 2rem; margin: 0.15rem auto; }
   .header-section { background: var(--primary); color: #fff; padding: 1.2rem; border-radius: 10px; margin-bottom: 1.2rem; text-align: center; box-shadow: var(--shadow-sm); }
   .table-container {
     margin-top: 0.75rem;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow:
-      0 10px 25px rgba(15, 23, 42, 0.25),
-      0 18px 45px rgba(15, 23, 42, 0.18);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
   }
-  table { width: 100%; border-collapse: collapse; background: white; }
+  table { width: 100%; border-collapse: collapse; background: white; table-layout: fixed; }
   #docsTable th,
   #docsTable td {
-    font-size: 18px;
+    font-size: 13.5px;
   }
   #docsTable thead th {
     padding-top: 6px;
     padding-bottom: 6px;
   }
   /* En-têtes de tableau héritent du style global (base.html) */
-  thead input, thead select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
-  tbody td { padding: 10px 8px; }
+  thead input, thead select { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; }
+  tbody td { padding: 4px 6px; line-height: 1.1; white-space: nowrap; }
   /* Centrer Niveau (4), Risque (5), Obsolescence (6) */
   #docsTable thead th:nth-child(4),
   #docsTable tbody td:nth-child(4),
