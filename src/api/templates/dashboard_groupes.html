@@ -1,0 +1,2093 @@
+{% extends "base.html" %}
+
+{% block title %}Groupes{% endblock %}
+{% block header_title %}
+<span class="header-title-text"><i class="fa-solid fa-layer-group" style="margin-right:8px;"></i>Groupes</span>
+{% endblock %}
+
+{% block content %}
+<style>
+  .header-title-text { display: inline-flex; align-items: center; gap: 8px; }
+  .groups-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin: 0.25rem 0 1rem 0;
+  }
+  .groups-toolbar .groups-tab {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: inherit;
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s ease, color .2s ease, border-color .2s ease;
+  }
+  .groups-toolbar .groups-tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .groups-accordion {
+    display: none;
+    max-width: 1100px;
+    margin: 0 auto 1rem auto;
+  }
+  .groups-accordion.active { display: block; }
+  .groups-accordion .group-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .groups-accordion .group-card {
+    flex: 1 1 260px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .groups-accordion .group-card h4 { margin: 0; font-size: 1rem; }
+  .groups-accordion .group-title { display: inline-block; padding: 0; border-radius: 8px; }
+  .groups-accordion .group-card.active .group-title { background: var(--primary); color: #fff; padding: 6px 10px; }
+  .groups-accordion .group-meta {
+    font-size: 0.85rem;
+    color: #475569;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    row-gap: 4px;
+    column-gap: 6px;
+  }
+  .groups-accordion .group-meta span { font-weight: 600; color: #1e293b; }
+  .groups-accordion .group-card .btn { align-self: flex-start; margin-top: auto; padding: 6px 10px; font-size: 0.9rem; min-height: 32px; }
+  .group-items-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .group-items-status.loading { color: #1f4eb8; border-color: rgba(31, 78, 184, 0.3); background: #eaf0ff; }
+  .group-items-status.error { color: #b91c1c; border-color: rgba(185, 28, 28, 0.3); background: #fee2e2; }
+  .group-items-actions { display: inline-flex; align-items: center; gap: 10px; }
+  .group-items-actions .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+  #groupItemsTable th,
+  #groupItemsTable td {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    line-height: 1.2;
+  }
+  #groupItemsTable th {
+    font-size: 0.82rem;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  #groupItemsTable th .sort-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 6px;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  #groupItemsTable th.sorted-asc .sort-arrow::before {
+    content: "^";
+    color: var(--primary);
+  }
+  #groupItemsTable th.sorted-desc .sort-arrow::before {
+    content: "v";
+    color: var(--primary);
+  }
+  #groupItemsTable th:nth-child(5),
+  #groupItemsTable td:nth-child(5) {
+    text-align: center;
+  }
+  #groupItemsTable th:nth-child(2),
+  #groupItemsTable td:nth-child(2),
+  #groupItemsTable th:nth-child(3),
+  #groupItemsTable td:nth-child(3),
+  #groupItemsTable th:nth-child(4),
+  #groupItemsTable td:nth-child(4) {
+    text-align: right;
+    padding-right: 3ch;
+  }
+  #groupProductsTable th,
+  #groupProductsTable td {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    line-height: 1.2;
+  }
+  #groupProductsTable th {
+    font-size: 0.82rem;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  #groupProductsTable th .sort-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 6px;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  #groupProductsTable th.sorted-asc .sort-arrow::before {
+    content: "^";
+    color: var(--primary);
+  }
+  #groupProductsTable th.sorted-desc .sort-arrow::before {
+    content: "v";
+    color: var(--primary);
+  }
+  #groupProductsTable th:nth-child(9),
+  #groupProductsTable td:nth-child(9) {
+    text-align: right;
+    padding-right: 3ch;
+    padding-left: 1ch;
+  }
+  #groupProductsTable th:nth-child(1),
+  #groupProductsTable td:nth-child(1) {
+    width: 13ch;
+  }
+  #groupProductsTable th:nth-child(2),
+  #groupProductsTable td:nth-child(2) {
+    width: 18ch;
+  }
+  #groupProductsTable th:nth-child(9),
+  #groupProductsTable td:nth-child(9) {
+    width: 10ch;
+    white-space: nowrap;
+  }
+  #groupProductsTable th:nth-child(4),
+  #groupProductsTable td:nth-child(4) {
+    width: 10ch;
+  }
+  #groupProductsTable th:nth-child(5),
+  #groupProductsTable td:nth-child(5) {
+    width: 5ch;
+  }
+  #groupProductsTable th:nth-child(6),
+  #groupProductsTable td:nth-child(6),
+  #groupProductsTable th:nth-child(7),
+  #groupProductsTable td:nth-child(7),
+  #groupProductsTable th:nth-child(8),
+  #groupProductsTable td:nth-child(8) {
+    width: 4ch;
+  }
+  #groupProductsTable th:nth-child(5),
+  #groupProductsTable td:nth-child(5),
+  #groupProductsTable th:nth-child(6),
+  #groupProductsTable td:nth-child(6),
+  #groupProductsTable th:nth-child(7),
+  #groupProductsTable td:nth-child(7),
+  #groupProductsTable th:nth-child(8),
+  #groupProductsTable td:nth-child(8) {
+    text-align: center;
+  }
+  #groupProductsTable .esg-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+  #groupProductsTable .esg-badge[data-esg="A"] { background:#16a34a; color:#fff; }
+  #groupProductsTable .esg-badge[data-esg="B"] { background:#4ade80; color:#0f172a; }
+  #groupProductsTable .esg-badge[data-esg="C"] { background:#a3e635; color:#0f172a; }
+  #groupProductsTable .esg-badge[data-esg="D"] { background:#facc15; color:#0f172a; }
+  #groupProductsTable .esg-badge[data-esg="E"] { background:#fb923c; color:#0f172a; }
+  #groupProductsTable .esg-badge[data-esg="F"] { background:#f97316; color:#fff; }
+  #groupProductsTable .esg-badge[data-esg="G"] { background:#ef4444; color:#fff; }
+  .support-modal { position:fixed; inset:0; display:none; align-items:flex-start; justify-content:center; background:rgba(15,23,42,0.55); z-index:1000; padding:4rem 1rem 2rem; overflow-y:auto; }
+  .support-modal.open { display:flex; }
+  .support-modal__panel { background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(15,23,42,0.25); max-width:720px; width:100%; padding:1.5rem; position:relative; }
+  .support-modal__close { position:absolute; top:12px; right:12px; border:none; background:transparent; font-size:1.5rem; cursor:pointer; color:#334155; }
+  .support-modal__title { margin-top:0; margin-bottom:0.5rem; }
+  .support-modal__meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.5rem 1rem; font-size:0.9rem; margin-bottom:1rem; }
+  .support-modal__meta div { background:#f8fafc; border-radius:8px; padding:0.6rem 0.75rem; }
+  .support-modal__meta span { display:block; }
+  .support-modal__meta .label { color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; }
+  .support-modal__meta .value { font-weight:600; color:#1f2937; }
+  .support-meta-srri { display:flex; align-items:center; gap:10px; }
+  .support-meta-srri .label { display:inline; margin:0; }
+  .support-meta-btn { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.75rem; font-weight:600; color:#1f2937; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition:background .2s ease, color .2s ease, border-color .2s ease, transform .12s ease; font-size:0.9rem; min-width:180px; white-space:nowrap; transform: scale(1); will-change: transform; }
+  .support-meta-btn i { color:inherit; }
+  .support-meta-btn:hover,
+  .support-meta-btn:focus-visible { background:#e2e8f0; border-color:#cbd5f5; transform: scale(1.04); }
+  .support-meta-btn.active,
+  .support-meta-btn:active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); transform: scale(1.04); }
+  .support-meta-btn.active i { color:#fff; }
+  .support-modal__clients { margin-top:1rem; }
+  .support-modal__clients table { width:100%; border-collapse:collapse; }
+  .support-modal__clients th, .support-modal__clients td { padding:0.5rem 0.6rem; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.9rem; }
+  .support-modal__clients td:last-child, .support-modal__clients th:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .support-modal__empty { margin-top:1rem; color:#64748b; font-style:italic; }
+  .support-modal__pager { display:flex; align-items:center; gap:8px; justify-content:flex-end; margin-top:6px; font-size:0.9rem; }
+  .support-modal__pager button { padding:4px 8px; border:1px solid #cbd5f5; border-radius:6px; background:#f8fafc; cursor:pointer; }
+  .support-modal__pager button:disabled { opacity:0.5; cursor:not-allowed; }
+  .support-modal__actions { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:0.5rem; }
+  .support-modal__actions button { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:0.45rem 0.9rem; cursor:pointer; font-weight:600; transition:filter .2s ease; }
+  .support-modal__actions button:hover { filter:brightness(0.9); }
+  .support-modal__filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem; margin-top:1.2rem; align-items:flex-end; }
+  .support-modal__filters label { display:block; font-size:0.75rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.25rem; }
+  .support-modal__filters input { width:100%; border:1px solid #cbd5f5; border-radius:6px; padding:0.45rem 0.5rem; font-size:0.88rem; }
+  .support-modal__filters button { margin-top:1.65rem; background:#e2e8f0; border:none; border-radius:6px; padding:0.45rem 0.75rem; font-weight:600; color:#334155; cursor:pointer; transition:background .2s ease; }
+  .support-modal__filters button:hover { background:#cbd5f5; }
+  .support-modal__actions-group { display:flex; gap:0.5rem; align-items:center; }
+  .support-modal__actions-group button:nth-child(2) { background:#6366f1; }
+  .support-modal__actions-group button:nth-child(2):hover { filter:brightness(0.9); }
+  .support-modal__actions-group button:disabled { opacity:0.45; cursor:not-allowed; filter:none; }
+  .support-modal__chart { display:none; margin-top:1rem; background:#f8fafc; border-radius:12px; padding:1rem; box-shadow:0 12px 32px rgba(15,23,42,0.12); }
+  .support-modal__chart canvas { width:100%; height:260px; }
+  .support-modal__series { display:none; margin-top:1rem; background:#fff; border-radius:12px; box-shadow:0 12px 32px rgba(15,23,42,0.08); padding:1rem; }
+  .support-series-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:0.6rem; }
+  .support-series-header h4 { margin:0; font-size:0.95rem; color:#1f2937; }
+  .support-series-toggle { background:transparent; border:1px solid #cbd5f5; border-radius:6px; padding:0.2rem 0.6rem; font-size:0.82rem; font-weight:600; color:#2563eb; cursor:pointer; transition:background .2s ease, color .2s ease; }
+  .support-series-toggle:hover { background:#dbeafe; color:#1d4ed8; }
+  .support-modal__series table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+  .support-modal__series th,
+  .support-modal__series td { border:1px solid #e2e8f0; padding:0.45rem 0.5rem; text-align:left; }
+  .support-modal__compare-toggle { display:flex; align-items:center; gap:8px; justify-content:flex-start; flex-wrap:nowrap; padding:8px 0 10px; margin:8px 0 10px; width:100%; box-sizing:border-box; }
+  .support-modal__compare-toggle .support-meta-btn { flex:1 1 0; min-width:0; justify-content:center; }
+  .support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
+  .support-modal__series .series-table { margin-bottom:1rem; }
+  .support-modal__series .series-empty { font-style:italic; color:#64748b; font-size:0.85rem; }
+  .support-srri-status { font-size:0.85rem; color:#475569; margin-left:6px; }
+  .support-task-modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(15,23,42,0.55); z-index:1200; padding:2rem 1rem; }
+  .support-task-modal.open { display:flex; }
+  .support-task-modal__panel { background:#fff; border-radius:12px; box-shadow:0 24px 48px rgba(15,23,42,0.35); max-width:460px; width:100%; padding:1.5rem; position:relative; }
+  .support-task-modal__close { position:absolute; top:12px; right:12px; border:none; background:transparent; font-size:1.4rem; cursor:pointer; color:#475569; }
+  .support-task-modal__title { margin-top:0; margin-bottom:0.75rem; }
+  .support-task-modal__form label { display:block; font-size:0.8rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.3rem; }
+  .support-task-modal__form select,
+  .support-task-modal__form textarea { width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.55rem 0.6rem; font-size:0.95rem; }
+  .support-task-modal__form textarea { resize:vertical; min-height:96px; }
+  .support-task-modal__footer { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:1.2rem; }
+  .support-task-modal__footer button { border:none; border-radius:8px; padding:0.55rem 1rem; font-weight:600; cursor:pointer; transition:filter .2s ease; }
+  #supportTaskSubmit { background:#16a34a; color:#fff; }
+  #supportTaskSubmit:hover { filter:brightness(0.9); }
+  #supportTaskCancel { background:#e2e8f0; color:#334155; }
+  #supportTaskCancel:hover { filter:brightness(0.9); }
+  #supportTaskStatus { font-size:0.85rem; color:#475569; margin-top:0.75rem; min-height:1.2rem; }
+  .dim-btn { padding:4px 8px; border:1px solid #cbd5f5; border-radius:8px; background:#f8fafc; cursor:pointer; font-size:12px; transition:background .15s ease, color .15s ease, border-color .15s ease; }
+  .dim-btn.active { background: var(--primary); color:#fff; border-color: var(--primary); }
+</style>
+
+<div class="groups-toolbar" role="tablist" aria-label="Sections Groupes">
+  <button class="groups-tab active" type="button" data-target="groupsBlock">Groupes</button>
+  <button class="groups-tab" type="button" data-target="groupItemsBlock">Liste items</button>
+  <button class="groups-tab" type="button" data-target="groupProductsBlock" style="display:none;">Liste produits</button>
+</div>
+
+<section id="groupsBlock" class="groups-accordion active" aria-label="Groupes">
+  <div class="card" style="margin-bottom:12px;">
+    <h3 style="margin:0 0 8px 0;">Groupes de personnes</h3>
+    {% if dashboard_groups_personnes %}
+    <div class="group-grid">
+      {% for grp in dashboard_groups_personnes %}
+      <div class="group-card">
+        <h4 class="group-title">{{ grp.nom }}</h4>
+        <div class="group-meta">
+          <span>Membres</span><div>{{ grp.nb_membres }}</div>
+          <span>Responsable</span><div>{{ grp.responsable }}</div>
+          <span>Création</span><div>{{ grp.date_creation }}</div>
+          <span>Fin</span><div>{{ grp.date_fin }}</div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
+          <button class="btn btn-primary group-items-btn" type="button" data-group-id="{{ grp.id }}" data-group-type="client" data-group-name="{{ grp.nom }}">Voir les personnes</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">Aucun groupe de personnes défini.</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 8px 0;">Groupes d'affaires</h3>
+    {% if dashboard_groups_affaires %}
+    <div class="group-grid">
+      {% for grp in dashboard_groups_affaires %}
+      <div class="group-card">
+        <h4 class="group-title">{{ grp.nom }}</h4>
+        <div class="group-meta">
+          <span>Membres</span><div>{{ grp.nb_membres }}</div>
+          <span>Responsable</span><div>{{ grp.responsable }}</div>
+          <span>Création</span><div>{{ grp.date_creation }}</div>
+          <span>Fin</span><div>{{ grp.date_fin }}</div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
+          <button class="btn btn-primary group-items-btn" type="button" data-group-id="{{ grp.id }}" data-group-type="affaire" data-group-name="{{ grp.nom }}">Voir les affaires</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">Aucun groupe d'affaires défini.</div>
+    {% endif %}
+  </div>
+</section>
+
+<section id="groupItemsBlock" class="groups-accordion" aria-label="Liste items">
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+      <div>
+        <h3 style="margin:0;">Liste items</h3>
+        <div class="muted" id="groupItemsLabel">Sélectionnez un groupe pour afficher ses items.</div>
+      </div>
+      <div class="group-items-actions">
+        <span class="group-items-status" id="groupItemsStatus">En attente</span>
+        <a class="btn" id="groupItemsExport" href="#" aria-disabled="true" title="Exporter la liste items">Exporter CSV</a>
+      </div>
+    </div>
+    <div class="table-wrapper" style="overflow:auto;">
+      <table id="groupItemsTable">
+        <thead>
+          <tr>
+            <th data-key="item">Item<span class="sort-arrow"></span></th>
+            <th data-key="valorisation">Valorisation<span class="sort-arrow"></span></th>
+            <th data-key="perf_52">Perf 52s<span class="sort-arrow"></span></th>
+            <th data-key="volatilite_52">Volatilité 52s<span class="sort-arrow"></span></th>
+            <th data-key="srri">SRRI<span class="sort-arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="group-items-pagination" style="display:none; align-items:center; justify-content:flex-end; gap:8px; margin-top:10px;">
+      <button class="btn" id="groupItemsPrev" type="button">Précédent</button>
+      <span class="muted" id="groupItemsPageInfo">Page 1/1</span>
+      <button class="btn" id="groupItemsNext" type="button">Suivant</button>
+    </div>
+    <div class="muted" id="groupItemsEmpty" style="margin-top:8px; display:none;">Aucun item à afficher.</div>
+  </div>
+</section>
+
+<section id="groupProductsBlock" class="groups-accordion" aria-label="Liste produits">
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+      <div>
+        <h3 style="margin:0;">Liste produits</h3>
+        <div class="muted" id="groupProductsLabel">Sélectionnez un groupe pour afficher ses produits.</div>
+      </div>
+      <div class="group-items-actions">
+        <span class="group-items-status" id="groupProductsStatus">En attente</span>
+        <a class="btn" id="groupProductsExport" href="#" aria-disabled="true" title="Exporter la liste produits">Exporter CSV</a>
+      </div>
+    </div>
+    <div class="table-wrapper" style="overflow:auto;">
+      <table id="groupProductsTable">
+        <thead>
+          <tr>
+            <th data-key="isin">ISIN<span class="sort-arrow"></span></th>
+            <th data-key="nom">Produit<span class="sort-arrow"></span></th>
+            <th data-key="categorie">Catégories<span class="sort-arrow"></span></th>
+            <th data-key="zone_geo">Zone géo<span class="sort-arrow"></span></th>
+            <th data-key="srri">SRRI<span class="sort-arrow"></span></th>
+            <th data-key="noteE">E<span class="sort-arrow"></span></th>
+            <th data-key="noteS">S<span class="sort-arrow"></span></th>
+            <th data-key="noteG">G<span class="sort-arrow"></span></th>
+            <th data-key="total">Total<span class="sort-arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr>
+            <th colspan="8" style="text-align:right;">Total</th>
+            <th id="groupProductsTotal">—</th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="group-items-pagination" id="groupProductsPager" style="display:none; align-items:center; justify-content:flex-end; gap:8px; margin-top:10px;">
+      <button class="btn" id="groupProductsPrev" type="button">Précédent</button>
+      <span class="muted" id="groupProductsPageInfo">Page 1/1</span>
+      <button class="btn" id="groupProductsNext" type="button">Suivant</button>
+    </div>
+    <div class="muted" id="groupProductsEmpty" style="margin-top:8px; display:none;">Aucun produit à afficher.</div>
+  </div>
+</section>
+
+<div id="supportModal" class="support-modal" aria-hidden="true">
+  <div class="support-modal__panel" role="dialog" aria-modal="true" aria-labelledby="supportModalTitle">
+    <button type="button" class="support-modal__close" id="supportModalClose" aria-label="Fermer">×</button>
+    <h2 class="support-modal__title" id="supportModalTitle">Support</h2>
+    <div class="support-modal__actions" style="margin:4px 0 10px 0;">
+      <div>
+        <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
+        <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
+      </div>
+    </div>
+    <div class="support-modal__meta" id="supportModalMeta"></div>
+    <div class="support-modal__compare-toggle">
+      <button type="button" id="supportCompareToggle" class="support-meta-btn">
+        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+        <span>Comparaison</span>
+      </button>
+      <button type="button" id="supportEsgToggle" class="support-meta-btn">
+        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+        <span>ESG</span>
+      </button>
+      <button type="button" id="supportClientsToggle" class="support-meta-btn">
+        <i class="fa-solid fa-users" aria-hidden="true"></i>
+        <span>Clients</span>
+      </button>
+      <span id="supportCompareStatus" class="muted" style="font-size:0.85rem;"></span>
+      <span id="supportContextBadge" class="muted" style="font-size:0.85rem;"></span>
+    </div>
+    <div id="supportCompareSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+        <label for="supportCompareInput" style="font-size:0.85rem; color:#475569;">Comparer avec</label>
+        <input type="text" id="supportCompareInput" list="supportCompareOptions" placeholder="ISIN ou nom partiel" style="flex:1 1 260px; min-width:220px; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;" />
+        <datalist id="supportCompareOptions"></datalist>
+        <button type="button" id="supportCompareBtn" class="support-meta-btn" style="height:40px;"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Lancer</span></button>
+      </div>
+      <div class="support-modal__chart" id="supportCompareChartContainer" style="display:none;">
+        <canvas id="supportCompareChart"></canvas>
+      </div>
+    </div>
+    <div id="supportEsgSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
+        <div style="flex:1 1 240px; min-width:220px;">
+          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+          <select id="supportEsgAlloc" style="width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;">
+            <option value="">— choisir —</option>
+          </select>
+        </div>
+        <div>
+          <button id="supportEsgRefresh" class="support-meta-btn" type="button" style="height:40px;"><span>Actualiser</span></button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <div id="supportEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+      </div>
+      <div id="supportEsgChart" style="height:320px; width:100%; display:none;"></div>
+      <div id="supportEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
+      <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Support = (Support / Indice) × 100.</div>
+    </div>
+    <div id="supportSrriSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div class="support-modal__chart" id="supportSrriChartContainer" style="display:none; margin-bottom:8px;">
+        <canvas id="supportSrriChart"></canvas>
+      </div>
+      <div class="support-modal__series" id="supportSrriTable" style="display:none;"></div>
+    </div>
+    <div class="support-modal__chart" id="supportModalChartContainer">
+      <canvas id="supportModalChart"></canvas>
+    </div>
+    <div class="support-modal__series" id="supportModalSeries"></div>
+    <div id="supportClientsSection">
+      <div class="support-modal__filters">
+        <div>
+          <label for="supportModalClientFilter">Client</label>
+          <input type="text" id="supportModalClientFilter" placeholder="Rechercher client" />
+        </div>
+        <div>
+          <label for="supportModalResponsableFilter">Responsable</label>
+          <input type="text" id="supportModalResponsableFilter" placeholder="Rechercher responsable" />
+        </div>
+        <div>
+          <label for="supportModalAmountFilter">Valorisation</label>
+          <input type="text" id="supportModalAmountFilter" placeholder=">100k, 100k-500k" />
+        </div>
+        <button type="button" id="supportModalFiltersReset">Réinitialiser</button>
+      </div>
+      <div class="support-modal__pager" id="supportClientsPager" style="display:none;">
+        <button type="button" id="supportClientsPrev">Précédent</button>
+        <span id="supportClientsPageInfo">Page 1/1</span>
+        <button type="button" id="supportClientsNext">Suivant</button>
+      </div>
+      <div class="support-modal__clients" id="supportModalClients"></div>
+    </div>
+  </div>
+</div>
+
+<div id="supportTaskModal" class="support-task-modal" aria-hidden="true">
+  <div class="support-task-modal__panel" role="dialog" aria-modal="true" aria-labelledby="supportTaskModalTitle">
+    <button type="button" class="support-task-modal__close" id="supportTaskModalClose" aria-label="Fermer">×</button>
+    <h3 class="support-task-modal__title" id="supportTaskModalTitle">Créer des tâches</h3>
+    <div class="support-task-modal__form">
+      <div style="margin-bottom:0.9rem;">
+        <label for="supportTaskTypeSelect">Type de tâche</label>
+        <select id="supportTaskTypeSelect"></select>
+      </div>
+      <div>
+        <label for="supportTaskComment">Commentaire</label>
+        <textarea id="supportTaskComment" placeholder="Commentaire (optionnel)"></textarea>
+      </div>
+    </div>
+    <div id="supportTaskStatus"></div>
+    <div class="support-task-modal__footer">
+      <button type="button" id="supportTaskCancel">Annuler</button>
+      <button type="button" id="supportTaskSubmit">Créer les tâches</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const tabs = Array.from(document.querySelectorAll('.groups-tab'));
+    const panels = Array.from(document.querySelectorAll('.groups-accordion'));
+    let activeId = panels.find(p => p.classList.contains('active'))?.id || null;
+    const itemsLabel = document.getElementById('groupItemsLabel');
+    const itemsEmpty = document.getElementById('groupItemsEmpty');
+    const itemsTableBody = document.querySelector('#groupItemsTable tbody');
+    const itemsStatus = document.getElementById('groupItemsStatus');
+    const itemsExport = document.getElementById('groupItemsExport');
+    const itemsPrev = document.getElementById('groupItemsPrev');
+    const itemsNext = document.getElementById('groupItemsNext');
+    const itemsPageInfo = document.getElementById('groupItemsPageInfo');
+    const itemsPager = document.querySelector('.group-items-pagination');
+    const pageSize = 15;
+    let currentPage = 1;
+    let currentRows = [];
+    let sortKeyDisplay = 'valorisation';
+    let sortDir = 'desc';
+    let currentGroupId = null;
+    let currentGroupType = null;
+    const productsTab = document.querySelector('.groups-tab[data-target="groupProductsBlock"]');
+    const productsLabel = document.getElementById('groupProductsLabel');
+    const productsStatus = document.getElementById('groupProductsStatus');
+    const productsExport = document.getElementById('groupProductsExport');
+    const productsEmpty = document.getElementById('groupProductsEmpty');
+    const productsTableBody = document.querySelector('#groupProductsTable tbody');
+    const productsTotal = document.getElementById('groupProductsTotal');
+    const productsPrev = document.getElementById('groupProductsPrev');
+    const productsNext = document.getElementById('groupProductsNext');
+    const productsPageInfo = document.getElementById('groupProductsPageInfo');
+    const productsPager = document.getElementById('groupProductsPager');
+    const productsPageSize = 15;
+    let productsPage = 1;
+    let productsRows = [];
+    let productsSortKey = 'total_num';
+    let productsSortDir = 'desc';
+
+    function setActive(id){
+      const same = activeId === id;
+      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.target === id && (!same || !tab.classList.contains('active'))));
+      panels.forEach(panel => {
+        const shouldShow = panel.id === id && (!same || !panel.classList.contains('active'));
+        panel.classList.toggle('active', shouldShow);
+      });
+      activeId = panels.find(p => p.classList.contains('active'))?.id || null;
+      panels.forEach(panel => {
+        const cards = panel.querySelectorAll('.group-card');
+        cards.forEach(card => card.classList.toggle('active', panel.classList.contains('active')));
+      });
+    }
+
+    function setStatus(text, state){
+      if (!itemsStatus) return;
+      itemsStatus.textContent = text;
+      itemsStatus.classList.remove('loading', 'error');
+      if (state) itemsStatus.classList.add(state);
+    }
+
+    function updateExportLink(){
+      if (!itemsExport) return;
+      if (!currentGroupId || !currentGroupType){
+        itemsExport.setAttribute('aria-disabled', 'true');
+        itemsExport.setAttribute('disabled', 'disabled');
+        itemsExport.href = '#';
+        return;
+      }
+      itemsExport.removeAttribute('disabled');
+      itemsExport.setAttribute('aria-disabled', 'false');
+      itemsExport.href = '/dashboard/groupes/items/export?group_id=' + encodeURIComponent(currentGroupId) + '&type=' + encodeURIComponent(currentGroupType);
+    }
+
+    function setItemsLoading(label){
+      if (itemsLabel) itemsLabel.textContent = label;
+      if (itemsEmpty) itemsEmpty.style.display = 'none';
+      if (itemsTableBody) itemsTableBody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
+      setStatus('Chargement', 'loading');
+      if (itemsPager) itemsPager.style.display = 'none';
+      if (productsTab) {
+        productsTab.style.display = 'none';
+        if (activeId === 'groupProductsBlock') {
+          setActive('groupItemsBlock');
+        }
+      }
+    }
+
+    function setItemsEmpty(label){
+      if (itemsLabel) itemsLabel.textContent = label;
+      if (itemsTableBody) itemsTableBody.innerHTML = '';
+      if (itemsEmpty) itemsEmpty.style.display = '';
+      setStatus('Aucun item', null);
+      if (itemsPager) itemsPager.style.display = 'none';
+      if (productsTab) {
+        productsTab.style.display = 'none';
+        if (activeId === 'groupProductsBlock') {
+          setActive('groupItemsBlock');
+        }
+      }
+    }
+
+    function setProductsStatus(text, state){
+      if (!productsStatus) return;
+      productsStatus.textContent = text;
+      productsStatus.classList.remove('loading', 'error');
+      if (state) productsStatus.classList.add(state);
+    }
+
+    function updateProductsExport(){
+      if (!productsExport) return;
+      if (!currentGroupId || !currentGroupType){
+        productsExport.setAttribute('aria-disabled', 'true');
+        productsExport.setAttribute('disabled', 'disabled');
+        productsExport.href = '#';
+        return;
+      }
+      productsExport.removeAttribute('disabled');
+      productsExport.setAttribute('aria-disabled', 'false');
+      productsExport.href = '/dashboard/groupes/produits/export?group_id=' + encodeURIComponent(currentGroupId) + '&type=' + encodeURIComponent(currentGroupType);
+    }
+
+    function setProductsEmpty(label){
+      if (productsLabel) productsLabel.textContent = label;
+      if (productsTableBody) productsTableBody.innerHTML = '';
+      if (productsEmpty) productsEmpty.style.display = '';
+      if (productsTotal) productsTotal.textContent = '—';
+      setProductsStatus('Aucun produit', null);
+      if (productsPager) productsPager.style.display = 'none';
+      updateProductsExport();
+    }
+
+    function renderProductsPage(){
+      if (!productsTableBody) return;
+      const totalPages = Math.max(1, Math.ceil(productsRows.length / productsPageSize));
+      if (productsPage > totalPages) productsPage = totalPages;
+      const sortedRows = [...productsRows].sort((a, b) => {
+        const av = a[productsSortKey];
+        const bv = b[productsSortKey];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') {
+          return productsSortDir === 'asc' ? av - bv : bv - av;
+        }
+        const cmp = String(av).localeCompare(String(bv), 'fr', { sensitivity: 'base' });
+        return productsSortDir === 'asc' ? cmp : -cmp;
+      });
+      const start = (productsPage - 1) * productsPageSize;
+      const pageRows = sortedRows.slice(start, start + productsPageSize);
+      productsTableBody.innerHTML = pageRows.map(row => (
+        '<tr>' +
+        '<td><a href="#" class="support-link" data-isin="' + row.isin + '" data-group-id="' + (currentGroupId || '') + '" data-group-type="' + (currentGroupType || '') + '">' + row.isin + '</a></td>' +
+        '<td>' + row.nom + '</td>' +
+        '<td>' + row.categorie + '</td>' +
+        '<td>' + row.zone_geo + '</td>' +
+        '<td>' + row.srri + '</td>' +
+        '<td><span class="esg-badge" data-esg="' + row.noteE + '">' + row.noteE_display + '</span></td>' +
+        '<td><span class="esg-badge" data-esg="' + row.noteS + '">' + row.noteS_display + '</span></td>' +
+        '<td><span class="esg-badge" data-esg="' + row.noteG + '">' + row.noteG_display + '</span></td>' +
+        '<td>' + row.total + '</td>' +
+        '</tr>'
+      )).join('');
+      if (productsPager) productsPager.style.display = productsRows.length > productsPageSize ? 'flex' : 'none';
+      if (productsPageInfo) productsPageInfo.textContent = 'Page ' + productsPage + '/' + totalPages;
+      if (productsPrev) productsPrev.disabled = productsPage <= 1;
+      if (productsNext) productsNext.disabled = productsPage >= totalPages;
+      document.querySelectorAll('#groupProductsTable th[data-key]').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        const activeKey = productsSortKey === 'total_num' ? 'total' : (productsSortKey === 'srri_num' ? 'srri' : productsSortKey);
+        if (th.dataset.key === activeKey) {
+          th.classList.add(productsSortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+    }
+
+    function setProductsRows(rows, total, label){
+      if (productsLabel) productsLabel.textContent = label;
+      if (!productsTableBody) return;
+      if (!rows.length){
+        setProductsEmpty(label);
+        return;
+      }
+      if (productsEmpty) productsEmpty.style.display = 'none';
+      setProductsStatus(rows.length + ' produits', null);
+      if (productsTotal) productsTotal.textContent = total || '—';
+      productsRows = rows;
+      productsPage = 1;
+      renderProductsPage();
+      updateProductsExport();
+      if (window.updateSupportIndexFromGroupProducts) {
+        window.updateSupportIndexFromGroupProducts(productsRows);
+      }
+    }
+
+    async function loadGroupProducts(groupId, groupType, groupName){
+      const label = 'Liste produits — ' + (groupName || 'Groupe');
+      if (productsLabel) productsLabel.textContent = label;
+      setProductsStatus('Chargement', 'loading');
+      if (productsEmpty) productsEmpty.style.display = 'none';
+      if (productsTableBody) productsTableBody.innerHTML = '<tr><td colspan="9" class="muted">Chargement…</td></tr>';
+      if (productsTotal) productsTotal.textContent = '—';
+      updateProductsExport();
+      try {
+        const res = await fetch('/dashboard/groupes/produits?group_id=' + encodeURIComponent(groupId) + '&type=' + encodeURIComponent(groupType));
+        if (!res.ok) {
+          throw new Error('Erreur chargement');
+        }
+        const data = await res.json();
+        const rows = (data.items || []).map(item => {
+          const noteE = (item.noteE || '').toString().trim().toUpperCase();
+          const noteS = (item.noteS || '').toString().trim().toUpperCase();
+          const noteG = (item.noteG || '').toString().trim().toUpperCase();
+          return {
+            nom: item.nom || '—',
+            isin: item.code_isin || '—',
+            categorie: item.categorie || '—',
+            zone_geo: item.zone_geo || '—',
+            srri: item.srri != null ? item.srri : '—',
+            srri_num: typeof item.srri === 'number' ? item.srri : null,
+            noteE: noteE,
+            noteS: noteS,
+            noteG: noteG,
+            noteE_display: noteE || '—',
+            noteS_display: noteS || '—',
+            noteG_display: noteG || '—',
+            total: item.total_valo_str || '—',
+            total_num: typeof item.total_valo === 'number' ? item.total_valo : null,
+          };
+        });
+        setProductsRows(rows, data.total_valo_str, label);
+      } catch (err) {
+        setProductsStatus('Erreur', 'error');
+        setProductsEmpty('Impossible de charger les produits.');
+      }
+    }
+
+    function renderPage(){
+      if (!itemsTableBody) return;
+      const totalPages = Math.max(1, Math.ceil(currentRows.length / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const getSortValue = (row) => {
+        switch (sortKeyDisplay) {
+          case 'valorisation':
+            return row.valorisation_num;
+          case 'perf_52':
+            return row.perf_52_num;
+          case 'volatilite_52':
+            return row.volatilite_52_num;
+          case 'srri':
+            return row.srri_num;
+          default:
+            return row[sortKeyDisplay];
+        }
+      };
+      const sortedRows = [...currentRows].sort((a, b) => {
+        const av = getSortValue(a);
+        const bv = getSortValue(b);
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') {
+          return sortDir === 'asc' ? av - bv : bv - av;
+        }
+        const cmp = String(av).localeCompare(String(bv), 'fr', { sensitivity: 'base' });
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+      const start = (currentPage - 1) * pageSize;
+      const pageRows = sortedRows.slice(start, start + pageSize);
+      itemsTableBody.innerHTML = pageRows.map(row => (
+        '<tr>' +
+        '<td>' + row.item + '</td>' +
+        '<td>' + row.valorisation + '</td>' +
+        '<td>' + row.perf_52 + '</td>' +
+        '<td>' + row.volatilite_52 + '</td>' +
+        '<td>' + row.srri + '</td>' +
+        '</tr>'
+      )).join('');
+      if (itemsPager) itemsPager.style.display = currentRows.length > pageSize ? 'flex' : 'none';
+      if (itemsPageInfo) itemsPageInfo.textContent = 'Page ' + currentPage + '/' + totalPages;
+      if (itemsPrev) itemsPrev.disabled = currentPage <= 1;
+      if (itemsNext) itemsNext.disabled = currentPage >= totalPages;
+      document.querySelectorAll('#groupItemsTable th[data-key]').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.key === sortKeyDisplay) {
+          th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+    }
+
+    function setItemsRows(rows, label){
+      if (itemsLabel) itemsLabel.textContent = label;
+      if (!itemsTableBody) return;
+      if (!rows.length){
+        setItemsEmpty(label);
+        return;
+      }
+      if (itemsEmpty) itemsEmpty.style.display = 'none';
+      setStatus(rows.length + ' items', null);
+      currentRows = rows;
+      currentPage = 1;
+      renderPage();
+      if (productsTab) productsTab.style.display = '';
+    }
+
+    async function loadGroupItems(groupId, groupType, groupName){
+      const label = 'Liste items — ' + (groupName || 'Groupe');
+      currentGroupId = groupId;
+      currentGroupType = groupType;
+      updateExportLink();
+      setItemsLoading(label);
+      setActive('groupItemsBlock');
+      try {
+        const res = await fetch('/dashboard/groupes/items?group_id=' + encodeURIComponent(groupId) + '&type=' + encodeURIComponent(groupType));
+        if (!res.ok) {
+          throw new Error('Erreur chargement');
+        }
+        const data = await res.json();
+        const rows = (data.items || []).map(item => ({
+          item: item.item || '—',
+          valorisation: item.valorisation_str || '—',
+          perf_52: item.perf_52_str || '—',
+          volatilite_52: item.volatilite_52_str || '—',
+          srri: item.srri != null ? item.srri : '—',
+          valorisation_num: typeof item.valorisation === 'number' ? item.valorisation : null,
+          perf_52_num: typeof item.perf_52 === 'number' ? item.perf_52 : null,
+          volatilite_52_num: typeof item.volatilite_52 === 'number' ? item.volatilite_52 : null,
+          srri_num: typeof item.srri === 'number' ? item.srri : null,
+        }));
+        setItemsRows(rows, label);
+        if (rows.length) {
+          loadGroupProducts(groupId, groupType, groupName);
+        } else {
+          setProductsEmpty('Aucun produit à afficher.');
+        }
+      } catch (err) {
+        setStatus('Erreur', 'error');
+        setItemsEmpty('Impossible de charger les items.');
+        setProductsEmpty('Impossible de charger les produits.');
+      }
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => setActive(tab.dataset.target));
+    });
+
+    document.querySelectorAll('.group-items-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        loadGroupItems(btn.dataset.groupId, btn.dataset.groupType, btn.dataset.groupName);
+      });
+    });
+
+    if (itemsPrev) {
+      itemsPrev.addEventListener('click', () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          renderPage();
+        }
+      });
+    }
+    if (itemsNext) {
+      itemsNext.addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(currentRows.length / pageSize));
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          renderPage();
+        }
+      });
+    }
+
+    document.querySelectorAll('#groupItemsTable th[data-key]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if (sortKeyDisplay === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKeyDisplay = key;
+          sortDir = 'asc';
+        }
+        currentPage = 1;
+        renderPage();
+      });
+    });
+
+    if (productsPrev) {
+      productsPrev.addEventListener('click', () => {
+        if (productsPage > 1) {
+          productsPage -= 1;
+          renderProductsPage();
+        }
+      });
+    }
+    if (productsNext) {
+      productsNext.addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(productsRows.length / productsPageSize));
+        if (productsPage < totalPages) {
+          productsPage += 1;
+          renderProductsPage();
+        }
+      });
+    }
+
+    document.querySelectorAll('#groupProductsTable th[data-key]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if ((productsSortKey === 'total_num' ? 'total' : productsSortKey) === key) {
+          productsSortDir = productsSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          productsSortKey = key;
+          productsSortDir = 'asc';
+        }
+        if (productsSortKey === 'total') productsSortKey = 'total_num';
+        if (productsSortKey === 'srri') productsSortKey = 'srri_num';
+        productsPage = 1;
+        renderProductsPage();
+      });
+    });
+
+    if (itemsExport) {
+      itemsExport.addEventListener('click', (event) => {
+        if (itemsExport.getAttribute('aria-disabled') === 'true') {
+          event.preventDefault();
+        }
+      });
+    }
+    if (productsExport) {
+      productsExport.addEventListener('click', (event) => {
+        if (productsExport.getAttribute('aria-disabled') === 'true') {
+          event.preventDefault();
+        }
+      });
+    }
+
+
+    if (tabs.length && !activeId) {
+      setActive(tabs[0].dataset.target);
+    }
+    updateExportLink();
+  })();
+</script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(function () {
+    var $supportModal = $('#supportModal');
+    var $supportModalMeta = $('#supportModalMeta');
+    var $supportModalClients = $('#supportModalClients');
+    var $supportModalSeries = $('#supportModalSeries');
+    var $supportModalDate = $('#supportModalDate');
+    var $supportModalTotal = $('#supportModalTotal');
+    var $supportModalExport = $('#supportModalExport');
+    var $supportCompareToggle = $('#supportCompareToggle');
+    var $supportCompareSection = $('#supportCompareSection');
+    var $supportModalClientFilter = $('#supportModalClientFilter');
+    var $supportModalResponsableFilter = $('#supportModalResponsableFilter');
+    var $supportModalAmountFilter = $('#supportModalAmountFilter');
+    var $supportModalFiltersReset = $('#supportModalFiltersReset');
+    var $supportClientsSection = $('#supportClientsSection');
+    var $supportClientsPager = $('#supportClientsPager');
+    var $supportClientsPrev = $('#supportClientsPrev');
+    var $supportClientsNext = $('#supportClientsNext');
+    var $supportClientsPageInfo = $('#supportClientsPageInfo');
+    var $supportModalCreateTasks = $('#supportModalCreateTasks');
+    var $supportModalChartContainer = $('#supportModalChartContainer');
+    var supportModalChartCanvas = document.getElementById('supportModalChart');
+    var $supportCompareChartContainer = $('#supportCompareChartContainer');
+    var supportCompareChartCanvas = document.getElementById('supportCompareChart');
+    var $supportSrriSection = $('#supportSrriSection');
+    var $supportSrriChartContainer = $('#supportSrriChartContainer');
+    var supportSrriChartCanvas = document.getElementById('supportSrriChart');
+    var $supportSrriTable = $('#supportSrriTable');
+    var supportModalValuationsWeekly = [];
+    var supportModalValuations = [];
+    var supportCompareValuations = [];
+    var supportCompareLabel = '';
+    var supportEsgFields = [];
+    var supportEsgAllocNames = [];
+    var supportEsgMetaLoaded = false;
+    var $supportEsgAlloc = $('#supportEsgAlloc');
+    var $supportEsgUnmatched = $('#supportEsgUnmatched');
+    var supportEsgLabelMap = {};
+    var supportIndex = [];
+    var supportModalClientsData = [];
+    var supportModalFilteredData = [];
+    var supportClientsPage = 1;
+    var supportClientsPageSize = 20;
+    var supportModalTaskTypes = [];
+    var supportModalCodeIsin = '';
+    var supportModalLastDate = null;
+    var supportModalListType = 'client';
+    var supportModalGroupId = null;
+    var supportModalGroupType = null;
+    var $supportContextBadge = $('#supportContextBadge');
+    var $supportTaskModal = $('#supportTaskModal');
+    var $supportTaskModalClose = $('#supportTaskModalClose');
+    var $supportTaskTypeSelect = $('#supportTaskTypeSelect');
+    var $supportTaskComment = $('#supportTaskComment');
+    var $supportTaskSubmit = $('#supportTaskSubmit');
+    var $supportTaskCancel = $('#supportTaskCancel');
+    var $supportTaskStatus = $('#supportTaskStatus');
+    var supportModalChartInstance = null;
+    var supportCompareChartInstance = null;
+    var supportEsgChartInstance = null;
+    var supportSrriChartInstance = null;
+    var chartJsLoaded = false;
+
+    window.updateSupportIndexFromGroupProducts = function(rows){
+        supportIndex = [];
+        var seen = {};
+        (rows || []).forEach(function(row){
+            var isin = (row && row.isin) ? String(row.isin).trim() : '';
+            if (!isin || seen[isin]) return;
+            seen[isin] = true;
+            supportIndex.push({ isin: isin, nom: row.nom || '' });
+        });
+        var opts = supportIndex.map(function(s){ return '<option value="'+s.isin+'">'+ (s.nom || '') +'</option>'; }).join('');
+        $('#supportCompareOptions').html(opts);
+    };
+
+    function setCompareButtonActive(active){
+        if ($supportCompareToggle && $supportCompareToggle.length){
+            $supportCompareToggle.toggleClass('active', !!active);
+        }
+    }
+
+    function setSrriButtonActive(active){
+        var btn = document.getElementById('supportSrriBtn');
+        if (btn){
+            if (active){ btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); }
+            else { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); }
+        }
+    }
+
+    function setEsgButtonActive(active){
+        var btn = document.getElementById('supportEsgToggle');
+        if (btn){
+            btn.classList.toggle('active', !!active);
+        }
+    }
+
+    function setClientsButtonActive(active){
+        var btn = document.getElementById('supportClientsToggle');
+        if (btn){
+            btn.classList.toggle('active', !!active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        }
+    }
+
+    function escHtml(str){
+        if (str === null || str === undefined) return '';
+        return String(str).replace(/[&<>"']/g, function(ch){
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[ch]);
+        });
+    }
+
+    function ensureChartJs(callback){
+        if (chartJsLoaded) { callback(); return; }
+        var existing = document.querySelector('script[data-loader="chartjs"]');
+        if (existing) {
+            existing.addEventListener('load', function(){ chartJsLoaded = true; callback(); });
+            existing.addEventListener('error', function(){ console.warn('Chart.js load error'); });
+            return;
+        }
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js';
+        script.async = true;
+        script.setAttribute('data-loader', 'chartjs');
+        script.onload = function(){ chartJsLoaded = true; callback(); };
+        script.onerror = function(){ console.warn('Chart.js load error'); };
+        document.head.appendChild(script);
+    }
+
+    function ensurePlotlySupportEsg(callback){
+        if (window.Plotly){ callback(); return; }
+        var existing = document.querySelector('script[data-loader=\"plotly\"]');
+        if (existing){
+            existing.addEventListener('load', function(){ callback(); });
+            return;
+        }
+        var s=document.createElement('script');
+        s.src='https://cdn.plot.ly/plotly-2.32.0.min.js';
+        s.async=true;
+        s.setAttribute('data-loader','plotly');
+        s.onload=function(){ callback(); };
+        document.head.appendChild(s);
+    }
+
+    function loadSupportEsgMeta(cb){
+        if (supportEsgMetaLoaded){
+            cb && cb();
+            return;
+        }
+        fetch('/dashboard/esg/fields')
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(data){
+                supportEsgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
+                supportEsgAllocNames = Array.isArray(data.alloc_names) ? data.alloc_names : [];
+                supportEsgMetaLoaded = true;
+                renderSupportEsgFields();
+                renderSupportEsgAllocOptions();
+                cb && cb();
+            })
+            .catch(function(err){
+                console.warn('ESG meta load error', err);
+                supportEsgFields = [];
+                supportEsgAllocNames = [];
+                supportEsgMetaLoaded = true;
+                renderSupportEsgFields();
+                renderSupportEsgAllocOptions();
+                cb && cb();
+            });
+    }
+
+    function renderSupportEsgAllocOptions(){
+        if (!$supportEsgAlloc || !$supportEsgAlloc.length) return;
+        var opts = ['<option value=\"\">— choisir —</option>'];
+        supportEsgAllocNames.forEach(function(n){
+            opts.push('<option value=\"'+escHtml(n)+'\">'+escHtml(n)+'</option>');
+        });
+        $supportEsgAlloc.html(opts.join(''));
+    }
+
+    function renderSupportEsgFields(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        supportEsgLabelMap = {};
+        if (!supportEsgFields.length){
+            wrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
+            return;
+        }
+        supportEsgFields.forEach(function(f){
+            var btn = document.createElement('button');
+            btn.type='button';
+            btn.className='dim-btn support-esg-field';
+            btn.setAttribute('data-field', f.col || f.field || f.label || '');
+            btn.title = f.label || f.col || '';
+            btn.textContent = f.label || f.col || '';
+            if (f.col || f.field){
+                var key = f.col || f.field;
+                supportEsgLabelMap[key] = f.label || key;
+            }
+            btn.addEventListener('click', function(){
+                if (btn.classList.contains('active')){
+                    btn.classList.remove('active');
+                } else {
+                    var actives = wrap.querySelectorAll('.support-esg-field.active');
+                    if (actives.length >= 4) return;
+                    btn.classList.add('active');
+                }
+                runSupportEsg();
+            });
+            wrap.appendChild(btn);
+        });
+        ensureSupportEsgDefaultSelection();
+    }
+
+    function ensureSupportEsgDefaultSelection(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return;
+        var actives = wrap.querySelectorAll('.support-esg-field.active');
+        if (actives.length) return;
+        var btns = wrap.querySelectorAll('.support-esg-field');
+        for (var i = 0; i < btns.length && i < 4; i++){
+            btns[i].classList.add('active');
+        }
+    }
+
+    function selectedSupportEsgFields(){
+        var wrap = document.getElementById('supportEsgFields');
+        if (!wrap) return [];
+        return Array.from(wrap.querySelectorAll('.support-esg-field.active')).map(function(b){
+            return b.getAttribute('data-field');
+        }).filter(Boolean);
+    }
+
+    function runSupportEsg(){
+        if (!supportEsgMetaLoaded){
+            loadSupportEsgMeta(function(){ runSupportEsg(); });
+            return;
+        }
+        if (!supportEsgFields.length){
+            renderSupportEsgFields();
+            return;
+        }
+        var alloc = ($supportEsgAlloc && $supportEsgAlloc.val()) || '';
+        ensureSupportEsgDefaultSelection();
+        var fields = selectedSupportEsgFields();
+        if (!supportModalCodeIsin){ return; }
+        if (!alloc){ return; }
+        if (!fields.length){ return; }
+        var unmatchedEl = document.getElementById('supportEsgUnmatched');
+        if (unmatchedEl){ unmatchedEl.style.display='none'; unmatchedEl.textContent=''; }
+        ensurePlotlySupportEsg(function(){
+            var url = '/dashboard/supports/' + encodeURIComponent(supportModalCodeIsin) + '/esg?alloc=' + encodeURIComponent(alloc) + '&fields=' + encodeURIComponent(fields.join(','));
+            fetch(url).then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); }).then(function(data){
+                var rows = (data && data.results) || [];
+                var unmatched = (data && data.unmatched_fields) || [];
+                if (unmatchedEl){
+                    if (unmatched.length){
+                        unmatchedEl.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+                        unmatchedEl.style.display = '';
+                    } else {
+                        unmatchedEl.textContent = '';
+                        unmatchedEl.style.display = 'none';
+                    }
+                }
+                var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+                if (!displayRows.length){ displayRows = rows; }
+                if (!displayRows.length){
+                    $('#supportEsgChart').hide().empty();
+                    return;
+                }
+                var cats = displayRows.map(function(r){
+                    return supportEsgLabelMap[r.field] || supportEsgLabelMap[r.resolved_field] || r.field_original || r.field;
+                });
+                var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+                var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
+                var traces = [
+                    { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+                    { x: cli, y: cats, type:'bar', orientation:'h', name:'Support', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+                ];
+                var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+                var cfg = { displayModeBar: false, responsive: true };
+                Plotly.react('supportEsgChart', traces, layout, cfg);
+                $('#supportEsgChart').show();
+            }).catch(function(err){
+                if (unmatchedEl){
+                    unmatchedEl.textContent = 'Erreur de chargement ESG.';
+                    unmatchedEl.style.display = '';
+                }
+                try{ console.warn('Support ESG fetch error', err); }catch(_){}
+                $('#supportEsgChart').hide().empty();
+            });
+        });
+    }
+
+    function formatEuro(value){
+        if (value === null || value === undefined || !isFinite(value)) return '—';
+        try {
+            return Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        } catch(e){
+            return String(value);
+        }
+    }
+
+    function formatDateLabel(iso){
+        if (!iso) return '—';
+        try {
+            var d = new Date(iso);
+            if (!isNaN(d)) return d.toLocaleDateString('fr-FR');
+        } catch(e){}
+        return iso;
+    }
+
+    function toFridayISO(iso){
+        if (!iso) return null;
+        try {
+            var d = new Date(iso);
+            if (isNaN(d)) return null;
+            var day = d.getDay();
+            var delta = (5 - day + 7) % 7;
+            d.setDate(d.getDate() + delta);
+            return d.toISOString().slice(0, 10);
+        } catch(e){ return null; }
+    }
+
+    function srriFromVol(volPct){
+        if (volPct == null || !isFinite(volPct)) return null;
+        if (volPct < 0.5) return 1;
+        if (volPct < 2) return 2;
+        if (volPct < 5) return 3;
+        if (volPct < 10) return 4;
+        if (volPct < 15) return 5;
+        if (volPct < 25) return 6;
+        return 7;
+    }
+
+    function stddev(arr){
+        if (!arr || arr.length === 0) return NaN;
+        var mean = arr.reduce(function(s,v){ return s+v; },0)/arr.length;
+        var variance = arr.reduce(function(s,v){ var d=v-mean; return s + d*d; },0)/arr.length;
+        return Math.sqrt(variance);
+    }
+
+    function computeSrriSeries(){
+        if (!supportModalValuations || !supportModalValuations.length) return null;
+        var refIso = supportModalLastDate || (supportModalValuations[supportModalValuations.length-1]?.date);
+        if (!refIso) return null;
+        var refDate = new Date(refIso);
+        if (isNaN(refDate)) return null;
+        var cutoff4y = new Date(refDate); cutoff4y.setFullYear(refDate.getFullYear() - 4);
+        var cutoff3y = new Date(refDate); cutoff3y.setFullYear(refDate.getFullYear() - 3);
+
+        var weekMap = {};
+        supportModalValuations.forEach(function(row){
+            if (!row || !row.date) return;
+            var d = new Date(row.date);
+            if (isNaN(d) || d < cutoff4y) return;
+            var friday = toFridayISO(row.date);
+            if (!friday) return;
+            weekMap[friday] = parseFloat(row.valeur);
+        });
+        var weeks = Object.keys(weekMap).sort();
+        if (weeks.length < 60) return null;
+
+        var weeklySeries = weeks.map(function(w){ return {date: w, value: weekMap[w]}; });
+        var returns = [];
+        for (var i=1; i<weeklySeries.length; i++){
+            var prev = weeklySeries[i-1].value;
+            var cur = weeklySeries[i].value;
+            if (prev && cur){
+                returns.push(cur/prev - 1);
+            } else {
+                returns.push(null);
+            }
+        }
+        var points = [];
+        for (var j=51; j<returns.length; j++){
+            var windowVals = returns.slice(j-51, j+1).filter(function(r){ return r !== null && isFinite(r); });
+            if (windowVals.length < 26) { points.push(null); continue; }
+            var vol = stddev(windowVals) * Math.sqrt(52);
+            var volPct = vol * 100;
+            var srri = srriFromVol(volPct);
+            points.push({date: weeklySeries[j+1].date, volPct: volPct, srri: srri});
+        }
+        points = points.filter(Boolean).filter(function(p){
+            var d = new Date(p.date);
+            return !isNaN(d) && d >= cutoff3y;
+        });
+        if (!points.length) return null;
+        var labels = points.map(function(p){ return p.date; });
+        var volData = points.map(function(p){ return Number(p.volPct.toFixed(2)); });
+        var srriData = points.map(function(p){ return p.srri; });
+        var tableRows = points.slice(-20).reverse();
+        return { labels: labels, volData: volData, srriData: srriData, tableRows: tableRows };
+    }
+
+    function renderSupportSrriChart(series){
+        if (!supportSrriChartCanvas || !series) return;
+        if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        var maxVol = 0;
+        try { maxVol = Math.max.apply(null, series.volData.filter(function(v){ return isFinite(v); })); } catch(e){}
+        var suggestedMax = isFinite(maxVol) ? (maxVol + Math.max(1, maxVol * 0.05)) : undefined;
+        supportSrriChartInstance = new Chart(supportSrriChartCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: series.labels,
+                datasets: [
+                    {
+                        label: 'Volatilité annualisée (%)',
+                        data: series.volData,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37,99,235,0.15)',
+                        tension: 0.2,
+                        yAxisID: 'y',
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'SRRI',
+                        data: series.srriData,
+                        borderColor: '#f97316',
+                        backgroundColor: 'rgba(249,115,22,0.15)',
+                        stepped: true,
+                        tension: 0,
+                        yAxisID: 'y1',
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { title: { display: true, text: 'Volatilité (%)' }, suggestedMax: suggestedMax },
+                    y1: { position: 'right', title: { display: true, text: 'SRRI' }, min: 1, max: 7, grid: { drawOnChartArea: false } }
+                },
+                plugins: { legend: { display: true } }
+            }
+        });
+    }
+
+    function renderSupportSrriTable(series){
+        if (!$supportSrriTable || !series) return;
+        var rows = series.tableRows || [];
+        if (!rows.length){
+            $supportSrriTable.hide().empty();
+            return;
+        }
+        var html = '<table><thead><tr><th>Date</th><th>Volatilité (%)</th><th>SRRI</th></tr></thead><tbody>';
+        rows.forEach(function(row){
+            html += '<tr><td>' + formatDateLabel(row.date) + '</td><td>' + formatEuro(row.volPct) + '</td><td>' + row.srri + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        $supportSrriTable.html(html).show();
+    }
+
+    function toggleSupportSrri(){
+        if (!$supportSrriSection.length){ return; }
+        var isOpen = $supportSrriSection.is(':visible');
+        if (isOpen){
+            $supportSrriSection.hide();
+            setSrriButtonActive(false);
+            return;
+        }
+        setSrriButtonActive(true);
+        if (!supportModalValuations || !supportModalValuations.length){
+            $supportSrriSection.show();
+            $supportSrriChartContainer.hide();
+            $supportSrriTable.hide().html('<div class=\"support-modal__empty\">Données insuffisantes.</div>');
+            return;
+        }
+        ensureChartJs(function(){
+            var series = computeSrriSeries();
+            if (!series){
+                $supportSrriSection.show();
+                $supportSrriChartContainer.hide();
+                $supportSrriTable.hide().html('<div class=\"support-modal__empty\">Données insuffisantes.</div>');
+                return;
+            }
+            $supportSrriSection.show();
+            $supportSrriChartContainer.show();
+            renderSupportSrriChart(series);
+            renderSupportSrriTable(series);
+        });
+    }
+
+    function renderSupportSeriesTables(showTable){
+        if (!$supportModalSeries.length) return;
+        if (!showTable){
+            $supportModalSeries.hide().empty();
+            return;
+        }
+        var rowsDaily = supportModalValuations || [];
+        var rowsWeekly = supportModalValuationsWeekly || [];
+        var html = '';
+        function buildTable(title, rows, dateKey, valueKey){
+            if (!rows.length){
+                return '<div class=\"series-empty\">Aucune série disponible.</div>';
+            }
+            var table = '<div class=\"series-table\"><div class=\"support-series-header\"><h4>' + title + '</h4></div><table><thead><tr><th>Date</th><th>Valorisation</th></tr></thead><tbody>';
+            rows.slice(-40).reverse().forEach(function(r){
+                table += '<tr><td>' + formatDateLabel(r[dateKey]) + '</td><td>' + formatEuro(r[valueKey]) + '</td></tr>';
+            });
+            table += '</tbody></table></div>';
+            return table;
+        }
+        html += buildTable('Série quotidienne', rowsDaily, 'date', 'valeur');
+        html += buildTable('Série hebdo', rowsWeekly, 'week_start', 'total_valo');
+        $supportModalSeries.html(html).show();
+    }
+
+    function toggleSupportChart(){
+        if (!$supportModalChartContainer.length || !supportModalChartCanvas) return;
+        var visible = $supportModalChartContainer.is(':visible');
+        if (visible){
+            if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+            $supportModalChartContainer.hide();
+            if ($supportModalSeries.length){ $supportModalSeries.hide(); }
+            return;
+        }
+        ensureChartJs(function(){
+            if (!supportModalValuations || !supportModalValuations.length){
+                $supportModalChartContainer.hide();
+                renderSupportSeriesTables(true);
+                return;
+            }
+            if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+            var labels = supportModalValuations.map(function(v){ return v.date; });
+            var values = supportModalValuations.map(function(v){ return v.valeur; });
+            supportModalChartInstance = new Chart(supportModalChartCanvas.getContext('2d'), {
+                type: 'line',
+                data: { labels: labels, datasets: [{ label: 'Valorisation', data: values, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.15)', pointRadius: 0, tension: 0.2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+            $supportModalChartContainer.show();
+            renderSupportSeriesTables(true);
+        });
+    }
+
+    function updateSansNomButtonState(){
+        var btn = document.getElementById('supportSansNomBtn');
+        if (!btn) return;
+        var hasData = (supportModalValuations && supportModalValuations.length) || (supportModalValuationsWeekly && supportModalValuationsWeekly.length);
+        btn.disabled = !hasData;
+    }
+
+    function openSupportModal(){
+        $supportModal.addClass('open').attr('aria-hidden', 'false');
+    }
+
+    function closeSupportModal(){
+        $supportModal.removeClass('open').attr('aria-hidden', 'true');
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+        if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
+        if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        $('#supportEsgChart').hide().empty();
+        $('#supportEsgUnmatched').hide().text('');
+        $('#supportEsgSection').hide();
+        if ($supportEsgAlloc && $supportEsgAlloc.length){ $supportEsgAlloc.val(''); }
+        $('#supportEsgFields').empty();
+        if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        $('#supportSrriTable').hide().empty();
+        $('#supportSrriChartContainer').hide();
+        $('#supportSrriSection').hide();
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        $('#supportCompareStatus').text('');
+        if ($supportCompareSection.length){ $supportCompareSection.hide(); }
+        setCompareButtonActive(false);
+        setSrriButtonActive(false);
+        setEsgButtonActive(false);
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); }
+        setClientsButtonActive(false);
+        updateSansNomButtonState();
+        supportClientsPage = 1;
+    }
+
+    function renderSupportModalLoading(code){
+        $('#supportModalTitle').text('Support ' + (code || ''));
+        $supportModalMeta.html('<div><span class=\"label\">Chargement…</span><span class=\"value\">Patientez</span></div>');
+        $supportModalClients.empty();
+        $supportModalDate.text('');
+        $supportModalTotal.text('');
+        $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
+        supportModalValuations = [];
+        supportModalValuationsWeekly = [];
+        supportCompareValuations = [];
+        supportCompareLabel = '';
+        supportModalLastDate = null;
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        $('#supportCompareStatus').text('');
+        if ($supportCompareSection.length){ $supportCompareSection.hide(); }
+        setCompareButtonActive(false);
+        setSrriButtonActive(false);
+        setEsgButtonActive(false);
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); }
+        setClientsButtonActive(false);
+        updateSansNomButtonState();
+        supportClientsPage = 1;
+    }
+
+    function renderSupportModal(data){
+        if (!data || !data.support){
+            $supportModalMeta.html('<div><span class=\"label\">Erreur</span><span class=\"value\">Données introuvables</span></div>');
+            $supportModalClients.empty();
+            $supportModalDate.text('');
+            $supportModalTotal.text('');
+            $supportModalExport.prop('disabled', true);
+            supportModalValuations = [];
+            supportModalValuationsWeekly = [];
+            if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+            if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+            return;
+        }
+        var s = data.support;
+        supportModalListType = data.list_type || 'client';
+        var metaHtml = '';
+        var fields = [
+            {label: 'Code ISIN', value: s.code_isin},
+            {label: 'Nom', value: s.nom},
+            {label: 'Catégorie principale', value: s.cat_principale || '—'},
+            {label: 'Catégorie détaillée', value: s.cat_det || '—'},
+            {label: 'Catégorie générique', value: s.cat_gene || '—'},
+            {label: 'Zone géo', value: s.cat_geo || '—'},
+            {label: 'Promoteur', value: s.promoteur || '—'},
+            {label: 'SRRI', value: (s.SRRI !== null && s.SRRI !== undefined) ? s.SRRI : '—'}
+        ];
+        fields.forEach(function(item){
+            if (item.label === 'SRRI'){
+                metaHtml += '<div class=\"support-meta-srri\"><span class=\"label\">' + item.label + '</span><button type=\"button\" class=\"support-meta-btn\" id=\"supportSrriBtn\" aria-pressed=\"false\"><span>' + (item.value || '—') + '</span></button></div>';
+            } else {
+                metaHtml += '<div><span class=\"label\">' + item.label + '</span><span class=\"value\">' + item.value + '</span></div>';
+            }
+        });
+        metaHtml += '<button type=\"button\" class=\"support-meta-btn\" id=\"supportSansNomBtn\" aria-pressed=\"false\"><i class=\"fa-solid fa-chart-line\" aria-hidden=\"true\"></i><span>Graphiques VL & AUM</span></button>';
+        $supportModalMeta.html(metaHtml);
+        var sansNomBtn = document.getElementById('supportSansNomBtn');
+        if (sansNomBtn){
+            sansNomBtn.addEventListener('click', function(){
+                toggleSupportChart();
+            });
+        }
+        var srriBtn = document.getElementById('supportSrriBtn');
+        if (srriBtn){
+            srriBtn.addEventListener('click', function(){
+                toggleSupportSrri();
+            });
+        }
+        $supportModalMeta.closest('.support-modal__panel').find('.support-modal__graph-row').remove();
+        $supportModalMeta.closest('.support-modal__panel').find('.support-modal__actions').before(
+            '<div class=\"support-modal__graph-row\" style=\"display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-bottom:1rem;\"></div>'
+        );
+        supportModalValuations = Array.isArray(data.valuations) ? data.valuations.filter(function(v){ return v && v.date; }) : [];
+        if (supportModalValuations.length){
+            supportModalValuations = supportModalValuations.slice().sort(function(a,b){
+                var da = a.date || '';
+                var db = b.date || '';
+                if (da < db) return -1;
+                if (da > db) return 1;
+                return 0;
+            });
+        }
+        supportModalValuationsWeekly = Array.isArray(data.valuations_weekly) ? data.valuations_weekly.filter(function(v){ return v && v.week_start; }) : [];
+        if (supportModalValuationsWeekly.length){
+            supportModalValuationsWeekly = supportModalValuationsWeekly.slice().sort(function(a,b){
+                var da = a.week_start || '';
+                var db = b.week_start || '';
+                if (da < db) return -1;
+                if (da > db) return 1;
+                return 0;
+            });
+        }
+        if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+        if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+        if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+        var hasGraphData = (supportModalValuations && supportModalValuations.length) || (supportModalValuationsWeekly && supportModalValuationsWeekly.length);
+        if (sansNomBtn){
+            sansNomBtn.disabled = !hasGraphData;
+        }
+        updateSansNomButtonState();
+        $('#supportCompareStatus').text('');
+        if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+        if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
+        supportCompareValuations = [];
+        supportCompareLabel = '';
+        renderSupportSeriesTables(false);
+        $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
+        $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
+        supportModalLastDate = data.last_date || null;
+        var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
+        $supportModalTotal.text('Total valorisation : ' + totalText);
+        $supportModalExport.data('export', data.csv_url || '').prop('disabled', !data.csv_url);
+        supportModalTaskTypes = Array.isArray(data.task_types) ? data.task_types : [];
+        supportModalCodeIsin = s.code_isin || '';
+        populateSupportTaskTypeSelect(data.default_type_id);
+        supportModalClientsData = Array.isArray(data.items) ? data.items.slice() : (Array.isArray(data.clients) ? data.clients.slice() : []);
+        supportModalFilteredData = supportModalClientsData.slice();
+        supportClientsPage = 1;
+        var hasTaskTypes = $supportTaskTypeSelect.find('option[value!=\"\"]').length > 0;
+        $supportModalCreateTasks.prop('disabled', !hasTaskTypes);
+        $supportModalClientFilter.val('');
+        $supportModalResponsableFilter.val('');
+        $supportModalAmountFilter.val('');
+        var clientsLabel = document.querySelector('#supportClientsToggle span');
+        if (clientsLabel){
+            clientsLabel.textContent = supportModalListType === 'affaire' ? 'Affaires' : 'Clients';
+        }
+        var filterClientLabel = document.querySelector('label[for=\"supportModalClientFilter\"]');
+        if (filterClientLabel){
+            filterClientLabel.textContent = supportModalListType === 'affaire' ? 'Affaire' : 'Client';
+        }
+        var filterRespLabel = document.querySelector('label[for=\"supportModalResponsableFilter\"]');
+        if (filterRespLabel){
+            filterRespLabel.textContent = supportModalListType === 'affaire' ? 'Client' : 'Responsable';
+        }
+        if ($supportContextBadge && $supportContextBadge.length){
+            if (supportModalGroupType === 'affaire') {
+                $supportContextBadge.text('Contexte : Groupe Affaires');
+            } else if (supportModalGroupType === 'client') {
+                $supportContextBadge.text('Contexte : Groupe Clients');
+            } else {
+                $supportContextBadge.text('');
+            }
+        }
+        renderSupportModalTable();
+        if ($supportClientsSection && $supportClientsSection.length){ $supportClientsSection.hide(); setClientsButtonActive(false); }
+    }
+
+    function renderSupportModalTable(){
+        if (!supportModalClientsData.length){
+            supportModalFilteredData = [];
+            $supportModalClients.html('<div class=\"support-modal__empty\">Aucun élément ne détient ce support à la date sélectionnée.</div>');
+            var hasTypes = $supportTaskTypeSelect.find('option[value!=\"\"]').length > 0;
+            $supportModalCreateTasks.prop('disabled', !hasTypes);
+            return;
+        }
+        var filters = getSupportModalFilters();
+        var filtered = supportModalClientsData.filter(function(row){
+            return matchesClientFilters(row, filters);
+        });
+        supportModalFilteredData = filtered;
+        var totalPages = Math.max(1, Math.ceil(filtered.length / supportClientsPageSize));
+        if (supportClientsPage > totalPages) supportClientsPage = totalPages;
+        if (supportClientsPage < 1) supportClientsPage = 1;
+        var hasEligible = filtered.some(function(client){ return client && client.client_id; });
+        var hasTypes = $supportTaskTypeSelect.find('option[value!=\"\"]').length > 0;
+        $supportModalCreateTasks.prop('disabled', !(hasEligible && hasTypes));
+        var startIdx = (supportClientsPage - 1) * supportClientsPageSize;
+        var endIdx = startIdx + supportClientsPageSize;
+        var rowsHtml = filtered.map(function(client){
+            var label = '';
+            var href = '#';
+            if (supportModalListType === 'affaire'){
+                label = client.affaire_ref || ('Affaire #' + (client.affaire_id || ''));
+                href = client.affaire_id ? ('/dashboard/affaires/' + client.affaire_id) : '#';
+            } else {
+                label = ((client.nom || '') + ' ' + (client.prenom || '')).trim();
+                if (!label) label = client.nom || client.prenom || 'Client';
+                href = client.client_id ? ('/dashboard/clients/' + client.client_id) : '#';
+            }
+            var cell = href !== '#' ? '<a href=\"' + href + '\" target=\"_blank\" rel=\"noopener noreferrer\">' + label + '</a>' : label;
+            return '<tr>' +
+                '<td>' + cell + '</td>' +
+                '<td>' + (supportModalListType === 'affaire' ? (client.client_label || '—') : (client.responsable || '—')) + '</td>' +
+                '<td>' + (client.total_valo_str || '0') + ' €</td>' +
+            '</tr>';
+        });
+        var rowsHtmlPage = rowsHtml.slice(startIdx, endIdx).join('');
+        if (!rowsHtml){
+            supportModalFilteredData = filtered;
+            $supportModalClients.html('<div class=\"support-modal__empty\">Aucun résultat ne correspond aux filtres.</div>');
+            if ($supportClientsPager.length){
+                $supportClientsPager.hide();
+            }
+            return;
+        }
+        var headerLabel = supportModalListType === 'affaire' ? 'Affaire' : 'Client';
+        var secondLabel = supportModalListType === 'affaire' ? 'Client' : 'Responsable';
+        var tableHtml = '<table>' +
+            '<thead><tr><th>' + headerLabel + '</th><th>' + secondLabel + '</th><th>Valorisation</th></tr></thead>' +
+            '<tbody>' + rowsHtmlPage + '</tbody></table>';
+        $supportModalClients.html(tableHtml);
+        if ($supportClientsPager.length){
+            $supportClientsPager.show();
+            if ($supportClientsPageInfo.length){
+                $supportClientsPageInfo.text('Page ' + supportClientsPage + '/' + totalPages);
+            }
+            if ($supportClientsPrev.length){ $supportClientsPrev.prop('disabled', supportClientsPage <= 1); }
+            if ($supportClientsNext.length){ $supportClientsNext.prop('disabled', supportClientsPage >= totalPages); }
+        }
+    }
+
+    function getSupportModalFilters(){
+        return {
+            client: ($supportModalClientFilter.val() || '').trim().toLowerCase(),
+            responsable: ($supportModalResponsableFilter.val() || '').trim().toLowerCase(),
+            amount: ($supportModalAmountFilter.val() || '').trim().toLowerCase()
+        };
+    }
+
+    function parseAmount(value){
+        if (value == null) return NaN;
+        var str = String(value).trim().toLowerCase();
+        if (!str) return NaN;
+        str = str.replace(/\s+/g, '').replace(',', '.');
+        var multiplier = 1;
+        if (str.endsWith('k')) { multiplier = 1e3; str = str.slice(0,-1); }
+        if (str.endsWith('m')) { multiplier = 1e6; str = str.slice(0,-1); }
+        var num = parseFloat(str);
+        if (!isFinite(num)) return NaN;
+        return num * multiplier;
+    }
+
+    function matchesAmount(amount, filter){
+        if (!filter) return true;
+        var val = parseAmount(amount);
+        if (!isFinite(val)) return false;
+        var expressions = filter.split(/[,;]+/).map(function(exp){ return exp.trim(); }).filter(Boolean);
+        if (!expressions.length) expressions = [filter];
+        return expressions.every(function(expr){
+            if (!expr) return true;
+            var range = expr.match(/^([<>]=?|=)?\s*([^<>=]+)$/);
+            var between = expr.match(/^([^\-]+)\s*-\s*([^\-]+)$/);
+            if (between){
+                var a = parseAmount(between[1]);
+                var b = parseAmount(between[2]);
+                if (!isFinite(a) || !isFinite(b)) return true;
+                var min = Math.min(a,b), max = Math.max(a,b);
+                return val >= min && val <= max;
+            }
+            if (range){
+                var op = range[1] || '=';
+                var num = parseAmount(range[2]);
+                if (!isFinite(num)) return true;
+                switch(op){
+                    case '>': return val > num;
+                    case '>=': return val >= num;
+                    case '<': return val < num;
+                    case '<=': return val <= num;
+                    case '=': default: return val === num;
+                }
+            }
+            var num = parseAmount(expr);
+            if (isFinite(num)) return val === num;
+            return true;
+        });
+    }
+
+    function matchesClientFilters(client, filters){
+        if (filters.client){
+            var label = '';
+            if (supportModalListType === 'affaire'){
+                label = ((client.affaire_ref || '') + ' ' + (client.client_label || '')).trim().toLowerCase();
+            } else {
+                label = ((client.nom || '') + ' ' + (client.prenom || '')).trim().toLowerCase();
+            }
+            if (label.indexOf(filters.client) === -1) return false;
+        }
+        if (filters.responsable){
+            var resp = (supportModalListType === 'affaire' ? (client.client_label || '') : (client.responsable || '')).toLowerCase();
+            if (resp.indexOf(filters.responsable) === -1) return false;
+        }
+        if (filters.amount){
+            if (!matchesAmount(client.total_valo, filters.amount)) return false;
+        }
+        return true;
+    }
+
+    function populateSupportTaskTypeSelect(defaultId){
+        var groups = Array.isArray(supportModalTaskTypes) ? supportModalTaskTypes : [];
+        var html = '';
+        if (!groups.length){
+            html = '<option value=\"\">-- Aucun type disponible --</option>';
+        } else {
+            var multipleGroups = groups.length > 1;
+            groups.forEach(function(group){
+                var types = Array.isArray(group.types) ? group.types : [];
+                if (!types.length) return;
+                if (multipleGroups){
+                    html += '<optgroup label=\"' + escHtml(group.label || group.categorie || 'Tâche') + '\">';
+                }
+                types.forEach(function(entry){
+                    if (entry.id == null) return;
+                    html += '<option value=\"' + escHtml(entry.id) + '\">' + escHtml(entry.libelle || ('Type #' + entry.id)) + '</option>';
+                });
+                if (multipleGroups){
+                    html += '</optgroup>';
+                }
+            });
+            if (!html){
+                html = '<option value=\"\">-- Aucun type disponible --</option>';
+            }
+        }
+        $supportTaskTypeSelect.html(html);
+        if (defaultId != null && $supportTaskTypeSelect.find('option[value=\"' + defaultId + '\"]').length){
+            $supportTaskTypeSelect.val(String(defaultId));
+        }
+        if (!$supportTaskTypeSelect.val()){
+            var first = $supportTaskTypeSelect.find('option[value!=\"\"]').first();
+            if (first.length){
+                $supportTaskTypeSelect.val(first.val());
+            }
+        }
+        var hasTypes = $supportTaskTypeSelect.find('option[value!=\"\"]').length > 0;
+        var hasEligible = (supportModalFilteredData || []).some(function(client){ return client && client.client_id; });
+        $supportModalCreateTasks.prop('disabled', !(hasTypes && hasEligible));
+    }
+
+    function openSupportTaskModal(){
+        var eligible = (supportModalFilteredData || []).filter(function(client){ return client && client.client_id; });
+        if (!eligible.length){
+            alert('Aucun client sélectionné pour créer des tâches.');
+            return;
+        }
+        populateSupportTaskTypeSelect($supportTaskTypeSelect.val());
+        $supportTaskComment.val('');
+        $supportTaskStatus.text(eligible.length + ' client(s) sélectionné(s).');
+        $supportTaskSubmit.prop('disabled', false).text('Créer les tâches');
+        $supportTaskModal.addClass('open').attr('aria-hidden', 'false');
+    }
+
+    function closeSupportTaskModal(){
+        $supportTaskModal.removeClass('open').attr('aria-hidden', 'true');
+        $supportTaskStatus.text('');
+    }
+
+    function submitSupportTasks(){
+        var eligible = (supportModalFilteredData || []).filter(function(client){ return client && client.client_id; });
+        if (!eligible.length){
+            $supportTaskStatus.text('Aucun client sélectionné.');
+            return;
+        }
+        var typeId = $supportTaskTypeSelect.val();
+        if (!typeId){
+            $supportTaskStatus.text('Sélectionnez un type de tâche.');
+            return;
+        }
+        var uniqueIds = [];
+        eligible.forEach(function(client){
+            if (uniqueIds.indexOf(client.client_id) === -1){
+                uniqueIds.push(client.client_id);
+            }
+        });
+        var payload = {
+            code_isin: supportModalCodeIsin,
+            client_ids: uniqueIds,
+            type_id: typeId,
+            commentaire: $supportTaskComment.val() || ''
+        };
+        $supportTaskSubmit.prop('disabled', true).text('Création...');
+        $supportTaskStatus.text('Création des tâches en cours...');
+        fetch('/dashboard/supports/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function(resp){
+            if (!resp.ok){
+                return resp.json().catch(function(){ return {detail: 'Erreur ' + resp.status}; }).then(function(err){ throw err; });
+            }
+            return resp.json();
+        }).then(function(result){
+            $supportTaskStatus.text(result.message || 'Tâches créées.');
+            setTimeout(function(){
+                closeSupportTaskModal();
+            }, 1200);
+        }).catch(function(err){
+            var msg = err && (err.detail || err.message) ? (err.detail || err.message) : 'Erreur lors de la création.';
+            $supportTaskStatus.text(msg);
+        }).finally(function(){
+            $supportTaskSubmit.prop('disabled', false).text('Créer les tâches');
+        });
+    }
+
+    function openSupportByCode(code){
+        if (!code) return;
+        openSupportModal();
+        renderSupportModalLoading(code);
+        var url = '/dashboard/supports/details?code_isin=' + encodeURIComponent(code);
+        if (supportModalGroupId && supportModalGroupType){
+            url += '&group_id=' + encodeURIComponent(supportModalGroupId) + '&group_type=' + encodeURIComponent(supportModalGroupType);
+        }
+        fetch(url)
+            .then(function(resp){
+                if (!resp.ok) throw new Error('Erreur ' + resp.status);
+                return resp.json();
+            })
+            .then(function(data){
+                renderSupportModal(data);
+            })
+            .catch(function(err){
+                $supportModalMeta.html('<div><span class=\"label\">Erreur</span><span class=\"value\">' + (err.message || 'Impossible de récupérer les données') + '</span></div>');
+                $supportModalClients.empty();
+                $supportModalExport.prop('disabled', true);
+                supportModalValuations = [];
+                if (supportModalChartInstance){ supportModalChartInstance.destroy(); supportModalChartInstance = null; }
+                if ($supportModalChartContainer.length){ $supportModalChartContainer.hide(); }
+                if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
+            });
+    }
+
+    $(document).on('click', 'a.support-link', function(e){
+        e.preventDefault();
+        var code = $(this).data('isin');
+        supportModalGroupId = $(this).data('group-id') || null;
+        supportModalGroupType = $(this).data('group-type') || null;
+        openSupportByCode(code);
+    });
+
+    $('#supportModalClose').on('click', function(){ closeSupportModal(); });
+    $supportModal.on('click', function(e){ if (e.target === this) { closeSupportModal(); } });
+    $(document).on('keyup', function(e){
+        if (e.key === 'Escape'){
+            if ($supportTaskModal.hasClass('open')) { closeSupportTaskModal(); return; }
+            if ($supportModal.hasClass('open')) { closeSupportModal(); return; }
+        }
+    });
+    $supportModalExport.on('click', function(){
+        var url = $(this).data('export');
+        if (!url) return;
+        window.location.href = url;
+    });
+    $supportModalFiltersReset.on('click', function(){
+        $supportModalClientFilter.val('');
+        $supportModalResponsableFilter.val('');
+        $supportModalAmountFilter.val('');
+        renderSupportModalTable();
+    });
+    $supportModalClientFilter.on('input', function(){ supportClientsPage = 1; renderSupportModalTable(); });
+    $supportModalResponsableFilter.on('input', function(){ supportClientsPage = 1; renderSupportModalTable(); });
+    $supportModalAmountFilter.on('input', function(){ supportClientsPage = 1; renderSupportModalTable(); });
+    $supportClientsPrev.on('click', function(){ if (supportClientsPage > 1){ supportClientsPage -= 1; renderSupportModalTable(); } });
+    $supportClientsNext.on('click', function(){ supportClientsPage += 1; renderSupportModalTable(); });
+    $supportModalCreateTasks.on('click', function(){ if ($(this).prop('disabled')) return; openSupportTaskModal(); });
+    $supportTaskModalClose.on('click', function(){ closeSupportTaskModal(); });
+    $supportTaskCancel.on('click', function(){ closeSupportTaskModal(); });
+    $supportTaskSubmit.on('click', function(){ submitSupportTasks(); });
+    $supportCompareToggle.on('click', function(){
+        var isOpen = $supportCompareSection.is(':visible');
+        if (isOpen){
+            $supportCompareSection.hide();
+            setCompareButtonActive(false);
+            return;
+        }
+        $supportCompareSection.show();
+        setCompareButtonActive(true);
+    });
+    $('#supportCompareBtn').on('click', function(){
+        var input = $('#supportCompareInput').val() || '';
+        var val = input.trim();
+        if (!val) return;
+        var match = supportIndex.find(function(s){
+            return s.isin === val || (s.nom && s.nom.toLowerCase().indexOf(val.toLowerCase()) !== -1);
+        });
+        var isin = match ? match.isin : val;
+        if (!isin) return;
+        if (!supportModalCodeIsin) return;
+        ensureChartJs(function(){
+            var url = '/dashboard/supports/compare?support_isin=' + encodeURIComponent(supportModalCodeIsin) + '&alloc=' + encodeURIComponent(isin);
+            $('#supportCompareStatus').text('Chargement...');
+            fetch(url).then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); }).then(function(data){
+                var series = data.series || [];
+                supportCompareValuations = series;
+                supportCompareLabel = data.label || isin;
+                $('#supportCompareStatus').text('');
+                if (!supportCompareChartCanvas){ return; }
+                if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+                if (!series.length){
+                    $supportCompareChartContainer.hide();
+                    return;
+                }
+                var labels = series.map(function(r){ return r.date; });
+                var values = series.map(function(r){ return r.index; });
+                supportCompareChartInstance = new Chart(supportCompareChartCanvas.getContext('2d'), {
+                    type: 'line',
+                    data: { labels: labels, datasets: [{ label: supportCompareLabel || 'Indice', data: values, borderColor: '#9ca3af', backgroundColor: 'rgba(148,163,184,0.2)', pointRadius: 0, tension: 0.2 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } } }
+                });
+                $supportCompareChartContainer.show();
+            }).catch(function(err){
+                $('#supportCompareStatus').text('Erreur.');
+                if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
+                $supportCompareChartContainer.hide();
+                console.warn('Support compare error', err);
+            });
+        });
+    });
+    $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
+    $('#supportEsgToggle').on('click', function(){
+        var isOpen = $('#supportEsgSection').is(':visible');
+        if (isOpen){
+            $('#supportEsgSection').hide();
+            setEsgButtonActive(false);
+            return;
+        }
+        loadSupportEsgMeta(function(){
+            $('#supportEsgSection').show();
+            setEsgButtonActive(true);
+        });
+    });
+    $('#supportClientsToggle').on('click', function(){
+        var isOpen = $supportClientsSection.is(':visible');
+        if (isOpen){
+            $supportClientsSection.hide();
+            setClientsButtonActive(false);
+            return;
+        }
+        $supportClientsSection.show();
+        setClientsButtonActive(true);
+    });
+});
+</script>
+{% endblock %}

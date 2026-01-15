@@ -10,7 +10,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from src.database import get_db, SessionLocal
-from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope
+from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope, ensure_client_ownership
 from fastapi import Query
 from datetime import date, datetime
 from pathlib import Path
@@ -180,6 +180,12 @@ def _require_feature(request: Request, db: Session, feature: str, action: str):
     scope = pick_scope(access, req_scope)
     require_permission(access, feature, action, societe_id=scope)
     return access, scope
+
+
+def _deny_client_list(access, resource_label: str) -> None:
+    """Bloque l'accès aux listes pour les comptes clients."""
+    if access.user_type == "client":
+        raise HTTPException(status_code=403, detail=f"Accès refusé ({resource_label})")
 
 
 def _log_client_login(db: Session, client_user_id: int, client_id: int | None, broker_id: int | None, request: Request):
@@ -789,11 +795,15 @@ from src.models.support import Support
 
 # ---------------- Allocations ----------------
 @app.get("/allocations/", response_model=list[AllocationSchema])
-def read_allocations(db: Session = Depends(get_db)):
+def read_allocations(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "liste allocations")
     return get_allocations(db)
 
 @app.get("/allocations/{allocation_id}", response_model=AllocationSchema)
-def read_allocation(allocation_id: int, db: Session = Depends(get_db)):
+def read_allocation(allocation_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "allocation")
     db_allocation = get_allocation(db, allocation_id)
     if not db_allocation:
         raise HTTPException(status_code=404, detail="Allocation non trouvée")
@@ -801,7 +811,9 @@ def read_allocation(allocation_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/allocations/", response_model=AllocationSchema)
-def create_new_allocation(payload: AllocationCreateSchema, db: Session = Depends(get_db)):
+def create_new_allocation(payload: AllocationCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation allocation")
     return create_allocation(
         date=payload.date,
         valo=payload.valo,
@@ -816,29 +828,39 @@ def create_new_allocation(payload: AllocationCreateSchema, db: Session = Depends
 
 # ---------------- Clients ----------------
 @app.get("/clients/", response_model=list[ClientSchema])
-def read_clients(db: Session = Depends(get_db)):
+def read_clients(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "liste clients")
     return get_clients(db)
 
 @app.get("/clients/{client_id}/", response_model=ClientSchema)
-def read_client(client_id: int, db: Session = Depends(get_db)):
+def read_client(client_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    ensure_client_ownership(access, client_id)
     db_client = get_client(db, client_id)
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
 
 @app.post("/clients/", response_model=ClientSchema)
-def create_new_client(payload: ClientCreateSchema, db: Session = Depends(get_db)):
+def create_new_client(payload: ClientCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation client")
     return create_client(db, payload)
 
 @app.put("/clients/{client_id}/", response_model=ClientSchema)
-def update_existing_client(client_id: int, payload: ClientUpdateSchema, db: Session = Depends(get_db)):
+def update_existing_client(client_id: int, payload: ClientUpdateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "modification client")
     db_client = update_client(db, client_id, payload)
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
 
 @app.delete("/clients/{client_id}/", response_model=ClientSchema)
-def delete_client(client_id: int, db: Session = Depends(get_db)):
+def delete_client(client_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "suppression client")
     client = get_client(db, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -848,18 +870,24 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
 
 # ---------------- Affaires ----------------
 @app.get("/affaires/", response_model=list[AffaireSchema])
-def read_affaires(db: Session = Depends(get_db)):
+def read_affaires(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "liste affaires")
     return get_affaires(db)
 
 @app.get("/affaires/{affaire_id}/", response_model=AffaireSchema)
-def read_affaire(affaire_id: int, db: Session = Depends(get_db)):
+def read_affaire(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
     db_affaire = get_affaire(db, affaire_id)
     if not db_affaire:
         raise HTTPException(status_code=404, detail="Affaire not found")
+    ensure_client_ownership(access, db_affaire.id_personne)
     return db_affaire
 
 @app.post("/affaires/", response_model=AffaireSchema)
-def create_new_affaire(payload: AffaireCreateSchema, db: Session = Depends(get_db)):
+def create_new_affaire(payload: AffaireCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation affaire")
     return create_affaire(
         db,
         payload.id_personne,
@@ -871,7 +899,9 @@ def create_new_affaire(payload: AffaireCreateSchema, db: Session = Depends(get_d
     )
 
 @app.delete("/affaires/{affaire_id}/", response_model=AffaireSchema)
-def delete_affaire(affaire_id: int, db: Session = Depends(get_db)):
+def delete_affaire(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "suppression affaire")
     affaire = get_affaire(db, affaire_id)
     if not affaire:
         raise HTTPException(status_code=404, detail="Affaire not found")
@@ -881,18 +911,24 @@ def delete_affaire(affaire_id: int, db: Session = Depends(get_db)):
 
 # ---------------- Documents ----------------
 @app.get("/documents/", response_model=list[DocumentSchema])
-def read_documents(db: Session = Depends(get_db)):
+def read_documents(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "liste documents")
     return get_documents(db)
 
 @app.get("/documents/{document_id}/", response_model=DocumentSchema)
-def read_document(document_id: int, db: Session = Depends(get_db)):
+def read_document(document_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "document")
     db_doc = get_document(db, document_id)
     if not db_doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return db_doc
 
 @app.post("/documents/", response_model=DocumentSchema)
-def create_new_document(payload: DocumentCreateSchema, db: Session = Depends(get_db)):
+def create_new_document(payload: DocumentCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation document")
     return create_document(
         db,
         payload.documents,
@@ -903,29 +939,37 @@ def create_new_document(payload: DocumentCreateSchema, db: Session = Depends(get
 
 # ---------------- Documents par client ----------------
 @app.post("/documents_clients/", response_model=DocumentClientSchema)
-def create_new_document_client(payload: DocumentClientCreateSchema, db: Session = Depends(get_db)):
+def create_new_document_client(payload: DocumentClientCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation document client")
     doc, err = create_document_client(db, payload)
     if err:
         raise HTTPException(status_code=400, detail=err)
     return doc
 
 @app.get("/documents_clients/{client_id}", response_model=list[DocumentClientSchema])
-def read_documents_by_client(client_id: int, db: Session = Depends(get_db)):
+def read_documents_by_client(client_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    ensure_client_ownership(access, client_id)
     docs = get_documents_by_client(db, client_id)
     return docs or []
 
 from fastapi import HTTPException
 
 @app.get("/document_client/{doc_client_id}", response_model=DocumentClientSchema)
-def read_document_client(doc_client_id: int, db: Session = Depends(get_db)):
+def read_document_client(doc_client_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
     doc = get_document_client(db, doc_client_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document non trouvé")
+    ensure_client_ownership(access, doc.id_client)
     return doc
 
 
 @app.delete("/document_client/{doc_client_id}")
-def remove_document_client(doc_client_id: int, db: Session = Depends(get_db)):
+def remove_document_client(doc_client_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "suppression document client")
     deleted = delete_document_client(db, doc_client_id)
     if not deleted:
         return {"message": "Document non trouvé"}
@@ -1022,15 +1066,21 @@ def create_new_historique_affaire(payload: HistoriqueAffaireCreateSchema, reques
 
 # ---------------- Historiques Support ----------------
 @app.get("/historiques/support/", response_model=list[HistoriqueSupportSchema])
-def read_historiques_support(db: Session = Depends(get_db)):
+def read_historiques_support(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "liste historiques support")
     return get_historiques_support(db)
 
 @app.get("/historiques/support/{hist_id}/", response_model=HistoriqueSupportSchema)
-def read_historique_support(hist_id: int, db: Session = Depends(get_db)):
+def read_historique_support(hist_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "historique support")
     return get_historique_support(db, hist_id)
 
 @app.post("/historiques/support/", response_model=HistoriqueSupportSchema)
-def create_new_historique_support(payload: HistoriqueSupportCreateSchema, db: Session = Depends(get_db)):
+def create_new_historique_support(payload: HistoriqueSupportCreateSchema, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation historique support")
     return create_historique_support(
         db,
         payload.modif_quand,
@@ -1046,23 +1096,33 @@ def create_new_historique_support(payload: HistoriqueSupportCreateSchema, db: Se
 
 # ---------------- Reporting ----------------
 @app.get("/reporting/clients/", response_model=list[ClientSchema])
-def reporting_clients(db: Session = Depends(get_db)):
+def reporting_clients(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting clients")
     return get_all_clients(db)
 
 @app.get("/reporting/top-clients/", response_model=list[ClientSchema])
-def reporting_top_clients(limit: int = 5, db: Session = Depends(get_db)):
+def reporting_top_clients(request: Request, limit: int = 5, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting top clients")
     return get_top_clients(db, limit)
 
 @app.get("/reporting/affaires/", response_model=list[AffaireSchema])
-def reporting_affaires(db: Session = Depends(get_db)):
+def reporting_affaires(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting affaires")
     return get_all_affaires(db)
 
 @app.get("/reporting/allocations/", response_model=list[AllocationSchema])
-def reporting_allocations(db: Session = Depends(get_db)):
+def reporting_allocations(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting allocations")
     return get_all_allocations(db)
 
 @app.get("/reporting/supports/", response_model=list[SupportSchema])
-def reporting_supports(db: Session = Depends(get_db)):
+def reporting_supports(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting supports")
     return get_all_supports(db)
 
 # ---------------- Dashboards HTML ----------------
