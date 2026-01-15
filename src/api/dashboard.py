@@ -11650,11 +11650,9 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         }
         if type_raw in ("client", "clients", "personne", "personnes"):
             entry["link"] = f"/dashboard/clients?group_id={gid}&group_type=client"
-            entry["link_label"] = "Voir les personnes"
             dashboard_groups_personnes.append(entry)
         elif type_raw in ("affaire", "affaires", "contrat", "contrats"):
             entry["link"] = f"/dashboard/affaires?group_id={gid}&group_type=affaire"
-            entry["link_label"] = "Voir les affaires"
             dashboard_groups_affaires.append(entry)
 
     ctx = {
@@ -16847,6 +16845,365 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/groupes", response_class=HTMLResponse)
+def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
+    group_rows = _load_groupes_details(db)
+
+    def _format_dash_date(value):
+        if not value:
+            return "—"
+        try:
+            return value.strftime("%d/%m/%Y")
+        except Exception:
+            return str(value)
+
+    dashboard_groups_personnes = []
+    dashboard_groups_affaires = []
+    for row in group_rows or []:
+        gid = row.get("id")
+        if not gid:
+            continue
+        type_raw = (row.get("type_groupe") or "").lower()
+        resp_label = " ".join(
+            p for p in [
+                (row.get("resp_prenom") or "").strip(),
+                (row.get("resp_nom") or "").strip(),
+            ] if p
+        ) or (f"RH #{row.get('responsable_id')}" if row.get("responsable_id") else "—")
+        entry = {
+            "id": gid,
+            "nom": row.get("nom") or f"Groupe #{gid}",
+            "nb_membres": row.get("nb_membres") or 0,
+            "responsable": resp_label,
+            "date_creation": _format_dash_date(row.get("date_creation")),
+            "date_fin": _format_dash_date(row.get("date_fin")),
+        }
+        if type_raw in ("client", "clients", "personne", "personnes"):
+            entry["link"] = f"/dashboard/clients?group_id={gid}&group_type=client"
+            entry["link_label"] = "Voir les personnes"
+            dashboard_groups_personnes.append(entry)
+        elif type_raw in ("affaire", "affaires", "contrat", "contrats"):
+            entry["link"] = f"/dashboard/affaires?group_id={gid}&group_type=affaire"
+            entry["link_label"] = "Voir les affaires"
+            dashboard_groups_affaires.append(entry)
+
+    return templates.TemplateResponse(
+        "dashboard_groupes.html",
+        {
+            "request": request,
+            "dashboard_groups_personnes": dashboard_groups_personnes,
+            "dashboard_groups_affaires": dashboard_groups_affaires,
+        },
+    )
+
+
+def _build_group_items(group_id: int, group_type: str, db: Session) -> list[dict]:
+    def _fmt_pct(value: float | int | None) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value) * 100:.2f} %"
+        except Exception:
+            return "—"
+
+    members = _list_group_members(db, group_id, actifs_only=True)
+    if group_type == "client":
+        ids = [m.get("client_id") for m in members if m.get("client_id")]
+    else:
+        ids = [m.get("affaire_id") for m in members if m.get("affaire_id")]
+    ids = [int(i) for i in ids if i is not None]
+    if not ids:
+        return []
+
+    items: list[dict] = []
+    if group_type == "client":
+        subquery = (
+            db.query(
+                HistoriquePersonne.id.label("client_id"),
+                func.max(HistoriquePersonne.date).label("last_date"),
+            )
+            .group_by(HistoriquePersonne.id)
+            .subquery()
+        )
+        rows = (
+            db.query(
+                Client.id.label("id"),
+                Client.nom,
+                Client.prenom,
+                Client.SRRI.label("srri_target"),
+                HistoriquePersonne.SRRI.label("srri_hist"),
+                HistoriquePersonne.valo.label("valorisation"),
+                HistoriquePersonne.perf_sicav_52.label("perf_52"),
+                HistoriquePersonne.volat.label("volatilite_52"),
+            )
+            .join(subquery, subquery.c.client_id == Client.id)
+            .join(
+                HistoriquePersonne,
+                (HistoriquePersonne.id == subquery.c.client_id)
+                & (HistoriquePersonne.date == subquery.c.last_date),
+            )
+            .filter(Client.id.in_(ids))
+            .order_by(HistoriquePersonne.valo.desc(), Client.nom.asc())
+            .all()
+        )
+        for r in rows:
+            prenom = (getattr(r, "prenom", None) or "").strip()
+            nom = (getattr(r, "nom", None) or "").strip()
+            item_label = " ".join(p for p in [prenom, nom] if p) or f"Client #{getattr(r, 'id', '')}"
+            srri_val = getattr(r, "srri_hist", None)
+            if srri_val is None:
+                srri_val = getattr(r, "srri_target", None)
+            valo_raw = getattr(r, "valorisation", None)
+            perf_raw = getattr(r, "perf_52", None)
+            vol_raw = getattr(r, "volatilite_52", None)
+            items.append(
+                {
+                    "item": item_label,
+                    "valorisation": valo_raw,
+                    "valorisation_str": _fmt_valo(valo_raw),
+                    "perf_52": perf_raw,
+                    "perf_52_str": _fmt_pct(perf_raw),
+                    "volatilite_52": vol_raw,
+                    "volatilite_52_str": _fmt_pct(vol_raw),
+                    "srri": srri_val,
+                }
+            )
+    else:
+        open_affaire_rows = (
+            db.query(Affaire.id)
+            .filter(Affaire.id.in_(ids))
+            .filter(Affaire.date_cle.is_(None))
+            .all()
+        )
+        open_affaire_ids = [int(r[0]) for r in open_affaire_rows if r and r[0] is not None]
+        if not open_affaire_ids:
+            return []
+        last_date = db.execute(
+            text("SELECT MAX(date) FROM mariadb_historique_affaire_w WHERE id IN :ids")
+            .bindparams(bindparam("ids", expanding=True)),
+            {"ids": open_affaire_ids},
+        ).scalar()
+        if not last_date:
+            return []
+        if isinstance(last_date, datetime):
+            last_date_ref = last_date.date().isoformat()
+        elif isinstance(last_date, _date):
+            last_date_ref = last_date.isoformat()
+        else:
+            last_date_ref = str(last_date)[:10]
+        rows = (
+            db.query(
+                Affaire.id.label("id"),
+                Affaire.ref,
+                Affaire.SRRI.label("srri"),
+                HistoriqueAffaire.valo.label("valorisation"),
+                HistoriqueAffaire.perf_sicav_52.label("perf_52"),
+                HistoriqueAffaire.volat.label("volatilite_52"),
+            )
+            .join(HistoriqueAffaire, HistoriqueAffaire.id == Affaire.id)
+            .filter(Affaire.id.in_(open_affaire_ids))
+            .filter(func.date(HistoriqueAffaire.date) == last_date_ref)
+            .order_by(HistoriqueAffaire.valo.desc(), Affaire.ref.asc())
+            .all()
+        )
+        for r in rows:
+            ref = (getattr(r, "ref", None) or "").strip()
+            item_label = ref or f"Affaire #{getattr(r, 'id', '')}"
+            valo_raw = getattr(r, "valorisation", None)
+            perf_raw = getattr(r, "perf_52", None)
+            vol_raw = getattr(r, "volatilite_52", None)
+            items.append(
+                {
+                    "item": item_label,
+                    "valorisation": valo_raw,
+                    "valorisation_str": _fmt_valo(valo_raw),
+                    "perf_52": perf_raw,
+                    "perf_52_str": _fmt_pct(perf_raw),
+                    "volatilite_52": vol_raw,
+                    "volatilite_52_str": _fmt_pct(vol_raw),
+                    "srri": getattr(r, "srri", None),
+                }
+            )
+
+    return items
+
+
+def _build_group_products(group_id: int, group_type: str, db: Session) -> tuple[list[dict], float]:
+    members = _list_group_members(db, group_id, actifs_only=True)
+    if group_type == "client":
+        client_ids = [m.get("client_id") for m in members if m.get("client_id")]
+        client_ids = [int(i) for i in client_ids if i is not None]
+        if not client_ids:
+            return [], 0.0
+        affaire_rows = db.query(Affaire.id).filter(Affaire.id_personne.in_(client_ids)).all()
+        affaire_ids = [int(r[0]) for r in affaire_rows if r and r[0] is not None]
+    else:
+        affaire_ids = [m.get("affaire_id") for m in members if m.get("affaire_id")]
+        affaire_ids = [int(i) for i in affaire_ids if i is not None]
+
+    if not affaire_ids:
+        return [], 0.0
+
+    open_affaire_rows = (
+        db.query(Affaire.id)
+        .filter(Affaire.id.in_(affaire_ids))
+        .filter(Affaire.date_cle.is_(None))
+        .all()
+    )
+    open_affaire_ids = [int(r[0]) for r in open_affaire_rows if r and r[0] is not None]
+    if not open_affaire_ids:
+        return [], 0.0
+
+    last_date = db.execute(
+        text(
+            "SELECT MAX(date) FROM mariadb_historique_affaire_w WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": open_affaire_ids},
+    ).scalar()
+    if not last_date:
+        return [], 0.0
+    if isinstance(last_date, datetime):
+        last_date_ref = last_date.date().isoformat()
+    elif isinstance(last_date, _date):
+        last_date_ref = last_date.isoformat()
+    else:
+        last_date_ref = str(last_date)[:10]
+
+    sql = text(
+        """
+        SELECT
+            s.code_isin AS code_isin,
+            s.nom AS nom,
+            s.cat_gene AS categorie,
+            s.cat_geo AS zone_geo,
+            s.SRRI AS srri,
+            esg.note_e_grade AS noteE,
+            esg.note_s_grade AS noteS,
+            esg.note_g_grade AS noteG,
+            SUM(h.valo) AS total_valo
+        FROM mariadb_historique_support_w h
+        JOIN mariadb_support s ON s.id = h.id_support
+        LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
+        WHERE h.id_source IN :ids
+          AND DATE(h.date) = DATE(:last_date)
+        GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e_grade, esg.note_s_grade, esg.note_g_grade
+        HAVING SUM(h.valo) > 0
+        ORDER BY total_valo DESC
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+
+    rows = db.execute(sql, {"ids": open_affaire_ids, "last_date": last_date_ref}).fetchall()
+    items: list[dict] = []
+    total_valo = 0.0
+    for r in rows or []:
+        m = r._mapping if hasattr(r, "_mapping") else None
+        code_isin = (m.get("code_isin") if m else r[0]) or ""
+        nom = (m.get("nom") if m else r[1]) or ""
+        categorie = (m.get("categorie") if m else r[2]) or ""
+        zone_geo = (m.get("zone_geo") if m else r[3]) or ""
+        srri = m.get("srri") if m else r[4]
+        note_e = m.get("noteE") if m else r[5]
+        note_s = m.get("noteS") if m else r[6]
+        note_g = m.get("noteG") if m else r[7]
+        total_raw = float(m.get("total_valo") if m else r[8] or 0.0)
+        total_valo += total_raw
+        items.append(
+            {
+                "code_isin": code_isin,
+                "nom": nom,
+                "categorie": categorie,
+                "zone_geo": zone_geo,
+                "srri": srri,
+                "noteE": note_e,
+                "noteS": note_s,
+                "noteG": note_g,
+                "total_valo": total_raw,
+                "total_valo_str": _fmt_valo(total_raw),
+            }
+        )
+    return items, total_valo
+
+
+@router.get("/groupes/items", response_class=JSONResponse)
+def dashboard_groupes_items(
+    group_id: int = Query(..., alias="group_id"),
+    type: Literal["client", "affaire"] = Query(..., alias="type"),
+    db: Session = Depends(get_db),
+):
+    return {"items": _build_group_items(group_id, type, db)}
+
+
+@router.get("/groupes/produits", response_class=JSONResponse)
+def dashboard_groupes_produits(
+    group_id: int = Query(..., alias="group_id"),
+    type: Literal["client", "affaire"] = Query(..., alias="type"),
+    db: Session = Depends(get_db),
+):
+    items, total_valo = _build_group_products(group_id, type, db)
+    return {
+        "items": items,
+        "total_valo": total_valo,
+        "total_valo_str": _fmt_valo(total_valo),
+    }
+
+
+@router.get("/groupes/produits/export", response_class=StreamingResponse)
+def dashboard_groupes_produits_export(
+    group_id: int = Query(..., alias="group_id"),
+    type: Literal["client", "affaire"] = Query(..., alias="type"),
+    db: Session = Depends(get_db),
+):
+    items, total_valo = _build_group_products(group_id, type, db)
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(["ISIN", "Produit", "Categorie", "Zone geo", "SRRI", "E", "S", "G", "Total"])
+    for item in items:
+        writer.writerow(
+            [
+                item.get("code_isin") or "",
+                item.get("nom") or "",
+                item.get("categorie") or "",
+                item.get("zone_geo") or "",
+                item.get("srri") if item.get("srri") is not None else "",
+                item.get("noteE") if item.get("noteE") is not None else "",
+                item.get("noteS") if item.get("noteS") is not None else "",
+                item.get("noteG") if item.get("noteG") is not None else "",
+                item.get("total_valo_str") or "",
+            ]
+        )
+    writer.writerow(["Total", "", "", "", "", "", "", "", _fmt_valo(total_valo)])
+    output.seek(0)
+    filename = f"liste_produits_{type}_{group_id}.csv"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers=headers)
+
+
+@router.get("/groupes/items/export", response_class=StreamingResponse)
+def dashboard_groupes_items_export(
+    group_id: int = Query(..., alias="group_id"),
+    type: Literal["client", "affaire"] = Query(..., alias="type"),
+    db: Session = Depends(get_db),
+):
+    items = _build_group_items(group_id, type, db)
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(["Item", "Valorisation", "Perf 52s", "Volatilite 52s", "SRRI"])
+    for item in items:
+        writer.writerow(
+            [
+                item.get("item") or "",
+                item.get("valorisation_str") or "",
+                item.get("perf_52_str") or "",
+                item.get("volatilite_52_str") or "",
+                item.get("srri") if item.get("srri") is not None else "",
+            ]
+        )
+    output.seek(0)
+    filename = f"liste_items_{type}_{group_id}.csv"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers=headers)
+
+
 @router.post("/grouped_tasks/preview")
 def grouped_tasks_preview(payload: GroupedTaskBase):
     ids = []
@@ -22016,6 +22373,8 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
 def dashboard_support_details(
     code_isin: str = Query(..., description="Code ISIN du support"),
     format: str = Query("json", description="Format de réponse: json ou csv"),
+    group_id: int | None = Query(default=None),
+    group_type: Literal["client", "affaire"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     support_rows = db.execute(
@@ -22057,44 +22416,199 @@ def dashboard_support_details(
         last_date_display = last_date_iso
 
     clients_rows = []
+    affaires_rows = []
     total_valo_clients = 0.0
+    total_valo_affaires = 0.0
     support_total_valo = 0.0
+    group_client_ids: set[int] | None = None
+    group_affaire_ids: set[int] | None = None
+    group_affaire_ids_for_support: list[int] | None = None
+    if group_id and group_type:
+        members = _list_group_members(db, group_id, actifs_only=True)
+        if group_type == "client":
+            group_client_ids = {int(m["client_id"]) for m in members if m.get("client_id")}
+        elif group_type == "affaire":
+            group_affaire_ids = {int(m["affaire_id"]) for m in members if m.get("affaire_id")}
+        if group_type == "client" and group_client_ids:
+            affaires_rows_group = db.query(Affaire.id).filter(Affaire.id_personne.in_(group_client_ids)).all()
+            group_affaire_ids_for_support = [int(r[0]) for r in affaires_rows_group if r and r[0] is not None]
+        elif group_type == "affaire" and group_affaire_ids:
+            group_affaire_ids_for_support = list(group_affaire_ids)
+    if group_affaire_ids_for_support is not None:
+        if group_affaire_ids_for_support:
+            open_rows = (
+                db.query(Affaire.id)
+                .filter(Affaire.id.in_(group_affaire_ids_for_support))
+                .filter(Affaire.date_cle.is_(None))
+                .all()
+            )
+            group_affaire_ids_for_support = [int(r[0]) for r in open_rows if r and r[0] is not None]
+        else:
+            group_affaire_ids_for_support = []
+        if group_affaire_ids is not None:
+            group_affaire_ids = set(group_affaire_ids_for_support or [])
+        if group_affaire_ids_for_support:
+            last_date = db.execute(
+                text("SELECT MAX(date) FROM mariadb_historique_affaire_w WHERE id IN :ids")
+                .bindparams(bindparam("ids", expanding=True)),
+                {"ids": group_affaire_ids_for_support},
+            ).scalar()
+            if isinstance(last_date, datetime):
+                last_date_iso = last_date.date().isoformat()
+                last_date_display = last_date.strftime("%d/%m/%Y")
+            elif isinstance(last_date, _date):
+                last_date_iso = last_date.isoformat()
+                last_date_display = last_date.strftime("%d/%m/%Y")
+            elif isinstance(last_date, str):
+                last_date_iso = last_date[:10]
+                last_date_display = last_date_iso
+            else:
+                last_date_iso = None
     if last_date_iso:
-        support_total_valo = db.execute(
-            text(
-                """
-                SELECT COALESCE(SUM(h.valo), 0) AS total_valo
-                FROM mariadb_historique_support_w h
-                JOIN mariadb_support s ON s.id = h.id_support
-                WHERE s.code_isin = :code
-                  AND DATE(h.date) = DATE(:last_date)
-                """
-            ),
-            {"code": code_isin, "last_date": last_date_iso},
-        ).scalar() or 0.0
+        if group_id and group_type and group_affaire_ids_for_support is not None:
+            if not group_affaire_ids_for_support:
+                clients_rows = []
+                affaires_rows = []
+                support_total_valo = 0.0
+            else:
+                support_total_valo = db.execute(
+                    text(
+                        """
+                        SELECT COALESCE(SUM(h.valo), 0) AS total_valo
+                        FROM mariadb_historique_support_w h
+                        JOIN mariadb_support s ON s.id = h.id_support
+                        WHERE s.code_isin = :code
+                          AND h.id_source IN :aff_ids
+                          AND DATE(h.date) = DATE(:last_date)
+                        """
+                    ).bindparams(bindparam("aff_ids", expanding=True)),
+                    {
+                        "code": code_isin,
+                        "aff_ids": group_affaire_ids_for_support,
+                        "last_date": last_date_iso,
+                    },
+                ).scalar() or 0.0
 
-        clients_rows = db.execute(
-            text(
-                """
-                SELECT
-                    c.id AS client_id,
-                    c.nom AS client_nom,
-                    c.prenom AS client_prenom,
-                    c.commercial_id AS commercial_id,
-                    SUM(h.valo) AS total_valo
-                FROM mariadb_historique_support_w h
-                JOIN mariadb_affaires a ON a.id = h.id_source
-                JOIN mariadb_clients c ON c.id = a.id_personne
-                JOIN mariadb_support s ON s.id = h.id_support
-                WHERE s.code_isin = :code
-                  AND DATE(h.date) = DATE(:last_date)
-                GROUP BY c.id, c.nom, c.prenom, c.commercial_id
-                ORDER BY total_valo DESC
-                """
-            ),
-            {"code": code_isin, "last_date": last_date_iso},
-        ).fetchall()
+                clients_rows = db.execute(
+                    text(
+                        """
+                        SELECT
+                            c.id AS client_id,
+                            c.nom AS client_nom,
+                            c.prenom AS client_prenom,
+                            c.commercial_id AS commercial_id,
+                            SUM(h.valo) AS total_valo
+                        FROM mariadb_historique_support_w h
+                        JOIN mariadb_affaires a ON a.id = h.id_source
+                        JOIN mariadb_clients c ON c.id = a.id_personne
+                        JOIN mariadb_support s ON s.id = h.id_support
+                        WHERE s.code_isin = :code
+                          AND h.id_source IN :aff_ids
+                          AND DATE(h.date) = DATE(:last_date)
+                        GROUP BY c.id, c.nom, c.prenom, c.commercial_id
+                        ORDER BY total_valo DESC
+                        """
+                    ).bindparams(bindparam("aff_ids", expanding=True)),
+                    {
+                        "code": code_isin,
+                        "aff_ids": group_affaire_ids_for_support,
+                        "last_date": last_date_iso,
+                    },
+                ).fetchall()
+                if group_affaire_ids is not None and group_affaire_ids:
+                    affaires_rows = db.execute(
+                        text(
+                            """
+                            SELECT
+                                a.id AS affaire_id,
+                                a.ref AS affaire_ref,
+                                c.nom AS client_nom,
+                                c.prenom AS client_prenom,
+                                c.commercial_id AS commercial_id,
+                                SUM(h.valo) AS total_valo
+                            FROM mariadb_historique_support_w h
+                            JOIN mariadb_affaires a ON a.id = h.id_source
+                            JOIN mariadb_clients c ON c.id = a.id_personne
+                            JOIN mariadb_support s ON s.id = h.id_support
+                            WHERE s.code_isin = :code
+                              AND h.id_source IN :aff_ids
+                              AND DATE(h.date) = DATE(:last_date)
+                            GROUP BY a.id, a.ref, c.nom, c.prenom, c.commercial_id
+                            ORDER BY total_valo DESC
+                            """
+                        ).bindparams(bindparam("aff_ids", expanding=True)),
+                        {
+                            "code": code_isin,
+                            "aff_ids": list(group_affaire_ids),
+                            "last_date": last_date_iso,
+                        },
+                    ).fetchall()
+        else:
+            support_total_valo = db.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(h.valo), 0) AS total_valo
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_support s ON s.id = h.id_support
+                    WHERE s.code_isin = :code
+                      AND DATE(h.date) = DATE(:last_date)
+                    """
+                ),
+                {"code": code_isin, "last_date": last_date_iso},
+            ).scalar() or 0.0
+
+            clients_rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        c.id AS client_id,
+                        c.nom AS client_nom,
+                        c.prenom AS client_prenom,
+                        c.commercial_id AS commercial_id,
+                        SUM(h.valo) AS total_valo
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_affaires a ON a.id = h.id_source
+                    JOIN mariadb_clients c ON c.id = a.id_personne
+                    JOIN mariadb_support s ON s.id = h.id_support
+                    WHERE s.code_isin = :code
+                      AND DATE(h.date) = DATE(:last_date)
+                    GROUP BY c.id, c.nom, c.prenom, c.commercial_id
+                    ORDER BY total_valo DESC
+                    """
+                ),
+                {"code": code_isin, "last_date": last_date_iso},
+            ).fetchall()
+        if not (group_id and group_type and group_affaire_ids_for_support is not None):
+            if group_client_ids is not None:
+                clients_rows = [row for row in clients_rows if (row._mapping if hasattr(row, "_mapping") else row).get("client_id") in group_client_ids]
+            if group_affaire_ids is not None and group_affaire_ids:
+                affaires_rows = db.execute(
+                    text(
+                        """
+                        SELECT
+                            a.id AS affaire_id,
+                            a.ref AS affaire_ref,
+                            c.nom AS client_nom,
+                            c.prenom AS client_prenom,
+                            c.commercial_id AS commercial_id,
+                            SUM(h.valo) AS total_valo
+                        FROM mariadb_historique_support_w h
+                        JOIN mariadb_affaires a ON a.id = h.id_source
+                        JOIN mariadb_clients c ON c.id = a.id_personne
+                        JOIN mariadb_support s ON s.id = h.id_support
+                        WHERE s.code_isin = :code
+                          AND DATE(h.date) = DATE(:last_date)
+                          AND a.id IN :aff_ids
+                        GROUP BY a.id, a.ref, c.nom, c.prenom, c.commercial_id
+                        ORDER BY total_valo DESC
+                        """
+                    ).bindparams(bindparam("aff_ids", expanding=True)),
+                    {"code": code_isin, "last_date": last_date_iso, "aff_ids": list(group_affaire_ids)},
+                ).fetchall()
         total_valo_clients = sum(float(row.total_valo or 0) for row in clients_rows)
+        total_valo_affaires = sum(float(row.total_valo or 0) for row in affaires_rows)
+        if group_type == "affaire":
+            clients_rows = []
 
     rh_lookup = {}
     for rh in fetch_rh_list(db):
@@ -22129,6 +22643,32 @@ def dashboard_support_details(
                 "total_valo_str": "{:,.0f}".format(float(mapping.get("total_valo") or 0)).replace(",", " "),
             }
         )
+
+    affaires_payload = []
+    for row in affaires_rows:
+        mapping = getattr(row, "_mapping", row)
+        rid = mapping.get("commercial_id")
+        client_label = " ".join(
+            p for p in [
+                (mapping.get("client_prenom") or "").strip(),
+                (mapping.get("client_nom") or "").strip(),
+            ] if p
+        )
+        affaires_payload.append(
+            {
+                "affaire_id": mapping.get("affaire_id"),
+                "affaire_ref": mapping.get("affaire_ref"),
+                "client_label": client_label,
+                "responsable": rh_lookup.get(rid),
+                "total_valo": float(mapping.get("total_valo") or 0),
+                "total_valo_str": "{:,.0f}".format(float(mapping.get("total_valo") or 0)).replace(",", " "),
+            }
+        )
+
+    if group_type == "affaire" and total_valo_affaires:
+        support_total_valo = total_valo_affaires
+    elif group_type == "client" and total_valo_clients:
+        support_total_valo = total_valo_clients
 
     valuations_payload: list[dict] = []
     valuations_weekly_payload: list[dict] = []
@@ -22322,6 +22862,8 @@ def dashboard_support_details(
             },
             "last_date": last_date_display,
             "clients": clients_payload,
+            "items": affaires_payload if group_type == "affaire" else clients_payload,
+            "list_type": group_type or "client",
             "total_valo": support_total_valo,
             "total_valo_str": "{:,.0f}".format(support_total_valo).replace(",", " "),
             "clients_total_valo": total_valo_clients,
