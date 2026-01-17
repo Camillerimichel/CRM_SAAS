@@ -235,6 +235,7 @@ ESG_GLOBAL_CACHE: dict = {}
 ESG_COLUMNS_CACHE: dict = {}
 ESG_CANON_TABLE = "esg_fonds_norm"
 ESG_FIELDS_TABLE = "esg_fonds_norm"
+ESG_TABLE_FALLBACKS = ["donnees_esg_etendu", "esg_fonds"]
 ESG_LEGACY_MODE = os.getenv("ESG_LEGACY_MODE", "warn").strip().lower()
 ESG_LEGACY_ENABLED = ESG_LEGACY_MODE not in ("off", "strict", "disabled", "0", "false", "no")
 ESG_LEGACY_ALIASES = {
@@ -1065,6 +1066,13 @@ def _normalize_identifier(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value).lower())
 
 
+def _normalize_name_key(value: str | None) -> str:
+    if not value:
+        return ""
+    s = re.sub(r"\s+", " ", str(value).strip().lower())
+    return s
+
+
 def _normalize_field_key(value: str | None) -> str:
     if not value:
         return ""
@@ -1085,6 +1093,95 @@ def _find_esg_legacy_fields(fields: list[str]) -> tuple[list[str], dict[str, str
             deprecated_fields.append(field)
             resolved_map[field] = canonical
     return deprecated_fields, resolved_map
+
+
+def _pick_esg_name_col(db: Session, table_name: str, debug: bool = False) -> tuple[str | None, dict]:
+    cols, cols_debug = _get_esg_available_cols(db, table_name, debug=debug)
+    candidates = ["company_name", "name", "nom"]
+    selected = None
+    for c in candidates:
+        if c in cols:
+            selected = c
+            break
+    debug_info = {"selected": selected, "candidates": candidates, "cols": cols_debug} if debug else {}
+    return selected, debug_info
+
+
+def _pick_alloc_name_col(db: Session, debug: bool = False) -> tuple[str | None, dict]:
+    cols, cols_debug = _get_esg_available_cols(db, "allocations", debug=debug)
+    candidates = ["support_nom", "nom_support", "libelle", "support", "nom_fonds", "fonds", "nom"]
+    selected = None
+    for c in candidates:
+        if c in cols:
+            selected = c
+            break
+    debug_info = {"selected": selected, "candidates": candidates, "cols": cols_debug} if debug else {}
+    return selected, debug_info
+
+
+def _fetch_esg_map_by_name(
+    db: Session,
+    names: set[str] | list[str],
+    columns: list[str],
+    table_name: str,
+    debug: bool = False,
+) -> tuple[dict[str, dict[str, float]], dict | None]:
+    if not names or not columns:
+        return {}, None
+    name_col, name_debug = _pick_esg_name_col(db, table_name, debug=debug)
+    if not name_col:
+        return {}, {"name_col": None, "name_debug": name_debug} if debug else None
+
+    alias_pairs = [(col, f"c{idx}") for idx, col in enumerate(columns)]
+    col_expr = ", ".join(f"{_quote_esg_ident(col)} AS {alias}" for col, alias in alias_pairs)
+    name_list = list({_normalize_name_key(n) for n in names if n})
+    placeholders = ",".join([f":n{idx}" for idx in range(len(name_list))])
+    params = {f"n{idx}": val for idx, val in enumerate(name_list)}
+    q_esg = text(
+        f"SELECT {_quote_esg_ident(name_col)} AS n, {col_expr} "
+        f"FROM {_quote_esg_ident(table_name)} "
+        f"WHERE LOWER(TRIM({_quote_esg_ident(name_col)})) IN ({placeholders})"
+    )
+    esg_map: dict[str, dict[str, float]] = {}
+    try:
+        rows_esg = db.execute(q_esg, params).fetchall()
+        for row in rows_esg or []:
+            mm = row._mapping
+            raw_name = mm.get("n")
+            name_key = _normalize_name_key(raw_name)
+            if not name_key:
+                continue
+            d = {}
+            for col, alias in alias_pairs:
+                try:
+                    val = mm.get(alias)
+                except Exception:
+                    val = None
+                try:
+                    d[col] = float(val) if val is not None else None
+                except Exception:
+                    d[col] = None
+            esg_map[name_key] = d
+    except Exception:
+        esg_map = {}
+    debug_info = {"sql": q_esg.text, "params": params, "table": table_name, "name_col": name_col, "name_debug": name_debug} if debug else None
+    return esg_map, debug_info
+
+
+def _pick_esg_table(db: Session, preferred: str, debug: bool = False) -> tuple[str, list[str], dict]:
+    candidates = [preferred] + [t for t in ESG_TABLE_FALLBACKS if t != preferred]
+    debug_info = {"candidates": candidates, "selected": None, "cols": {}} if debug else {}
+    for table_name in candidates:
+        cols, cols_debug = _get_esg_available_cols(db, table_name, debug=debug)
+        if debug:
+            debug_info["cols"][table_name] = cols_debug
+        if cols:
+            if debug:
+                debug_info["selected"] = table_name
+            return table_name, cols, debug_info
+    if debug:
+        debug_info["selected"] = preferred
+    return preferred, [], debug_info
 
 
 def _get_esg_available_cols(db: Session, table_name: str, debug: bool = False) -> tuple[list[str], dict]:
@@ -1239,8 +1336,14 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
     esg_fields: list[dict] = []
     esg_fields_debug: dict = {"source": "", "raw_cols": [], "final": []}
     try:
-        available_cols, cols_debug = _get_esg_available_cols(db, ESG_FIELDS_TABLE, debug=True)
-        esg_fields_debug = cols_debug or {"source": "", "raw_cols": []}
+        table_name, available_cols, pick_debug = _pick_esg_table(db, ESG_FIELDS_TABLE, debug=True)
+        selected_debug = (pick_debug.get("cols", {}) or {}).get(table_name, {})
+        esg_fields_debug = {
+            "source": selected_debug.get("source", ""),
+            "raw_cols": selected_debug.get("raw_cols", []),
+            "selected_table": table_name,
+            "candidates": pick_debug.get("candidates", []),
+        }
         def _labelize(name: str) -> str:
             if not name:
                 return name
@@ -1248,12 +1351,22 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
             s = re.sub(r"(?<!^)([A-Z])", r" \\1", s)
             return s.strip().capitalize()
         use_labelize = str(esg_fields_debug.get("source", "")).startswith("PRAGMA")
+        allow_norm = None
+        if ESG_UI_ALLOWLIST:
+            allow_norm = {k for k in (_normalize_field_key(v) for v in ESG_UI_ALLOWLIST) if k}
+        legacy_label_map = None
+        if ESG_LEGACY_ENABLED:
+            legacy_label_map = {_normalize_identifier(k): v for k, v in ESG_LEGACY_ALIASES.items()}
         for col in available_cols or []:
             if str(col).lower() in ("isin", "company name", "name", "nom"):
                 continue
-            if ESG_UI_ALLOWLIST and str(col) not in ESG_UI_ALLOWLIST:
+            if allow_norm and _normalize_field_key(str(col)) not in allow_norm:
                 continue
-            label = _labelize(col) if use_labelize else col
+            legacy_label = legacy_label_map.get(_normalize_identifier(str(col))) if legacy_label_map else None
+            if legacy_label:
+                label = _labelize(legacy_label)
+            else:
+                label = _labelize(col) if use_labelize else col
             esg_fields.append({"col": col, "label": label})
     except Exception:
         esg_fields = []
@@ -1500,6 +1613,32 @@ def dashboard_tasks_summary(range: int = Query(14), db: Session = Depends(get_db
 def dashboard_esg_fields(db: Session = Depends(get_db)):
     """Retourne les champs ESG disponibles + allocations (cache 1h)."""
     try:
+        esg_isins = {
+            str(r[0]) for r in db.execute(text("SELECT DISTINCT isin FROM esg_fonds_norm WHERE isin IS NOT NULL")).fetchall()
+            if r and r[0]
+        }
+        ref_isin_map: dict[str, str | None] = {}
+        for code_isin, nom in (
+            db.query(Support.code_isin, Support.nom)
+            .filter(Support.code_isin.isnot(None))
+            .distinct()
+            .order_by(Support.code_isin.asc())
+            .all()
+        ):
+            if code_isin:
+                ref_isin_map[str(code_isin)] = nom
+        for isin, nom in (
+            db.query(Allocation.isin, Allocation.nom)
+            .filter(Allocation.isin.isnot(None))
+            .order_by(Allocation.isin.asc())
+            .all()
+        ):
+            if isin and str(isin) not in ref_isin_map:
+                ref_isin_map[str(isin)] = nom
+        ref_isins = [{"isin": k, "nom": v} for k, v in sorted(ref_isin_map.items()) if k in esg_isins]
+    except Exception:
+        ref_isins = []
+    try:
         alloc_names = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
     except Exception:
         alloc_names = []
@@ -1512,6 +1651,7 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
         "status": "ok",
         "esg_fields": fields,
         "alloc_names": alloc_names,
+        "ref_isins": ref_isins,
         "debug": debug,
         "deprecated_aliases": deprecated_aliases,
         "legacy_mode": ESG_LEGACY_MODE,
@@ -2019,11 +2159,12 @@ def _compute_client_esg_comparison(
     if not sel_fields:
         return payload, debug_info
 
+    table_name, _, _table_debug = _pick_esg_table(db, ESG_CANON_TABLE, debug=debug)
     # Résolution des noms de colonnes (variantes legacy -> canonique)
     resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
         db=db,
         fields=sel_fields,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         debug=debug,
     )
     deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
@@ -2105,6 +2246,7 @@ def _compute_client_esg_comparison(
         client_weights = {}
     # Composition allocation
     alloc_weights: dict[str, float] = {}
+    alloc_weights_name: dict[str, float] = {}
     alloc_date_val = None
     debug_alloc: dict | None = {"weights_count": 0, "weights_sum": 0, "query": None, "isins": [], "date": None} if debug else None
     try:
@@ -2203,7 +2345,7 @@ def _compute_client_esg_comparison(
         db=db,
         isins=all_isins,
         columns=esg_cols,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         isin_col="isin",
         debug=debug,
     )
@@ -2294,7 +2436,9 @@ def _compute_support_esg_comparison(
     alloc_date: str | None = None,
     debug: bool = False,
 ) -> tuple[dict, dict | None]:
-    """Comparaison ESG pour un support unique vs allocation de référence."""
+    """Comparaison ESG pour un support unique vs ISIN de référence."""
+    import re as _re
+
     sel_fields = [f for f in (fields or []) if f]
     payload: dict = {
         "fields": sel_fields,
@@ -2305,16 +2449,19 @@ def _compute_support_esg_comparison(
         "resolved_fields": [],
         "unmatched_fields": [],
         "support_isin": support_isin,
+        "alloc_weights_count": 0,
+        "alloc_weight_mode": "none",
     }
     debug_info: dict | None = {"support": None, "allocation": None, "esg": None} if debug else None
     if not sel_fields or not support_isin:
         return payload, debug_info
 
+    table_name, _, _table_debug = _pick_esg_table(db, ESG_CANON_TABLE, debug=debug)
     # Résolution des colonnes ESG disponibles (legacy -> canonique)
     resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
         db=db,
         fields=sel_fields,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         debug=debug,
     )
     payload["resolved_fields"] = [col for _, col in valid_pairs]
@@ -2338,173 +2485,101 @@ def _compute_support_esg_comparison(
             debug_info["esg"] = {"isin_count": 0, "query": None}
         return payload, debug_info
 
-    # Poids support (unique)
-    support_weights = {support_isin: 1.0}
+    # Support cible
     debug_support = {"isin": support_isin, "weights_count": 1, "weights_sum": 1.0} if debug else None
 
-    # Poids allocation (reprend le calcul client)
-    alloc_weights: dict[str, float] = {}
-    alloc_date_val = None
-    debug_alloc: dict | None = {"weights_count": 0, "weights_sum": 0, "query": None, "isins": [], "date": None} if debug else None
-    try:
-        import re as _re
+    ref_isin = None
+    if alloc_isin:
+        ref_isin = str(alloc_isin).strip()
+    elif alloc and _re.match(r"^[A-Z0-9]{9,12}$", str(alloc).strip()):
+        ref_isin = str(alloc).strip()
 
-        isin_param = alloc_isin or (alloc if alloc and _re.match(r"^[A-Z0-9]{9,12}$", str(alloc).strip()) else None)
-        if isin_param:
-            if alloc_date:
-                alloc_date_val = db.execute(
-                    text("SELECT MAX(date) FROM allocations WHERE ISIN = :i AND date <= :d"),
-                    {"i": isin_param, "d": alloc_date},
-                ).scalar()
-                if not alloc_date_val:
-                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
-            else:
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE ISIN = :i"), {"i": isin_param}).scalar()
-            q2 = text(
-                """
-                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
-                FROM allocations
-                WHERE ISIN = :i AND date = :d
-                """
-            )
-            params2 = {"i": isin_param, "d": alloc_date_val}
-            rows2 = db.execute(q2, params2).fetchall()
-            if debug_alloc is not None:
-                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
-        elif alloc:
-            if alloc_date:
-                alloc_date_val = db.execute(
-                    text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n)) AND date <= :d"),
-                    {"n": alloc, "d": alloc_date},
-                ).scalar()
-                if not alloc_date_val:
-                    alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
-            else:
-                alloc_date_val = db.execute(text("SELECT MAX(date) FROM allocations WHERE lower(trim(nom)) = lower(trim(:n))"), {"n": alloc}).scalar()
-            q2 = text(
-                """
-                SELECT ISIN AS isin, COALESCE(valo, sicav) AS v
-                FROM allocations
-                WHERE lower(trim(nom)) = lower(trim(:n)) AND date = :d
-                """
-            )
-            params2 = {"n": alloc, "d": alloc_date_val}
-            rows2 = db.execute(q2, params2).fetchall()
-            if debug_alloc is not None:
-                debug_alloc["query"] = {"sql": q2.text, "params": {k: (str(v) if v is not None else None) for k, v in params2.items()}}
-        else:
-            rows2 = []
-        total2 = sum(float(getattr(r, "v", 0) or 0) for r in rows2) if rows2 else 0.0
-        if total2 and total2 > 0:
-            for r in rows2:
-                isin = getattr(r, "isin", None)
-                v = float(getattr(r, "v", 0) or 0)
-                if isin:
-                    alloc_weights[isin] = v / total2
-        if debug_alloc is not None:
-            debug_alloc.update(
-                {
-                    "weights_count": len(alloc_weights),
-                    "weights_sum": sum(alloc_weights.values()) if alloc_weights else 0,
-                    "isins": sorted(alloc_weights.keys()),
-                    "date": str(alloc_date_val) if alloc_date_val is not None else None,
-                }
-            )
-    except Exception:
-        alloc_weights = {}
-    payload["alloc_date"] = str(alloc_date_val) if alloc_date_val is not None else None
+    if ref_isin:
+        esg_cols = [col for _, col in valid_pairs]
+        esg_map: dict[str, dict[str, float]] = {}
+        debug_esg: dict | None = {"isin_count": 2, "query": None} if debug else None
+        esg_map, esg_query_debug = _fetch_esg_map(
+            db=db,
+            isins={support_isin, ref_isin},
+            columns=esg_cols,
+            table_name=table_name,
+            isin_col="isin",
+            debug=debug,
+        )
+        if debug_esg is not None:
+            debug_esg["query"] = esg_query_debug
 
-    all_isins = set(support_weights.keys()) | set(alloc_weights.keys())
-    if not all_isins:
-        if debug_info is not None:
-            debug_info["support"] = debug_support
-            debug_info["allocation"] = debug_alloc
-        return payload, debug_info
-
-    esg_cols = [col for _, col in valid_pairs]
-    esg_map: dict[str, dict[str, float]] = {}
-    debug_esg: dict | None = {"isin_count": len(all_isins), "query": None} if debug else None
-    esg_map, esg_query_debug = _fetch_esg_map(
-        db=db,
-        isins=all_isins,
-        columns=esg_cols,
-        table_name=ESG_CANON_TABLE,
-        isin_col="isin",
-        debug=debug,
-    )
-    if debug_esg is not None:
-        debug_esg["query"] = esg_query_debug
-
-    results = []
-    for original_name, column_name in valid_pairs:
-        cli_val = None
-        v_support = (esg_map.get(support_isin) or {}).get(column_name)
-        if v_support is not None:
+        results = []
+        has_ref_values = False
+        for original_name, column_name in valid_pairs:
+            v_support = (esg_map.get(support_isin) or {}).get(column_name)
+            v_ref = (esg_map.get(ref_isin) or {}).get(column_name)
+            cli_present = 1 if v_support is not None else 0
+            idx_present = 1 if v_ref is not None else 0
+            if v_ref is not None:
+                has_ref_values = True
             try:
-                cli_val = float(v_support)
+                cli_val = float(v_support) if v_support is not None else None
             except Exception:
                 cli_val = None
+            try:
+                idx_val = float(v_ref) if v_ref is not None else None
+            except Exception:
+                idx_val = None
 
-        idx_val = 0.0
-        idx_wsum = 0.0
-        for isin, w in alloc_weights.items():
-            v = (esg_map.get(isin) or {}).get(column_name)
-            if v is None:
+            if cli_val is None or idx_val is None or idx_val == 0:
+                results.append(
+                    {
+                        "field": column_name,
+                        "field_original": original_name,
+                        "resolved_field": column_name,
+                        "index": None,
+                        "client": None,
+                        "cli_present": cli_present,
+                        "idx_present": idx_present,
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "field": column_name,
+                        "field_original": original_name,
+                        "resolved_field": column_name,
+                        "index": 100.0,
+                        "client": (cli_val / idx_val) * 100.0,
+                        "cli_present": cli_present,
+                        "idx_present": idx_present,
+                    }
+                )
+
+        for original_name, column_name in resolved_pairs:
+            if column_name:
                 continue
-            idx_val += float(w) * float(v)
-            idx_wsum += float(w)
-        idx_val = (idx_val / idx_wsum) if idx_wsum > 0 else None
-
-        cli_present = 1 if v_support is not None else 0
-        idx_present = sum(1 for isin, _w in alloc_weights.items() if (esg_map.get(isin) or {}).get(column_name) is not None)
-
-        if cli_val is None or idx_val is None or idx_val == 0:
             results.append(
                 {
-                    "field": column_name,
+                    "field": original_name,
                     "field_original": original_name,
-                    "resolved_field": column_name,
+                    "resolved_field": None,
                     "index": None,
                     "client": None,
-                    "cli_present": cli_present,
-                    "idx_present": idx_present,
-                }
-            )
-        else:
-            results.append(
-                {
-                    "field": column_name,
-                    "field_original": original_name,
-                    "resolved_field": column_name,
-                    "index": 100.0,
-                    "client": (cli_val / idx_val) * 100.0,
-                    "cli_present": cli_present,
-                    "idx_present": idx_present,
+                    "cli_present": 0,
+                    "idx_present": 0,
                 }
             )
 
-    for original_name, column_name in resolved_pairs:
-        if column_name:
-            continue
-        results.append(
-            {
-                "field": original_name,
-                "field_original": original_name,
-                "resolved_field": None,
-                "index": None,
-                "client": None,
-                "cli_present": 0,
-                "idx_present": 0,
-            }
-        )
+        payload["results"] = results
+        payload["alloc_weights_count"] = 1 if has_ref_values else 0
+        payload["alloc_weight_mode"] = "isin"
+        payload["alloc_isin"] = ref_isin
+        if debug_info is not None:
+            debug_info["support"] = debug_support
+            debug_info["allocation"] = {"isin": ref_isin, "weights_count": payload["alloc_weights_count"]}
+            debug_info["esg"] = debug_esg
+        return payload, debug_info
 
-    payload["results"] = results
     if debug_info is not None:
         debug_info["support"] = debug_support
-        debug_info["allocation"] = debug_alloc
-        if debug_esg is not None:
-            debug_esg["resolved_pairs"] = resolved_pairs
-        debug_info["esg"] = debug_esg
+        debug_info["allocation"] = None
     return payload, debug_info
 
 
@@ -21567,10 +21642,11 @@ def dashboard_affaire_esg(
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
     deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+    table_name, _, _table_debug = _pick_esg_table(db, ESG_CANON_TABLE, debug=bool(debug))
     resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
         db=db,
         fields=sel_fields,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         debug=bool(debug),
     )
     if not valid_pairs:
@@ -21706,7 +21782,7 @@ def dashboard_affaire_esg(
         db=db,
         isins=all_isins,
         columns=esg_cols,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         isin_col="isin",
         debug=bool(debug),
     )
@@ -21821,8 +21897,8 @@ def dashboard_client_esg(
 @router.get("/supports/{code_isin}/esg", response_class=JSONResponse)
 def dashboard_support_esg(
     code_isin: str,
-    alloc: str = Query(None, description="Nom de l'allocation de référence"),
-    alloc_isin: str = Query(None, description="ISIN de l'allocation (prioritaire si fourni)"),
+    alloc: str = Query(None, description="ISIN de référence (legacy)"),
+    alloc_isin: str = Query(None, description="ISIN de référence"),
     fields: str = Query(None, description="Champs ESG séparés par des virgules"),
     alloc_date: str | None = Query(None, description="Date exacte pour l'allocation (YYYY-MM-DD)"),
     debug: int = Query(0, description="Activer la sortie debug"),
@@ -21870,10 +21946,11 @@ def dashboard_global_esg(
     if not sel_fields:
         return {"error": "Aucun champ ESG sélectionné."}
     deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+    table_name, _, _table_debug = _pick_esg_table(db, ESG_CANON_TABLE, debug=bool(debug))
     resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
         db=db,
         fields=sel_fields,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         debug=bool(debug),
     )
     if not valid_pairs:
@@ -21937,7 +22014,7 @@ weights AS (
 SELECT
   {select_expr}
 FROM weights w
-LEFT JOIN `esg_fonds_norm` ef ON ef.isin = w.isin
+LEFT JOIN `{table_name}` ef ON ef.isin = w.isin
 """
 
         row_port = db.execute(text(sql_portfolio)).fetchone()
@@ -21999,7 +22076,7 @@ weights AS (
 SELECT
   {select_expr}
 FROM weights w
-LEFT JOIN `esg_fonds_norm` ef ON ef.isin = w.isin
+LEFT JOIN `{table_name}` ef ON ef.isin = w.isin
 """
             row_idx = db.execute(text(sql_index), {"n": alloc, "d": alloc_date_val}).fetchone()
             if row_idx is not None:
@@ -22213,7 +22290,7 @@ LEFT JOIN `esg_fonds_norm` ef ON ef.isin = w.isin
         db=db,
         isins=all_isins,
         columns=resolved_cols,
-        table_name=ESG_CANON_TABLE,
+        table_name=table_name,
         isin_col="isin",
         debug=bool(debug),
     )
@@ -26822,6 +26899,43 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
                 sri_metrics_map[str(alloc_id)] = m
     except Exception:
         sri_metrics_map = {}
+    # Texte d'offre (allocation_risque) par nom d'allocation
+    try:
+        rows_ar = db.execute(
+            text(
+                """
+                SELECT id, allocation_name, texte, date_attribution
+                FROM allocation_risque
+                """
+            )
+        ).fetchall()
+        allocation_risque_map: dict[str, dict] = {}
+        for r in rows_ar or []:
+            m = dict(r._mapping)
+            name_raw = m.get("allocation_name") or ""
+            key = str(name_raw).strip().lower()
+            if not key:
+                continue
+            prev = allocation_risque_map.get(key)
+            prev_dt = prev.get("date_attribution") if prev else None
+            cur_dt = m.get("date_attribution")
+            # Préfère la plus récente date_attribution, puis l'id
+            pick = False
+            if prev is None:
+                pick = True
+            elif cur_dt and (not prev_dt or cur_dt > prev_dt):
+                pick = True
+            elif (cur_dt == prev_dt) and (m.get("id") or 0) > (prev.get("id") or 0):
+                pick = True
+            if pick:
+                allocation_risque_map[key] = {
+                    "allocation_name": name_raw,
+                    "texte": m.get("texte") or "",
+                    "date_attribution": cur_dt.isoformat() if cur_dt else None,
+                    "id": m.get("id"),
+                }
+    except Exception:
+        allocation_risque_map = {}
     return templates.TemplateResponse(
         "dashboard_allocations.html",
         {
@@ -26830,6 +26944,7 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             "allocations": last_rows,
             "series_data": series_data,
             "sri_metrics": sri_metrics_map,
+            "allocation_risque_map": allocation_risque_map,
         }
     )
 

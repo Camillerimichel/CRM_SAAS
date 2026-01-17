@@ -1,7 +1,7 @@
 {
   "name": "crm-saas",
   "version": "1.0.0",
-  "description": "- Fichier unique `Base.sqlite` - Tables recréées et propres :     - `mariadb_clients`     - `mariadb_affaires`     - `Documents`     - `Documents_client`     - `mariadb_support`     - `mariadb_historique_affaire_w`     - `mariadb_historique_personne_w`     - `mariadb_historique_support_w`     - `Allocations`",
+  "description": "- Base MariaDB/MySQL - Tables recréées et propres :     - `mariadb_clients`     - `mariadb_affaires`     - `Documents`     - `Documents_client`     - `mariadb_support`     - `mariadb_historique_affaire_w`     - `mariadb_historique_personne_w`     - `mariadb_historique_support_w`     - `Allocations`",
   "main": "src/index.js",
   "directories": {
     "doc": "docs",

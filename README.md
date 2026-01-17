@@ -3,7 +3,7 @@
 ## ✅ Ce qui est déjà fait
 
 ### 1. Base de données
-- Fichier unique `Base.sqlite`
+- Base MariaDB/MySQL
 - Tables recréées et propres :  
   - `mariadb_clients`  
   - `mariadb_affaires`  
@@ -16,7 +16,7 @@
   - `Allocations`
 
 ### 2. Backend (FastAPI)
-- Modèles SQLAlchemy alignés sur SQLite  
+- Modèles SQLAlchemy alignés sur MariaDB/MySQL  
 - Schémas Pydantic complets (lecture + création)  
 - Services refactorisés avec injection `db: Session = Depends(get_db)`  
 - Routes unifiées dans `main.py` (API claire et sans doublons)  
