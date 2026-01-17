@@ -212,7 +212,9 @@
                         <i class="fa-solid fa-chart-line"></i>
                       </button>
                     </td>
-                    <td>{{ a.nom }}</td>
+                    <td>
+                      <a href="#" class="alloc-info-link" data-nom="{{ a.nom }}">{{ a.nom }}</a>
+                    </td>
                     <td>
                       {% if a.date %}
                         {# Forcer un affichage YYYY-MM-DD sans JS #}
@@ -298,12 +300,26 @@
     </div>
   </div>
 </div>
+<!-- Modal fiche allocation_risque -->
+<div id="allocInfoModal" class="modal-overlay" style="display:none;">
+  <div class="modal-card" style="width:720px; max-width:95vw;">
+    <div class="modal-header">
+      <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-lines"></i>Fiche offre</h3>
+      <button class="modal-close" onclick="closeAllocInfo()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-weight:700; margin-bottom:8px;" id="allocInfoName"></div>
+      <div id="allocInfoBody" class="muted alloc-info-body">Chargement...</div>
+    </div>
+  </div>
+</div>
 <style>
   .modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; z-index:2000; }
   .modal-card { background:#fff; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.18); max-height:90vh; overflow:auto; padding:16px 18px; }
   .modal-header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .modal-close { background:none; border:none; font-size:1.2rem; cursor:pointer; }
   .sri-card { border:1px solid var(--border, #e5e7eb); border-radius:10px; }
+  .alloc-info-body { white-space:pre-wrap; }
 </style>
 
 <!-- jQuery + DataTables -->
@@ -319,6 +335,7 @@
 <script>
 $(document).ready(function () {
     var sriMetrics = {{ sri_metrics | default({}) | tojson | safe }};
+    var allocInfoMap = {{ allocation_risque_map | default({}) | tojson | safe }};
     var table = $('#allocationsTable').DataTable({
         dom: 'rtip',
         order: [[1, "asc"], [2, "asc"]],
@@ -825,6 +842,33 @@ $(document).ready(function () {
     try{
         document.getElementById('allocSriModal').addEventListener('click', function(e){
             if(e.target === this) closeAllocSri();
+        });
+    }catch(e){}
+
+    function normAllocKey(val){ return (val || '').toString().trim().toLowerCase(); }
+    function openAllocInfo(link){
+        var nom = link.getAttribute('data-nom') || '';
+        var info = allocInfoMap[normAllocKey(nom)] || null;
+        document.getElementById('allocInfoName').textContent = nom || (info ? info.allocation_name : 'Allocation');
+        if(!info){
+            document.getElementById('allocInfoBody').textContent = "Aucune fiche allocation_risque disponible.";
+        } else {
+            document.getElementById('allocInfoBody').textContent = info.texte || '—';
+        }
+        document.getElementById('allocInfoModal').style.display = 'flex';
+    }
+    function closeAllocInfo(){ document.getElementById('allocInfoModal').style.display='none'; }
+    window.closeAllocInfo = closeAllocInfo;
+    document.getElementById('allocationsTable').addEventListener('click', function(e){
+        var link = e.target.closest('.alloc-info-link');
+        if(link){
+            e.preventDefault();
+            openAllocInfo(link);
+        }
+    });
+    try{
+        document.getElementById('allocInfoModal').addEventListener('click', function(e){
+            if(e.target === this) closeAllocInfo();
         });
     }catch(e){}
 

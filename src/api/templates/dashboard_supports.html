@@ -452,7 +452,7 @@
     <div id="supportEsgSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
       <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
         <div style="flex:1 1 240px; min-width:220px;">
-          <label class="muted" style="font-size:0.85rem;">Allocation de référence</label><br>
+          <label class="muted" style="font-size:0.85rem;">ISIN de référence</label><br>
           <select id="supportEsgAlloc" style="width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;">
             <option value="">— choisir —</option>
           </select>
@@ -919,7 +919,7 @@ $(document).ready(function () {
     var supportCompareValuations = [];
     var supportCompareLabel = '';
     var supportEsgFields = [];
-    var supportEsgAllocNames = [];
+    var supportEsgRefList = [];
     var supportEsgMetaLoaded = false;
     var $supportEsgAlloc = $('#supportEsgAlloc');
     var $supportEsgUnmatched = $('#supportEsgUnmatched');
@@ -1022,7 +1022,7 @@ $(document).ready(function () {
             .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
             .then(function(data){
                 supportEsgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
-                supportEsgAllocNames = Array.isArray(data.alloc_names) ? data.alloc_names : [];
+                supportEsgRefList = Array.isArray(data.ref_isins) ? data.ref_isins : [];
                 supportEsgMetaLoaded = true;
                 renderSupportEsgFields();
                 renderSupportEsgAllocOptions();
@@ -1031,7 +1031,7 @@ $(document).ready(function () {
             .catch(function(err){
                 console.warn('ESG meta load error', err);
                 supportEsgFields = [];
-                supportEsgAllocNames = [];
+                supportEsgRefList = [];
                 supportEsgMetaLoaded = true;
                 renderSupportEsgFields();
                 renderSupportEsgAllocOptions();
@@ -1042,8 +1042,12 @@ $(document).ready(function () {
     function renderSupportEsgAllocOptions(){
         if (!$supportEsgAlloc || !$supportEsgAlloc.length) return;
         var opts = ['<option value=\"\">— choisir —</option>'];
-        supportEsgAllocNames.forEach(function(n){
-            opts.push('<option value=\"'+escHtml(n)+'\">'+escHtml(n)+'</option>');
+        supportEsgRefList.forEach(function(item){
+            var isin = item && item.isin ? String(item.isin) : '';
+            if (!isin) return;
+            var label = isin;
+            if (item.nom){ label = isin + ' — ' + item.nom; }
+            opts.push('<option value=\"'+escHtml(isin)+'\">'+escHtml(label)+'</option>');
         });
         $supportEsgAlloc.html(opts.join(''));
     }
@@ -1111,19 +1115,20 @@ $(document).ready(function () {
             renderSupportEsgFields();
             return;
         }
-        var alloc = ($supportEsgAlloc && $supportEsgAlloc.val()) || '';
+        var refIsin = ($supportEsgAlloc && $supportEsgAlloc.val()) || '';
         ensureSupportEsgDefaultSelection();
         var fields = selectedSupportEsgFields();
         if (!supportModalCodeIsin){ return; }
-        if (!alloc){ return; }
+        if (!refIsin){ return; }
         if (!fields.length){ return; }
         var unmatchedEl = document.getElementById('supportEsgUnmatched');
         if (unmatchedEl){ unmatchedEl.style.display='none'; unmatchedEl.textContent=''; }
         ensurePlotlySupportEsg(function(){
-            var url = '/dashboard/supports/' + encodeURIComponent(supportModalCodeIsin) + '/esg?alloc=' + encodeURIComponent(alloc) + '&fields=' + encodeURIComponent(fields.join(','));
+            var url = '/dashboard/supports/' + encodeURIComponent(supportModalCodeIsin) + '/esg?alloc_isin=' + encodeURIComponent(refIsin) + '&fields=' + encodeURIComponent(fields.join(','));
             fetch(url).then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); }).then(function(data){
                 var rows = (data && data.results) || [];
                 var unmatched = (data && data.unmatched_fields) || [];
+                var allocCount = (data && data.alloc_weights_count) || 0;
                 if (unmatchedEl){
                     if (unmatched.length){
                         unmatchedEl.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
@@ -1132,6 +1137,14 @@ $(document).ready(function () {
                         unmatchedEl.textContent = '';
                         unmatchedEl.style.display = 'none';
                     }
+                }
+                if (!allocCount){
+                    if (unmatchedEl){
+                        unmatchedEl.textContent = 'ISIN de référence introuvable ou sans données ESG.';
+                        unmatchedEl.style.display = '';
+                    }
+                    $('#supportEsgChart').hide().empty();
+                    return;
                 }
                 var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
                 if (!displayRows.length){ displayRows = rows; }

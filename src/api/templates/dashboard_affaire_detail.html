@@ -97,6 +97,16 @@
     padding: 12px 12px 6px 12px;
   }
   .chart-frame canvas { width: 100% !important; }
+  #graphCmpPanel {
+    max-height: 80vh;
+    overflow: auto;
+  }
+  #graphCmpPanel .chart-frame {
+    height: min(60vh, 520px);
+    max-height: 60vh;
+    overflow: hidden;
+  }
+  #chartSicav { height: 100% !important; }
   .accordion-toggle h3 { font-size: 1.05rem !important; margin: 0; font-weight: 600; }
   .accordion-toggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
   .accordion-toggle.collapsed .chevron { transform: rotate(-90deg); }
