@@ -27,6 +27,7 @@ from src.security.auth import (
 )
 from src.services.mailer import send_email
 from src.api.utils.societe_context import set_current_societe, reset_current_societe
+from src.services.esg_tableau_one import compute_tableau_one
 
 
 # ---------------- Définition app FastAPI ----------------
@@ -1124,6 +1125,12 @@ def reporting_supports(request: Request, db: Session = Depends(get_db)):
     access, _ = _require_feature(request, db, "data", "read")
     _deny_client_list(access, "reporting supports")
     return get_all_supports(db)
+
+@app.get("/reporting/esg/tableau1", response_class=JSONResponse)
+def reporting_esg_tableau1(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "reporting tableau1")
+    return compute_tableau_one(db)
 
 # ---------------- Dashboards HTML ----------------
 # Routes HTML gérées dans src/api/dashboard.py via router
