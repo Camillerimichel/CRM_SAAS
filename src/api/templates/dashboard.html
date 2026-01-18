@@ -94,6 +94,65 @@
   }
   .tasks-kpi-label { color: var(--muted); font-weight: 700; font-size: 13px; }
   .tasks-kpi-value { font-size: 20px; font-weight: 800; margin-top: 4px; }
+  .tableau-one-card {
+    max-width: 1100px;
+    margin: 0 auto 1.2rem auto;
+  }
+  .tableau-one-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .tableau-one-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 0.92rem;
+    color: var(--muted);
+  }
+  .tableau-one-meta span {
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .tableau-one-section {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  }
+  .tableau-one-section summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 700;
+  }
+  .tableau-one-section summary::-webkit-details-marker {
+    display: none;
+  }
+  .tableau-one-summary-meta {
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .tableau-one-sections {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .tableau-one-incidence {
+    text-align: right;
+    padding-right: 2ch;
+  }
   /* Tabs principaux (Dashboard) */
   .dash-tabs {
     display: flex;
@@ -230,6 +289,7 @@
     <div class="risk-toggle-row">
       <div class="risk-toggle" data-target="complianceSection">Conformité réglementaire</div>
       <div class="risk-toggle" data-target="rcpSection">Requis réglementaires</div>
+      <div class="risk-toggle" data-target="csrdSection">CSRD</div>
       <div class="risk-toggle" data-target="srriSection">Suivi du risque</div>
       <div class="risk-toggle" data-target="clienteleSection">Répartition par clientèle</div>
       <div class="risk-toggle" data-target="contractsSection">Répartition par contrats</div>
@@ -897,10 +957,68 @@
         closeInfoModal(target.id.replace('infoModal-',''));
       }
     });
-  </script>
+</script>
 
-
-
+{% set tableau_one = tableau_one if tableau_one is defined else {} %}
+<div id="csrdSection" data-tb-marker="TB_34A" style="display:none; max-width:1100px; margin: 0 auto 1rem auto;">
+  <div class="card tableau-one-card">
+    <div class="tableau-one-header">
+      <div>
+        <p class="muted" style="margin:0 0 6px;">Annexe réglementaire</p>
+        <h3 style="margin:0;">Tableau 1 — Indicateurs consolidés</h3>
+        <p class="muted" style="margin:6px 0 0;">Agrégation pondérée par valorisation (inventaire global).</p>
+      </div>
+      <div class="tableau-one-meta">
+        <div>
+          <span>Date d'inventaire</span>
+          <strong>{{ tableau_one.as_of_date or '—' }}</strong>
+        </div>
+        <div>
+          <span>Valorisation totale</span>
+          <strong>{{ '{:,.0f}'.format(tableau_one.total_valo or 0).replace(',', ' ') }} €</strong>
+        </div>
+      </div>
+    </div>
+    {% if not tableau_one.items %}
+      <p class="muted" style="margin-top:12px;">Aucun indicateur consolidé disponible.</p>
+    {% else %}
+      <div class="tableau-one-sections">
+        {% for section in tableau_one.categories %}
+          <details class="tableau-one-section" {% if loop.first %}open{% endif %}>
+            <summary>
+              <span>{{ section.label }}</span>
+              <span class="tableau-one-summary-meta">{{ section["items"]|length }} KPI</span>
+            </summary>
+            <div class="table-wrapper" style="margin-top:10px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Section</th>
+                    <th>Indicateur</th>
+                    <th>Élément de mesure</th>
+                    <th class="tableau-one-incidence">Incidences 2025</th>
+                    <th>Unité</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in section["items"] %}
+                    <tr>
+                      <td>{{ item.section }}</td>
+                      <td>{{ item.label }}</td>
+                      <td>{{ item.measure or '—' }}</td>
+                      <td class="tableau-one-incidence">{{ item.value_fmt }}</td>
+                      <td>{{ item.unit or '—' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
 
 <div id="clienteleToggle" ></div>
   <div id="clienteleSection" data-tb-marker="TB_36" >
@@ -1820,7 +1938,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
   // Toggles horizontaux Risques
   (function(){
     var buttons = document.querySelectorAll('.risk-toggle-row .risk-toggle');
-    var sections = ['complianceSection','rcpSection','srriSection','clienteleSection','contractsSection'];
+    var sections = ['complianceSection','rcpSection','csrdSection','srriSection','clienteleSection','contractsSection'];
     function openSection(id){
       sections.forEach(function(sec){
         var el = document.getElementById(sec);

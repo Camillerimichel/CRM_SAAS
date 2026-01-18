@@ -39,6 +39,7 @@ from src.services.evenements import (
 )
 from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
+from src.services.esg_tableau_one import compute_tableau_one
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
@@ -10551,6 +10552,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     finance_date_input = finance_ctx["finance_date_input"]
     finance_effective_date_display = finance_ctx["finance_effective_date_display"]
     finance_effective_date_iso = finance_ctx["finance_effective_date_iso"]
+    tableau_one = compute_tableau_one(db)
     # Types/statuts pour tâches groupées (dashboard Groupes)
     try:
         evt_types_rows = db.execute(text("SELECT libelle, categorie FROM mariadb_type_evenement ORDER BY categorie, libelle")).fetchall()
@@ -11831,6 +11833,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "finance_rh_options": finance_rh_options,
         "finance_rh_selected": finance_rh_id,
         "finance_valo_input": finance_ctx.get("finance_valo_input"),
+        "tableau_one": tableau_one,
         # Tâches / événements
         "tasks_total": tasks_total,
         "tasks_open": open_count,
