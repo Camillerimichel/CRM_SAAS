@@ -156,11 +156,67 @@
   .esg-f { background:#f97316; color:#fff; }
   .esg-g { background:#ef4444; color:#fff; }
   .esg-unknown { background:#e2e8f0; color:#475569; }
+  .esg-scale { display:inline-flex; align-items:center; gap:4px; }
+  .esg-scale-item {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:1.6em;
+    padding:2px 6px;
+    border-radius:999px;
+    border:1px solid #e2e8f0;
+    font-weight:600;
+    font-size:0.75rem;
+    line-height:1;
+    color:#64748b;
+    background:#f8fafc;
+  }
+  .esg-scale-item.active { border-color: transparent; font-weight:800; }
+  .esg-scale-item.active.esg-a { background:#16a34a; color:#fff; }
+  .esg-scale-item.active.esg-b { background:#4ade80; color:#0f172a; }
+  .esg-scale-item.active.esg-c { background:#a3e635; color:#0f172a; }
+  .esg-scale-item.active.esg-d { background:#facc15; color:#0f172a; }
+  .esg-scale-item.active.esg-e { background:#fb923c; color:#0f172a; }
+  .esg-scale-item.active.esg-f { background:#f97316; color:#fff; }
+  .esg-scale-item.active.esg-g { background:#ef4444; color:#fff; }
+  .support-meta-btn {
+    background:#f8fafc;
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    padding:0.6rem 0.75rem;
+    font-weight:600;
+    color:#1f2937;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:0.5rem;
+    transition:background .2s ease, color .2s ease, border-color .2s ease, transform .12s ease;
+    font-size:0.9rem;
+    min-width:180px;
+    white-space:nowrap;
+    transform: scale(1);
+    will-change: transform;
+  }
+  .support-meta-btn i { color:inherit; }
+  .support-meta-btn:hover,
+  .support-meta-btn:focus-visible { background:#e2e8f0; border-color:#cbd5f5; transform: scale(1.04); }
+  .support-meta-btn.active,
+  .support-meta-btn:active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); transform: scale(1.04); }
+  .support-meta-btn.active i { color:#fff; }
+  .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .aff-esg-split { display:flex; gap:12px; align-items:stretch; }
+  .aff-esg-left { flex:1 1 320px; min-width:260px; }
+  .aff-esg-right { flex:1 1 420px; min-width:260px; display:flex; align-items:center; overflow:hidden; }
+  .aff-esg-right #affaireEsgChart { width:100%; max-width:100%; }
+  @media (max-width: 900px) {
+    .aff-esg-split { flex-direction:column; }
+  }
   #affSupportMovementsTable th, #affSupportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
   #affSupportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
   #affSupportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
   /* Toggle chevron styles (reuse for inv+graphs) */
-  #invToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
+  #invToggle, #esgToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
     display:flex;
     align-items:center;
     justify-content:center;
@@ -174,18 +230,18 @@
     border: 1px solid transparent !important;
     box-shadow: none !important;
   }
-  #invToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
-  #invToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
-  #invToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed) {
+  #invToggle .chevron, #esgToggle .chevron, #avisToggle .chevron, #graphsToggle .chevron { display:inline-block; margin-left:8px; transition: transform .2s ease, color .2s ease; font-size: 1rem; }
+  #invToggle.collapsed .chevron, #esgToggle.collapsed .chevron, #avisToggle.collapsed .chevron, #graphsToggle.collapsed .chevron { transform: rotate(-90deg); }
+  #invToggle:not(.collapsed), #esgToggle:not(.collapsed), #graphsToggle:not(.collapsed), #reportToggle:not(.collapsed), #affTasksToggle:not(.collapsed) {
     background: transparent !important;
     color: var(--primary-600);
     border-color: transparent !important;
     box-shadow:none !important;
   }
-  #invToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) * {
+  #invToggle:not(.collapsed) *, #esgToggle:not(.collapsed) *, #graphsToggle:not(.collapsed) *, #reportToggle:not(.collapsed) *, #affTasksToggle:not(.collapsed) * {
     color: var(--primary-600) !important;
   }
-  #invToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
+  #invToggle:not(.collapsed) .badge, #esgToggle:not(.collapsed) .badge, #graphsToggle:not(.collapsed) .badge, #reportToggle:not(.collapsed) .badge {
     background:transparent !important;
     border-color:transparent !important;
   }
@@ -194,7 +250,7 @@
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
   body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
   /* Ensure accordion sections take full row under any grid */
-  #invSection, #graphsSection { width:100%; grid-column: 1 / -1; }
+  #invSection, #esgSection, #graphsSection { width:100%; grid-column: 1 / -1; }
   /* Reportings pluriannuels toggle full width */
   #reportToggle {
     width:auto;
@@ -429,6 +485,12 @@
         <span>Investissements</span>
       </h3>
     </div>
+    <div id="esgToggle" class="card accordion-toggle" title="Suivi ESG" aria-label="Suivi ESG">
+      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
+        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+        <span>Suivi ESG</span>
+      </h3>
+    </div>
     <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
         <i class="fa-solid fa-file-contract" aria-hidden="true"></i>
@@ -524,6 +586,7 @@
       <div class="card" data-tb-marker="AF_05">
         <div class="kpi-heading">Indicateurs</div>
         <div class="kpi-mini kpi-line"><span>Perf 52 semaines</span><span class="kv">{% if last_perf_pct_aff is not none %}{{ '%.2f'|format(last_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+        <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
         <div class="kpi-mini kpi-line" style="align-items:flex-start;">
@@ -533,7 +596,40 @@
             <div class="muted" style="font-size:12px; margin-top:4px;">SRI courant : {{ affaire_sri if affaire_sri is not none else '—' }}</div>
           </span>
         </div>
-        <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
+        <div class="kpi-mini kpi-line">
+          <span>Note ESG</span>
+          <span class="kv">
+            <span class="esg-scale" title="Note ESG: {{ affaire_esg_grade or '—' }}">
+              <span class="esg-scale-item {% if affaire_esg_grade == 'A' %}active esg-a{% endif %}">A</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'B' %}active esg-b{% endif %}">B</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'C' %}active esg-c{% endif %}">C</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'D' %}active esg-d{% endif %}">D</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'E' %}active esg-e{% endif %}">E</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'F' %}active esg-f{% endif %}">F</span>
+              <span class="esg-scale-item {% if affaire_esg_grade == 'G' %}active esg-g{% endif %}">G</span>
+            </span>
+          </span>
+        </div>
+        <div class="kpi-mini kpi-line">
+          <span>Notes ESG</span>
+          <span class="kv" style="gap:6px;">
+            {% if affaire_esg_e_grade %}
+              <span class="esg-grade esg-{{ affaire_esg_e_grade|lower }}">Env: {{ affaire_esg_e_grade }}</span>
+            {% else %}
+              <span class="muted">Env: —</span>
+            {% endif %}
+            {% if affaire_esg_s_grade %}
+              <span class="esg-grade esg-{{ affaire_esg_s_grade|lower }}">Soc: {{ affaire_esg_s_grade }}</span>
+            {% else %}
+              <span class="muted">Soc: —</span>
+            {% endif %}
+            {% if affaire_esg_g_grade %}
+              <span class="esg-grade esg-{{ affaire_esg_g_grade|lower }}">Gov: {{ affaire_esg_g_grade }}</span>
+            {% else %}
+              <span class="muted">Gov: —</span>
+            {% endif %}
+          </span>
+        </div>
       </div>
     </div>
   </div>
@@ -867,6 +963,38 @@
  </div>
 </div>
 <!-- Séparateur visuel -->
+{% set esg_default_alloc = client_allocation_name or default_alloc_name %}
+<div id="esgSection" style="display:none;">
+  <div class="card" style="margin-top:12px;">
+    <div class="kpi-heading">Suivi ESG</div>
+    <div id="affaireEsgPanel" style="margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div class="aff-esg-split">
+        <div class="aff-esg-left">
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
+            <div style="flex:1 1 240px; min-width:220px;">
+              <label class="muted" style="font-size:0.85rem;">Référence</label><br>
+              <select id="affaireEsgAlloc" style="width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;">
+                <option value="">— choisir —</option>
+              </select>
+            </div>
+            <div>
+              <button id="affaireEsgRefresh" class="support-meta-btn" type="button" style="height:40px;"><span>Actualiser</span></button>
+            </div>
+          </div>
+          <div style="margin-bottom:8px;">
+            <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+            <div id="affaireEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+          </div>
+          <div id="affaireEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
+          <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Affaire = (Affaire / Indice) × 100.</div>
+        </div>
+        <div class="aff-esg-right">
+          <div id="affaireEsgChart" style="min-height:320px; width:100%; display:none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- Accordéon Avis d'opération (en dehors de la section Investissements) -->
 <div id="avisSection" data-tb-marker="AF_13" style="display:none;">
   <div class="card" data-tb-marker="AF_14">
@@ -1043,6 +1171,275 @@ function appendMarkers(url){
   if (url.indexOf('markers=') !== -1) return url;
   return url + (url.indexOf('?') >= 0 ? '&' : '?') + AF_MARKERS_PARAM;
 }
+
+// ESG affaire (base 100)
+(function(){
+  var affaireId = {{ affaire.id if affaire else 'null' }};
+  if (!affaireId) return;
+  var defaultAllocName = {{ esg_default_alloc|tojson }};
+  var fallbackFields = {{ esg_fields|tojson }};
+  var $alloc = document.getElementById('affaireEsgAlloc');
+  var $fieldsWrap = document.getElementById('affaireEsgFields');
+  var $unmatched = document.getElementById('affaireEsgUnmatched');
+  var $chart = document.getElementById('affaireEsgChart');
+  var metaLoaded = false;
+  var esgFields = [];
+  var esgRefIsins = [];
+  var esgAllocIsins = [];
+  var esgLabelMap = {};
+
+  function escHtml(str){
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>"']/g, function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[ch]);
+    });
+  }
+
+  function ensurePlotly(callback){
+    if (window.Plotly){ callback(); return; }
+    var existing = document.querySelector('script[data-loader=\"plotly\"]');
+    if (existing){
+      existing.addEventListener('load', function(){ callback(); });
+      return;
+    }
+    var s=document.createElement('script');
+    s.src='https://cdn.plot.ly/plotly-2.32.0.min.js';
+    s.async=true;
+    s.setAttribute('data-loader','plotly');
+    s.onload=function(){ callback(); };
+    document.head.appendChild(s);
+  }
+
+  function loadMeta(cb){
+    if (metaLoaded){
+      cb && cb();
+      return;
+    }
+    fetch('/dashboard/esg/fields')
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(data){
+        esgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
+        esgRefIsins = Array.isArray(data.ref_isins) ? data.ref_isins : [];
+        esgAllocIsins = Array.isArray(data.alloc_isins) ? data.alloc_isins : [];
+        if (esgAllocIsins.length){
+          esgRefIsins = esgRefIsins.filter(function(item){
+            var isin = item && item.isin ? String(item.isin) : '';
+            return isin && esgAllocIsins.indexOf(isin) !== -1;
+          });
+        }
+        metaLoaded = true;
+        renderFields();
+        renderAllocOptions();
+        cb && cb();
+      })
+      .catch(function(err){
+        console.warn('ESG meta load error', err);
+        esgFields = Array.isArray(fallbackFields) ? fallbackFields : [];
+        esgRefIsins = [];
+        metaLoaded = true;
+        renderFields();
+        renderAllocOptions();
+        cb && cb();
+      });
+  }
+
+  function renderAllocOptions(){
+    if (!$alloc) return;
+    var opts = ['<option value=\"\">— choisir —</option>'];
+    if (defaultAllocName){
+      opts.push('<option value=\"'+escHtml(defaultAllocName)+'\" data-kind=\"alloc\">Offre financiere globale — '+escHtml(defaultAllocName)+'</option>');
+    }
+    if (esgRefIsins && esgRefIsins.length){
+      opts.push('<optgroup label=\"Actifs notés ESG\">');
+      esgRefIsins.forEach(function(item){
+        var isin = item && item.isin ? String(item.isin) : '';
+        if (!isin) return;
+        var label = isin;
+        if (item.nom){ label = isin + ' — ' + item.nom; }
+        opts.push('<option value=\"'+escHtml(isin)+'\" data-kind=\"isin\">'+escHtml(label)+'</option>');
+      });
+      opts.push('</optgroup>');
+    }
+    $alloc.innerHTML = opts.join('');
+    if (defaultAllocName){ $alloc.value = defaultAllocName; }
+  }
+
+  function renderFields(){
+    if (!$fieldsWrap) return;
+    $fieldsWrap.innerHTML = '';
+    esgLabelMap = {};
+    if (!esgFields.length){
+      $fieldsWrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
+      return;
+    }
+    esgFields.forEach(function(f){
+      var btn = document.createElement('button');
+      btn.type='button';
+      btn.className='dim-btn support-esg-field';
+      btn.setAttribute('data-field', f.col || f.field || f.label || '');
+      btn.title = f.label || f.col || '';
+      btn.textContent = f.label || f.col || '';
+      if (f.col || f.field){
+        var key = f.col || f.field;
+        esgLabelMap[key] = f.label || key;
+      }
+      btn.addEventListener('click', function(){
+        if (btn.classList.contains('active')){
+          btn.classList.remove('active');
+        } else {
+          var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
+          if (actives.length >= 4) return;
+          btn.classList.add('active');
+        }
+        runAffaireEsg();
+      });
+      $fieldsWrap.appendChild(btn);
+    });
+    ensureDefaultFieldSelection();
+  }
+
+  function ensureDefaultFieldSelection(){
+    if (!$fieldsWrap) return;
+    var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
+    if (actives.length) return;
+    var fields = (Array.isArray(esgFields) ? esgFields : []).map(function(f){
+      return f.col || f.field || f.label;
+    }).filter(Boolean);
+    fields.slice(0, 4).forEach(function(field){
+      try {
+        var btn = $fieldsWrap.querySelector('[data-field=\"'+CSS.escape(field)+'\"]');
+        if (btn) btn.classList.add('active');
+      } catch(e) {}
+    });
+    actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
+    if (actives.length) return;
+    var btns = $fieldsWrap.querySelectorAll('.support-esg-field');
+    for (var i = 0; i < btns.length && i < 4; i++){
+      btns[i].classList.add('active');
+    }
+  }
+
+  function selectedFields(){
+    if (!$fieldsWrap) return [];
+    return Array.from($fieldsWrap.querySelectorAll('.support-esg-field.active')).map(function(b){
+      return b.getAttribute('data-field');
+    }).filter(Boolean);
+  }
+
+  function getReference(){
+    if (!$alloc) return null;
+    var opt = $alloc.options[$alloc.selectedIndex];
+    if (!opt) return null;
+    var value = $alloc.value || '';
+    if (!value) return null;
+    var kind = opt.getAttribute('data-kind');
+    if (!kind && /^[A-Z0-9]{9,12}$/.test(value)){ kind = 'isin'; }
+    if (!kind) kind = 'alloc';
+    return { kind: kind, value: value };
+  }
+
+  function runAffaireEsg(){
+    if (!metaLoaded){
+      loadMeta(function(){ runAffaireEsg(); });
+      return;
+    }
+    if (!esgFields.length){ renderFields(); return; }
+    ensureDefaultFieldSelection();
+    var fields = selectedFields();
+    if (!fields.length) return;
+    var ref = getReference();
+    if (!ref) return;
+    if ($unmatched){ $unmatched.style.display='none'; $unmatched.textContent=''; }
+    var params = new URLSearchParams();
+    params.set('fields', fields.join(','));
+    if (ref.kind === 'isin'){ params.set('alloc_isin', ref.value); }
+    else { params.set('alloc', ref.value); }
+    var asOfInput = document.querySelector('input[name=\"as_of\"]');
+    if (asOfInput && asOfInput.value){ params.set('as_of', asOfInput.value); }
+    ensurePlotly(function(){
+      fetch('/dashboard/affaires/' + encodeURIComponent(affaireId) + '/esg?' + params.toString())
+        .then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); })
+        .then(function(data){
+          if (data && data.error){
+            if ($unmatched){
+              $unmatched.textContent = data.error;
+              $unmatched.style.display = '';
+            }
+            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+            return;
+          }
+          var rows = (data && data.results) || [];
+          var unmatched = (data && data.unmatched_fields) || [];
+          if ($unmatched){
+            if (unmatched.length){
+              $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+              $unmatched.style.display = '';
+            } else {
+              $unmatched.textContent = '';
+              $unmatched.style.display = 'none';
+            }
+          }
+          var displayRows = rows.filter(function(r){ return r && r.index != null && r.affaire != null; });
+          if (!displayRows.length){ displayRows = rows; }
+          if (!displayRows.length){
+            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+            return;
+          }
+          var cats = displayRows.map(function(r){
+            return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
+          });
+          var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+          var cli = displayRows.map(function(r){ return r.affaire == null ? (r.client == null ? null : Number(r.client)) : Number(r.affaire); });
+          var traces = [
+            { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+            { x: cli, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+          ];
+          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 70 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(360, 120 + Math.max(4, cats.length)*32), legend:{ orientation:'h', y:-0.18, x:0, xanchor:'left' } };
+          var cfg = { displayModeBar: false, responsive: true };
+          Plotly.react('affaireEsgChart', traces, layout, cfg);
+          if ($chart){ $chart.style.display=''; }
+        })
+        .catch(function(err){
+          if ($unmatched){
+            $unmatched.textContent = 'Erreur de chargement ESG.';
+            $unmatched.style.display = '';
+          }
+          try{ console.warn('Affaire ESG fetch error', err); }catch(_){}
+          if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+        });
+    });
+  }
+
+  function init(){
+    loadMeta(function(){
+      ensureDefaultFieldSelection();
+      if (defaultAllocName && $alloc && $alloc.value === defaultAllocName){
+        runAffaireEsg();
+      }
+    });
+  }
+
+  var esgToggle = document.getElementById('esgToggle');
+  if (esgToggle){
+    esgToggle.addEventListener('click', function(){
+      setTimeout(function(){
+        var section = document.getElementById('esgSection');
+        if (section && section.style.display !== 'none'){ init(); }
+      }, 0);
+    });
+  }
+  var refreshBtn = document.getElementById('affaireEsgRefresh');
+  if (refreshBtn){
+    refreshBtn.addEventListener('click', function(){ runAffaireEsg(); });
+  }
+  if ($alloc){
+    $alloc.addEventListener('change', function(){ runAffaireEsg(); });
+  }
+  setTimeout(function(){
+    var section = document.getElementById('esgSection');
+    if (section && section.style.display !== 'none'){ init(); }
+  }, 0);
+})();
 function openAffTaskPage(){
   var params = new URLSearchParams();
   var fullname = '{{ (client_nom or "") ~ " " ~ (client_prenom or "") }}'.trim();
@@ -1314,6 +1711,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   (function(){
     var groups = [
       { key:'inv', toggleId:'invToggle', sectionId:'invSection' },
+      { key:'esg', toggleId:'esgToggle', sectionId:'esgSection' },
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
     ];
