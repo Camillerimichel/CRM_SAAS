@@ -1627,17 +1627,20 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
         ):
             if code_isin:
                 ref_isin_map[str(code_isin)] = nom
+        alloc_isins = set()
         for isin, nom in (
             db.query(Allocation.isin, Allocation.nom)
             .filter(Allocation.isin.isnot(None))
             .order_by(Allocation.isin.asc())
             .all()
         ):
-            if isin and str(isin) not in ref_isin_map:
+            if isin:
                 ref_isin_map[str(isin)] = nom
+                alloc_isins.add(str(isin))
         ref_isins = [{"isin": k, "nom": v} for k, v in sorted(ref_isin_map.items()) if k in esg_isins]
     except Exception:
         ref_isins = []
+        alloc_isins = set()
     try:
         alloc_names = [r[0] for r in db.query(Allocation.nom).filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()]
     except Exception:
@@ -1652,6 +1655,7 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
         "esg_fields": fields,
         "alloc_names": alloc_names,
         "ref_isins": ref_isins,
+        "alloc_isins": sorted(list(alloc_isins)),
         "debug": debug,
         "deprecated_aliases": deprecated_aliases,
         "legacy_mode": ESG_LEGACY_MODE,
@@ -17385,6 +17389,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     client_prenom = None
     client_id = None
     client_rh_id = None
+    client_allocation_name = None
+    client_allocation_id = None
     societe_gestion_nom = None
     societe_gestion_role = None
     try:
@@ -17398,6 +17404,29 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                     client_rh_id = getattr(cli, "commercial_id", None)
                 except Exception:
                     client_rh_id = None
+                try:
+                    row_cli_alloc = db.execute(
+                        text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"),
+                        {"cid": cli.id},
+                    ).fetchone()
+                    if row_cli_alloc:
+                        client_allocation_id = row_cli_alloc[0] if not hasattr(row_cli_alloc, "_mapping") else (row_cli_alloc._mapping.get("allocation_id") or row_cli_alloc[0])
+                    if client_allocation_id:
+                        row_alloc_name = db.execute(
+                            text("SELECT nom FROM allocations WHERE id = :aid"),
+                            {"aid": client_allocation_id},
+                        ).fetchone()
+                        if row_alloc_name:
+                            client_allocation_name = row_alloc_name[0] if not hasattr(row_alloc_name, "_mapping") else (row_alloc_name._mapping.get("nom") or row_alloc_name[0])
+                    if client_allocation_name is None and client_allocation_id:
+                        row_alloc_risque = db.execute(
+                            text("SELECT allocation_name FROM allocation_risque WHERE id = :aid"),
+                            {"aid": client_allocation_id},
+                        ).fetchone()
+                        if row_alloc_risque:
+                            client_allocation_name = row_alloc_risque[0] if not hasattr(row_alloc_risque, "_mapping") else (row_alloc_risque._mapping.get("allocation_name") or row_alloc_risque[0])
+                except Exception:
+                    client_allocation_name = None
                 # Société de gestion/courtage active pour le client
                 try:
                     row_soc = db.execute(
@@ -17811,6 +17840,95 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     except Exception:
         supports = []
 
+    # Note ESG agrégée (pondérée par valorisation) pour l'affaire
+    affaire_esg_grade = None
+    affaire_esg_score = None
+    affaire_esg_coverage_pct = None
+    affaire_esg_e_grade = None
+    affaire_esg_s_grade = None
+    affaire_esg_g_grade = None
+    try:
+        note_map = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7}
+        inv_map = {v: k for k, v in note_map.items()}
+        total_valo_esg = 0.0
+        esg_weighted_sum = 0.0
+        esg_weight_total = 0.0
+        e_weighted_sum = 0.0
+        e_weight_total = 0.0
+        s_weighted_sum = 0.0
+        s_weight_total = 0.0
+        g_weighted_sum = 0.0
+        g_weight_total = 0.0
+        for s in supports or []:
+            try:
+                valo = float(s.get("valo") or 0)
+            except Exception:
+                valo = 0.0
+            if valo <= 0:
+                continue
+            total_valo_esg += valo
+            notes = []
+            for key in ("noteE", "noteS", "noteG"):
+                raw = s.get(key)
+                if raw is None:
+                    continue
+                code = str(raw).strip().upper()[:1]
+                if code in note_map:
+                    notes.append(note_map[code])
+            if not notes:
+                continue
+            support_score = sum(notes) / float(len(notes))
+            esg_weighted_sum += support_score * valo
+            esg_weight_total += valo
+            e_raw = s.get("noteE")
+            s_raw = s.get("noteS")
+            g_raw = s.get("noteG")
+            if e_raw is not None:
+                e_code = str(e_raw).strip().upper()[:1]
+                if e_code in note_map:
+                    e_weighted_sum += note_map[e_code] * valo
+                    e_weight_total += valo
+            if s_raw is not None:
+                s_code = str(s_raw).strip().upper()[:1]
+                if s_code in note_map:
+                    s_weighted_sum += note_map[s_code] * valo
+                    s_weight_total += valo
+            if g_raw is not None:
+                g_code = str(g_raw).strip().upper()[:1]
+                if g_code in note_map:
+                    g_weighted_sum += note_map[g_code] * valo
+                    g_weight_total += valo
+        if esg_weight_total > 0:
+            affaire_esg_score = esg_weighted_sum / esg_weight_total
+            grade_num = int(round(affaire_esg_score))
+            if grade_num < 1:
+                grade_num = 1
+            if grade_num > 7:
+                grade_num = 7
+            affaire_esg_grade = inv_map.get(grade_num)
+            if total_valo_esg > 0:
+                affaire_esg_coverage_pct = (esg_weight_total / total_valo_esg) * 100.0
+        def _grade_from(weighted_sum: float, weight_total: float) -> str | None:
+            if weight_total <= 0:
+                return None
+            score = weighted_sum / weight_total
+            gnum = int(round(score))
+            if gnum < 1:
+                gnum = 1
+            if gnum > 7:
+                gnum = 7
+            return inv_map.get(gnum)
+        affaire_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
+        affaire_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
+        affaire_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
+    except Exception:
+        affaire_esg_grade = None
+        affaire_esg_score = None
+        affaire_esg_coverage_pct = None
+        affaire_esg_e_grade = None
+        affaire_esg_s_grade = None
+        affaire_esg_g_grade = None
+
     # Icône de comparaison SRRI contrat vs calculé
     def _icon_for_compare_srri(contract_srri, calc_srri):
         if contract_srri is None or calc_srri is None:
@@ -18094,6 +18212,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "client_nom": client_nom,
             "client_prenom": client_prenom,
             "client_rh_id": client_rh_id,
+            "client_allocation_name": client_allocation_name,
             # Tâches: assistance création locale
             "types": types,
             "categories": cats,
@@ -18145,6 +18264,12 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "duree_historique_aff_str": duree_historique_aff_str,
             "nb_contrats_ouverts_aff": nb_contrats_ouverts_aff,
             "nb_contrats_fermes_aff": nb_contrats_fermes_aff,
+            "affaire_esg_grade": affaire_esg_grade,
+            "affaire_esg_score": affaire_esg_score,
+            "affaire_esg_coverage_pct": affaire_esg_coverage_pct,
+            "affaire_esg_e_grade": affaire_esg_e_grade,
+            "affaire_esg_s_grade": affaire_esg_s_grade,
+            "affaire_esg_g_grade": affaire_esg_g_grade,
             # ESG UI context
             "alloc_names": alloc_names,
             "esg_fields": esg_fields,
@@ -25361,6 +25486,194 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             consolidated_support_contracts = {}
             consolidated_support_movements = {}
 
+    # Notes ESG par affaire (pondérées par valorisation à la date effective)
+    affaire_esg_map: dict[int, dict[str, str | None]] = {}
+    try:
+        affaire_ids = [int(a.get("id")) for a in client_affaires if a.get("id") is not None]
+    except Exception:
+        affaire_ids = []
+    if effective_support_date and affaire_ids:
+        try:
+            note_map = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7}
+            inv_map = {v: k for k, v in note_map.items()}
+            rows = db.execute(
+                text(
+                    """
+                    SELECT
+                      h.id_source AS affaire_id,
+                      h.valo AS valo,
+                      esg.note_e_grade AS noteE,
+                      esg.note_s_grade AS noteS,
+                      esg.note_g_grade AS noteG
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_support s ON s.id = h.id_support
+                    LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
+                    WHERE h.id_source IN :ids
+                      AND DATE(h.date) = :as_of_date
+                    """
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"ids": affaire_ids, "as_of_date": effective_support_date},
+            ).fetchall()
+            stats: dict[int, dict[str, float]] = {}
+            for r in rows or []:
+                mapping = r._mapping if hasattr(r, "_mapping") else None
+                aid_raw = mapping.get("affaire_id") if mapping else r[0]
+                try:
+                    aid = int(aid_raw) if aid_raw is not None else None
+                except Exception:
+                    aid = None
+                if aid is None:
+                    continue
+                try:
+                    valo = float(mapping.get("valo") if mapping else r[1] or 0)
+                except Exception:
+                    valo = 0.0
+                if valo <= 0:
+                    continue
+                st = stats.setdefault(aid, {
+                    "e_sum": 0.0, "e_w": 0.0,
+                    "s_sum": 0.0, "s_w": 0.0,
+                    "g_sum": 0.0, "g_w": 0.0,
+                })
+                e_raw = mapping.get("noteE") if mapping else (r[2] if len(r) > 2 else None)
+                s_raw = mapping.get("noteS") if mapping else (r[3] if len(r) > 3 else None)
+                g_raw = mapping.get("noteG") if mapping else (r[4] if len(r) > 4 else None)
+                if e_raw is not None:
+                    e_code = str(e_raw).strip().upper()[:1]
+                    if e_code in note_map:
+                        st["e_sum"] += note_map[e_code] * valo
+                        st["e_w"] += valo
+                if s_raw is not None:
+                    s_code = str(s_raw).strip().upper()[:1]
+                    if s_code in note_map:
+                        st["s_sum"] += note_map[s_code] * valo
+                        st["s_w"] += valo
+                if g_raw is not None:
+                    g_code = str(g_raw).strip().upper()[:1]
+                    if g_code in note_map:
+                        st["g_sum"] += note_map[g_code] * valo
+                        st["g_w"] += valo
+            for aid, st in stats.items():
+                def _grade(sum_val: float, weight: float) -> str | None:
+                    if weight <= 0:
+                        return None
+                    score = sum_val / weight
+                    gnum = int(round(score))
+                    if gnum < 1:
+                        gnum = 1
+                    if gnum > 7:
+                        gnum = 7
+                    return inv_map.get(gnum)
+                affaire_esg_map[aid] = {
+                    "noteE": _grade(st["e_sum"], st["e_w"]),
+                    "noteS": _grade(st["s_sum"], st["s_w"]),
+                    "noteG": _grade(st["g_sum"], st["g_w"]),
+                }
+        except Exception:
+            affaire_esg_map = {}
+
+    if affaire_esg_map:
+        for aff in client_affaires:
+            try:
+                aid = int(aff.get("id")) if aff.get("id") is not None else None
+            except Exception:
+                aid = None
+            if aid is None:
+                continue
+            esg = affaire_esg_map.get(aid) or {}
+            aff["noteE"] = esg.get("noteE")
+            aff["noteS"] = esg.get("noteS")
+            aff["noteG"] = esg.get("noteG")
+
+    # Note ESG agrégée (pondérée par valorisation) pour le client
+    client_esg_grade = None
+    client_esg_score = None
+    client_esg_coverage_pct = None
+    client_esg_e_grade = None
+    client_esg_s_grade = None
+    client_esg_g_grade = None
+    try:
+        note_map = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7}
+        inv_map = {v: k for k, v in note_map.items()}
+        total_valo_esg = 0.0
+        esg_weighted_sum = 0.0
+        esg_weight_total = 0.0
+        e_weighted_sum = 0.0
+        e_weight_total = 0.0
+        s_weighted_sum = 0.0
+        s_weight_total = 0.0
+        g_weighted_sum = 0.0
+        g_weight_total = 0.0
+        for s in consolidated_supports or []:
+            try:
+                valo = float(s.get("valo_totale") or 0)
+            except Exception:
+                valo = 0.0
+            if valo <= 0:
+                continue
+            total_valo_esg += valo
+            notes = []
+            for key in ("noteE", "noteS", "noteG"):
+                raw = s.get(key)
+                if raw is None:
+                    continue
+                code = str(raw).strip().upper()[:1]
+                if code in note_map:
+                    notes.append(note_map[code])
+            if not notes:
+                continue
+            support_score = sum(notes) / float(len(notes))
+            esg_weighted_sum += support_score * valo
+            esg_weight_total += valo
+            e_raw = s.get("noteE")
+            s_raw = s.get("noteS")
+            g_raw = s.get("noteG")
+            if e_raw is not None:
+                e_code = str(e_raw).strip().upper()[:1]
+                if e_code in note_map:
+                    e_weighted_sum += note_map[e_code] * valo
+                    e_weight_total += valo
+            if s_raw is not None:
+                s_code = str(s_raw).strip().upper()[:1]
+                if s_code in note_map:
+                    s_weighted_sum += note_map[s_code] * valo
+                    s_weight_total += valo
+            if g_raw is not None:
+                g_code = str(g_raw).strip().upper()[:1]
+                if g_code in note_map:
+                    g_weighted_sum += note_map[g_code] * valo
+                    g_weight_total += valo
+        if esg_weight_total > 0:
+            client_esg_score = esg_weighted_sum / esg_weight_total
+            grade_num = int(round(client_esg_score))
+            if grade_num < 1:
+                grade_num = 1
+            if grade_num > 7:
+                grade_num = 7
+            client_esg_grade = inv_map.get(grade_num)
+            if total_valo_esg > 0:
+                client_esg_coverage_pct = (esg_weight_total / total_valo_esg) * 100.0
+        def _grade_from(weighted_sum: float, weight_total: float) -> str | None:
+            if weight_total <= 0:
+                return None
+            score = weighted_sum / weight_total
+            gnum = int(round(score))
+            if gnum < 1:
+                gnum = 1
+            if gnum > 7:
+                gnum = 7
+            return inv_map.get(gnum)
+        client_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
+        client_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
+        client_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
+    except Exception:
+        client_esg_grade = None
+        client_esg_score = None
+        client_esg_coverage_pct = None
+        client_esg_e_grade = None
+        client_esg_s_grade = None
+        client_esg_g_grade = None
+
     # Répartition client par allocation (via SRRI -> niveau risque -> allocation_risque)
     allocation_by_level: dict[int, str] = {}
     try:
@@ -26558,6 +26871,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "consolidated_supports": consolidated_supports,
             "consolidated_support_contracts": consolidated_support_contracts,
             "consolidated_support_movements": consolidated_support_movements,
+            "client_esg_grade": client_esg_grade,
+            "client_esg_score": client_esg_score,
+            "client_esg_coverage_pct": client_esg_coverage_pct,
+            "client_esg_e_grade": client_esg_e_grade,
+            "client_esg_s_grade": client_esg_s_grade,
+            "client_esg_g_grade": client_esg_g_grade,
             # Données pour graphique allocations (lignes)
             "alloc_series": alloc_series,
             "client_sicav": client_sicav,
