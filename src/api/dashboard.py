@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, bindparam, desc, case
+from sqlalchemy import func, or_, bindparam, desc, case, inspect
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -74,6 +74,24 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 logger = logging.getLogger("uvicorn.error")
+
+_HIST_AFFAIRE_ID_COL: str | None = None
+
+
+def _hist_affaire_id_col(db: Session):
+    """Resolve the historique-affaire FK column (id_affaire vs legacy id)."""
+    global _HIST_AFFAIRE_ID_COL
+    if _HIST_AFFAIRE_ID_COL:
+        return getattr(HistoriqueAffaire, _HIST_AFFAIRE_ID_COL)
+    col_name = "id"
+    try:
+        cols = {c.get("name") for c in inspect(db.get_bind()).get_columns("mariadb_historique_affaire_w")}
+        if "id_affaire" in cols:
+            col_name = "id_affaire"
+    except Exception:
+        col_name = "id"
+    _HIST_AFFAIRE_ID_COL = col_name
+    return getattr(HistoriqueAffaire, col_name)
 
 
 def _require_client_read(request: Request, db: Session, client_id: int):
@@ -2983,12 +3001,13 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         perf_chart_svg = _build_svg_bar_chart(perf_labels[:6], ann_perf[:6], "Performance annuelle (%)")
 
     # Contrats (affaires)
+    hist_aff_col = _hist_affaire_id_col(db)
     subq_aff = (
         db.query(
-            HistoriqueAffaire.id.label("affaire_id"),
+            hist_aff_col.label("affaire_id"),
             func.max(HistoriqueAffaire.date).label("last_date")
         )
-        .group_by(HistoriqueAffaire.id)
+        .group_by(hist_aff_col)
         .subquery()
     )
     affaires_rows = (
@@ -3004,7 +3023,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         .join(subq_aff, subq_aff.c.affaire_id == Affaire.id)
         .join(
             HistoriqueAffaire,
-            (HistoriqueAffaire.id == subq_aff.c.affaire_id) &
+            (hist_aff_col == subq_aff.c.affaire_id) &
             (HistoriqueAffaire.date == subq_aff.c.last_date)
         )
         .filter(Affaire.id_personne == client_id)
@@ -16699,6 +16718,8 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     group_filter_param = request.query_params.get("group_id")
     group_filter_label: str | None = None
     risk_filter = (request.query_params.get("risk") or "").lower().strip()
+    client_filter = (request.query_params.get("client") or "").strip()
+    client_id_param = (request.query_params.get("client_id") or "").strip()
     page_size = 50
     try:
         page = int(request.query_params.get("page") or 1)
@@ -16715,12 +16736,13 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     srri_chart = [{"srri": s.SRRI, "nb": s.nb} for s in srri_data]
 
     # dernière ligne d'historique par affaire (valo, perf 52s, volat)
+    hist_aff_col = _hist_affaire_id_col(db)
     subq = (
         db.query(
-            HistoriqueAffaire.id.label("affaire_id"),
+            hist_aff_col.label("affaire_id"),
             func.max(HistoriqueAffaire.date).label("last_date")
         )
-        .group_by(HistoriqueAffaire.id)
+        .group_by(hist_aff_col)
         .subquery()
     )
     norm_vol = case((func.abs(HistoriqueAffaire.volat) <= 1, HistoriqueAffaire.volat * 100.0), else_=HistoriqueAffaire.volat)
@@ -16746,10 +16768,10 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         HistoriqueAffaire.perf_sicav_52.label("last_perf"),
         HistoriqueAffaire.volat.label("last_volat"),
         srri_calc_expr.label("srri_calc_case"),
-    ).join(subq, subq.c.affaire_id == Affaire.id)
-    affaires_query = affaires_query.join(
+    ).outerjoin(subq, subq.c.affaire_id == Affaire.id)
+    affaires_query = affaires_query.outerjoin(
         HistoriqueAffaire,
-        (HistoriqueAffaire.id == subq.c.affaire_id) &
+        (hist_aff_col == subq.c.affaire_id) &
         (HistoriqueAffaire.date == subq.c.last_date)
     ).outerjoin(Client, Client.id == Affaire.id_personne)
     filter_ids: set[int] | None = None
@@ -16799,6 +16821,30 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         elif risk_filter == "below":
             # En-dessous = SRRI déclaré inférieur au SRRI calculé
             affaires_query = affaires_query.filter(Affaire.SRRI < srri_calc_expr)
+
+    if client_id_param:
+        try:
+            client_id_val = int(client_id_param)
+        except Exception:
+            client_id_val = None
+        if client_id_val is not None:
+            affaires_query = affaires_query.filter(Affaire.id_personne == client_id_val)
+
+    if client_filter:
+        like = f"%{client_filter}%"
+        conds = [
+            Affaire.ref.ilike(like),
+            Client.nom.ilike(like),
+            Client.prenom.ilike(like),
+        ]
+        try:
+            client_num = int(client_filter)
+        except Exception:
+            client_num = None
+        if client_num is not None:
+            conds.append(Client.id == client_num)
+            conds.append(Affaire.id == client_num)
+        affaires_query = affaires_query.filter(or_(*conds))
 
     total_filtered = affaires_query.count()
     affaires_query = affaires_query.order_by(desc(HistoriqueAffaire.valo), Affaire.id)
@@ -16920,6 +16966,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
             "group_filter_label": group_filter_label,
+            "client_filter": client_filter,
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,

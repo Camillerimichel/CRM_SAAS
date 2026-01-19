@@ -202,7 +202,7 @@
                     <th>Vol. 52s (%)</th>
                 </tr>
                 <tr>
-                    <th><input type="text" id="contrat-filter" placeholder="Filtrer..."></th>
+                    <th><input type="text" id="contrat-filter" placeholder="Filtrer..." value="{{ client_filter|default('') }}"></th>
                     <th>
                         <select id="srri-icon-filter">
                             <option value=""></option>
@@ -310,8 +310,30 @@ $(document).ready(function () {
         ]
     });
 
+    function applyServerClientFilter(val){
+        try {
+            var params = new URLSearchParams(window.location.search);
+            var cur = params.get('client') || '';
+            var next = String(val || '').trim();
+            if (next === cur) return;
+            if (next) params.set('client', next); else params.delete('client');
+            params.delete('page');
+            window.location.search = params.toString();
+        } catch(e) {}
+    }
+
     // Filtres texte simples
-    $('#contrat-filter').on('keyup change', function () { table.column(0).search(this.value).draw(); });
+    var clientFilterTimer = null;
+    $('#contrat-filter').on('keyup', function (e) {
+        if (e && e.key === 'Enter') {
+            applyServerClientFilter(this.value);
+            return;
+        }
+        clearTimeout(clientFilterTimer);
+        var val = this.value;
+        clientFilterTimer = setTimeout(function(){ applyServerClientFilter(val); }, 600);
+    });
+    $('#contrat-filter').on('change', function () { applyServerClientFilter(this.value); });
     $('#date-debut-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
 
     // filtre par icône SRRI (colonne 1) — recherche par emoji
@@ -323,6 +345,15 @@ $(document).ready(function () {
 
     // bouton effacer (réinitialise aussi le filtre SRRI)
     window.clearFilters = function() {
+        try {
+            var params = new URLSearchParams(window.location.search);
+            if (params.has('client')) {
+                params.delete('client');
+                params.delete('page');
+                window.location.search = params.toString();
+                return;
+            }
+        } catch(e) {}
         $('#contrat-filter, #date-debut-filter, #montant-filter, #perf-filter, #volat-filter').val('');
         $('#srri-icon-filter').val('');
         table.search('');
