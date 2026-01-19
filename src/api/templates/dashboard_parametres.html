@@ -633,7 +633,9 @@
                     <th style="padding:0.75rem;">Type</th>
                     <th style="padding:0.75rem;">Date de validité</th>
                     <th style="padding:0.75rem;">Document</th>
-                    <th style="padding:0.75rem; width:160px; text-align:center;">Actions</th>
+                    <th style="padding:0.75rem;">Contrôle</th>
+                    <th style="padding:0.75rem;">Validation</th>
+                    <th style="padding:0.75rem; width:200px; text-align:center;">Actions</th>
                   </tr>
                   <tr style="text-align:left; border-bottom:1px solid var(--border); background:rgba(31,43,108,0.04);">
                     <th style="padding:0.5rem;">
@@ -650,6 +652,8 @@
                     <th style="padding:0.5rem;">
                       <input id="cd_filter_doc" type="text" placeholder="Nom du fichier" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
                     </th>
+                    <th style="padding:0.5rem;"></th>
+                    <th style="padding:0.5rem;"></th>
                     <th style="padding:0.5rem;">
                       <button id="cd_filter_reset" type="button" class="btn btn-list btn-list-primary" style="width:100%; justify-content:center;">Réinitialiser</button>
                     </th>
@@ -666,6 +670,29 @@
                         {% else %}—{% endif %}
                       </td>
                       <td style="padding:0.65rem 0.75rem;">{{ doc.original_filename or doc.stored_filename }}</td>
+                      <td style="padding:0.65rem 0.75rem; min-width:220px;">
+                        {% set controle_status = doc.controle_status or doc.controle_statut or '—' %}
+                        {% set controle_resume = doc.controle_resume or '' %}
+                        {% set score = doc.controle_score_display or '' %}
+                        {% set controle_color = '#166534' if controle_status == 'OK' else '#b45309' if controle_status == 'WARNING' else '#b91c1c' if controle_status == 'KO' else '#6b7280' %}
+                        <div style="font-weight:600; color:{{ controle_color }};">{{ controle_status }}{% if score %} • {{ score }}{% endif %}</div>
+                        {% if controle_resume %}
+                          <div class="muted" style="font-size:0.8rem;" title="{{ controle_resume }}">{{ controle_resume[:120] }}{% if controle_resume|length > 120 %}…{% endif %}</div>
+                        {% else %}
+                          <div class="muted" style="font-size:0.8rem;">—</div>
+                        {% endif %}
+                      </td>
+                      <td style="padding:0.65rem 0.75rem; min-width:150px;">
+                        {% if doc.validation_decision %}
+                          {% set val_color = '#166534' if doc.validation_decision == 'ACCEPT' else '#b91c1c' %}
+                          <div style="font-weight:600; color:{{ val_color }};">{{ doc.validation_decision }}</div>
+                          {% if doc.validation_at %}
+                            <div class="muted" style="font-size:0.8rem;">{{ doc.validation_at }}</div>
+                          {% endif %}
+                        {% else %}
+                          <div class="muted" style="font-size:0.8rem;">—</div>
+                        {% endif %}
+                      </td>
                       <td style="padding:0.65rem 0.75rem; white-space:nowrap;">
                         <a class="btn btn-list btn-list-primary" href="{{ doc.view_url }}" target="_blank" rel="noopener" title="Prévisualiser">
                           <i class="fa-solid fa-eye"></i>
@@ -673,6 +700,17 @@
                         <a class="btn btn-list btn-list-primary" href="{{ doc.download_url }}" title="Télécharger">
                           <i class="fa-solid fa-download"></i>
                         </a>
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.analyse_url }}" title="Validation">
+                          <i class="fa-solid fa-circle-check"></i>
+                        </a>
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.export_pdf_url }}" title="Exporter PDF">
+                          <i class="fa-solid fa-file-pdf"></i>
+                        </a>
+                        <form method="post" action="{{ doc.reanalyze_url }}?open=courtierDocuments" style="display:inline;">
+                          <button type="submit" class="btn btn-list btn-list-primary" title="Relancer l'analyse">
+                            <i class="fa-solid fa-rotate-right"></i>
+                          </button>
+                        </form>
                         <a class="btn btn-list btn-list-primary" href="{{ doc.edit_url }}" title="Modifier">
                           <i class="fa-solid fa-pen-to-square"></i>
                         </a>
@@ -748,14 +786,14 @@
               <a href="/dashboard/parametres?open=courtierDocuments" class="btn-add" style="margin-left:1rem;">Annuler</a>
             </div>
           {% endif %}
-          <form method="post" action="/dashboard/parametres/courtier/documents?open=courtierDocuments" enctype="multipart/form-data" class="card" style="margin:0;">
+          <form id="courtierDocumentsEditForm" method="post" action="/dashboard/parametres/courtier/documents?open=courtierDocuments" enctype="multipart/form-data" class="card" style="margin:0;">
             {% if courtier_document_edit %}
               <input type="hidden" name="doc_id" value="{{ courtier_document_edit.id }}" />
             {% endif %}
             <div class="form-row">
               <div class="field" style="min-width:260px;">
                 <label>Type de document</label>
-                <select name="activite_id" required {% if not compliance_activites %}disabled{% endif %}>
+                <select id="courtierDocActiviteSelect" name="activite_id" required {% if not compliance_activites %}disabled{% endif %}>
                   <option value="">Choisir…</option>
                   {% for item in compliance_activites %}
                     {% set opt_id = item.id %}
@@ -763,6 +801,18 @@
                   {% endfor %}
                   {% if not compliance_activites %}
                     <option value="">Aucune activité disponible</option>
+                  {% endif %}
+                </select>
+              </div>
+              <div class="field" style="min-width:260px;">
+                <label>Sous-type (règle)</label>
+                <select id="courtierDocSubtypeSelect" name="document_type_id" required {% if not document_types %}disabled{% endif %}>
+                  <option value="">Choisir…</option>
+                  {% for item in document_types %}
+                    <option value="{{ item.id }}" data-activite="{{ item.activite_id }}" {% if courtier_document_edit and (item.id|string) == (courtier_document_edit.document_type_id|string) %}selected{% endif %}>{{ item.libelle or item.code }}</option>
+                  {% endfor %}
+                  {% if not document_types %}
+                    <option value="">Aucun sous-type disponible</option>
                   {% endif %}
                 </select>
               </div>
@@ -2848,6 +2898,48 @@ document.addEventListener('DOMContentLoaded', function(){
         }
       });
     }
+  }
+  const shouldScrollCourtierDocEdit = {{ 'true' if courtier_document_edit else 'false' }};
+  if (open === 'courtierDocuments'){
+    const scrollOffset = 80;
+    const scrollToEl = (el) => {
+      if (!el) { return; }
+      requestAnimationFrame(() => {
+        const top = el.getBoundingClientRect().top + window.pageYOffset - scrollOffset;
+        window.scrollTo({ top, behavior: 'smooth' });
+      });
+    };
+    if (shouldScrollCourtierDocEdit){
+      scrollToEl(document.getElementById('courtierDocumentsEditForm'));
+    } else {
+      scrollToEl(document.getElementById('courtierDocumentsPanel'));
+    }
+  }
+  const activiteSelect = document.getElementById('courtierDocActiviteSelect');
+  const subtypeSelect = document.getElementById('courtierDocSubtypeSelect');
+  if (activiteSelect && subtypeSelect){
+    const updateSubtypeOptions = () => {
+      const activiteValue = activiteSelect.value;
+      const options = Array.from(subtypeSelect.querySelectorAll('option[data-activite]'));
+      let hasVisible = false;
+      options.forEach((opt) => {
+        const match = !activiteValue || opt.dataset.activite === activiteValue;
+        opt.hidden = !match;
+        if (match){
+          hasVisible = true;
+        }
+      });
+      if (!hasVisible){
+        subtypeSelect.value = '';
+      } else {
+        const selectedOpt = subtypeSelect.selectedOptions[0];
+        if (selectedOpt && selectedOpt.hidden){
+          subtypeSelect.value = '';
+        }
+      }
+    };
+    activiteSelect.addEventListener('change', updateSubtypeOptions);
+    updateSubtypeOptions();
   }
 
   document.querySelectorAll('[data-toggle-form]').forEach(btn => {

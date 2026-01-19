@@ -1,0 +1,6 @@
+document_id,activite_id,original_filename,analyse_id,score_global,statut,analysed_at
+1,2,2025 Attestation CNCEF.pdf,20,100.00,OK,2026-01-19 17:01:57
+
+keyword_id,expression,is_regex,poids,obligatoire,trouve,occurrences,error
+1,adhésion,False,5.0,True,True,2,
+2,professionnelle|membre,True,4.5,True,True,2,

@@ -1,6 +1,7 @@
 import logging
 import os
 import base64
+import json
 import re
 import secrets
 import math
@@ -18,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 import csv
 import io
+import httpx
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl, quote
 import ssl
 import xml.etree.ElementTree as ET
@@ -6663,6 +6665,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     groupes_details: list[dict] = []
     # Courtier Documents officiels
     compliance_activites: list[dict] = []
+    document_types: list[dict] = []
     courtier_documents: list[dict] = []
     courtier_document_edit: dict | None = None
     # KPIs portefeuille
@@ -6959,6 +6962,25 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         compliance_activites = []
 
     try:
+        _ensure_document_controle_tables(db)
+        doc_type_table = _resolve_table_name(db, ["document_controle_document_type"])
+        if doc_type_table:
+            document_types = rows_to_dicts(
+                db.execute(
+                    text(
+                        f"""
+                        SELECT id, activite_id, code, libelle, seuil_confiance, actif
+                        FROM {doc_type_table}
+                        WHERE COALESCE(actif, 1) = 1
+                        ORDER BY activite_id, libelle, code
+                        """
+                    )
+                ).fetchall()
+            )
+    except Exception:
+        document_types = []
+
+    try:
         orias_detail_row = db.execute(
             text(
                 f"""
@@ -6976,7 +6998,18 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
 
     doc_table_name = _ensure_courtier_documents_table(db)
     if doc_table_name:
+        controle_columns_enabled = _ensure_courtier_documents_columns(db, doc_table_name)
+        _ensure_courtier_documents_subtype_column(db, doc_table_name)
+        _ensure_document_controle_tables(db)
         try:
+            controle_select = ""
+            if controle_columns_enabled:
+                controle_select = """
+                               d.controle_status,
+                               d.controle_resume,
+                               d.controle_checked_at,
+                               d.controle_error,
+                """
             raw_docs = rows_to_dicts(
                 db.execute(
                     text(
@@ -6989,11 +7022,31 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                                d.stored_path,
                                d.mime_type,
                                d.file_size,
+                               d.document_type_id,
+                               {controle_select}
                                d.created_at,
                                d.updated_at,
-                               c.activite AS activite_libelle
+                               c.activite AS activite_libelle,
+                               a.id AS analyse_id,
+                               a.score_global AS controle_score,
+                               a.statut AS controle_statut,
+                               a.analysed_at AS controle_analysed_at,
+                               v.decision AS validation_decision,
+                               v.validated_at AS validation_at
                         FROM {doc_table_name} d
-                        LEFT JOIN Compliance_rc_pro c ON c.id = d.activite_id
+                        LEFT JOIN {compliance_table} c ON c.id = d.activite_id
+                        LEFT JOIN (
+                            SELECT document_id, MAX(id) AS last_analyse_id
+                            FROM document_controle_analyse
+                            GROUP BY document_id
+                        ) la ON la.document_id = d.id
+                        LEFT JOIN document_controle_analyse a ON a.id = la.last_analyse_id
+                        LEFT JOIN (
+                            SELECT analyse_id, MAX(id) AS last_validation_id
+                            FROM document_controle_validation
+                            GROUP BY analyse_id
+                        ) lv ON lv.analyse_id = a.id
+                        LEFT JOIN document_controle_validation v ON v.id = lv.last_validation_id
                         ORDER BY COALESCE(c.activite, ''), d.date_validite DESC, d.id DESC
                         """
                     )
@@ -7008,11 +7061,24 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                 else:
                     item["date_validite_display"] = ""
                     item["is_expired"] = False
+                if item.get("controle_score") is not None:
+                    try:
+                        item["controle_score_display"] = f"{float(item.get('controle_score')):.2f}%"
+                    except Exception:
+                        item["controle_score_display"] = ""
+                else:
+                    item["controle_score_display"] = ""
+                item["validation_decision"] = item.get("validation_decision") or ""
                 iid = item.get("id")
+                item["document_type_id"] = item.get("document_type_id")
                 item["download_url"] = f"/dashboard/parametres/courtier/documents/{iid}/download"
                 item["view_url"] = f"/dashboard/parametres/courtier/documents/{iid}/view"
                 item["delete_url"] = f"/dashboard/parametres/courtier/documents/{iid}/delete"
                 item["edit_url"] = f"/dashboard/parametres?open=courtierDocuments&editDoc={iid}"
+                item["analyse_url"] = f"/dashboard/parametres/courtier/documents/{iid}/controle"
+                item["reanalyze_url"] = f"/dashboard/parametres/courtier/documents/{iid}/analyse"
+                item["export_csv_url"] = f"/dashboard/parametres/courtier/documents/{iid}/export?format=csv"
+                item["export_pdf_url"] = f"/dashboard/parametres/courtier/documents/{iid}/export?format=pdf"
                 item["date_validite_value"] = parsed_date.isoformat() if parsed_date else ""
                 if edit_doc_id is not None and iid == edit_doc_id and courtier_document_edit is None:
                     courtier_document_edit = dict(item)
@@ -7030,6 +7096,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                 courtier_document_edit = {
                     "id": row.get("id"),
                     "activite_id": row.get("activite_id"),
+                    "document_type_id": row.get("document_type_id"),
                     "date_validite_value": parsed_date.isoformat() if parsed_date else "",
                     "original_filename": row.get("original_filename") or row.get("stored_filename"),
                 }
@@ -7333,6 +7400,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "remun_extra_cols": remun_extra_cols,
             "garanties_normes": garanties_normes,
             "compliance_activites": compliance_activites,
+            "document_types": document_types,
             "courtier_documents": courtier_documents,
             "courtier_document_edit": courtier_document_edit,
             "admin_types": admin_types,
@@ -7379,6 +7447,7 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
     form = await request.form()
     raw_doc_id = form.get("doc_id")
     raw_activite = form.get("activite_id") or form.get("activite")
+    raw_document_type_id = form.get("document_type_id") or form.get("document_type")
     raw_date = form.get("date_validite")
     upload: UploadFile | None = form.get("document_file") or form.get("document_pdf") or form.get("document")
 
@@ -7407,12 +7476,15 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
         return RedirectResponse(url=url, status_code=303)
 
     activite_id = _parse_int(raw_activite)
+    document_type_id = _parse_int(raw_document_type_id)
     date_value = raw_date.strip() if isinstance(raw_date, str) else raw_date
     parsed_date = _parse_date_safe(date_value)
     if date_value and parsed_date is None:
         return await _error("Date de validité invalide.", keep_edit=True)
     if activite_id is None:
         return await _error("Type de document requis.", keep_edit=True)
+    if document_type_id is None:
+        return await _error("Sous-type requis.", keep_edit=True)
 
     has_new_file = bool(upload and getattr(upload, "filename", ""))
     if doc_id is None and not has_new_file:
@@ -7426,18 +7498,43 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
     else:
         mime_type = None
 
+    compliance_table = _resolve_table_name(db, ["Compliance_rc_pro", "compliance_rc_pro"]) or "Compliance_rc_pro"
     try:
-        exists = db.execute(
-            text("SELECT 1 FROM Compliance_rc_pro WHERE id = :id LIMIT 1"), {"id": activite_id}
+        doc_type_row = db.execute(
+            text(f"SELECT activite FROM {compliance_table} WHERE id = :id LIMIT 1"),
+            {"id": activite_id},
         ).fetchone()
     except Exception:
-        exists = None
-    if not exists:
+        doc_type_row = None
+    if not doc_type_row:
         return await _error("Type de document introuvable.", keep_edit=True)
+
+    _ensure_document_controle_tables(db)
+    doc_type_table = _resolve_table_name(db, ["document_controle_document_type"])
+    if not doc_type_table:
+        return await _error("Sous-type introuvable.", keep_edit=True)
+    try:
+        subtype_row = db.execute(
+            text(
+                f"""
+                SELECT id
+                FROM {doc_type_table}
+                WHERE id = :tid AND activite_id = :aid AND COALESCE(actif, 1) = 1
+                LIMIT 1
+                """
+            ),
+            {"tid": document_type_id, "aid": activite_id},
+        ).fetchone()
+    except Exception:
+        subtype_row = None
+    if not subtype_row:
+        return await _error("Sous-type invalide pour l'activité sélectionnée.", keep_edit=True)
 
     table_name = _ensure_courtier_documents_table(db)
     if not table_name:
         return await _error("Impossible de préparer le stockage des documents.", keep_edit=True)
+    controle_columns_enabled = _ensure_courtier_documents_columns(db, table_name)
+    _ensure_courtier_documents_subtype_column(db, table_name)
 
     existing_doc = None
     if doc_id is not None:
@@ -7451,6 +7548,10 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
     stored_filename: str | None
     stored_path: str | None
     file_size: int
+    controle_status: str | None = None
+    controle_resume: str | None = None
+    controle_checked_at: str | None = None
+    controle_error: str | None = None
     new_dest_path: Path | None = None
     previous_path: Path | None = None
 
@@ -7496,6 +7597,11 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
         stored_filename = existing_doc.get("stored_filename")
         stored_path = existing_doc.get("stored_path") or stored_filename
         file_size = existing_doc.get("file_size") or 0
+        if controle_columns_enabled:
+            controle_status = existing_doc.get("controle_status")
+            controle_resume = existing_doc.get("controle_resume")
+            controle_checked_at = existing_doc.get("controle_checked_at")
+            controle_error = existing_doc.get("controle_error")
         try:
             previous_path = _resolve_document_path(existing_doc)
         except Exception:
@@ -7506,6 +7612,7 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
     if doc_id is None:
         params = {
             "activite_id": activite_id,
+            "document_type_id": document_type_id,
             "date_validite": date_iso,
             "original_filename": original_filename,
             "stored_filename": stored_filename,
@@ -7514,21 +7621,18 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
             "file_size": file_size,
         }
         try:
-            db.execute(
-                text(
-                    f"""
-                    INSERT INTO {table_name} (
-                        activite_id, date_validite, original_filename, stored_filename,
-                        stored_path, mime_type, file_size, created_at, updated_at
-                    ) VALUES (
-                        :activite_id, :date_validite, :original_filename, :stored_filename,
-                        :stored_path, :mime_type, :file_size, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                    )
-                    """
-                ),
-                params,
-            )
+            insert_sql = f"""
+                INSERT INTO {table_name} (
+                    activite_id, document_type_id, date_validite, original_filename, stored_filename,
+                    stored_path, mime_type, file_size, created_at, updated_at
+                ) VALUES (
+                    :activite_id, :document_type_id, :date_validite, :original_filename, :stored_filename,
+                    :stored_path, :mime_type, :file_size, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            result = db.execute(text(insert_sql), params)
             db.commit()
+            doc_id = result.lastrowid
         except Exception as exc:
             logger.error(f"failed to persist courtier document metadata: {exc}")
             try:
@@ -7541,6 +7645,7 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
         update_params = {
             "id": doc_id,
             "activite_id": activite_id,
+            "document_type_id": document_type_id,
             "date_validite": date_iso,
             "original_filename": original_filename,
             "stored_filename": stored_filename,
@@ -7549,23 +7654,20 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
             "file_size": file_size,
         }
         try:
-            db.execute(
-                text(
-                    f"""
-                    UPDATE {table_name}
-                    SET activite_id = :activite_id,
-                        date_validite = :date_validite,
-                        original_filename = :original_filename,
-                        stored_filename = :stored_filename,
-                        stored_path = :stored_path,
-                        mime_type = :mime_type,
-                        file_size = :file_size,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                    """
-                ),
-                update_params,
-            )
+            update_sql = f"""
+                UPDATE {table_name}
+                SET activite_id = :activite_id,
+                    document_type_id = :document_type_id,
+                    date_validite = :date_validite,
+                    original_filename = :original_filename,
+                    stored_filename = :stored_filename,
+                    stored_path = :stored_path,
+                    mime_type = :mime_type,
+                    file_size = :file_size,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                """
+            db.execute(text(update_sql), update_params)
             db.commit()
         except Exception as exc:
             logger.error(f"failed to update courtier document metadata: {exc}")
@@ -7581,6 +7683,35 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
             except Exception as exc:
                 logger.warning(f"failed to remove previous document file {previous_path}: {exc}")
 
+    if has_new_file and doc_id is not None and new_dest_path:
+        controle_payload = _run_document_control(
+            db,
+            document_id=doc_id,
+            activite_id=activite_id,
+            document_type_id=document_type_id,
+            file_bytes=file_bytes,
+            filename=original_filename,
+            user_id=user_id,
+            source="AUTO",
+        )
+        if controle_columns_enabled:
+            controle_status = controle_payload.get("status")
+            controle_resume = controle_payload.get("resume")
+            controle_checked_at = datetime.utcnow().isoformat()
+            controle_error = controle_payload.get("error")
+    _insert_document_controle_audit(
+        db,
+        document_id=doc_id,
+        action="upload_document",
+        details={
+            "filename": original_filename,
+            "mime_type": content_type,
+            "file_size": file_size,
+            "activite_id": activite_id,
+        },
+        user_id=user_id,
+    )
+
     return RedirectResponse(
         url="/dashboard/parametres?open=courtierDocuments&saved=1",
         status_code=303,
@@ -7589,7 +7720,7 @@ async def upload_courtier_document(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/courtier/documents/{doc_id}/delete", response_class=HTMLResponse)
 async def delete_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
-    _require_admin_or_write(request, db)
+    access, _scope = _require_admin_or_write(request, db)
     table_name = _ensure_courtier_documents_table(db)
     if not table_name:
         from urllib.parse import quote
@@ -7613,6 +7744,13 @@ async def delete_courtier_document(doc_id: int, request: Request, db: Session = 
             {"id": doc_id},
         )
         db.commit()
+        _insert_document_controle_audit(
+            db,
+            document_id=doc_id,
+            action="delete_document",
+            details={"stored_path": row.get("stored_path")},
+            user_id=getattr(access, "user_id", None),
+        )
     except Exception as exc:
         logger.error(f"failed to delete courtier document metadata: {exc}")
         from urllib.parse import quote
@@ -7644,6 +7782,227 @@ def download_courtier_document(doc_id: int, request: Request, db: Session = Depe
 def view_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin_or_write(request, db)
     return _serve_courtier_document(doc_id, inline=True, db=db)
+
+
+@router.post("/parametres/courtier/documents/{doc_id}/analyse", response_class=HTMLResponse)
+async def reanalyze_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _scope = _require_admin_or_write(request, db)
+    table_name = _ensure_courtier_documents_table(db)
+    if not table_name:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Aucune table de documents disponible.')}",
+            status_code=303,
+        )
+    row = _get_courtier_document(db, table_name, doc_id)
+    if not row:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Document introuvable.')}",
+            status_code=303,
+        )
+    try:
+        doc_path = _resolve_document_path(row)
+        file_bytes = doc_path.read_bytes()
+    except Exception:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres?open=courtierDocuments&error=1&errmsg={quote('Lecture du fichier impossible.')}",
+            status_code=303,
+        )
+    _run_document_control(
+        db,
+        document_id=doc_id,
+        activite_id=int(row.get("activite_id") or 0),
+        document_type_id=row.get("document_type_id"),
+        file_bytes=file_bytes,
+        filename=row.get("original_filename") or row.get("stored_filename"),
+        user_id=getattr(access, "user_id", None),
+        source="RECHECK",
+    )
+    return RedirectResponse(
+        url="/dashboard/parametres?open=courtierDocuments&saved=1",
+        status_code=303,
+    )
+
+
+@router.get("/parametres/courtier/documents/{doc_id}/controle", response_class=HTMLResponse)
+def view_document_controle(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
+    table_name = _ensure_courtier_documents_table(db)
+    if not table_name:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    row = _get_courtier_document(db, table_name, doc_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    try:
+        compliance_table = _resolve_table_name(db, ["Compliance_rc_pro", "compliance_rc_pro"])
+        if compliance_table and row.get("activite_id") is not None:
+            activite_row = db.execute(
+                text(
+                    f"""
+                    SELECT activite
+                    FROM {compliance_table}
+                    WHERE id = :aid
+                    LIMIT 1
+                    """
+                ),
+                {"aid": row.get("activite_id")},
+            ).fetchone()
+            if activite_row:
+                row["activite_libelle"] = activite_row[0]
+    except Exception:
+        pass
+    _ensure_document_controle_tables(db)
+    analyse = _fetch_latest_document_analyse(db, doc_id)
+    validation = _fetch_latest_validation(db, analyse.get("id")) if analyse else None
+    detail = {}
+    if analyse:
+        try:
+            detail = json.loads(analyse.get("analyse_detail") or "{}")
+        except Exception:
+            detail = {}
+    return templates.TemplateResponse(
+        "document_controle_detail.html",
+        {
+            "request": request,
+            "document": row,
+            "analyse": analyse,
+            "validation": validation,
+            "detail": detail,
+        },
+    )
+
+
+@router.post("/parametres/courtier/documents/{doc_id}/validation", response_class=HTMLResponse)
+async def validate_document_controle(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _scope = _require_admin_or_write(request, db)
+    user_id = getattr(access, "user_id", None)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    form = await request.form()
+    decision = (form.get("decision") or "").strip().upper()
+    commentaire = (form.get("commentaire") or "").strip() or None
+    analyse_id_raw = form.get("analyse_id")
+    try:
+        analyse_id = int(str(analyse_id_raw))
+    except Exception:
+        analyse_id = None
+    if decision not in {"ACCEPT", "REJECT"} or analyse_id is None:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres/courtier/documents/{doc_id}/controle?error=1&errmsg={quote('Decision invalide.')}",
+            status_code=303,
+        )
+    analyse_table = _resolve_table_name(db, ["document_controle_analyse"])
+    validation_table = _resolve_table_name(db, ["document_controle_validation"])
+    if not analyse_table or not validation_table:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres/courtier/documents/{doc_id}/controle?error=1&errmsg={quote('Tables de validation indisponibles.')}",
+            status_code=303,
+        )
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT document_id
+                FROM {analyse_table}
+                WHERE id = :aid
+                LIMIT 1
+                """
+            ),
+            {"aid": analyse_id},
+        ).fetchone()
+        if not row or int(row[0]) != int(doc_id):
+            raise ValueError("Analyse mismatch")
+        db.execute(
+            text(
+                f"""
+                INSERT INTO {validation_table} (
+                    analyse_id, decision, commentaire, validated_by, validated_at
+                ) VALUES (
+                    :analyse_id, :decision, :commentaire, :validated_by, CURRENT_TIMESTAMP
+                )
+                """
+            ),
+            {
+                "analyse_id": analyse_id,
+                "decision": decision,
+                "commentaire": commentaire,
+                "validated_by": user_id,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        logger.error(f"insert validation failed: {exc}")
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"/dashboard/parametres/courtier/documents/{doc_id}/controle?error=1&errmsg={quote('Validation impossible.')}",
+            status_code=303,
+        )
+    _insert_document_controle_audit(
+        db,
+        document_id=doc_id,
+        action="validation_accept" if decision == "ACCEPT" else "validation_reject",
+        details={"analyse_id": analyse_id, "commentaire": commentaire},
+        user_id=user_id,
+    )
+    return RedirectResponse(
+        url=f"/dashboard/parametres/courtier/documents/{doc_id}/controle?saved=1",
+        status_code=303,
+    )
+
+
+@router.get("/parametres/courtier/documents/{doc_id}/export")
+def export_document_controle(doc_id: int, request: Request, format: str = "csv", db: Session = Depends(get_db)):
+    access, _scope = _require_admin_or_write(request, db)
+    fmt = (format or "csv").lower()
+    if fmt not in {"csv", "pdf"}:
+        raise HTTPException(status_code=400, detail="Format invalide.")
+    table_name = _ensure_courtier_documents_table(db)
+    if not table_name:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    row = _get_courtier_document(db, table_name, doc_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    analyse = _fetch_latest_document_analyse(db, doc_id)
+    if not analyse:
+        raise HTTPException(status_code=404, detail="Analyse introuvable.")
+    try:
+        detail = json.loads(analyse.get("analyse_detail") or "{}")
+    except Exception:
+        detail = {}
+
+    if fmt == "csv":
+        export_path = _export_document_controle_csv(row, analyse, detail)
+        export_fmt = "CSV"
+        media_type = "text/csv"
+    else:
+        export_path = _export_document_controle_pdf(row, analyse, detail)
+        export_fmt = "PDF"
+        media_type = "application/pdf"
+
+    rel_path = str(Path("documents") / "exports" / export_path.name)
+    _create_document_export_record(db, doc_id, export_fmt, rel_path)
+    _insert_document_controle_audit(
+        db,
+        document_id=doc_id,
+        action="export_report",
+        details={"format": export_fmt, "file_path": rel_path},
+        user_id=getattr(access, "user_id", None),
+    )
+    return FileResponse(
+        path=str(export_path),
+        filename=export_path.name,
+        media_type=media_type,
+    )
 
 
 @router.post("/parametres/courtier/garanties/{row_id}", response_class=HTMLResponse)
@@ -8037,15 +8396,979 @@ def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
     return None
 
 
+def _ensure_courtier_documents_columns(db: Session, table: str) -> bool:
+    desired = {
+        "controle_status": "TEXT",
+        "controle_resume": "TEXT",
+        "controle_checked_at": "TEXT",
+        "controle_error": "TEXT",
+    }
+    existing: set[str] = set()
+    try:
+        rows = db.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        existing = {row[1] for row in rows}
+    except Exception:
+        pass
+    if not existing:
+        try:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = :t
+                    """
+                ),
+                {"t": table},
+            ).fetchall()
+            existing = {row[0] for row in rows}
+        except Exception:
+            existing = set()
+    missing = [name for name in desired.keys() if name not in existing]
+    added_any = False
+    for name in missing:
+        try:
+            db.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {desired[name]}"))
+            existing.add(name)
+            added_any = True
+        except Exception as exc:
+            logger.warning(f"failed to add column {name} on {table}: {exc}")
+    if added_any:
+        db.commit()
+    return all(name in existing for name in desired.keys())
+
+
+def _ensure_courtier_documents_subtype_column(db: Session, table: str) -> bool:
+    column_name = "document_type_id"
+    existing: set[str] = set()
+    try:
+        rows = db.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        existing = {row[1] for row in rows}
+    except Exception:
+        pass
+    if not existing:
+        try:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = :t
+                    """
+                ),
+                {"t": table},
+            ).fetchall()
+            existing = {row[0] for row in rows}
+        except Exception:
+            existing = set()
+    if column_name in existing:
+        return True
+    try:
+        db.execute(text(f"ALTER TABLE {table} ADD COLUMN {column_name} INT"))
+        db.commit()
+        return True
+    except Exception as exc:
+        logger.warning(f"failed to add column {column_name} on {table}: {exc}")
+        return False
+
+
+def _ensure_document_controle_tables(db: Session) -> None:
+    bind = db.get_bind()
+    dialect = (getattr(bind, "dialect", None).name or "").lower() if bind else ""
+    if dialect.startswith("sqlite"):
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_document_type (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                activite_id INTEGER NOT NULL,
+                code TEXT NOT NULL,
+                libelle TEXT NOT NULL,
+                seuil_confiance REAL NOT NULL DEFAULT 70.00,
+                actif INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_keyword (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_type_id INTEGER NOT NULL,
+                expression TEXT NOT NULL,
+                is_regex INTEGER NOT NULL DEFAULT 0,
+                poids REAL NOT NULL DEFAULT 1.00,
+                obligatoire INTEGER NOT NULL DEFAULT 0,
+                commentaire TEXT,
+                actif INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_analyse (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                rule_version TEXT NOT NULL,
+                score_global REAL NOT NULL,
+                statut TEXT NOT NULL,
+                analyse_detail TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'AUTO',
+                processing_time_ms INTEGER,
+                analysed_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_validation (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analyse_id INTEGER NOT NULL,
+                decision TEXT NOT NULL,
+                commentaire TEXT,
+                validated_by INTEGER NOT NULL,
+                validated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                details TEXT,
+                user_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_export (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                format TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                generated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+        ]
+    else:
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_document_type (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              activite_id int(11) NOT NULL,
+              code varchar(50) NOT NULL,
+              libelle varchar(255) NOT NULL,
+              seuil_confiance decimal(5,2) NOT NULL DEFAULT 70.00,
+              actif tinyint(1) NOT NULL DEFAULT 1,
+              created_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_keyword (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              document_type_id int(11) NOT NULL,
+              expression varchar(255) NOT NULL,
+              is_regex tinyint(1) NOT NULL DEFAULT 0,
+              poids decimal(5,2) NOT NULL DEFAULT 1.00,
+              obligatoire tinyint(1) NOT NULL DEFAULT 0,
+              commentaire text DEFAULT NULL,
+              actif tinyint(1) NOT NULL DEFAULT 1,
+              created_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id),
+              KEY document_type_id (document_type_id),
+              CONSTRAINT document_controle_keyword_ibfk_1 FOREIGN KEY (document_type_id) REFERENCES document_controle_document_type (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_analyse (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              document_id int(11) NOT NULL,
+              rule_version varchar(50) NOT NULL,
+              score_global decimal(5,2) NOT NULL,
+              statut enum('OK','WARNING','KO') NOT NULL,
+              analyse_detail longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(analyse_detail)),
+              source enum('AUTO','MANUAL','RECHECK') NOT NULL DEFAULT 'AUTO',
+              processing_time_ms int(11) DEFAULT NULL,
+              analysed_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id),
+              KEY idx_document_id (document_id),
+              KEY idx_statut (statut),
+              CONSTRAINT fk_document_controle_analyse_document FOREIGN KEY (document_id) REFERENCES courtier_documents_officiels (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_validation (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              analyse_id int(11) NOT NULL,
+              decision enum('ACCEPT','REJECT') NOT NULL,
+              commentaire text DEFAULT NULL,
+              validated_by int(11) NOT NULL,
+              validated_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id),
+              KEY analyse_id (analyse_id),
+              CONSTRAINT document_controle_validation_ibfk_1 FOREIGN KEY (analyse_id) REFERENCES document_controle_analyse (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_audit_log (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              document_id int(11) NOT NULL,
+              action varchar(100) NOT NULL,
+              details text DEFAULT NULL,
+              user_id int(11) DEFAULT NULL,
+              created_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id),
+              KEY document_id (document_id),
+              CONSTRAINT document_controle_audit_log_ibfk_1 FOREIGN KEY (document_id) REFERENCES courtier_documents_officiels (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_controle_export (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              document_id int(11) NOT NULL,
+              format enum('CSV','PDF') NOT NULL,
+              file_path varchar(255) NOT NULL,
+              generated_at timestamp NULL DEFAULT current_timestamp(),
+              PRIMARY KEY (id),
+              KEY document_id (document_id),
+              CONSTRAINT document_controle_export_ibfk_1 FOREIGN KEY (document_id) REFERENCES courtier_documents_officiels (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+        ]
+    for statement in statements:
+        try:
+            db.execute(text(statement))
+        except Exception as exc:
+            logger.warning(f"failed to ensure document controle tables: {exc}")
+    try:
+        db.commit()
+    except Exception:
+        pass
+
+
+def _fetch_document_controle_type(db: Session, activite_id: int) -> dict | None:
+    table = _resolve_table_name(db, ["document_controle_document_type"])
+    if not table:
+        return None
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE activite_id = :aid AND COALESCE(actif, 1) = 1
+                ORDER BY id
+                LIMIT 1
+                """
+            ),
+            {"aid": activite_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error(f"fetch document type failed: {exc}")
+        return None
+    return dict(row._mapping) if row else None
+
+
+def _fetch_document_controle_type_by_id(db: Session, document_type_id: int) -> dict | None:
+    table = _resolve_table_name(db, ["document_controle_document_type"])
+    if not table:
+        return None
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE id = :tid AND COALESCE(actif, 1) = 1
+                LIMIT 1
+                """
+            ),
+            {"tid": document_type_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error(f"fetch document type by id failed: {exc}")
+        return None
+    return dict(row._mapping) if row else None
+
+
+def _fetch_document_controle_keywords(db: Session, document_type_id: int) -> list[dict]:
+    table = _resolve_table_name(db, ["document_controle_keyword"])
+    if not table:
+        return []
+    try:
+        rows = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE document_type_id = :tid AND COALESCE(actif, 1) = 1
+                ORDER BY id
+                """
+            ),
+            {"tid": document_type_id},
+        ).fetchall()
+    except Exception as exc:
+        logger.error(f"fetch keywords failed: {exc}")
+        return []
+    return [dict(row._mapping) for row in rows]
+
+
+def _keyword_occurrences(text: str, expression: str, is_regex: bool) -> tuple[int, str | None]:
+    try:
+        if is_regex:
+            matches = re.findall(expression, text, flags=re.IGNORECASE | re.MULTILINE)
+            return len(matches), None
+        lowered = text.lower()
+        needle = expression.lower()
+        return lowered.count(needle), None
+    except re.error as exc:
+        return 0, f"regex_error: {exc}"
+
+
+def _build_controle_resume(statut: str, score: float, seuil: float, missing_required: list[str]) -> str:
+    score_str = f"{score:.2f}%"
+    seuil_str = f"{seuil:.2f}%"
+    if statut == "OK":
+        return f"Score {score_str} (seuil {seuil_str}) - conforme."
+    if statut == "KO":
+        if missing_required:
+            missing = ", ".join(missing_required[:5])
+            suffix = "..." if len(missing_required) > 5 else ""
+            return f"Score {score_str} (seuil {seuil_str}) - non conforme, manquants: {missing}{suffix}."
+        return f"Score {score_str} (seuil {seuil_str}) - non conforme."
+    if missing_required:
+        missing = ", ".join(missing_required[:5])
+        suffix = "..." if len(missing_required) > 5 else ""
+        return f"Score {score_str} (seuil {seuil_str}) - mots obligatoires manquants: {missing}{suffix}."
+    return f"Score {score_str} (seuil {seuil_str}) - controle a verifier."
+
+
+def _insert_document_controle_audit(
+    db: Session,
+    document_id: int,
+    action: str,
+    details: dict | None,
+    user_id: int | None,
+) -> None:
+    table = _resolve_table_name(db, ["document_controle_audit_log"])
+    if not table:
+        return
+    payload = {
+        "document_id": document_id,
+        "action": action,
+        "details": json.dumps(details or {}, ensure_ascii=True),
+        "user_id": user_id,
+    }
+    try:
+        db.execute(
+            text(
+                f"""
+                INSERT INTO {table} (document_id, action, details, user_id, created_at)
+                VALUES (:document_id, :action, :details, :user_id, CURRENT_TIMESTAMP)
+                """
+            ),
+            payload,
+        )
+        db.commit()
+    except Exception as exc:
+        logger.warning(f"audit log insert failed: {exc}")
+
+
+def _run_document_control(
+    db: Session,
+    document_id: int,
+    activite_id: int,
+    document_type_id: int | None,
+    file_bytes: bytes,
+    filename: str | None,
+    user_id: int | None,
+    source: str = "AUTO",
+) -> dict:
+    _ensure_document_controle_tables(db)
+    analysed_at = datetime.utcnow().isoformat()
+    start = perf_counter()
+    text_content, extract_error = _extract_pdf_text(file_bytes)
+    status = "WARNING"
+    score = 0.0
+    seuil = 0.0
+    error_code = None
+    rule_version = "v1"
+    missing_required: list[str] = []
+    keywords_detail: list[dict] = []
+    doc_type = None
+
+    if not text_content:
+        error_code = extract_error or "empty_pdf_text"
+        detail = {
+            "error": error_code,
+            "filename": filename,
+            "text_extracted": False,
+        }
+    else:
+        if document_type_id is not None:
+            doc_type = _fetch_document_controle_type_by_id(db, int(document_type_id))
+        else:
+            doc_type = _fetch_document_controle_type(db, activite_id)
+        if not doc_type:
+            error_code = "missing_document_type"
+            detail = {
+                "error": error_code,
+                "filename": filename,
+                "text_extracted": True,
+            }
+        else:
+            seuil = float(doc_type.get("seuil_confiance") or 0.0)
+            rule_version = (doc_type.get("code") or f"type-{doc_type.get('id')}") + "-v1"
+            keywords = _fetch_document_controle_keywords(db, int(doc_type.get("id")))
+            total_weight = 0.0
+            found_weight = 0.0
+            for kw in keywords:
+                expr = (kw.get("expression") or "").strip()
+                is_regex = bool(kw.get("is_regex"))
+                poids = float(kw.get("poids") or 0.0)
+                obligatoire = bool(kw.get("obligatoire"))
+                if expr:
+                    count, kw_error = _keyword_occurrences(text_content, expr, is_regex)
+                else:
+                    count, kw_error = 0, "empty_expression"
+                found = count > 0
+                total_weight += poids
+                if found:
+                    found_weight += poids
+                if obligatoire and not found:
+                    missing_required.append(expr)
+                keywords_detail.append(
+                    {
+                        "id": kw.get("id"),
+                        "expression": expr,
+                        "is_regex": bool(is_regex),
+                        "poids": poids,
+                        "obligatoire": bool(obligatoire),
+                        "trouve": bool(found),
+                        "occurrences": count,
+                        "error": kw_error,
+                    }
+                )
+            if total_weight <= 0.0:
+                error_code = "no_keywords"
+                status = "WARNING"
+                score = 0.0
+            else:
+                score = (found_weight / total_weight) * 100.0
+                low_threshold = max(10.0, seuil * 0.5)
+                if missing_required:
+                    status = "KO" if score < low_threshold else "WARNING"
+                else:
+                    if score >= seuil:
+                        status = "OK"
+                    elif score < low_threshold:
+                        status = "KO"
+                    else:
+                        status = "WARNING"
+            detail = {
+                "document_type": {
+                    "id": doc_type.get("id"),
+                    "code": doc_type.get("code"),
+                    "libelle": doc_type.get("libelle"),
+                    "seuil_confiance": seuil,
+                },
+                "score_global": round(score, 2),
+                "statut": status,
+                "rules": {
+                    "total_keywords": len(keywords),
+                    "total_weight": round(total_weight, 2),
+                    "found_weight": round(found_weight, 2),
+                    "missing_required": missing_required,
+                },
+                "keywords": keywords_detail,
+                "text_stats": {
+                    "chars": len(text_content),
+                },
+            }
+
+    processing_time_ms = int((perf_counter() - start) * 1000)
+    resume = _build_controle_resume(status, score, seuil, missing_required)
+    detail_json = json.dumps(detail, ensure_ascii=True)
+    analyse_id = None
+    analyse_table = _resolve_table_name(db, ["document_controle_analyse"])
+    if analyse_table:
+        try:
+            result = db.execute(
+                text(
+                    f"""
+                    INSERT INTO {analyse_table} (
+                        document_id, rule_version, score_global, statut,
+                        analyse_detail, source, processing_time_ms, analysed_at
+                    ) VALUES (
+                        :document_id, :rule_version, :score_global, :statut,
+                        :analyse_detail, :source, :processing_time_ms, CURRENT_TIMESTAMP
+                    )
+                    """
+                ),
+                {
+                    "document_id": document_id,
+                    "rule_version": rule_version,
+                    "score_global": round(score, 2),
+                    "statut": status,
+                    "analyse_detail": detail_json,
+                    "source": source,
+                    "processing_time_ms": processing_time_ms,
+                },
+            )
+            analyse_id = result.lastrowid
+            db.commit()
+        except Exception as exc:
+            logger.error(f"insert analyse failed: {exc}")
+    if analyse_id is not None and score >= seuil:
+        validation_table = _resolve_table_name(db, ["document_controle_validation"])
+        if validation_table:
+            try:
+                db.execute(
+                    text(
+                        f"""
+                        INSERT INTO {validation_table} (
+                            analyse_id, decision, commentaire, validated_by, validated_at
+                        ) VALUES (
+                            :analyse_id, :decision, :commentaire, :validated_by, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {
+                        "analyse_id": analyse_id,
+                        "decision": "ACCEPT",
+                        "commentaire": "Validation automatique (score >= seuil).",
+                        "validated_by": user_id if user_id is not None else 0,
+                    },
+                )
+                db.commit()
+                _insert_document_controle_audit(
+                    db,
+                    document_id=document_id,
+                    action="validation_auto_accept",
+                    details={"analyse_id": analyse_id, "score": round(score, 2), "seuil": seuil},
+                    user_id=user_id,
+                )
+            except Exception as exc:
+                logger.error(f"insert auto validation failed: {exc}")
+
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE courtier_documents_officiels
+                SET controle_status = :controle_status,
+                    controle_resume = :controle_resume,
+                    controle_checked_at = :controle_checked_at,
+                    controle_error = :controle_error,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :doc_id
+                """
+            ),
+            {
+                "controle_status": status,
+                "controle_resume": resume,
+                "controle_checked_at": analysed_at,
+                "controle_error": error_code,
+                "doc_id": document_id,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        logger.error(f"update document controle fields failed: {exc}")
+
+    _insert_document_controle_audit(
+        db,
+        document_id=document_id,
+        action="analyse_auto" if source == "AUTO" else "analyse_recheck",
+        details={
+            "analyse_id": analyse_id,
+            "statut": status,
+            "score": round(score, 2),
+            "rule_version": rule_version,
+            "error": error_code,
+        },
+        user_id=user_id,
+    )
+    return {
+        "analyse_id": analyse_id,
+        "status": status,
+        "score": round(score, 2),
+        "resume": resume,
+        "error": error_code,
+        "detail": detail,
+    }
+
+
+def _fetch_latest_document_analyse(db: Session, document_id: int) -> dict | None:
+    table = _resolve_table_name(db, ["document_controle_analyse"])
+    if not table:
+        return None
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE document_id = :doc_id
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"doc_id": document_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error(f"fetch latest analyse failed: {exc}")
+        return None
+    return dict(row._mapping) if row else None
+
+
+def _fetch_latest_validation(db: Session, analyse_id: int) -> dict | None:
+    table = _resolve_table_name(db, ["document_controle_validation"])
+    if not table:
+        return None
+    try:
+        row = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE analyse_id = :aid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"aid": analyse_id},
+        ).fetchone()
+    except Exception as exc:
+        logger.error(f"fetch latest validation failed: {exc}")
+        return None
+    return dict(row._mapping) if row else None
+
+
+def _create_document_export_record(db: Session, document_id: int, fmt: str, file_path: str) -> None:
+    table = _resolve_table_name(db, ["document_controle_export"])
+    if not table:
+        return
+    try:
+        db.execute(
+            text(
+                f"""
+                INSERT INTO {table} (document_id, format, file_path, generated_at)
+                VALUES (:doc_id, :format, :file_path, CURRENT_TIMESTAMP)
+                """
+            ),
+            {"doc_id": document_id, "format": fmt, "file_path": file_path},
+        )
+        db.commit()
+    except Exception as exc:
+        logger.warning(f"export record insert failed: {exc}")
+
+
+def _export_document_controle_csv(
+    document_row: dict,
+    analyse_row: dict,
+    detail: dict,
+) -> Path:
+    exports_dir = DOCUMENTS_DIR / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    filename = f"controle-doc-{document_row.get('id')}-{timestamp}.csv"
+    out_path = exports_dir / filename
+    with open(out_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "document_id",
+                "activite_id",
+                "original_filename",
+                "analyse_id",
+                "score_global",
+                "statut",
+                "analysed_at",
+            ]
+        )
+        writer.writerow(
+            [
+                document_row.get("id"),
+                document_row.get("activite_id"),
+                document_row.get("original_filename"),
+                analyse_row.get("id"),
+                analyse_row.get("score_global"),
+                analyse_row.get("statut"),
+                analyse_row.get("analysed_at"),
+            ]
+        )
+        writer.writerow([])
+        writer.writerow(
+            [
+                "keyword_id",
+                "expression",
+                "is_regex",
+                "poids",
+                "obligatoire",
+                "trouve",
+                "occurrences",
+                "error",
+            ]
+        )
+        for kw in detail.get("keywords") or []:
+            writer.writerow(
+                [
+                    kw.get("id"),
+                    kw.get("expression"),
+                    kw.get("is_regex"),
+                    kw.get("poids"),
+                    kw.get("obligatoire"),
+                    kw.get("trouve"),
+                    kw.get("occurrences"),
+                    kw.get("error"),
+                ]
+            )
+    return out_path
+
+
+def _export_document_controle_pdf(
+    document_row: dict,
+    analyse_row: dict,
+    detail: dict,
+) -> Path:
+    from reportlab.lib.pagesizes import A4  # type: ignore
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle  # type: ignore
+    from reportlab.lib.styles import getSampleStyleSheet  # type: ignore
+    from reportlab.lib import colors  # type: ignore
+
+    exports_dir = DOCUMENTS_DIR / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    filename = f"controle-doc-{document_row.get('id')}-{timestamp}.pdf"
+    out_path = exports_dir / filename
+
+    styles = getSampleStyleSheet()
+    doc = SimpleDocTemplate(str(out_path), pagesize=A4)
+    story = []
+    story.append(Paragraph("Rapport de controle documentaire", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    summary_lines = [
+        f"Document ID: {document_row.get('id')}",
+        f"Activite ID: {document_row.get('activite_id')}",
+        f"Nom fichier: {document_row.get('original_filename')}",
+        f"Analyse ID: {analyse_row.get('id')}",
+        f"Statut: {analyse_row.get('statut')}",
+        f"Score: {analyse_row.get('score_global')}",
+        f"Date analyse: {analyse_row.get('analysed_at')}",
+    ]
+    for line in summary_lines:
+        story.append(Paragraph(line, styles["Normal"]))
+    story.append(Spacer(1, 12))
+
+    table_data = [
+        [
+            "Expression",
+            "Regex",
+            "Poids",
+            "Obligatoire",
+            "Trouve",
+            "Occurrences",
+        ]
+    ]
+    for kw in detail.get("keywords") or []:
+        table_data.append(
+            [
+                kw.get("expression"),
+                "Oui" if kw.get("is_regex") else "Non",
+                kw.get("poids"),
+                "Oui" if kw.get("obligatoire") else "Non",
+                "Oui" if kw.get("trouve") else "Non",
+                kw.get("occurrences"),
+            ]
+        )
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(table)
+    doc.build(story)
+    return out_path
+
+def _extract_pdf_text(file_bytes: bytes) -> tuple[str, str | None]:
+    try:
+        from pypdf import PdfReader
+    except Exception as exc:
+        return "", f"pypdf indisponible: {exc}"
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        parts: list[str] = []
+        for page in reader.pages:
+            try:
+                page_text = page.extract_text() or ""
+            except Exception:
+                page_text = ""
+            if page_text:
+                parts.append(page_text)
+        text = "\n".join(parts).strip()
+        if text:
+            return text, None
+        ocr_text, ocr_error = _extract_pdf_text_with_ocr(file_bytes)
+        if ocr_text:
+            return ocr_text, None
+        return "", ocr_error or "empty_pdf_text"
+    except Exception as exc:
+        return "", f"extraction PDF échouée: {exc}"
+
+
+def _extract_pdf_text_with_ocr(file_bytes: bytes, max_pages: int = 3, dpi: int = 200) -> tuple[str, str | None]:
+    try:
+        from pdf2image import convert_from_bytes
+        import pytesseract
+    except Exception as exc:
+        return "", f"ocr_dep_missing: {exc}"
+    try:
+        poppler_path = None
+        for cand in ("/usr/bin", "/usr/local/bin"):
+            if (Path(cand) / "pdfinfo").exists():
+                poppler_path = cand
+                break
+        tesseract_cmd = None
+        for cand in ("/usr/bin/tesseract", "/usr/local/bin/tesseract"):
+            if Path(cand).exists():
+                tesseract_cmd = cand
+                break
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        images = convert_from_bytes(
+            file_bytes,
+            dpi=dpi,
+            fmt="ppm",
+            first_page=1,
+            last_page=max_pages,
+            poppler_path=poppler_path,
+        )
+    except Exception as exc:
+        return "", f"ocr_convert_failed: {exc}"
+    try:
+        parts: list[str] = []
+        for img in images:
+            try:
+                text = pytesseract.image_to_string(img, lang="fra+eng") or ""
+            except Exception:
+                text = ""
+            if text.strip():
+                parts.append(text)
+        ocr_text = "\n".join(parts).strip()
+        if ocr_text:
+            return ocr_text, None
+        return "", "ocr_empty"
+    except Exception as exc:
+        return "", f"ocr_failed: {exc}"
+
+
+def _truncate_text(value: str, max_chars: int = 12000) -> str:
+    if len(value) <= max_chars:
+        return value
+    head = value[:10000]
+    tail = value[-2000:]
+    return f"{head}\n...\n{tail}"
+
+
+def _normalize_ai_status(value: str | None) -> str:
+    if not value:
+        return "Je ne sais pas"
+    normalized = value.strip().lower()
+    if normalized in {"valide", "valid", "ok", "conforme"}:
+        return "Valide"
+    if normalized in {"invalide", "invalid", "non conforme", "ko"}:
+        return "Invalide"
+    return "Je ne sais pas"
+
+
+async def _analyze_document_with_ai(
+    file_bytes: bytes,
+    doc_type: str | None,
+    filename: str | None,
+) -> tuple[str, str, str | None]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "Je ne sais pas", "Analyse IA non configurée (clé OpenAI manquante).", "missing_api_key"
+
+    text, extract_error = _extract_pdf_text(file_bytes)
+    if not text:
+        return (
+            "Je ne sais pas",
+            "Analyse IA impossible (texte PDF introuvable).",
+            extract_error or "empty_pdf_text",
+        )
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    trimmed_text = _truncate_text(text)
+    system_prompt = (
+        "Tu analyses des documents PDF en français. "
+        "Tu dois décider si le document correspond bien au type attendu et fournir un résumé."
+        "Réponds uniquement en JSON avec les clés: statut, resume."
+    )
+    user_prompt = (
+        f"Type attendu: {doc_type or 'Inconnu'}\n"
+        f"Fichier: {filename or 'document.pdf'}\n\n"
+        "Consignes:\n"
+        "- statut doit être exactement: Valide, Invalide, ou Je ne sais pas.\n"
+        "- resume doit faire 2-4 phrases max.\n\n"
+        f"Contenu extrait:\n{trimmed_text}"
+    )
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+            )
+        response.raise_for_status()
+        data = response.json()
+        content = data["choices"][0]["message"]["content"].strip()
+        parsed = None
+        try:
+            parsed = json.loads(content)
+        except Exception:
+            match = re.search(r"\{.*\}", content, re.S)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except Exception:
+                    parsed = None
+        if isinstance(parsed, dict):
+            status = _normalize_ai_status(parsed.get("statut") or parsed.get("status"))
+            summary = (parsed.get("resume") or parsed.get("summary") or "").strip()
+            if not summary:
+                summary = content
+            summary = summary[:500]
+            return status, summary, None
+        return "Je ne sais pas", content[:500], "non_json_response"
+    except Exception as exc:
+        logger.warning(f"openai document analysis failed: {exc}")
+        return "Je ne sais pas", "Analyse IA indisponible pour le moment.", str(exc)
+
+
 def _ensure_courtier_documents_table(db: Session) -> str | None:
     """Ensure the storage table for official broker documents exists and return its name."""
     table = _resolve_table_name(db, ["courtier_documents_officiels"])
     if table:
         return table
     try:
-        db.execute(
-            text(
-                """
+        bind = db.get_bind()
+        dialect = (getattr(bind, "dialect", None).name or "").lower() if bind else ""
+        if dialect.startswith("sqlite"):
+            create_sql = """
                 CREATE TABLE IF NOT EXISTS courtier_documents_officiels (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     activite_id INTEGER NOT NULL,
@@ -8057,9 +9380,34 @@ def _ensure_courtier_documents_table(db: Session) -> str | None:
                     file_size INTEGER,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (activite_id) REFERENCES Compliance_rc_pro(id)
+                    controle_status TEXT,
+                    controle_resume TEXT,
+                    controle_checked_at TEXT,
+                    controle_error TEXT
                 )
-                """
+            """
+        else:
+            create_sql = """
+                CREATE TABLE IF NOT EXISTS courtier_documents_officiels (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    activite_id INT NULL,
+                    date_validite TEXT,
+                    original_filename TEXT,
+                    stored_filename TEXT,
+                    stored_path TEXT,
+                    mime_type TEXT,
+                    file_size INT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    controle_status TEXT,
+                    controle_resume TEXT,
+                    controle_checked_at TEXT,
+                    controle_error TEXT
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            """
+        db.execute(
+            text(
+                create_sql
             )
         )
         db.commit()
@@ -20356,6 +21704,81 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         log_types = []
         scheduled_jobs = []
 
+    # Controle documentaire (types + mots-cles)
+    doc_controle_types: list[dict] = []
+    doc_controle_keywords: list[dict] = []
+    doc_controle_type_filter: int | None = _as_int(request.query_params.get("dc_type"))
+    doc_controle_type_form: dict | None = None
+    doc_controle_keyword_form: dict | None = None
+    compliance_activites_sa: list[dict] = []
+    dc_edit_type = _as_int(request.query_params.get("dc_edit_type"))
+    dc_edit_kw = _as_int(request.query_params.get("dc_edit_kw"))
+    try:
+        _ensure_document_controle_tables(db)
+        doc_type_table = _resolve_table_name(db, ["document_controle_document_type"]) or "document_controle_document_type"
+        keyword_table = _resolve_table_name(db, ["document_controle_keyword"]) or "document_controle_keyword"
+        compliance_table = _resolve_table_name(db, ["Compliance_rc_pro", "compliance_rc_pro"]) or "Compliance_rc_pro"
+        try:
+            compliance_activites_sa = rows_to_dicts(
+                db.execute(
+                    text(
+                        f"""
+                        SELECT id, activite
+                        FROM {compliance_table}
+                        ORDER BY activite
+                        """
+                    )
+                ).fetchall()
+            )
+        except Exception:
+            compliance_activites_sa = []
+        rows_types = db.execute(
+            text(
+                f"""
+                SELECT t.*, c.activite AS activite_libelle
+                FROM {doc_type_table} t
+                LEFT JOIN {compliance_table} c ON c.id = t.activite_id
+                ORDER BY COALESCE(c.activite, t.libelle), t.id
+                """
+            )
+        ).fetchall()
+        doc_controle_types = [dict(r._mapping) for r in rows_types]
+        rows_kw = db.execute(
+            text(
+                f"""
+                SELECT k.*, t.libelle AS type_libelle, t.code AS type_code
+                FROM {keyword_table} k
+                JOIN {doc_type_table} t ON t.id = k.document_type_id
+                WHERE (:tid IS NULL OR k.document_type_id = :tid)
+                ORDER BY t.libelle, k.expression
+                """
+            ),
+            {"tid": doc_controle_type_filter},
+        ).fetchall()
+        doc_controle_keywords = [dict(r._mapping) for r in rows_kw]
+        if dc_edit_type:
+            doc_controle_type_form = next((t for t in doc_controle_types if t.get("id") == dc_edit_type), None)
+        if dc_edit_kw:
+            doc_controle_keyword_form = next((k for k in doc_controle_keywords if k.get("id") == dc_edit_kw), None)
+            if doc_controle_keyword_form is None:
+                row_kw = db.execute(
+                    text(
+                        f"""
+                        SELECT k.*, t.libelle AS type_libelle, t.code AS type_code
+                        FROM {keyword_table} k
+                        JOIN {doc_type_table} t ON t.id = k.document_type_id
+                        WHERE k.id = :kid
+                        LIMIT 1
+                        """
+                    ),
+                    {"kid": dc_edit_kw},
+                ).fetchone()
+                doc_controle_keyword_form = dict(row_kw._mapping) if row_kw else None
+    except Exception:
+        doc_controle_types = []
+        doc_controle_keywords = []
+        compliance_activites_sa = []
+
     # Pagination sociétés
     page_count = math.ceil(total_societes / per_page) if per_page else 1
     user_page_count = math.ceil(total_users / user_per_page) if user_per_page else 1
@@ -20406,8 +21829,209 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "log_type_filter": log_type_filter,
             "log_status_filter": log_status_filter,
             "total_logs": total_logs,
+            "doc_controle_types": doc_controle_types,
+            "doc_controle_keywords": doc_controle_keywords,
+            "doc_controle_type_filter": doc_controle_type_filter,
+            "doc_controle_type_form": doc_controle_type_form,
+            "doc_controle_keyword_form": doc_controle_keyword_form,
+            "compliance_activites": compliance_activites_sa,
         },
     )
+
+
+def _require_superadmin_access(request: Request, db: Session):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+    require_permission(access, "logs", "view", societe_id=current_scope)
+    return access, current_scope
+
+
+@router.post("/superadmin/document-controle/type", response_class=RedirectResponse)
+def superadmin_document_controle_type(
+    request: Request,
+    type_id: int | None = Form(None),
+    activite_id: int | None = Form(None),
+    code: str = Form(""),
+    libelle: str = Form(""),
+    seuil_confiance: str | None = Form(None),
+    actif: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    _require_superadmin_access(request, db)
+    code = (code or "").strip()
+    libelle = (libelle or "").strip()
+    seuil = _as_float(seuil_confiance, 70.0) or 70.0
+    actif = _as_flag(actif, 1)
+    if activite_id is None or not code or not libelle:
+        return RedirectResponse(
+            url="/dashboard/superadmin?dc_error=1#doc-controle",
+            status_code=303,
+        )
+    _ensure_document_controle_tables(db)
+    table = _resolve_table_name(db, ["document_controle_document_type"]) or "document_controle_document_type"
+    try:
+        if type_id:
+            db.execute(
+                text(
+                    f"""
+                    UPDATE {table}
+                    SET activite_id = :activite_id,
+                        code = :code,
+                        libelle = :libelle,
+                        seuil_confiance = :seuil,
+                        actif = :actif
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": type_id,
+                    "activite_id": activite_id,
+                    "code": code,
+                    "libelle": libelle,
+                    "seuil": seuil,
+                    "actif": actif,
+                },
+            )
+        else:
+            db.execute(
+                text(
+                    f"""
+                    INSERT INTO {table} (activite_id, code, libelle, seuil_confiance, actif, created_at)
+                    VALUES (:activite_id, :code, :libelle, :seuil, :actif, CURRENT_TIMESTAMP)
+                    """
+                ),
+                {
+                    "activite_id": activite_id,
+                    "code": code,
+                    "libelle": libelle,
+                    "seuil": seuil,
+                    "actif": actif,
+                },
+            )
+        db.commit()
+    except Exception as exc:
+        logger.error(f"save document controle type failed: {exc}")
+        return RedirectResponse(url="/dashboard/superadmin?dc_error=1#doc-controle", status_code=303)
+    return RedirectResponse(url="/dashboard/superadmin#doc-controle", status_code=303)
+
+
+@router.post("/superadmin/document-controle/type/delete", response_class=RedirectResponse)
+def superadmin_document_controle_type_delete(
+    request: Request,
+    type_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    _require_superadmin_access(request, db)
+    table = _resolve_table_name(db, ["document_controle_document_type"]) or "document_controle_document_type"
+    try:
+        db.execute(text(f"DELETE FROM {table} WHERE id = :id"), {"id": type_id})
+        db.commit()
+    except Exception as exc:
+        logger.error(f"delete document controle type failed: {exc}")
+        return RedirectResponse(url="/dashboard/superadmin?dc_error=1#doc-controle", status_code=303)
+    return RedirectResponse(url="/dashboard/superadmin#doc-controle", status_code=303)
+
+
+@router.post("/superadmin/document-controle/keyword", response_class=RedirectResponse)
+def superadmin_document_controle_keyword(
+    request: Request,
+    keyword_id: int | None = Form(None),
+    document_type_id: int | None = Form(None),
+    expression: str = Form(""),
+    is_regex: str | None = Form(None),
+    poids: str | None = Form(None),
+    obligatoire: str | None = Form(None),
+    actif: str | None = Form(None),
+    commentaire: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    _require_superadmin_access(request, db)
+    expression = (expression or "").strip()
+    is_regex_val = _as_flag(is_regex, 0)
+    poids_val = _as_float(poids, 1.0) or 1.0
+    obligatoire_val = _as_flag(obligatoire, 0)
+    actif_val = _as_flag(actif, 1)
+    commentaire_val = (commentaire or "").strip() or None
+    if document_type_id is None or not expression:
+        return RedirectResponse(url="/dashboard/superadmin?dc_error=1#doc-controle", status_code=303)
+    _ensure_document_controle_tables(db)
+    table = _resolve_table_name(db, ["document_controle_keyword"]) or "document_controle_keyword"
+    try:
+        if keyword_id:
+            db.execute(
+                text(
+                    f"""
+                    UPDATE {table}
+                    SET document_type_id = :document_type_id,
+                        expression = :expression,
+                        is_regex = :is_regex,
+                        poids = :poids,
+                        obligatoire = :obligatoire,
+                        commentaire = :commentaire,
+                        actif = :actif
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": keyword_id,
+                    "document_type_id": document_type_id,
+                    "expression": expression,
+                    "is_regex": is_regex_val,
+                    "poids": poids_val,
+                    "obligatoire": obligatoire_val,
+                    "commentaire": commentaire_val,
+                    "actif": actif_val,
+                },
+            )
+        else:
+            db.execute(
+                text(
+                    f"""
+                    INSERT INTO {table} (
+                        document_type_id, expression, is_regex, poids, obligatoire,
+                        commentaire, actif, created_at
+                    ) VALUES (
+                        :document_type_id, :expression, :is_regex, :poids, :obligatoire,
+                        :commentaire, :actif, CURRENT_TIMESTAMP
+                    )
+                    """
+                ),
+                {
+                    "document_type_id": document_type_id,
+                    "expression": expression,
+                    "is_regex": is_regex_val,
+                    "poids": poids_val,
+                    "obligatoire": obligatoire_val,
+                    "commentaire": commentaire_val,
+                    "actif": actif_val,
+                },
+            )
+        db.commit()
+    except Exception as exc:
+        logger.error(f"save document controle keyword failed: {exc}")
+        return RedirectResponse(url="/dashboard/superadmin?dc_error=1#doc-controle", status_code=303)
+    return RedirectResponse(url="/dashboard/superadmin#doc-controle", status_code=303)
+
+
+@router.post("/superadmin/document-controle/keyword/delete", response_class=RedirectResponse)
+def superadmin_document_controle_keyword_delete(
+    request: Request,
+    keyword_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    _require_superadmin_access(request, db)
+    table = _resolve_table_name(db, ["document_controle_keyword"]) or "document_controle_keyword"
+    try:
+        db.execute(text(f"DELETE FROM {table} WHERE id = :id"), {"id": keyword_id})
+        db.commit()
+    except Exception as exc:
+        logger.error(f"delete document controle keyword failed: {exc}")
+        return RedirectResponse(url="/dashboard/superadmin?dc_error=1#doc-controle", status_code=303)
+    return RedirectResponse(url="/dashboard/superadmin#doc-controle", status_code=303)
 
 
 @router.post("/superadmin/roles", response_class=RedirectResponse)

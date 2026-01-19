@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Controle documentaire{% endblock %}
+{% block header_title %}<i class="fa-solid fa-file-shield" style="margin-right:8px;"></i>Controle documentaire{% endblock %}
+
+{% block content %}
+<div class="page-container" style="max-width:1100px; margin:0 auto;">
+  <div class="card" style="padding:1.25rem; margin-bottom:1rem;">
+    <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+      <div>
+        <h2 style="margin:0 0 .25rem 0;">Document #{{ document.id }}</h2>
+        <div class="muted">{{ document.original_filename or document.stored_filename }}</div>
+      </div>
+      <div style="display:flex; gap:.5rem; align-items:center;">
+        <a class="btn btn-list btn-list-primary" href="/dashboard/parametres?open=courtierDocuments">Retour</a>
+      </div>
+    </div>
+    <div style="margin-top:.75rem; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:.75rem;">
+      <div>
+        <div class="muted">Activite</div>
+        <div style="font-weight:600;">{{ document.activite_libelle or document.activite_id }}</div>
+      </div>
+      <div>
+        <div class="muted">Statut controle</div>
+        <div style="font-weight:600;">{{ document.controle_status or '—' }}</div>
+      </div>
+      <div>
+        <div class="muted">Derniere analyse</div>
+        <div style="font-weight:600;">{{ analyse.analysed_at if analyse else '—' }}</div>
+      </div>
+    </div>
+    {% if document.controle_resume %}
+      <div style="margin-top:.75rem;" class="muted">{{ document.controle_resume }}</div>
+    {% endif %}
+    {% if document.controle_error %}
+      <div style="margin-top:.5rem; color:#b91c1c; font-weight:600;">Erreur: {{ document.controle_error }}</div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:1.25rem; margin-bottom:1rem;">
+    <h3 style="margin-top:0;">Analyse automatique</h3>
+    {% if analyse %}
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.75rem; margin-bottom:.75rem;">
+        <div>
+          <div class="muted">Statut</div>
+          <div style="font-weight:600;">{{ analyse.statut }}</div>
+        </div>
+        <div>
+          <div class="muted">Keywords</div>
+          <div style="font-weight:600;">{{ (detail.keywords | length) if detail.keywords else 0 }}</div>
+        </div>
+        <div>
+          <div class="muted">Score</div>
+          <div style="font-weight:600;">{{ analyse.score_global }}%</div>
+        </div>
+        <div>
+          <div class="muted">Version regle</div>
+          <div style="font-weight:600;">{{ analyse.rule_version }}</div>
+        </div>
+      </div>
+      {% if detail.rules and detail.rules.missing_required %}
+        <div class="card" style="padding:.75rem 1rem; margin-bottom:.75rem; background:#fff7ed; border:1px solid #fb923c;">
+          <strong>Mots obligatoires manquants :</strong>
+          {{ detail.rules.missing_required|join(', ') }}
+        </div>
+      {% endif %}
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:0.6rem;">Expression</th>
+              <th style="padding:0.6rem;">Regex</th>
+              <th style="padding:0.6rem;">Poids</th>
+              <th style="padding:0.6rem;">Obligatoire</th>
+              <th style="padding:0.6rem;">Trouve</th>
+              <th style="padding:0.6rem;">Occurrences</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for kw in detail.keywords or [] %}
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:0.5rem;">{{ kw.expression }}</td>
+                <td style="padding:0.5rem;">{{ 'Oui' if kw.is_regex else 'Non' }}</td>
+                <td style="padding:0.5rem;">{{ kw.poids }}</td>
+                <td style="padding:0.5rem;">{{ 'Oui' if kw.obligatoire else 'Non' }}</td>
+                <td style="padding:0.5rem; font-weight:600; color:{{ '#166534' if kw.trouve else '#b91c1c' }};">
+                  {{ 'Oui' if kw.trouve else 'Non' }}
+                </td>
+                <td style="padding:0.5rem;">{{ kw.occurrences }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="6" class="muted" style="padding:0.75rem;">Aucun mot-cle defini.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="muted">Aucune analyse disponible pour ce document.</div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:1.25rem;">
+    <h3 style="margin-top:0;">Validation humaine</h3>
+    {% if validation %}
+      <div style="font-weight:600;">Decision : {{ validation.decision }}</div>
+      {% if validation.validated_at %}
+        <div class="muted">Date : {{ validation.validated_at }}</div>
+      {% endif %}
+      {% if validation.commentaire %}
+        <div class="muted" style="margin-top:.5rem;">{{ validation.commentaire }}</div>
+      {% endif %}
+    {% else %}
+      {% if analyse %}
+        <form method="post" action="/dashboard/parametres/courtier/documents/{{ document.id }}/validation">
+          <input type="hidden" name="analyse_id" value="{{ analyse.id }}" />
+          <div class="form-row" style="margin-bottom:.75rem;">
+            <div class="field">
+              <label>Decision</label>
+              <select name="decision" required>
+                <option value="">Choisir...</option>
+                <option value="ACCEPT">ACCEPTER</option>
+                <option value="REJECT">REJETER</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:.75rem;">
+            <div class="field" style="width:100%;">
+              <label>Commentaire</label>
+              <textarea name="commentaire" rows="3" style="width:100%;"></textarea>
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Enregistrer la validation</button>
+        </form>
+      {% else %}
+        <div class="muted">Aucune analyse a valider.</div>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
