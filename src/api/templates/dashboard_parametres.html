@@ -694,16 +694,16 @@
                         {% endif %}
                       </td>
                       <td style="padding:0.65rem 0.75rem; white-space:nowrap;">
-                        <a class="btn btn-list btn-list-primary" href="{{ doc.view_url }}" target="_blank" rel="noopener" title="Prévisualiser">
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.direct_url }}?inline=1" target="_blank" rel="noopener" title="Prévisualiser" data-doc-file-link>
                           <i class="fa-solid fa-eye"></i>
                         </a>
-                        <a class="btn btn-list btn-list-primary" href="{{ doc.download_url }}" title="Télécharger">
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.direct_url }}" title="Télécharger" data-doc-file-link>
                           <i class="fa-solid fa-download"></i>
                         </a>
                         <a class="btn btn-list btn-list-primary" href="{{ doc.analyse_url }}" title="Validation">
                           <i class="fa-solid fa-circle-check"></i>
                         </a>
-                        <a class="btn btn-list btn-list-primary" href="{{ doc.export_pdf_url }}" title="Exporter PDF">
+                        <a class="btn btn-list btn-list-primary" href="{{ doc.export_pdf_url }}" title="Exporter PDF" data-doc-file-link>
                           <i class="fa-solid fa-file-pdf"></i>
                         </a>
                         <form method="post" action="{{ doc.reanalyze_url }}?open=courtierDocuments" style="display:inline;">
@@ -770,6 +770,55 @@
                 }
 
                 applyFilters();
+              })();
+            </script>
+            <script>
+              (function () {
+                const table = document.getElementById('courtierDocumentsTable');
+                if (!table) { return; }
+                const links = Array.from(table.querySelectorAll('a[data-doc-file-link]'));
+                if (!links.length) { return; }
+                const toast = document.getElementById('toastError');
+                const toastMsg = document.getElementById('toastErrorMsg');
+                const showError = (message) => {
+                  if (!toast) {
+                    alert(message);
+                    return;
+                  }
+                  if (toastMsg) toastMsg.textContent = message || '';
+                  toast.style.display = 'inline-flex';
+                  setTimeout(() => { toast.style.display = 'none'; }, 3800);
+                };
+
+                links.forEach((link) => {
+                  link.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    const url = link.getAttribute('href');
+                    console.log('[courtier-doc] action', { url });
+                    if (!url) return;
+                    fetch(url, { method: 'HEAD', credentials: 'same-origin' })
+                      .then((res) => {
+                        console.log('[courtier-doc] response', { url, status: res.status });
+                        if (res.ok) {
+                          const target = link.getAttribute('target');
+                          if (target === '_blank') {
+                            window.open(url, '_blank', 'noopener');
+                          } else {
+                            window.location.href = url;
+                          }
+                          return;
+                        }
+                        const msg = res.status === 404
+                          ? "Fichier introuvable sur le serveur."
+                          : "Action impossible pour le moment.";
+                        showError(msg);
+                      })
+                      .catch(() => {
+                        console.log('[courtier-doc] error', { url });
+                        showError("Fichier introuvable sur le serveur.");
+                      });
+                  });
+                });
               })();
             </script>
           {% else %}
