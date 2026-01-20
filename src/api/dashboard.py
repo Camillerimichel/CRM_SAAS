@@ -207,7 +207,8 @@ class GroupedTaskCreatePayload(GroupedTaskBase):
     notify_email: bool | None = False
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DOCUMENTS_DIR = BASE_DIR / "documents"
+PROJECT_ROOT = BASE_DIR.parent if (BASE_DIR.parent / "documents").exists() else BASE_DIR
+DOCUMENTS_DIR = PROJECT_ROOT / "documents"
 VEILLE_FILE = BASE_DIR / "data" / "veille_reglementaire.json"
 VEILLE_CACHE = {"ts": None, "items": []}
 
@@ -7071,6 +7072,11 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                 item["validation_decision"] = item.get("validation_decision") or ""
                 iid = item.get("id")
                 item["document_type_id"] = item.get("document_type_id")
+                filename = _resolve_document_filename(item)
+                if filename:
+                    item["direct_url"] = f"/dashboard/parametres/courtier/documents/file/{filename}"
+                else:
+                    item["direct_url"] = ""
                 item["download_url"] = f"/dashboard/parametres/courtier/documents/{iid}/download"
                 item["view_url"] = f"/dashboard/parametres/courtier/documents/{iid}/view"
                 item["delete_url"] = f"/dashboard/parametres/courtier/documents/{iid}/delete"
@@ -7782,6 +7788,21 @@ def download_courtier_document(doc_id: int, request: Request, db: Session = Depe
 def view_courtier_document(doc_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin_or_write(request, db)
     return _serve_courtier_document(doc_id, inline=True, db=db)
+
+
+@router.get("/parametres/courtier/documents/file/{filename}")
+def view_courtier_document_file(
+    filename: str, request: Request, inline: bool = False, db: Session = Depends(get_db)
+):
+    _require_admin_or_write(request, db)
+    safe_name = Path(filename).name
+    file_path = (DOCUMENTS_DIR / safe_name).resolve()
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+    if inline:
+        headers = {"Content-Disposition": f'inline; filename="{safe_name}"'}
+        return FileResponse(str(file_path), media_type="application/pdf", headers=headers)
+    return FileResponse(str(file_path), media_type="application/pdf", filename=safe_name)
 
 
 @router.post("/parametres/courtier/documents/{doc_id}/analyse", response_class=HTMLResponse)
@@ -9476,41 +9497,60 @@ async def dashboard_compliance_rc_pro_detail(item_id: int, db: Session = Depends
 def _resolve_document_path(row: dict) -> Path:
     """Compute safe absolute path for a stored document entry."""
     base = DOCUMENTS_DIR.resolve()
-    candidates: list[Path] = []
     stored_filename = row.get("stored_filename")
     stored_path = row.get("stored_path")
-    if stored_filename:
-        candidates.append((base / stored_filename))
-    if stored_path:
-        sp = Path(stored_path)
-        if sp.is_absolute():
-            candidates.append(sp)
-        else:
-            candidates.append((base / sp))
-            candidates.append((BASE_DIR / sp))
-    for candidate in candidates:
-        try:
-            resolved = candidate.resolve()
-        except FileNotFoundError:
-            resolved = candidate
-        try:
-            resolved.relative_to(base)
-            return resolved
-        except Exception:
-            continue
-    fallback_name = stored_filename or Path(stored_path or "document.pdf").name
-    return base / fallback_name
+    filename = stored_filename or Path(stored_path or "document.pdf").name
+    return base / filename
+
+
+def _resolve_document_filename(row: dict) -> str:
+    stored_filename = row.get("stored_filename")
+    stored_path = row.get("stored_path")
+    return stored_filename or Path(stored_path or "").name
 
 
 def _serve_courtier_document(doc_id: int, inline: bool, db: Session) -> FileResponse:
     table = _ensure_courtier_documents_table(db)
     if not table:
+        _log_courtier_doc_event(
+            f"missing_table doc_id={doc_id} inline={inline}"
+        )
+        logger.warning("courtier_document_serve missing_table doc_id=%s inline=%s", doc_id, inline)
         raise HTTPException(status_code=404, detail="Document introuvable.")
     row = _get_courtier_document(db, table, doc_id)
     if not row:
+        _log_courtier_doc_event(
+            f"missing_row doc_id={doc_id} inline={inline} table={table}"
+        )
+        logger.warning("courtier_document_serve missing_row doc_id=%s inline=%s table=%s", doc_id, inline, table)
         raise HTTPException(status_code=404, detail="Document introuvable.")
     file_path = _resolve_document_path(row)
+    _log_courtier_doc_event(
+        "serve_attempt "
+        f"doc_id={doc_id} inline={inline} "
+        f"stored_filename={row.get('stored_filename')} "
+        f"stored_path={row.get('stored_path')} "
+        f"resolved={file_path} exists={file_path.exists()}"
+    )
+    logger.info(
+        "courtier_document_serve doc_id=%s inline=%s stored_filename=%s stored_path=%s resolved=%s exists=%s",
+        doc_id,
+        inline,
+        row.get("stored_filename"),
+        row.get("stored_path"),
+        str(file_path),
+        file_path.exists(),
+    )
     if not file_path.exists():
+        _log_courtier_doc_event(
+            f"missing_file doc_id={doc_id} inline={inline} resolved={file_path}"
+        )
+        logger.warning(
+            "courtier_document_serve missing_file doc_id=%s inline=%s resolved=%s",
+            doc_id,
+            inline,
+            str(file_path),
+        )
         raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
     mime_type = row.get("mime_type") or "application/pdf"
     original_filename = (row.get("original_filename") or file_path.name or "document.pdf").replace('"', "")
@@ -29285,3 +29325,14 @@ def api_taches_ics(
     # Retire les éventuelles lignes vides dues aux catégories absentes
     ics = "\r\n".join([ln for ln in lines if ln != ""])
     return PlainTextResponse(content=ics, media_type="text/calendar; charset=utf-8")
+def _log_courtier_doc_event(message: str) -> None:
+    """Append diagnostic logs for courtier documents to a dedicated file."""
+    try:
+        log_dir = PROJECT_ROOT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "courtier_docs.log"
+        timestamp = datetime.utcnow().isoformat()
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} {message}\n")
+    except Exception:
+        pass

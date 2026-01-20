@@ -87,6 +87,7 @@ if not (BASE_DIR / "frontend").exists() and len(_THIS_FILE.parents) >= 3:
 
 FRONTEND_BUILD_PATH = BASE_DIR / "frontend" / "build"
 FAVICON_PATH = BASE_DIR / "frontend" / "public" / "favicon.ico"
+DOCUMENTS_DIR = (BASE_DIR.parent if (BASE_DIR.parent / "documents").exists() else BASE_DIR) / "documents"
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
@@ -123,6 +124,13 @@ if FRONTEND_BUILD_PATH.exists():
     def serve_frontend_assets(request: Request):
         filename = request.url.path.lstrip("/")
         return _serve_frontend_asset(filename)
+
+if DOCUMENTS_DIR.exists():
+    app.mount(
+        "/dashboard/parametres/courtier/documents/file",
+        StaticFiles(directory=DOCUMENTS_DIR),
+        name="courtier_documents",
+    )
 
 app.mount("/dashboard", frontend_app)
 
