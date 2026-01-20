@@ -638,19 +638,22 @@
                     <th style="padding:0.75rem; width:200px; text-align:center;">Actions</th>
                   </tr>
                   <tr style="text-align:left; border-bottom:1px solid var(--border); background:rgba(31,43,108,0.04);">
+                    {% set cd_filter_type = request.query_params.get('cd_type') or '' %}
+                    {% set cd_filter_date = request.query_params.get('cd_date') or '' %}
+                    {% set cd_filter_doc = request.query_params.get('cd_doc') or '' %}
                     <th style="padding:0.5rem;">
                       <select id="cd_filter_type" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem; height:36px;">
                         <option value="">Tous les types</option>
                         {% for opt in type_ns.options %}
-                          <option value="{{ opt }}">{{ opt }}</option>
+                          <option value="{{ opt }}" {% if cd_filter_type == opt %}selected{% endif %}>{{ opt }}</option>
                         {% endfor %}
                       </select>
                     </th>
                     <th style="padding:0.5rem;">
-                      <input id="cd_filter_date" type="text" placeholder="JJ/MM/AAAA" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
+                      <input id="cd_filter_date" type="text" placeholder="JJ/MM/AAAA" value="{{ cd_filter_date }}" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
                     </th>
                     <th style="padding:0.5rem;">
-                      <input id="cd_filter_doc" type="text" placeholder="Nom du fichier" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
+                      <input id="cd_filter_doc" type="text" placeholder="Nom du fichier" value="{{ cd_filter_doc }}" style="width:100%; border:1px solid var(--border); border-radius:6px; padding:0.35rem 0.45rem; font-size:0.85rem;" />
                     </th>
                     <th style="padding:0.5rem;"></th>
                     <th style="padding:0.5rem;"></th>
@@ -770,6 +773,30 @@
                 }
 
                 applyFilters();
+
+                const persistParams = () => {
+                  const params = new URLSearchParams(window.location.search);
+                  if (filterType) params.set('cd_type', filterType.value || '');
+                  if (filterDate) params.set('cd_date', filterDate.value || '');
+                  if (filterDoc) params.set('cd_doc', filterDoc.value || '');
+                  if (!filterType?.value) params.delete('cd_type');
+                  if (!filterDate?.value) params.delete('cd_date');
+                  if (!filterDoc?.value) params.delete('cd_doc');
+                  const next = `${window.location.pathname}?${params.toString()}${window.location.hash || ''}`;
+                  window.history.replaceState({}, '', next);
+                };
+
+                if (filterType) {
+                  filterType.addEventListener('change', persistParams);
+                }
+                [filterDate, filterDoc].forEach((input) => {
+                  if (input) {
+                    input.addEventListener('input', persistParams);
+                  }
+                });
+                if (resetBtn) {
+                  resetBtn.addEventListener('click', persistParams);
+                }
               })();
             </script>
             <script>

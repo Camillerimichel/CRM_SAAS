@@ -122,6 +122,7 @@
       <div style="display:grid; gap:16px; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.2fr);">
         <div style="padding:12px; border:1px solid #e5e7eb; border-radius:12px; background:#fff;">
           <h3 style="margin:0 0 8px 0;">Types de document</h3>
+          {% set sorted_doc_types = doc_controle_types|sort(attribute='libelle') %}
           {% set type_form = doc_controle_type_form or {} %}
           {% if type_form.id %}
             <div class="muted" style="margin-bottom:8px;">Edition du type #{{ type_form.id }} <a href="/dashboard/superadmin#doc-controle">Annuler</a></div>
@@ -171,23 +172,19 @@
             </button>
           </form>
           <div style="margin-top:12px; overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse;">
+            <table style="width:100%; border-collapse:collapse; table-layout:fixed; font-size:0.80rem;">
               <thead>
                 <tr style="text-align:left; border-bottom:1px solid #e5e7eb; font-size:0.85rem;">
-                  <th style="padding:6px;">Activite</th>
-                  <th style="padding:6px; width:20px;">Code</th>
-                  <th style="padding:6px;">Seuil</th>
-                  <th style="padding:6px; text-align:center;">Actif</th>
+                  <th style="padding:6px; width:180px;">Activite</th>
+                  <th style="padding:6px; width:180px;">Code</th>
                   <th style="padding:6px; text-align:center;">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {% for t in doc_controle_types %}
+                {% for t in sorted_doc_types %}
                   <tr style="border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:6px;">{{ t.activite_libelle or t.libelle }}</td>
-                    <td style="padding:6px; width:20px;">{{ t.code }}</td>
-                    <td style="padding:6px;">{{ t.seuil_confiance }}</td>
-                    <td style="padding:6px; text-align:center;">{{ 'Oui' if t.actif else 'Non' }}</td>
+                    <td style="padding:6px; width:180px;">{{ t.activite_libelle or t.libelle }}</td>
+                    <td style="padding:6px; width:180px;">{{ t.code }}</td>
                     <td class="doc-controle-actions" style="padding:6px; text-align:center; white-space:nowrap;">
                       <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_type={{ t.id }}#doc-controle" title="Editer" aria-label="Editer">
                         <i class="fa-regular fa-pen-to-square"></i>
@@ -215,7 +212,7 @@
               <span>Filtrer par type</span>
               <select class="form-control" name="dc_type" style="min-width:220px;">
                 <option value="">Tous</option>
-                {% for t in doc_controle_types %}
+                {% for t in sorted_doc_types %}
                   <option value="{{ t.id }}" {% if doc_controle_type_filter and (t.id == doc_controle_type_filter) %}selected{% endif %}>{{ t.libelle }}</option>
                 {% endfor %}
               </select>
@@ -235,7 +232,7 @@
               <span>Type</span>
               <select class="form-control" name="document_type_id" required>
                 <option value="">Choisir...</option>
-                {% for t in doc_controle_types %}
+                {% for t in sorted_doc_types %}
                   <option value="{{ t.id }}" {% if kw_type_id and (t.id == kw_type_id) %}selected{% endif %}>{{ t.libelle }}</option>
                 {% endfor %}
               </select>
@@ -286,28 +283,35 @@
             </button>
           </form>
           <div style="margin-top:12px; overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse;">
+            <table style="width:100%; border-collapse:collapse; table-layout:fixed; font-size:0.80rem;">
+              <colgroup>
+                <col style="width:80px;">
+                <col style="width:80px;">
+                <col style="width:24px;">
+                <col style="width:24px;">
+                <col style="width:24px;">
+                <col style="width:38px;">
+              </colgroup>
               <thead>
                 <tr style="text-align:left; border-bottom:1px solid #e5e7eb;">
-                  <th style="padding:6px;">Type</th>
-                  <th style="padding:6px; width:220px;">Expression</th>
-                  <th style="padding:6px;">Poids</th>
+                  <th style="padding:6px; width:80px;">Type</th>
+                  <th style="padding:6px; width:80px;">Expression</th>
                   <th style="padding:6px; text-align:center;">Oblig.</th>
                   <th style="padding:6px; text-align:center;">Regex</th>
                   <th style="padding:6px; text-align:center;">Actif</th>
-                  <th style="padding:6px; text-align:center;">Actions</th>
+                  <th style="padding:6px; text-align:center; width:38px;">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {% for k in doc_controle_keywords %}
+                {% set sorted_doc_keywords = doc_controle_keywords|sort(attribute='type_libelle') %}
+                {% for k in sorted_doc_keywords %}
                   <tr style="border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:6px;">{{ k.type_libelle }}</td>
-                    <td style="padding:6px; width:220px;">{{ k.expression }}</td>
-                    <td style="padding:6px;">{{ k.poids }}</td>
+                    <td style="padding:6px; width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ k.type_libelle }}</td>
+                    <td style="padding:6px; width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ k.expression }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.obligatoire else 'Non' }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.is_regex else 'Non' }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.actif else 'Non' }}</td>
-                    <td class="doc-controle-actions" style="padding:6px; text-align:center; white-space:nowrap;">
+                    <td class="doc-controle-actions" style="padding:6px; text-align:center; white-space:nowrap; width:38px;">
                       <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_kw={{ k.id }}#doc-controle" title="Editer" aria-label="Editer">
                         <i class="fa-regular fa-pen-to-square"></i>
                       </a>
