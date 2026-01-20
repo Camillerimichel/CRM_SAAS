@@ -54,8 +54,24 @@
   .help-icon:hover::before {
     opacity: 1;
   }
+  .superadmin-menu .btn {
+    font-weight: 500;
+  }
+  .superadmin-menu .btn.active {
+    font-weight: 700;
+  }
+  .doc-controle-actions .btn i {
+    font-size: 70%;
+  }
 </style>
 
+<div class="superadmin-menu" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:1rem;">
+  {% if superadmin_user %}<a class="btn btn-secondary" href="#doc-controle">Controle documentaire</a>{% endif %}
+  <a class="btn btn-secondary" href="#utilisateurs">Gestion des droits d'acces</a>
+  <a class="btn btn-secondary" href="#outils-import">Outils de gestion de la base</a>
+  <a class="btn btn-secondary" href="#cron-jobs">Automatisation (cron)</a>
+  <a class="btn btn-secondary" href="#suivi-logs">Suivi des traitements</a>
+</div>
 {% if superadmin_user %}
 <div class="card" style="margin-bottom:1rem; border:1px solid #dbeafe; background:linear-gradient(135deg,#f8fbff 0%,#eef4ff 100%); box-shadow:0 10px 30px rgba(37,99,235,0.08);">
   <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
@@ -94,21 +110,15 @@
     </div>
   </div>
 </div>
-<div class="card" id="doc-controle" style="margin-top:1rem;">
-  <details data-doc-controle-details style="border:0; padding:0;">
-    <summary style="list-style:none; cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
-        <div style="flex:1; text-align:center;">
-          <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Controle documentaire</h2>
-          <p class="muted" style="margin:0;">Configuration des types et mots-cles utilises pour l'analyse.</p>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <div class="muted" style="font-size:0.9rem;">{{ doc_controle_types|length }} types • {{ doc_controle_keywords|length }} mots-cles</div>
-          <span class="btn btn-secondary" data-doc-controle-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
-        </div>
-      </div>
-    </summary>
-    <div style="margin-top:12px;">
+<div class="card" id="doc-controle" data-section="doc-controle" style="margin-top:1rem;">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
+    <div style="flex:1; text-align:center;">
+      <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Controle documentaire</h2>
+      <p class="muted" style="margin:0;">Configuration des types et mots-cles utilises pour l'analyse.</p>
+    </div>
+    <div class="muted" style="font-size:0.9rem;">{{ doc_controle_types|length }} types • {{ doc_controle_keywords|length }} mots-cles</div>
+  </div>
+  <div style="margin-top:12px;">
       <div style="display:grid; gap:16px; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.2fr);">
         <div style="padding:12px; border:1px solid #e5e7eb; border-radius:12px; background:#fff;">
           <h3 style="margin:0 0 8px 0;">Types de document</h3>
@@ -163,9 +173,9 @@
           <div style="margin-top:12px; overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse;">
               <thead>
-                <tr style="text-align:left; border-bottom:1px solid #e5e7eb;">
+                <tr style="text-align:left; border-bottom:1px solid #e5e7eb; font-size:0.85rem;">
                   <th style="padding:6px;">Activite</th>
-                  <th style="padding:6px; width:45px;">Code</th>
+                  <th style="padding:6px; width:20px;">Code</th>
                   <th style="padding:6px;">Seuil</th>
                   <th style="padding:6px; text-align:center;">Actif</th>
                   <th style="padding:6px; text-align:center;">Actions</th>
@@ -175,14 +185,18 @@
                 {% for t in doc_controle_types %}
                   <tr style="border-bottom:1px solid #f1f5f9;">
                     <td style="padding:6px;">{{ t.activite_libelle or t.libelle }}</td>
-                    <td style="padding:6px; width:45px;">{{ t.code }}</td>
+                    <td style="padding:6px; width:20px;">{{ t.code }}</td>
                     <td style="padding:6px;">{{ t.seuil_confiance }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if t.actif else 'Non' }}</td>
-                    <td style="padding:6px; text-align:center; white-space:nowrap;">
-                      <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_type={{ t.id }}#doc-controle">Editer</a>
+                    <td class="doc-controle-actions" style="padding:6px; text-align:center; white-space:nowrap;">
+                      <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_type={{ t.id }}#doc-controle" title="Editer" aria-label="Editer">
+                        <i class="fa-regular fa-pen-to-square"></i>
+                      </a>
                       <form method="post" action="/dashboard/superadmin/document-controle/type/delete#doc-controle" style="display:inline;" onsubmit="return confirm('Supprimer ce type ?');">
                         <input type="hidden" name="type_id" value="{{ t.id }}">
-                        <button type="submit" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;">Supprimer</button>
+                        <button type="submit" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;" title="Supprimer" aria-label="Supprimer">
+                          <i class="fa-regular fa-trash-can"></i>
+                        </button>
                       </form>
                     </td>
                   </tr>
@@ -293,11 +307,15 @@
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.obligatoire else 'Non' }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.is_regex else 'Non' }}</td>
                     <td style="padding:6px; text-align:center;">{{ 'Oui' if k.actif else 'Non' }}</td>
-                    <td style="padding:6px; text-align:center; white-space:nowrap;">
-                      <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_kw={{ k.id }}#doc-controle">Editer</a>
+                    <td class="doc-controle-actions" style="padding:6px; text-align:center; white-space:nowrap;">
+                      <a class="btn btn-secondary" href="/dashboard/superadmin?dc_edit_kw={{ k.id }}#doc-controle" title="Editer" aria-label="Editer">
+                        <i class="fa-regular fa-pen-to-square"></i>
+                      </a>
                       <form method="post" action="/dashboard/superadmin/document-controle/keyword/delete#doc-controle" style="display:inline;" onsubmit="return confirm('Supprimer ce mot-cle ?');">
                         <input type="hidden" name="keyword_id" value="{{ k.id }}">
-                        <button type="submit" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;">Supprimer</button>
+                        <button type="submit" class="btn btn-secondary" style="background:#f3f4f6; color:#111827;" title="Supprimer" aria-label="Supprimer">
+                          <i class="fa-regular fa-trash-can"></i>
+                        </button>
                       </form>
                     </td>
                   </tr>
@@ -310,103 +328,65 @@
         </div>
       </div>
     </div>
-  </details>
 </div>
 {% endif %}
 
-<div class="card" style="margin-bottom:1rem;">
-  <details data-soc-details style="border:0; padding:0;">
-    <summary style="list-style:none; cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-        <h3 style="margin:0; flex:1; text-align:center;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
-        <span class="btn btn-secondary" data-soc-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
-      </div>
-    </summary>
-    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-      <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
-        <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
-        <button type="submit" class="btn btn-secondary">Filtrer</button>
-      </form>
+<div class="card" id="utilisateurs" data-section="utilisateurs" style="margin-bottom:1rem;">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+    <h3 style="margin:0; flex:1; text-align:center;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
+  </div>
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+    <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
+      <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
+      <button type="submit" class="btn btn-secondary">Filtrer</button>
+    </form>
+  </div>
+  {% if societes_gestion %}
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+        <thead>
+          <tr style="text-align:left; border-bottom:1px solid var(--border);">
+            <th style="padding:6px 4px;">Nom</th>
+            <th style="padding:6px 4px;">Contact</th>
+            <th style="padding:6px 4px;">Téléphone</th>
+            <th style="padding:6px 4px;">Courriel</th>
+            <th style="padding:6px 4px; text-align:center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in societes_gestion %}
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 4px;">{{ s.nom }}</td>
+            <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
+            <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
+            <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
+            <td style="padding:6px 4px; text-align:center;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
+                <i class="fa-regular fa-pen-to-square"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    {% if societes_gestion %}
-      <div style="overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
-          <thead>
-            <tr style="text-align:left; border-bottom:1px solid var(--border);">
-              <th style="padding:6px 4px;">Nom</th>
-              <th style="padding:6px 4px;">Contact</th>
-              <th style="padding:6px 4px;">Téléphone</th>
-              <th style="padding:6px 4px;">Courriel</th>
-              <th style="padding:6px 4px; text-align:center;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for s in societes_gestion %}
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:6px 4px;">{{ s.nom }}</td>
-              <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
-              <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
-              <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
-              <td style="padding:6px 4px; text-align:center;">
-                <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
-                  <i class="fa-regular fa-pen-to-square"></i>
-                </a>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+      <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        {% set qparam = '&q=' ~ search_term if search_term else '' %}
+        {% if page > 1 %}
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}#utilisateurs">Précédent</a>
+        {% endif %}
+        {% if page < page_count %}
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}#utilisateurs">Suivant</a>
+        {% endif %}
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
-        <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
-        <div style="display:flex; gap:6px; flex-wrap:wrap;">
-          {% set qparam = '&q=' ~ search_term if search_term else '' %}
-          {% if page > 1 %}
-            <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}#utilisateurs">Précédent</a>
-          {% endif %}
-          {% if page < page_count %}
-            <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}#utilisateurs">Suivant</a>
-          {% endif %}
-        </div>
-      </div>
-    {% else %}
-      <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
-    {% endif %}
-  </details>
+    </div>
+  {% else %}
+    <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
+  {% endif %}
 </div>
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const details = document.querySelector('[data-soc-details]');
-    const label = document.querySelector('[data-soc-toggle-label]');
-    const related = () => document.querySelectorAll('[data-soc-related]');
-    if (!details || !label) return;
-    // Forcer fermé par défaut (sauf ancre explicite)
-    details.open = false;
-    const setState = () => {
-      const open = details.open;
-      label.textContent = open ? 'Masquer' : 'Afficher';
-      related().forEach(el => { el.style.display = open ? '' : 'none'; });
-    };
-    if (window.location.hash === '#utilisateurs') details.open = true;
-    details.addEventListener('toggle', setState);
-    setState();
-  });
-</script>
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const details = document.querySelector('[data-base-details]');
-    const label = document.querySelector('[data-base-toggle-label]');
-    if (!details || !label) return;
-    details.open = false;
-    if (window.location.hash === '#outils-import' || window.location.search.includes('esg_import_status=')) {
-      details.open = true;
-    }
-    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
-    details.addEventListener('toggle', setLabel);
-    setLabel();
-  });
-</script>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
     const group = document.querySelector('[data-action-group=\"base-tools\"]');
@@ -818,15 +798,11 @@
 </div>
 {% endif %}
 
-<div class="card" id="outils-import">
-  <details data-base-details style="border:0; padding:0;">
-    <summary style="list-style:none; cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
-        <h2 style="margin:0 0 6px 0; font-size:1.2rem; flex:1; text-align:center;">Outils de gestion de la base</h2>
-        <span class="btn btn-secondary" data-base-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
-      </div>
-    </summary>
-    <div style="margin-top:6px;">
+<div class="card" id="outils-import" data-section="outils-import">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+    <h2 style="margin:0 0 6px 0; font-size:1.2rem; flex:1; text-align:center;">Outils de gestion de la base</h2>
+  </div>
+  <div style="margin-top:6px;">
       <p class="muted" style="margin:0 0 10px 0;">Mise à jour des historiques et recalcul des indicateurs.</p>
       {% set srri_status = request.query_params.get('srri_status') %}
       {% set srri_dur = request.query_params.get('srri_dur') %}
@@ -1001,86 +977,72 @@
     </form>
   </div>
 </div>
-  </details>
 </div>
 
-<div class="card" id="cron-jobs" style="margin-top:1rem;">
-  <details data-cron-details style="border:0; padding:0;">
-    <summary style="list-style:none; cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
-        <div style="flex:1; text-align:center;">
-          <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Automatisations (cron)</h2>
-          <p class="muted" style="margin:0;">Liste des jobs planifies et dernier statut connu.</p>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <div class="muted" style="font-size:0.9rem;">{{ scheduled_jobs|length if scheduled_jobs else 0 }} job(s)</div>
-          <span class="btn btn-secondary" data-cron-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
-        </div>
-      </div>
-    </summary>
-    <div style="margin-top:12px;">
-      {% if scheduled_jobs %}
-        <div style="display:grid; gap:12px;">
-          {% for job in scheduled_jobs %}
-            {% set log = job.last_log %}
-            {% set st = log.status if log else '' %}
-            {% set status_label = 'OK' if st == 'ok' else ('Erreur' if st == 'error' else ('En cours' if st else 'Jamais')) %}
-            {% set start_str = log.started_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.started_at else '—' %}
-            {% set end_str = log.ended_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.ended_at else '—' %}
-            {% set dur_str = '%.2fs'|format(log.duration_seconds) if log and log.duration_seconds is not none else '—' %}
-            {% set msg_str = log.message[:160] if log and log.message else '—' %}
-            <div style="padding:12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; display:grid; gap:8px;">
-              <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;">
-                <div style="font-weight:600;">{{ job.label or job.code }}</div>
-                {% if st == 'ok' %}
-                  <span class="btn" style="background:#22c55e; color:#fff; cursor:default;">OK</span>
-                {% elif st == 'error' %}
-                  <span class="btn" style="background:#ef4444; color:#fff; cursor:default;">Erreur</span>
-                {% elif st %}
-                  <span class="btn" style="background:#f97316; color:#fff; cursor:default;">En cours</span>
-                {% else %}
-                  <span class="btn" style="background:#e5e7eb; color:#111827; cursor:default;">Jamais</span>
-                {% endif %}
-              </div>
-              <div class="muted">Planif : {{ job.schedule or '—' }}</div>
-              {% if job.description %}<div class="muted">{{ job.description }}</div>{% endif %}
-              <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <div><span class="muted">Debut :</span> {{ start_str }}</div>
-                <div><span class="muted">Fin :</span> {{ end_str }}</div>
-                <div><span class="muted">Duree :</span> {{ dur_str }}</div>
-              </div>
-              <div class="muted">Message : {{ msg_str }}</div>
-              <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <a class="btn btn-secondary" href="/dashboard/superadmin#suivi-logs" style="background:#f3f4f6; color:#111827;">Voir logs</a>
-                {% if job.action_anchor %}
-                  <a class="btn btn-secondary" href="/dashboard/superadmin{{ job.action_anchor }}" style="background:#f3f4f6; color:#111827;">Lancer manuellement</a>
-                {% endif %}
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="muted" style="margin-top:10px;">Aucun job planifie pour l'instant.</p>
-      {% endif %}
+<div class="card" id="cron-jobs" data-section="cron-jobs" style="margin-top:1rem;">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
+    <div style="flex:1; text-align:center;">
+      <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Automatisations (cron)</h2>
+      <p class="muted" style="margin:0;">Liste des jobs planifies et dernier statut connu.</p>
     </div>
-  </details>
+    <div class="muted" style="font-size:0.9rem;">{{ scheduled_jobs|length if scheduled_jobs else 0 }} job(s)</div>
+  </div>
+  <div style="margin-top:12px;">
+    {% if scheduled_jobs %}
+      <div style="display:grid; gap:12px;">
+        {% for job in scheduled_jobs %}
+          {% set log = job.last_log %}
+          {% set st = log.status if log else '' %}
+          {% set status_label = 'OK' if st == 'ok' else ('Erreur' if st == 'error' else ('En cours' if st else 'Jamais')) %}
+          {% set start_str = log.started_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.started_at else '—' %}
+          {% set end_str = log.ended_at.strftime('%d/%m/%Y %H:%M:%S') if log and log.ended_at else '—' %}
+          {% set dur_str = '%.2fs'|format(log.duration_seconds) if log and log.duration_seconds is not none else '—' %}
+          {% set msg_str = log.message[:160] if log and log.message else '—' %}
+          <div style="padding:12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; display:grid; gap:8px;">
+            <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;">
+              <div style="font-weight:600;">{{ job.label or job.code }}</div>
+              {% if st == 'ok' %}
+                <span class="btn" style="background:#22c55e; color:#fff; cursor:default;">OK</span>
+              {% elif st == 'error' %}
+                <span class="btn" style="background:#ef4444; color:#fff; cursor:default;">Erreur</span>
+              {% elif st %}
+                <span class="btn" style="background:#f97316; color:#fff; cursor:default;">En cours</span>
+              {% else %}
+                <span class="btn" style="background:#e5e7eb; color:#111827; cursor:default;">Jamais</span>
+              {% endif %}
+            </div>
+            <div class="muted">Planif : {{ job.schedule or '—' }}</div>
+            {% if job.description %}<div class="muted">{{ job.description }}</div>{% endif %}
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+              <div><span class="muted">Debut :</span> {{ start_str }}</div>
+              <div><span class="muted">Fin :</span> {{ end_str }}</div>
+              <div><span class="muted">Duree :</span> {{ dur_str }}</div>
+            </div>
+            <div class="muted">Message : {{ msg_str }}</div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin#suivi-logs" style="background:#f3f4f6; color:#111827;">Voir logs</a>
+              {% if job.action_anchor %}
+                <a class="btn btn-secondary" href="/dashboard/superadmin{{ job.action_anchor }}" style="background:#f3f4f6; color:#111827;">Lancer manuellement</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted" style="margin-top:10px;">Aucun job planifie pour l'instant.</p>
+    {% endif %}
+  </div>
 </div>
 
-<div class="card" id="suivi-logs" style="margin-top:1rem;">
-  <details data-log-details style="border:0; padding:0;">
-    <summary style="list-style:none; cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
-        <div style="flex:1; text-align:center;">
-          <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Suivi des traitements</h2>
-          <p class="muted" style="margin:0;">Logs en base : typologie, déclencheur, horodatage et message de fin.</p>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <div class="muted" style="font-size:0.9rem;">{{ total_logs or 0 }} entrées</div>
-          <span class="btn btn-secondary" data-log-toggle-label style="background:#f3f4f6; color:#111827; pointer-events:none;">Afficher</span>
-        </div>
-      </div>
-    </summary>
-    <div style="margin-top:12px;">
+<div class="card" id="suivi-logs" data-section="suivi-logs" style="margin-top:1rem;">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; padding:0 0 6px 0;">
+    <div style="flex:1; text-align:center;">
+      <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Suivi des traitements</h2>
+      <p class="muted" style="margin:0;">Logs en base : typologie, déclencheur, horodatage et message de fin.</p>
+    </div>
+    <div class="muted" style="font-size:0.9rem;">{{ total_logs or 0 }} entrées</div>
+  </div>
+  <div style="margin-top:12px;">
     <form method="get" action="/dashboard/superadmin#suivi-logs" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:0;">
       {% if selected_societe %}<input type="hidden" name="societe_id" value="{{ selected_societe.id }}">{% endif %}
       {% if search_term %}<input type="hidden" name="q" value="{{ search_term }}">{% endif %}
@@ -1195,44 +1157,43 @@
     {% else %}
       <p class="muted" style="margin-top:10px;">Aucun log enregistré pour l'instant.</p>
     {% endif %}
-    </div>
-  </details>
+  </div>
 </div>
 <script>
   (function() {
-    const details = document.querySelector('[data-cron-details]');
-    const label = document.querySelector('[data-cron-toggle-label]');
-    if (!details || !label) return;
-    details.open = false;
-    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
-    if (window.location.hash === '#cron-jobs') details.open = true;
-    details.addEventListener('toggle', setLabel);
-    setLabel();
-  })();
-</script>
-<script>
-  (function() {
-    const details = document.querySelector('[data-log-details]');
-    const label = document.querySelector('[data-log-toggle-label]');
-    if (!details || !label) return;
-    details.open = false;
-    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
-    // Ouverture explicite uniquement via ancre #suivi-logs
-    if (window.location.hash === '#suivi-logs') details.open = true;
-    details.addEventListener('toggle', setLabel);
-    setLabel();
-  })();
-</script>
-<script>
-  (function() {
-    const details = document.querySelector('[data-doc-controle-details]');
-    const label = document.querySelector('[data-doc-controle-toggle-label]');
-    if (!details || !label) return;
-    details.open = false;
-    const setLabel = () => { label.textContent = details.open ? 'Masquer' : 'Afficher'; };
-    if (window.location.hash === '#doc-controle') details.open = true;
-    details.addEventListener('toggle', setLabel);
-    setLabel();
+    const menu = document.querySelector('.superadmin-menu');
+    if (!menu) return;
+    const buttons = Array.from(menu.querySelectorAll('a[href^="#"]'));
+    const sections = Array.from(document.querySelectorAll('[data-section]'));
+    if (!sections.length || !buttons.length) return;
+
+    const setActive = (hash) => {
+      const targetId = (hash || '').replace('#', '');
+      sections.forEach(sec => {
+        sec.style.display = sec.id === targetId ? '' : 'none';
+      });
+      buttons.forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('href') === `#${targetId}`);
+      });
+    };
+
+    const initialHash = window.location.hash;
+    if (initialHash && document.querySelector(initialHash)) {
+      setActive(initialHash);
+    } else {
+      sections.forEach(sec => { sec.style.display = 'none'; });
+      buttons.forEach(btn => btn.classList.remove('active'));
+    }
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const hash = btn.getAttribute('href');
+        if (!hash) return;
+        history.replaceState(null, '', hash);
+        setActive(hash);
+      });
+    });
   })();
 </script>
 {% endblock %}
