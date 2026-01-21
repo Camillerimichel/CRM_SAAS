@@ -288,7 +288,53 @@
   <button class="groups-tab active" type="button" data-target="groupsBlock">Groupes</button>
   <button class="groups-tab" type="button" data-target="groupItemsBlock">Liste items</button>
   <button class="groups-tab" type="button" data-target="groupProductsBlock" style="display:none;">Liste produits</button>
+  <button class="groups-tab" type="button" data-target="groupEsgBlock" style="display:none;">Analyse ESG</button>
 </div>
+
+<section id="groupEsgBlock" class="groups-accordion" aria-label="Analyse ESG">
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+      <div>
+        <h3 style="margin:0;">Analyse ESG</h3>
+        <div class="muted" id="groupEsgStatus">Sélectionnez un groupe pour afficher les supports.</div>
+      </div>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
+      <div style="flex:1 1 240px; min-width:220px;">
+        <label class="muted" style="font-size:0.85rem;">ISIN de référence</label><br>
+        <select id="groupEsgAlloc" style="width:100%; border:1px solid #cbd5f5; border-radius:8px; padding:0.45rem 0.6rem; font-size:0.95rem;">
+          <option value="">— choisir —</option>
+        </select>
+      </div>
+      <div>
+        <button id="groupEsgRefresh" class="support-meta-btn" type="button" style="height:40px;"><span>Actualiser</span></button>
+      </div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <label class="muted" style="font-size:0.85rem;">Champs ESG (max 10)</label>
+      <div id="groupEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+    </div>
+    <div id="groupEsgChart" style="height:320px; width:100%; display:none;"></div>
+    <div id="groupEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
+    <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Groupe = (Groupe / Indice) × 100.</div>
+    <div id="groupEsgDetails" style="display:none; margin-top:12px;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Métrique</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Somme pondérée</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Poids couverts</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Moyenne pondérée</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Indice</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Base 100</th>
+            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Couverture (%)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 
 <section id="groupsBlock" class="groups-accordion active" aria-label="Groupes">
   <div class="card" style="margin-bottom:12px;">
@@ -470,7 +516,7 @@
         </div>
       </div>
       <div style="margin-bottom:8px;">
-        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 10)</label>
         <div id="supportEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
       </div>
       <div id="supportEsgChart" style="height:320px; width:100%; display:none;"></div>
@@ -557,6 +603,7 @@
     let currentGroupId = null;
     let currentGroupType = null;
     const productsTab = document.querySelector('.groups-tab[data-target="groupProductsBlock"]');
+    const esgTab = document.querySelector('.groups-tab[data-target="groupEsgBlock"]');
     const productsLabel = document.getElementById('groupProductsLabel');
     const productsStatus = document.getElementById('groupProductsStatus');
     const productsExport = document.getElementById('groupProductsExport');
@@ -619,6 +666,12 @@
           setActive('groupItemsBlock');
         }
       }
+      if (esgTab) {
+        esgTab.style.display = 'none';
+        if (activeId === 'groupEsgBlock') {
+          setActive('groupItemsBlock');
+        }
+      }
     }
 
     function setItemsEmpty(label){
@@ -630,6 +683,12 @@
       if (productsTab) {
         productsTab.style.display = 'none';
         if (activeId === 'groupProductsBlock') {
+          setActive('groupItemsBlock');
+        }
+      }
+      if (esgTab) {
+        esgTab.style.display = 'none';
+        if (activeId === 'groupEsgBlock') {
           setActive('groupItemsBlock');
         }
       }
@@ -725,6 +784,11 @@
       updateProductsExport();
       if (window.updateSupportIndexFromGroupProducts) {
         window.updateSupportIndexFromGroupProducts(productsRows);
+      }
+      var esgStatus = document.getElementById('groupEsgStatus');
+      if (esgStatus){ esgStatus.textContent = 'Sélectionnez un indice de référence pour lancer l’analyse.'; }
+      if (esgTab) {
+        esgTab.style.display = '';
       }
     }
 
@@ -836,12 +900,15 @@
       currentPage = 1;
       renderPage();
       if (productsTab) productsTab.style.display = '';
+      if (esgTab) esgTab.style.display = '';
     }
 
     async function loadGroupItems(groupId, groupType, groupName){
       const label = 'Liste items — ' + (groupName || 'Groupe');
       currentGroupId = groupId;
       currentGroupType = groupType;
+      window.currentGroupId = groupId;
+      window.currentGroupType = groupType;
       updateExportLink();
       setItemsLoading(label);
       setActive('groupItemsBlock');
@@ -1015,6 +1082,12 @@ $(function () {
     var $supportEsgAlloc = $('#supportEsgAlloc');
     var $supportEsgUnmatched = $('#supportEsgUnmatched');
     var supportEsgLabelMap = {};
+    var groupEsgFields = [];
+    var groupEsgRefList = [];
+    var groupEsgMetaLoaded = false;
+    var groupEsgLabelMap = {};
+    var $groupEsgAlloc = $('#groupEsgAlloc');
+    var $groupEsgStatus = $('#groupEsgStatus');
     var supportIndex = [];
     var supportModalClientsData = [];
     var supportModalFilteredData = [];
@@ -1089,6 +1162,11 @@ $(function () {
         });
     }
 
+    function setGroupEsgStatus(text){
+        if (!$groupEsgStatus || !$groupEsgStatus.length) return;
+        $groupEsgStatus.text(text || '');
+    }
+
     function ensureChartJs(callback){
         if (chartJsLoaded) { callback(); return; }
         var existing = document.querySelector('script[data-loader="chartjs"]');
@@ -1119,6 +1197,195 @@ $(function () {
         s.setAttribute('data-loader','plotly');
         s.onload=function(){ callback(); };
         document.head.appendChild(s);
+    }
+
+    function loadGroupEsgMeta(cb){
+        if (groupEsgMetaLoaded){
+            cb && cb();
+            return;
+        }
+        fetch('/dashboard/esg/fields')
+            .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+            .then(function(data){
+                groupEsgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
+                groupEsgRefList = Array.isArray(data.ref_isins) ? data.ref_isins : [];
+                groupEsgMetaLoaded = true;
+                renderGroupEsgFields();
+                renderGroupEsgAllocOptions();
+                cb && cb();
+            })
+            .catch(function(err){
+                console.warn('Group ESG meta load error', err);
+                groupEsgFields = [];
+                groupEsgRefList = [];
+                groupEsgMetaLoaded = true;
+                renderGroupEsgFields();
+                renderGroupEsgAllocOptions();
+                cb && cb();
+            });
+    }
+
+    function renderGroupEsgAllocOptions(){
+        if (!$groupEsgAlloc || !$groupEsgAlloc.length) return;
+        var opts = ['<option value=\"\">— choisir —</option>'];
+        groupEsgRefList.forEach(function(item){
+            var isin = item && item.isin ? String(item.isin) : '';
+            if (!isin) return;
+            var label = isin;
+            if (item.nom){ label = isin + ' — ' + item.nom; }
+            opts.push('<option value=\"'+escHtml(isin)+'\">'+escHtml(label)+'</option>');
+        });
+        $groupEsgAlloc.html(opts.join(''));
+    }
+
+    function renderGroupEsgFields(){
+        var wrap = document.getElementById('groupEsgFields');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        groupEsgLabelMap = {};
+        if (!groupEsgFields.length){
+            wrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
+            return;
+        }
+        groupEsgFields.forEach(function(f){
+            var btn = document.createElement('button');
+            btn.type='button';
+            btn.className='dim-btn group-esg-field';
+            btn.setAttribute('data-field', f.col || f.field || f.label || '');
+            btn.title = f.label || f.col || '';
+            btn.textContent = f.label || f.col || '';
+            if (f.col || f.field){
+                var key = f.col || f.field;
+                groupEsgLabelMap[key] = f.label || key;
+            }
+            btn.addEventListener('click', function(){
+                if (btn.classList.contains('active')){
+                    btn.classList.remove('active');
+                } else {
+                    var actives = wrap.querySelectorAll('.group-esg-field.active');
+                    if (actives.length >= 10) return;
+                    btn.classList.add('active');
+                }
+                runGroupEsg();
+            });
+            wrap.appendChild(btn);
+        });
+        ensureGroupEsgDefaultSelection();
+    }
+
+    function ensureGroupEsgDefaultSelection(){
+        var wrap = document.getElementById('groupEsgFields');
+        if (!wrap) return;
+        var actives = wrap.querySelectorAll('.group-esg-field.active');
+        if (actives.length) return;
+        var btns = wrap.querySelectorAll('.group-esg-field');
+        for (var i = 0; i < btns.length && i < 10; i++){
+            btns[i].classList.add('active');
+        }
+    }
+
+    function selectedGroupEsgFields(){
+        var wrap = document.getElementById('groupEsgFields');
+        if (!wrap) return [];
+        return Array.from(wrap.querySelectorAll('.group-esg-field.active')).map(function(b){
+            return b.getAttribute('data-field');
+        }).filter(Boolean);
+    }
+
+    function runGroupEsg(){
+        if (!groupEsgMetaLoaded){
+            loadGroupEsgMeta(function(){ runGroupEsg(); });
+            return;
+        }
+        if (!groupEsgFields.length){
+            renderGroupEsgFields();
+            return;
+        }
+        var refIsin = ($groupEsgAlloc && $groupEsgAlloc.val()) || '';
+        ensureGroupEsgDefaultSelection();
+        var fields = selectedGroupEsgFields();
+        var groupId = window.currentGroupId || null;
+        var groupType = window.currentGroupType || null;
+        if (!groupId || !groupType){
+            setGroupEsgStatus('Sélectionnez un groupe pour afficher les supports.');
+            return;
+        }
+        if (!refIsin || !fields.length){ return; }
+        var unmatchedEl = document.getElementById('groupEsgUnmatched');
+        if (unmatchedEl){ unmatchedEl.style.display='none'; unmatchedEl.textContent=''; }
+        ensurePlotlySupportEsg(function(){
+            var url = '/dashboard/groupes/esg?group_id=' + encodeURIComponent(groupId) + '&type=' + encodeURIComponent(groupType) + '&alloc_isin=' + encodeURIComponent(refIsin) + '&fields=' + encodeURIComponent(fields.join(','));
+            fetch(url).then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); }).then(function(data){
+                var rows = (data && data.results) || [];
+                var unmatched = (data && data.unmatched_fields) || [];
+                var details = document.querySelector('#groupEsgDetails tbody');
+                var detailsWrap = document.getElementById('groupEsgDetails');
+                if (unmatchedEl){
+                    if (unmatched.length){
+                        unmatchedEl.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+                        unmatchedEl.style.display = '';
+                    } else {
+                        unmatchedEl.textContent = '';
+                        unmatchedEl.style.display = 'none';
+                    }
+                }
+                if (details){
+                    details.innerHTML = '';
+                }
+                var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+                if (!displayRows.length){ displayRows = rows; }
+                if (!displayRows.length){
+                    $('#groupEsgChart').hide().empty();
+                    if (detailsWrap){ detailsWrap.style.display = 'none'; }
+                    return;
+                }
+                var cats = displayRows.map(function(r){
+                    return groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field;
+                });
+                var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+                var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
+                var traces = [
+                    { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
+                    { x: cli, y: cats, type:'bar', orientation:'h', name:'Support', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
+                ];
+                var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+                var cfg = { displayModeBar: false, responsive: true };
+                Plotly.react('groupEsgChart', traces, layout, cfg);
+                $('#groupEsgChart').show();
+                if (details && detailsWrap){
+                    details.innerHTML = rows.map(function(r){
+                        var label = groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field || '';
+                        var weightedSum = (r.group_weighted_sum != null) ? Number(r.group_weighted_sum) : null;
+                        var weightSum = (r.group_weight_sum != null) ? Number(r.group_weight_sum) : null;
+                        var groupVal = (r.group_value != null) ? Number(r.group_value) : null;
+                        var refVal = (r.ref_value != null) ? Number(r.ref_value) : null;
+                        var ratio = (r.client != null) ? Number(r.client) : null;
+                        var cov = (r.coverage_pct != null) ? Number(r.coverage_pct) : null;
+                        return (
+                            '<tr>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">' + escHtml(label) + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (weightedSum != null ? weightedSum.toFixed(4) : '—') + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (weightSum != null ? weightSum.toFixed(4) : '—') + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (groupVal != null ? groupVal.toFixed(4) : '—') + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (refVal != null ? refVal.toFixed(4) : '—') + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (ratio != null ? ratio.toFixed(2) : '—') + '</td>' +
+                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (cov != null ? cov.toFixed(2) : '—') + '</td>' +
+                            '</tr>'
+                        );
+                    }).join('');
+                    detailsWrap.style.display = '';
+                }
+            }).catch(function(err){
+                if (unmatchedEl){
+                    unmatchedEl.textContent = 'Erreur de chargement ESG.';
+                    unmatchedEl.style.display = '';
+                }
+                try{ console.warn('Group ESG fetch error', err); }catch(_){}
+                $('#groupEsgChart').hide().empty();
+                var detailsWrap = document.getElementById('groupEsgDetails');
+                if (detailsWrap){ detailsWrap.style.display = 'none'; }
+            });
+        });
     }
 
     function loadSupportEsgMeta(cb){
@@ -1185,7 +1452,7 @@ $(function () {
                     btn.classList.remove('active');
                 } else {
                     var actives = wrap.querySelectorAll('.support-esg-field.active');
-                    if (actives.length >= 4) return;
+                    if (actives.length >= 10) return;
                     btn.classList.add('active');
                 }
                 runSupportEsg();
@@ -1201,7 +1468,7 @@ $(function () {
         var actives = wrap.querySelectorAll('.support-esg-field.active');
         if (actives.length) return;
         var btns = wrap.querySelectorAll('.support-esg-field');
-        for (var i = 0; i < btns.length && i < 4; i++){
+        for (var i = 0; i < btns.length && i < 10; i++){
             btns[i].classList.add('active');
         }
     }
@@ -2070,6 +2337,10 @@ $(function () {
         });
     });
     $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
+    if ($groupEsgAlloc && $groupEsgAlloc.length){
+        $groupEsgAlloc.on('change', function(){ runGroupEsg(); });
+    }
+    $('#groupEsgRefresh').on('click', function(){ runGroupEsg(); });
     $('#supportEsgToggle').on('click', function(){
         var isOpen = $('#supportEsgSection').is(':visible');
         if (isOpen){
@@ -2082,6 +2353,7 @@ $(function () {
             setEsgButtonActive(true);
         });
     });
+    loadGroupEsgMeta(function(){ setGroupEsgStatus('Sélectionnez un indice de référence pour lancer l’analyse.'); });
     $('#supportClientsToggle').on('click', function(){
         var isOpen = $supportClientsSection.is(':visible');
         if (isOpen){

@@ -2617,7 +2617,7 @@ function generateClientSynthese(){
             </div>
           </div>
           <div style="margin-bottom:8px;">
-            <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+            <label class="muted" style="font-size:0.85rem;">Champs ESG (max 10)</label>
             <div id="clientEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
           </div>
           <div id="clientEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
@@ -3110,7 +3110,7 @@ function openClientMsgs(kind){
             btn.classList.remove('active');
           } else {
             var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
-            if (actives.length >= 4) return;
+            if (actives.length >= 10) return;
             btn.classList.add('active');
           }
           runClientEsg();
@@ -3125,7 +3125,7 @@ function openClientMsgs(kind){
       var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
       if (actives.length) return;
       if (Array.isArray(defaultFields) && defaultFields.length){
-        defaultFields.slice(0, 4).forEach(function(field){
+        defaultFields.slice(0, 10).forEach(function(field){
           var btn = $fieldsWrap.querySelector('[data-field=\"'+CSS.escape(field)+'\"]');
           if (btn) btn.classList.add('active');
         });
@@ -3133,7 +3133,7 @@ function openClientMsgs(kind){
       actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
       if (actives.length) return;
       var btns = $fieldsWrap.querySelectorAll('.support-esg-field');
-      for (var i = 0; i < btns.length && i < 4; i++){
+      for (var i = 0; i < btns.length && i < 10; i++){
         btns[i].classList.add('active');
       }
     }

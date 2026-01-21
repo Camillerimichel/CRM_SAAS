@@ -2022,6 +2022,25 @@
           </div>
         </form>
 
+        <div class="card" style="margin-top:12px;">
+          <div style="font-weight:600; margin-bottom:8px;">Top 10 des metriques ESG a suivre</div>
+          {% if esg_top_metrics %}
+            <ol style="margin:0; padding-left:20px;">
+              {% for m in esg_top_metrics %}
+                <li style="margin:4px 0;">
+                  <strong>{{ m.label }}</strong>
+                  {% if m.unit %}<span class="muted"> ({{ m.unit }})</span>{% endif %}
+                  {% if m.coverage_pct is not none %}
+                    <span class="muted"> — Couverture: {{ '%.1f'|format(m.coverage_pct) }}%</span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <div class="muted">Aucune priorite ESG calculee pour le moment.</div>
+          {% endif %}
+        </div>
+
         <script>
           (function(){
             const panel = document.getElementById('esgPanel');
