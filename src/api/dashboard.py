@@ -42,6 +42,7 @@ from src.services.evenements import (
 from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
+from src.services.esg_sensitivity import get_esg_top_metrics
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
@@ -1668,6 +1669,32 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
     except Exception:
         alloc_names = []
     fields, debug = _get_esg_fields(db, debug=True)
+    excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
+    coverage_map: dict[str, float] = {}
+    try:
+        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
+        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
+        if stats:
+            for key, val in stats.items():
+                if not key.endswith("_coverage_pct"):
+                    continue
+                metric_key = key[: -len("_coverage_pct")]
+                try:
+                    coverage_map[metric_key] = float(val) if val is not None else None
+                except Exception:
+                    coverage_map[metric_key] = None
+    except Exception:
+        coverage_map = {}
+    filtered_fields: list[dict] = []
+    for item in fields or []:
+        col = item.get("col")
+        if not col or col in excluded_esg_fields:
+            continue
+        coverage = coverage_map.get(col)
+        if coverage is not None and coverage < 60.0:
+            continue
+        filtered_fields.append(item)
+    fields = filtered_fields
     deprecated_aliases = [
         {"alias": alias_key, "canonical": canonical}
         for alias_key, canonical in ESG_LEGACY_ALIASES.items()
@@ -2606,6 +2633,167 @@ def _compute_support_esg_comparison(
     if debug_info is not None:
         debug_info["support"] = debug_support
         debug_info["allocation"] = None
+    return payload, debug_info
+
+
+def _compute_group_esg_comparison(
+    db: Session,
+    group_id: int,
+    group_type: Literal["client", "affaire"],
+    fields: list[str],
+    alloc_isin: str | None = None,
+    debug: bool = False,
+) -> tuple[dict, dict | None]:
+    """Comparaison ESG pour un groupe (pondéré par valorisation) vs ISIN de référence."""
+    sel_fields = [f for f in (fields or []) if f]
+    payload: dict = {
+        "fields": sel_fields,
+        "alloc_isin": alloc_isin,
+        "group_id": group_id,
+        "group_type": group_type,
+        "group_total_valo": 0.0,
+        "group_weights_count": 0,
+        "results": [],
+        "resolved_fields": [],
+        "unmatched_fields": [],
+    }
+    debug_info: dict | None = {"group": None, "allocation": None, "esg": None} if debug else None
+    if not sel_fields or not alloc_isin:
+        return payload, debug_info
+
+    items, total_valo = _build_group_products(group_id, group_type, db)
+    payload["group_total_valo"] = float(total_valo or 0.0)
+    weights_raw: dict[str, float] = {}
+    for item in items or []:
+        isin = (item.get("code_isin") or "").strip()
+        valo = float(item.get("total_valo") or 0.0)
+        if not isin or valo <= 0:
+            continue
+        weights_raw[isin] = weights_raw.get(isin, 0.0) + valo
+    total_weights = sum(weights_raw.values())
+    if total_weights <= 0:
+        if debug_info is not None:
+            debug_info["group"] = {"weights_count": 0, "weights_sum": 0.0}
+        return payload, debug_info
+    weights = {isin: (valo / total_weights) for isin, valo in weights_raw.items()}
+    payload["group_weights_count"] = len(weights)
+
+    table_name, _, _table_debug = _pick_esg_table(db, ESG_CANON_TABLE, debug=debug)
+    resolved_pairs, valid_pairs, _cols_debug = _resolve_esg_fields(
+        db=db,
+        fields=sel_fields,
+        table_name=table_name,
+        debug=debug,
+    )
+    payload["resolved_fields"] = [col for _, col in valid_pairs]
+    payload["unmatched_fields"] = [orig for orig, col in resolved_pairs if not col]
+    if not valid_pairs:
+        payload["results"] = [
+            {
+                "field": orig,
+                "field_original": orig,
+                "resolved_field": None,
+                "index": None,
+                "client": None,
+                "group_weighted_sum": None,
+                "group_weight_sum": None,
+                "group_value": None,
+                "ref_value": None,
+                "coverage_pct": 0.0,
+                "group_present": 0,
+                "group_total": len(weights),
+            }
+            for orig in sel_fields
+        ]
+        if debug_info is not None:
+            debug_info["group"] = {"weights_count": len(weights), "weights_sum": 1.0}
+        return payload, debug_info
+
+    ref_isin = str(alloc_isin).strip()
+    esg_cols = [col for _, col in valid_pairs]
+    esg_map: dict[str, dict[str, float]] = {}
+    debug_esg: dict | None = {"isin_count": len(weights) + 1, "query": None} if debug else None
+    esg_map, esg_query_debug = _fetch_esg_map(
+        db=db,
+        isins=set(weights.keys()) | {ref_isin},
+        columns=esg_cols,
+        table_name=table_name,
+        isin_col="isin",
+        debug=debug,
+    )
+    if debug_esg is not None:
+        debug_esg["query"] = esg_query_debug
+
+    results = []
+    for original_name, column_name in valid_pairs:
+        weighted_sum = 0.0
+        weight_sum = 0.0
+        present = 0
+        for isin, w in weights.items():
+            v = (esg_map.get(isin) or {}).get(column_name)
+            if v is None:
+                continue
+            try:
+                v_num = float(v)
+            except Exception:
+                continue
+            weighted_sum += v_num * w
+            weight_sum += w
+            present += 1
+        group_value = (weighted_sum / weight_sum) if weight_sum > 0 else None
+        ref_value = (esg_map.get(ref_isin) or {}).get(column_name)
+        try:
+            ref_num = float(ref_value) if ref_value is not None else None
+        except Exception:
+            ref_num = None
+        if group_value is None or ref_num in (None, 0):
+            idx_val = None
+            cli_val = None
+        else:
+            idx_val = 100.0
+            cli_val = (group_value / ref_num) * 100.0
+        results.append(
+            {
+                "field": column_name,
+                "field_original": original_name,
+                "resolved_field": column_name,
+                "index": idx_val,
+                "client": cli_val,
+                "group_weighted_sum": weighted_sum if weight_sum > 0 else None,
+                "group_weight_sum": weight_sum if weight_sum > 0 else None,
+                "group_value": group_value,
+                "ref_value": ref_num,
+                "coverage_pct": round(weight_sum * 100.0, 2) if weight_sum > 0 else 0.0,
+                "group_present": present,
+                "group_total": len(weights),
+            }
+        )
+
+    for original_name, column_name in resolved_pairs:
+        if column_name:
+            continue
+        results.append(
+            {
+                "field": original_name,
+                "field_original": original_name,
+                "resolved_field": None,
+                "index": None,
+                "client": None,
+                "group_weighted_sum": None,
+                "group_weight_sum": None,
+                "group_value": None,
+                "ref_value": None,
+                "coverage_pct": 0.0,
+                "group_present": 0,
+                "group_total": len(weights),
+            }
+        )
+
+    payload["results"] = results
+    if debug_info is not None:
+        debug_info["group"] = {"weights_count": len(weights), "weights_sum": 1.0}
+        debug_info["allocation"] = {"isin": ref_isin}
+        debug_info["esg"] = debug_esg
     return payload, debug_info
 
 
@@ -14683,6 +14871,11 @@ async def dashboard_client_kyc(
                     "gov_controle_ethique": gov_controle_ethique,
                 }
                 try:
+                    try:
+                        dialect = db.get_bind().dialect.name
+                    except Exception:
+                        dialect = getattr(db.bind.dialect, "name", "")
+                    ignore_insert = "INSERT OR IGNORE" if dialect == "sqlite" else "INSERT IGNORE"
                     row = db.execute(
                         _text("SELECT id FROM esg_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
                         {"r": str(client_id)},
@@ -14732,12 +14925,16 @@ async def dashboard_client_kyc(
                     # (ré)insérer les associations
                     for oid in excl_ids:
                         db.execute(
-                            _text("INSERT OR IGNORE INTO esg_questionnaire_exclusion (questionnaire_id, option_id) VALUES (:q, :o)"),
+                            _text(
+                                f"{ignore_insert} INTO esg_questionnaire_exclusion (questionnaire_id, option_id) VALUES (:q, :o)"
+                            ),
                             {"q": qid, "o": oid},
                         )
                     for oid in ind_ids:
                         db.execute(
-                            _text("INSERT OR IGNORE INTO esg_questionnaire_indicator (questionnaire_id, option_id) VALUES (:q, :o)"),
+                            _text(
+                                f"{ignore_insert} INTO esg_questionnaire_indicator (questionnaire_id, option_id) VALUES (:q, :o)"
+                            ),
                             {"q": qid, "o": oid},
                         )
                     db.commit()
@@ -17591,6 +17788,12 @@ async def dashboard_client_kyc(
     except Exception:
         kyc_status = None
 
+    esg_top_metrics: list[dict] = []
+    try:
+        esg_top_metrics = get_esg_top_metrics(db, client_id, top_n=10)
+    except Exception:
+        esg_top_metrics = []
+
     return templates.TemplateResponse(
         "dashboard_client_kyc.html",
         {
@@ -17703,6 +17906,7 @@ async def dashboard_client_kyc(
             "esg_error": esg_error,
             "esg_display_saisie": esg_display_saisie,
             "esg_display_obsolescence": esg_display_obsolescence,
+            "esg_top_metrics": esg_top_metrics,
             # FATCA block
             "fatca_contracts": fatca_contracts,
             "fatca_saved": fatca_saved,
@@ -23767,6 +23971,38 @@ def dashboard_support_esg(
     return payload
 
 
+@router.get("/groupes/esg", response_class=JSONResponse)
+def dashboard_groupes_esg(
+    group_id: int = Query(..., alias="group_id"),
+    type: Literal["client", "affaire"] = Query(..., alias="type"),
+    alloc_isin: str = Query(..., description="ISIN de référence"),
+    fields: str = Query(None, description="Champs ESG séparés par des virgules"),
+    debug: int = Query(0, description="Activer la sortie debug"),
+    db: Session = Depends(get_db),
+):
+    sel_fields: list[str] = []
+    if fields:
+        sel_fields = [f.strip() for f in fields.split(",") if f and f.strip()]
+    if not sel_fields:
+        return {"error": "Aucun champ ESG sélectionné."}
+    deprecated_fields, deprecated_map = _find_esg_legacy_fields(sel_fields)
+
+    payload, debug_payload = _compute_group_esg_comparison(
+        db=db,
+        group_id=group_id,
+        group_type=type,
+        fields=sel_fields,
+        alloc_isin=alloc_isin,
+        debug=bool(debug),
+    )
+    if debug and debug_payload is not None:
+        payload["debug"] = debug_payload
+    if deprecated_fields:
+        payload["deprecated_fields"] = deprecated_fields
+        payload["deprecated_map"] = deprecated_map
+    return payload
+
+
 # ---------------- ESG data API (Global consolidé: tous contrats) ----------------
 @router.get("/esg", response_class=JSONResponse)
 def dashboard_global_esg(
@@ -28081,12 +28317,50 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     esg_comparison_chart_png = None
     esg_unmatched_fields: list[str] = []
     esg_default_fields: list[str] = []
+    esg_fields_max = 10
+    esg_top_metric_keys: list[str] = []
     try:
         esg_fields_client, esg_fields_debug_tmp = _get_esg_fields(db, debug=False)
     except Exception:
         esg_fields_client = []
 
+    excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
+    coverage_map: dict[str, float] = {}
+    try:
+        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
+        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
+        if stats:
+            for key, val in stats.items():
+                if not key.endswith("_coverage_pct"):
+                    continue
+                metric_key = key[: -len("_coverage_pct")]
+                try:
+                    coverage_map[metric_key] = float(val) if val is not None else None
+                except Exception:
+                    coverage_map[metric_key] = None
+    except Exception:
+        coverage_map = {}
+
+    filtered_esg_fields: list[dict] = []
+    for item in esg_fields_client:
+        col = item.get("col")
+        if not col or col in excluded_esg_fields:
+            continue
+        coverage = coverage_map.get(col)
+        if coverage is not None and coverage < 60.0:
+            continue
+        filtered_esg_fields.append(item)
+    esg_fields_client = filtered_esg_fields
+
     esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
+    try:
+        esg_top_metric_keys = [
+            m.get("metric_key")
+            for m in get_esg_top_metrics(db, client_id, top_n=esg_fields_max)
+            if m and m.get("metric_key")
+        ]
+    except Exception:
+        esg_top_metric_keys = []
     if not allocation_reference_name:
         allocation_reference_name = _suggest_allocation_name(alloc_names_client)
     fallback_alloc_name = _suggest_allocation_name(alloc_names_client)
@@ -28097,9 +28371,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         or fallback_alloc_name
     )
     # Tenter de déterminer des indicateurs ESG pertinents (ceux qui possèdent des données numériques)
-    fields_to_try = [it.get("col") for it in esg_fields_client if it.get("col")]
-    if len(fields_to_try) > 12:
-        fields_to_try = fields_to_try[:12]
+    available_cols = [it.get("col") for it in esg_fields_client if it.get("col")]
+    available_set = set(available_cols)
+    sensitivity_fields = [f for f in esg_top_metric_keys if f in available_set]
+    fields_to_try = sensitivity_fields + [f for f in available_cols if f not in sensitivity_fields]
+    if len(fields_to_try) > esg_fields_max:
+        fields_to_try = fields_to_try[:esg_fields_max]
     esg_comparison_payload = None
     if esg_comparison_alloc and fields_to_try:
         try:
@@ -28128,8 +28405,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             rows_with_values = [
                 r for r in all_rows if (r.get("index") is not None and r.get("client") is not None)
             ]
-            esg_comparison_rows = rows_with_values[:4] if rows_with_values else all_rows[:4]
+            esg_comparison_rows = rows_with_values[:esg_fields_max] if rows_with_values else all_rows[:esg_fields_max]
             esg_default_fields = [r.get("field") for r in esg_comparison_rows if r.get("field")]
+            if sensitivity_fields:
+                esg_default_fields = sensitivity_fields[:]
 
             preferred_fields = [r.get("field") for r in rows_with_values]
             if preferred_fields:
@@ -28161,7 +28440,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             payload_tmp, _ = _compute_client_esg_comparison(
                 db=db,
                 client_id=client_id,
-                fields=[it.get("col") for it in esg_fields_client if it.get("col")][:4],
+                fields=[it.get("col") for it in esg_fields_client if it.get("col")][:esg_fields_max],
                 alloc=esg_comparison_alloc,
                 alloc_isin=None,
                 as_of=None,
@@ -28183,13 +28462,19 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 it.get("col")
                 for it in esg_fields_client
                 if it.get("col")
-            ][:4]
+            ][:esg_fields_max]
         if not fallback_fields:
             fallback_fields = [
-                "Avoiding water scarcity",
-                "Board independence",
-                "GHG intensity-Value",
-                "Gender pay gap",
+                "environmental_good",
+                "environmental_harm",
+                "pollution_positive",
+                "pollution_negative",
+                "pollution_net",
+                "waste_efficiency",
+                "water_efficiency",
+                "biodiversity",
+                "ghg_intensity_value",
+                "scope_1_and_2_carbon_intensity",
             ]
         try:
             payload_tmp, _dbg2 = _compute_client_esg_comparison(
@@ -28209,6 +28494,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             esg_comparison_rows = []
 
     # Contrat choisi (si défini via KYC_contrat_choisi)
+    if sensitivity_fields:
+        esg_default_fields = sensitivity_fields[:]
     contrat_choisi_nom = None
     contrat_choisi_societe = None
     try:

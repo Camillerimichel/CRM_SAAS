@@ -462,7 +462,7 @@
         </div>
       </div>
       <div style="margin-bottom:8px;">
-        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 4)</label>
+        <label class="muted" style="font-size:0.85rem;">Champs ESG (max 10)</label>
         <div id="supportEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
       </div>
       <div id="supportEsgChart" style="height:320px; width:100%; display:none;"></div>
@@ -1077,7 +1077,7 @@ $(document).ready(function () {
                     btn.classList.remove('active');
                 } else {
                     var actives = wrap.querySelectorAll('.support-esg-field.active');
-                    if (actives.length >= 4) return;
+                    if (actives.length >= 10) return;
                     btn.classList.add('active');
                 }
                 runSupportEsg();
@@ -1093,7 +1093,7 @@ $(document).ready(function () {
         var actives = wrap.querySelectorAll('.support-esg-field.active');
         if (actives.length) return;
         var btns = wrap.querySelectorAll('.support-esg-field');
-        for (var i = 0; i < btns.length && i < 4; i++){
+        for (var i = 0; i < btns.length && i < 10; i++){
             btns[i].classList.add('active');
         }
     }
