@@ -7837,6 +7837,27 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         and not retro_error
     ):
         try:
+            total_row = db.execute(
+                text(
+                    """
+                    SELECT SUM(h.valo * COALESCE(cs.taux_retro, 0) / 52.0) AS retrocession
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_affaires a ON a.id = h.id_source
+                    JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
+                    LEFT JOIN mariadb_contrat_supports cs
+                        ON cs.id_affaire_generique = g.id AND cs.id_support = h.id_support
+                    WHERE h.date BETWEEN :start AND :end
+                      AND g.id = :contract_id
+                    """
+                ),
+                {
+                    "start": retro_start_effective.isoformat(),
+                    "end": retro_end_effective.isoformat(),
+                    "contract_id": retro_selected_contract,
+                },
+            ).fetchone()
+            retro_total_period = float(total_row._mapping.get("retrocession") or 0) if total_row else 0.0
+
             params = {
                 "start": retro_start_effective.isoformat(),
                 "end": retro_end_effective.isoformat(),
@@ -7884,7 +7905,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                         "nb_contrats": int(data.get("nb_contrats") or 0),
                     }
                 )
-                retro_total_week += retro_val
+            retro_total_week = retro_total_period
 
             support_params = {
                 "start": retro_start_effective.isoformat(),
@@ -7939,7 +7960,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
                         "valo_total_str": "{:,.0f}".format(float(data.get("valo_total") or 0)).replace(",", " "),
                     }
                 )
-                retro_total_support += retro_val
+            retro_total_support = retro_total_period
         except Exception as exc:
             retro_error = "Impossible de calculer les rétrocessions pour la période demandée."
             logger.debug("Paramètres rétrocessions: erreur de calcul: %s", exc, exc_info=True)

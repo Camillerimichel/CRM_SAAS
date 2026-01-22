@@ -1425,7 +1425,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
                     non définie
                   {% endif %}
                 </div>
-                <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
+                <div>Total rétrocessions (période) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
               </div>
 
               <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
@@ -1480,7 +1480,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
                       {% endif %}
                     </tbody>
                   </table>
-                  <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
+                  <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (période) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
                 </div>
               </div>
             {% endif %}
