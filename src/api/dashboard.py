@@ -7566,6 +7566,384 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     except Exception:
         evt_statuts = []
 
+    rem_contracts = []
+    rem_rows_full = []
+    rem_total_commission = 0.0
+    rem_total_valorisation = 0.0
+    rem_total_contracts = 0
+    rem_error = None
+    rem_limit_options = [10, 25, 50, 100]
+
+    try:
+        rem_contracts = rows_to_dicts(
+            db.execute(
+                text(
+                    """
+                    SELECT id, nom_contrat
+                    FROM mariadb_affaires_generique
+                    WHERE actif IS NULL OR actif <> 0
+                    ORDER BY nom_contrat
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        rem_contracts = []
+
+    today = _date.today()
+    default_start = today - timedelta(days=84)
+    default_end = today
+
+    rem_start_input = request.query_params.get("rem_start") or default_start.isoformat()
+    rem_end_input = request.query_params.get("rem_end") or default_end.isoformat()
+
+    parsed_start = _parse_date_safe(rem_start_input) or default_start
+    parsed_end = _parse_date_safe(rem_end_input) or default_end
+    if parsed_start > parsed_end:
+        parsed_start, parsed_end = parsed_end, parsed_start
+
+    rem_start_effective = _align_to_friday(parsed_start)
+    rem_end_effective = _align_to_friday(parsed_end)
+    if (
+        rem_start_effective is not None
+        and rem_end_effective is not None
+        and rem_end_effective < rem_start_effective
+    ):
+        rem_end_effective = rem_start_effective
+
+    try:
+        rem_limit = int(request.query_params.get("rem_limit", rem_limit_options[0]))
+    except Exception:
+        rem_limit = rem_limit_options[0]
+    if rem_limit not in rem_limit_options:
+        rem_limit = rem_limit_options[0]
+
+    try:
+        rem_page = int(request.query_params.get("rem_page", 1))
+    except Exception:
+        rem_page = 1
+    if rem_page < 1:
+        rem_page = 1
+
+    raw_contract = request.query_params.get("rem_contract")
+    rem_selected_contract = None
+    try:
+        if raw_contract is not None:
+            rem_selected_contract = int(raw_contract)
+    except Exception:
+        rem_selected_contract = None
+    if rem_selected_contract is None and rem_contracts:
+        rem_selected_contract = rem_contracts[0]["id"]
+    if rem_selected_contract is not None and rem_contracts:
+        valid_contract_ids = {c["id"] for c in rem_contracts}
+        if rem_selected_contract not in valid_contract_ids:
+            rem_selected_contract = rem_contracts[0]["id"]
+
+    if (
+        rem_selected_contract is not None
+        and rem_start_effective is not None
+        and rem_end_effective is not None
+    ):
+        try:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        h.date AS date,
+                        SUM(h.valo) AS total_valorisation,
+                        SUM(h.valo) * (g.frais_gestion_courtier / 52.0 / 100.0) AS commission_frais_gestion,
+                        COUNT(DISTINCT a.id) AS nb_contrats
+                    FROM mariadb_historique_affaire_w h
+                    JOIN mariadb_affaires a ON h.id = a.id
+                    JOIN mariadb_affaires_generique g ON a.id_affaire_generique = g.id
+                    WHERE h.date BETWEEN :start AND :end
+                      AND g.id = :contract_id
+                    GROUP BY h.date, g.frais_gestion_courtier
+                    ORDER BY h.date
+                    """
+                ),
+                {
+                    "start": rem_start_effective.isoformat(),
+                    "end": rem_end_effective.isoformat(),
+                    "contract_id": rem_selected_contract,
+                },
+            ).fetchall()
+
+            for row in rows:
+                data = row._mapping
+                week_date = _parse_date_safe(data.get("date"))
+                total_valo_week = float(data.get("total_valorisation") or 0)
+                commission_week = float(data.get("commission_frais_gestion") or 0)
+                contracts_week = int(data.get("nb_contrats") or 0)
+                rem_rows_full.append(
+                    {
+                        "date": week_date,
+                        "total_valorisation": total_valo_week,
+                        "commission": commission_week,
+                        "contracts_count": contracts_week,
+                    }
+                )
+                rem_total_valorisation += total_valo_week
+                rem_total_commission += commission_week
+                rem_total_contracts += contracts_week
+        except Exception:
+            rem_error = "Impossible de calculer les commissions pour la période demandée."
+
+    rem_rows_count_total = len(rem_rows_full)
+    if rem_rows_count_total == 0:
+        rem_page = 1
+
+    rem_total_pages = max(1, (rem_rows_count_total + rem_limit - 1) // rem_limit)
+    if rem_page > rem_total_pages:
+        rem_page = rem_total_pages
+
+    page_start_idx = (rem_page - 1) * rem_limit
+    page_end_idx = page_start_idx + rem_limit
+    rem_rows = rem_rows_full[page_start_idx:page_end_idx]
+
+    rem_page_start = page_start_idx + 1 if rem_rows else 0
+    rem_page_end = page_start_idx + len(rem_rows)
+    rem_has_prev = rem_page > 1
+    rem_has_next = rem_page < rem_total_pages
+
+    base_params = [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if not key.startswith("rem_")
+    ]
+    if rem_selected_contract is not None:
+        base_params.append(("rem_contract", str(rem_selected_contract)))
+    if rem_start_input:
+        base_params.append(("rem_start", rem_start_input))
+    if rem_end_input:
+        base_params.append(("rem_end", rem_end_input))
+    base_params.append(("rem_limit", str(rem_limit)))
+
+    rem_prev_url = None
+    rem_next_url = None
+    if rem_has_prev:
+        rem_prev_url = f"{request.url.path}?{urlencode(base_params + [('rem_page', str(rem_page - 1))], doseq=True)}"
+    if rem_has_next:
+        rem_next_url = f"{request.url.path}?{urlencode(base_params + [('rem_page', str(rem_page + 1))], doseq=True)}"
+
+    retro_contracts = []
+    retro_error = None
+    retro_weeks: list[dict] = []
+    retro_supports: list[dict] = []
+    retro_total_week = 0.0
+    retro_total_support = 0.0
+    retro_selected_contract = None
+    retro_week_limit_options = [10, 25, 50]
+    retro_support_limit_options = [10, 25, 50, 100]
+
+    try:
+        retro_contracts = rows_to_dicts(
+            db.execute(
+                text(
+                    """
+                    SELECT id,
+                           COALESCE(nom_contrat, 'Contrat ' || id) AS nom_contrat
+                    FROM mariadb_affaires_generique
+                    WHERE COALESCE(actif, 1) = 1
+                    ORDER BY nom_contrat
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception as exc:
+        retro_error = "Impossible de récupérer la liste des contrats génériques."
+        logger.debug("Paramètres rétrocessions: erreur lors de la récupération des contrats: %s", exc, exc_info=True)
+        retro_contracts = []
+
+    retro_sort = request.query_params.get("ret_sort") or "date_desc"
+    allowed_sort = {"date_desc", "date_asc", "retrocession_desc", "retrocession_asc"}
+    if retro_sort not in allowed_sort:
+        retro_sort = "date_desc"
+    retro_order_week = {
+        "date_desc": "ORDER BY date DESC",
+        "date_asc": "ORDER BY date ASC",
+        "retrocession_desc": "ORDER BY retrocession DESC",
+        "retrocession_asc": "ORDER BY retrocession ASC",
+    }[retro_sort]
+    retro_order_support = {
+        "date_desc": "ORDER BY retrocession DESC",
+        "date_asc": "ORDER BY retrocession DESC",
+        "retrocession_desc": "ORDER BY retrocession DESC",
+        "retrocession_asc": "ORDER BY retrocession ASC",
+    }[retro_sort]
+
+    try:
+        retro_week_limit = int(request.query_params.get("ret_week_limit", retro_week_limit_options[0]))
+    except Exception:
+        retro_week_limit = retro_week_limit_options[0]
+    if retro_week_limit not in retro_week_limit_options:
+        retro_week_limit = retro_week_limit_options[0]
+
+    try:
+        retro_support_limit = int(request.query_params.get("ret_support_limit", retro_support_limit_options[0]))
+    except Exception:
+        retro_support_limit = retro_support_limit_options[0]
+    if retro_support_limit not in retro_support_limit_options:
+        retro_support_limit = retro_support_limit_options[0]
+
+    retro_start_input = request.query_params.get("ret_start")
+    retro_end_input = request.query_params.get("ret_end")
+    retro_promoteur = (request.query_params.get("ret_promoteur") or "").strip()
+
+    retro_default_start = today - timedelta(days=180)
+    retro_default_end = today
+    parsed_retro_start = _parse_date_safe(retro_start_input) or retro_default_start
+    parsed_retro_end = _parse_date_safe(retro_end_input) or retro_default_end
+    if parsed_retro_start > parsed_retro_end:
+        parsed_retro_start, parsed_retro_end = parsed_retro_end, parsed_retro_start
+
+    retro_start_effective = _align_to_friday(parsed_retro_start)
+    retro_end_effective = _align_to_friday(parsed_retro_end)
+    if (
+        retro_start_effective is not None
+        and retro_end_effective is not None
+        and retro_end_effective < retro_start_effective
+    ):
+        retro_end_effective = retro_start_effective
+
+    try:
+        raw_ret_contract = request.query_params.get("ret_contract")
+        if raw_ret_contract is not None:
+            retro_selected_contract = int(raw_ret_contract)
+    except Exception:
+        retro_selected_contract = None
+    if retro_selected_contract is None and retro_contracts:
+        retro_selected_contract = retro_contracts[0]["id"]
+    if retro_selected_contract is not None and retro_contracts:
+        valid_ret_ids = {c["id"] for c in retro_contracts}
+        if retro_selected_contract not in valid_ret_ids:
+            retro_selected_contract = retro_contracts[0]["id"]
+
+    logger.debug(
+        "Paramètres rétrocessions: contrat=%s, start=%s, end=%s, week_limit=%s, support_limit=%s, promoteur=%s, sort=%s",
+        retro_selected_contract,
+        retro_start_effective,
+        retro_end_effective,
+        retro_week_limit,
+        retro_support_limit,
+        retro_promoteur,
+        retro_sort,
+    )
+
+    if (
+        retro_selected_contract is not None
+        and retro_start_effective is not None
+        and retro_end_effective is not None
+        and not retro_error
+    ):
+        try:
+            params = {
+                "start": retro_start_effective.isoformat(),
+                "end": retro_end_effective.isoformat(),
+                "contract_id": retro_selected_contract,
+                "week_limit": retro_week_limit,
+            }
+            week_query = text(
+                f"""
+                SELECT date,
+                       valo_total,
+                       retrocession,
+                       nb_contrats
+                FROM (
+                    SELECT h.date AS date,
+                           SUM(h.valo) AS valo_total,
+                           SUM(h.valo * COALESCE(cs.taux_retro, 0) / 52.0) AS retrocession,
+                           COUNT(DISTINCT a.id) AS nb_contrats
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_affaires a ON a.id = h.id_source
+                    JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
+                    LEFT JOIN mariadb_contrat_supports cs
+                        ON cs.id_affaire_generique = g.id AND cs.id_support = h.id_support
+                    WHERE h.date BETWEEN :start AND :end
+                      AND g.id = :contract_id
+                    GROUP BY h.date
+                ) base
+                {retro_order_week}
+                LIMIT :week_limit
+                """
+            )
+            week_rows = db.execute(week_query, params).fetchall()
+            retro_weeks = []
+            for row in week_rows:
+                data = row._mapping
+                week_date = _parse_date_safe(data.get("date"))
+                retro_val = float(data.get("retrocession") or 0)
+                retro_weeks.append(
+                    {
+                        "date": week_date,
+                        "date_str": week_date.strftime("%d/%m/%Y") if week_date else (data.get("date") or ""),
+                        "retrocession": retro_val,
+                        "retrocession_str": "{:,.2f}".format(retro_val).replace(",", " "),
+                        "valo_total": float(data.get("valo_total") or 0),
+                        "valo_total_str": "{:,.0f}".format(float(data.get("valo_total") or 0)).replace(",", " "),
+                        "nb_contrats": int(data.get("nb_contrats") or 0),
+                    }
+                )
+                retro_total_week += retro_val
+
+            support_params = {
+                "start": retro_start_effective.isoformat(),
+                "end": retro_end_effective.isoformat(),
+                "contract_id": retro_selected_contract,
+                "support_limit": retro_support_limit,
+                "promoteur": retro_promoteur,
+                "promoteur_pattern": f"%{retro_promoteur.lower()}%",
+            }
+            support_query = text(
+                f"""
+                SELECT promoteur,
+                       support_nom,
+                       code_isin,
+                       retrocession,
+                       valo_total
+                FROM (
+                    SELECT COALESCE(LOWER(s.promoteur), '') AS promoteur_key,
+                           COALESCE(s.promoteur, 'N/A') AS promoteur,
+                           s.nom AS support_nom,
+                           s.code_isin AS code_isin,
+                           SUM(h.valo) AS valo_total,
+                           SUM(h.valo * COALESCE(cs.taux_retro, 0) / 52.0) AS retrocession
+                    FROM mariadb_historique_support_w h
+                    JOIN mariadb_support s ON s.id = h.id_support
+                    JOIN mariadb_affaires a ON a.id = h.id_source
+                    JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
+                    LEFT JOIN mariadb_contrat_supports cs
+                        ON cs.id_affaire_generique = g.id AND cs.id_support = h.id_support
+                    WHERE h.date BETWEEN :start AND :end
+                      AND g.id = :contract_id
+                    GROUP BY promoteur_key, promoteur, s.nom, s.code_isin
+                ) base
+                WHERE (:promoteur = '' OR promoteur_key LIKE :promoteur_pattern)
+                {retro_order_support}
+                LIMIT :support_limit
+                """
+            )
+            support_rows = db.execute(support_query, support_params).fetchall()
+            retro_supports = []
+            for row in support_rows:
+                data = row._mapping
+                retro_val = float(data.get("retrocession") or 0)
+                retro_supports.append(
+                    {
+                        "promoteur": data.get("promoteur"),
+                        "support_nom": data.get("support_nom"),
+                        "code_isin": data.get("code_isin"),
+                        "retrocession": retro_val,
+                        "retrocession_str": "{:,.2f}".format(retro_val).replace(",", " "),
+                        "valo_total": float(data.get("valo_total") or 0),
+                        "valo_total_str": "{:,.0f}".format(float(data.get("valo_total") or 0)).replace(",", " "),
+                    }
+                )
+                retro_total_support += retro_val
+        except Exception as exc:
+            retro_error = "Impossible de calculer les rétrocessions pour la période demandée."
+            logger.debug("Paramètres rétrocessions: erreur de calcul: %s", exc, exc_info=True)
+
     return templates.TemplateResponse(
         "dashboard_parametres.html",
         {
@@ -7616,6 +7994,45 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "finance_rh_options": finance_rh_options,
             "finance_rh_selected": finance_rh_id,
             "finance_valo_input": finance_valo_input,
+            "rem_contracts": rem_contracts,
+            "rem_selected_contract": rem_selected_contract,
+            "rem_limit": rem_limit,
+            "rem_limit_options": rem_limit_options,
+            "rem_start_input": rem_start_input,
+            "rem_end_input": rem_end_input,
+            "rem_start_effective": rem_start_effective,
+            "rem_end_effective": rem_end_effective,
+            "rem_rows": rem_rows,
+            "rem_total_commission": rem_total_commission,
+            "rem_total_valorisation": rem_total_valorisation,
+            "rem_rows_count": rem_rows_count_total,
+            "rem_total_contracts": rem_total_contracts,
+            "rem_error": rem_error,
+            "rem_page": rem_page,
+            "rem_total_pages": rem_total_pages,
+            "rem_has_prev": rem_has_prev,
+            "rem_has_next": rem_has_next,
+            "rem_prev_url": rem_prev_url,
+            "rem_next_url": rem_next_url,
+            "rem_page_start": rem_page_start,
+            "rem_page_end": rem_page_end,
+            "retro_contracts": retro_contracts,
+            "retro_selected_contract": retro_selected_contract,
+            "retro_sort": retro_sort,
+            "retro_week_limit": retro_week_limit,
+            "retro_week_limit_options": retro_week_limit_options,
+            "retro_support_limit": retro_support_limit,
+            "retro_support_limit_options": retro_support_limit_options,
+            "retro_start_input": parsed_retro_start.isoformat(),
+            "retro_end_input": parsed_retro_end.isoformat(),
+            "retro_start_effective": retro_start_effective,
+            "retro_end_effective": retro_end_effective,
+            "retro_promoteur": retro_promoteur,
+            "retro_weeks": retro_weeks,
+            "retro_supports": retro_supports,
+            "retro_total_week": retro_total_week,
+            "retro_total_support": retro_total_support,
+            "retro_error": retro_error,
             "evt_types": evt_types,
             "evt_categories": evt_categories,
             "evt_statuts": evt_statuts,
@@ -12783,7 +13200,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     compare_counts = None
     compare_amounts = None
     try:
-        compare_counts, compare_amounts = _compute_aff_risk_stats(HistoriqueAffaire.id_affaire)
+        compare_counts, compare_amounts = _compute_aff_risk_stats(_hist_affaire_id_col(db))
     except Exception as exc:
         logger.exception("Failed SRRI compare on id_affaire", exc_info=exc)
     if not compare_counts:
@@ -12792,7 +13209,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
     if total_affaires and not any(compare_counts.values()):
         try:
-            compare_counts, compare_amounts = _compute_aff_risk_stats(HistoriqueAffaire.id)
+            compare_counts, compare_amounts = _compute_aff_risk_stats(_hist_affaire_id_col(db))
         except Exception:
             compare_counts = {"above": 0, "equal": 0, "below": 0}
             compare_amounts = {"above": 0.0, "equal": 0.0, "below": 0.0}
@@ -12896,394 +13313,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     tasks_type_total: list[dict] = []
 
     veille_ctx = _get_veille_context()
-
-    rem_contracts = []
-    rem_rows_full = []
-    rem_total_commission = 0.0
-    rem_total_valorisation = 0.0
-    rem_total_contracts = 0
-    rem_error = None
-    rem_limit_options = [10, 25, 50, 100]
-
-    try:
-        rem_contracts = rows_to_dicts(
-            db.execute(
-                text(
-                    """
-                    SELECT id, nom_contrat
-                    FROM mariadb_affaires_generique
-                    WHERE actif IS NULL OR actif <> 0
-                    ORDER BY nom_contrat
-                    """
-                )
-            ).fetchall()
-        )
-    except Exception:
-        rem_contracts = []
-
-    today = _date.today()
-    default_start = today - timedelta(days=84)
-    default_end = today
-
-    rem_start_input = request.query_params.get("rem_start") or default_start.isoformat()
-    rem_end_input = request.query_params.get("rem_end") or default_end.isoformat()
-
-    parsed_start = _parse_date_safe(rem_start_input) or default_start
-    parsed_end = _parse_date_safe(rem_end_input) or default_end
-    if parsed_start > parsed_end:
-        parsed_start, parsed_end = parsed_end, parsed_start
-
-    rem_start_effective = _align_to_friday(parsed_start)
-    rem_end_effective = _align_to_friday(parsed_end)
-    if (
-        rem_start_effective is not None
-        and rem_end_effective is not None
-        and rem_end_effective < rem_start_effective
-    ):
-        rem_end_effective = rem_start_effective
-
-    try:
-        rem_limit = int(request.query_params.get("rem_limit", rem_limit_options[0]))
-    except Exception:
-        rem_limit = rem_limit_options[0]
-    if rem_limit not in rem_limit_options:
-        rem_limit = rem_limit_options[0]
-
-    try:
-        rem_page = int(request.query_params.get("rem_page", 1))
-    except Exception:
-        rem_page = 1
-    if rem_page < 1:
-        rem_page = 1
-
-    raw_contract = request.query_params.get("rem_contract")
-    rem_selected_contract = None
-    try:
-        if raw_contract is not None:
-            rem_selected_contract = int(raw_contract)
-    except Exception:
-        rem_selected_contract = None
-    if rem_selected_contract is None and rem_contracts:
-        rem_selected_contract = rem_contracts[0]["id"]
-    if rem_selected_contract is not None and rem_contracts:
-        valid_contract_ids = {c["id"] for c in rem_contracts}
-        if rem_selected_contract not in valid_contract_ids:
-            rem_selected_contract = rem_contracts[0]["id"]
-
-    if (
-        rem_selected_contract is not None
-        and rem_start_effective is not None
-        and rem_end_effective is not None
-    ):
-        try:
-            rows = db.execute(
-                text(
-                    """
-                    SELECT
-                        h.date AS date,
-                        SUM(h.valo) AS total_valorisation,
-                        SUM(h.valo) * (g.frais_gestion_courtier / 52.0 / 100.0) AS commission_frais_gestion,
-                        COUNT(DISTINCT a.id) AS nb_contrats
-                    FROM mariadb_historique_affaire_w h
-                    JOIN mariadb_affaires a ON h.id = a.id
-                    JOIN mariadb_affaires_generique g ON a.id_affaire_generique = g.id
-                    WHERE h.date BETWEEN :start AND :end
-                      AND g.id = :contract_id
-                    GROUP BY h.date, g.frais_gestion_courtier
-                    ORDER BY h.date
-                    """
-                ),
-                {
-                    "start": rem_start_effective.isoformat(),
-                    "end": rem_end_effective.isoformat(),
-                    "contract_id": rem_selected_contract,
-                },
-            ).fetchall()
-
-            for row in rows:
-                data = row._mapping
-                week_date = _parse_date_safe(data.get("date"))
-                total_valo_week = float(data.get("total_valorisation") or 0)
-                commission_week = float(data.get("commission_frais_gestion") or 0)
-                contracts_week = int(data.get("nb_contrats") or 0)
-                rem_rows_full.append(
-                    {
-                        "date": week_date,
-                        "total_valorisation": total_valo_week,
-                        "commission": commission_week,
-                        "contracts_count": contracts_week,
-                    }
-                )
-                rem_total_valorisation += total_valo_week
-                rem_total_commission += commission_week
-                rem_total_contracts += contracts_week
-        except Exception:
-            rem_error = "Impossible de calculer les commissions pour la période demandée."
-
-    rem_rows_count_total = len(rem_rows_full)
-    if rem_rows_count_total == 0:
-        rem_page = 1
-
-    rem_total_pages = max(1, (rem_rows_count_total + rem_limit - 1) // rem_limit)
-    if rem_page > rem_total_pages:
-        rem_page = rem_total_pages
-
-    page_start_idx = (rem_page - 1) * rem_limit
-    page_end_idx = page_start_idx + rem_limit
-    rem_rows = rem_rows_full[page_start_idx:page_end_idx]
-
-    rem_page_start = page_start_idx + 1 if rem_rows else 0
-    rem_page_end = page_start_idx + len(rem_rows)
-    rem_has_prev = rem_page > 1
-    rem_has_next = rem_page < rem_total_pages
-
-    base_params = [
-        (key, value)
-        for key, value in request.query_params.multi_items()
-        if not key.startswith("rem_")
-    ]
-    if rem_selected_contract is not None:
-        base_params.append(("rem_contract", str(rem_selected_contract)))
-    if rem_start_input:
-        base_params.append(("rem_start", rem_start_input))
-    if rem_end_input:
-        base_params.append(("rem_end", rem_end_input))
-    base_params.append(("rem_limit", str(rem_limit)))
-
-    rem_prev_url = None
-    rem_next_url = None
-    if rem_has_prev:
-        rem_prev_url = f"{request.url.path}?{urlencode(base_params + [('rem_page', str(rem_page - 1))], doseq=True)}"
-    if rem_has_next:
-        rem_next_url = f"{request.url.path}?{urlencode(base_params + [('rem_page', str(rem_page + 1))], doseq=True)}"
-
-    retro_contracts = []
-    retro_error = None
-    retro_weeks: list[dict] = []
-    retro_supports: list[dict] = []
-    retro_total_week = 0.0
-    retro_total_support = 0.0
-    retro_selected_contract = None
-    retro_week_limit_options = [10, 25, 50]
-    retro_support_limit_options = [10, 25, 50, 100]
-
-    try:
-        retro_contracts = rows_to_dicts(
-            db.execute(
-                text(
-                    """
-                    SELECT id,
-                           COALESCE(nom_contrat, 'Contrat ' || id) AS nom_contrat
-                    FROM mariadb_affaires_generique
-                    WHERE COALESCE(actif, 1) = 1
-                    ORDER BY nom_contrat
-                    """
-                )
-            ).fetchall()
-        )
-    except Exception as exc:
-        retro_error = "Impossible de récupérer la liste des contrats génériques."
-        logger.debug("Dashboard rétrocessions: erreur lors de la récupération des contrats: %s", exc, exc_info=True)
-        retro_contracts = []
-
-    retro_sort = request.query_params.get("ret_sort") or "date_desc"
-    allowed_sort = {"date_desc", "date_asc", "retrocession_desc", "retrocession_asc"}
-    if retro_sort not in allowed_sort:
-        retro_sort = "date_desc"
-    retro_order_week = {
-        "date_desc": "ORDER BY date DESC",
-        "date_asc": "ORDER BY date ASC",
-        "retrocession_desc": "ORDER BY retrocession DESC",
-        "retrocession_asc": "ORDER BY retrocession ASC",
-    }[retro_sort]
-    retro_order_support = {
-        "date_desc": "ORDER BY retrocession DESC",
-        "date_asc": "ORDER BY retrocession DESC",
-        "retrocession_desc": "ORDER BY retrocession DESC",
-        "retrocession_asc": "ORDER BY retrocession ASC",
-    }[retro_sort]
-
-    try:
-        retro_week_limit = int(request.query_params.get("ret_week_limit", retro_week_limit_options[0]))
-    except Exception:
-        retro_week_limit = retro_week_limit_options[0]
-    if retro_week_limit not in retro_week_limit_options:
-        retro_week_limit = retro_week_limit_options[0]
-
-    try:
-        retro_support_limit = int(request.query_params.get("ret_support_limit", retro_support_limit_options[0]))
-    except Exception:
-        retro_support_limit = retro_support_limit_options[0]
-    if retro_support_limit not in retro_support_limit_options:
-        retro_support_limit = retro_support_limit_options[0]
-
-    retro_start_input = request.query_params.get("ret_start")
-    retro_end_input = request.query_params.get("ret_end")
-    retro_promoteur = (request.query_params.get("ret_promoteur") or "").strip()
-
-    retro_default_start = today - timedelta(days=180)
-    retro_default_end = today
-    parsed_retro_start = _parse_date_safe(retro_start_input) or retro_default_start
-    parsed_retro_end = _parse_date_safe(retro_end_input) or retro_default_end
-    if parsed_retro_start > parsed_retro_end:
-        parsed_retro_start, parsed_retro_end = parsed_retro_end, parsed_retro_start
-
-    retro_start_effective = _align_to_friday(parsed_retro_start)
-    retro_end_effective = _align_to_friday(parsed_retro_end)
-    if (
-        retro_start_effective is not None
-        and retro_end_effective is not None
-        and retro_end_effective < retro_start_effective
-    ):
-        retro_end_effective = retro_start_effective
-
-    try:
-        raw_ret_contract = request.query_params.get("ret_contract")
-        if raw_ret_contract is not None:
-            retro_selected_contract = int(raw_ret_contract)
-    except Exception:
-        retro_selected_contract = None
-    if retro_selected_contract is None and retro_contracts:
-        retro_selected_contract = retro_contracts[0]["id"]
-    if retro_selected_contract is not None and retro_contracts:
-        valid_ret_ids = {c["id"] for c in retro_contracts}
-        if retro_selected_contract not in valid_ret_ids:
-            retro_selected_contract = retro_contracts[0]["id"]
-
-    logger.debug(
-        "Dashboard rétrocessions paramètres: contrat=%s, start=%s, end=%s, week_limit=%s, support_limit=%s, promoteur=%s, sort=%s",
-        retro_selected_contract,
-        retro_start_effective,
-        retro_end_effective,
-        retro_week_limit,
-        retro_support_limit,
-        retro_promoteur,
-        retro_sort,
-    )
-
-    if (
-        retro_selected_contract is not None
-        and retro_start_effective is not None
-        and retro_end_effective is not None
-        and not retro_error
-    ):
-        try:
-            params = {
-                "start": retro_start_effective.isoformat(),
-                "end": retro_end_effective.isoformat(),
-                "contract_id": retro_selected_contract,
-                "week_limit": retro_week_limit,
-            }
-            week_query = text(
-                f"""
-                SELECT date,
-                       valo_total,
-                       retrocession,
-                       nb_contrats
-                FROM (
-                    SELECT h.date AS date,
-                           SUM(h.valo) AS valo_total,
-                           SUM(h.valo * COALESCE(cs.taux_retro, 0) / 52.0) AS retrocession,
-                           COUNT(DISTINCT a.id) AS nb_contrats
-                    FROM mariadb_historique_support_w h
-                    JOIN mariadb_affaires a ON a.id = h.id_source
-                    JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
-                    LEFT JOIN mariadb_contrat_supports cs
-                        ON cs.id_affaire_generique = g.id AND cs.id_support = h.id_support
-                    WHERE h.date BETWEEN :start AND :end
-                      AND g.id = :contract_id
-                    GROUP BY h.date
-                ) base
-                {retro_order_week}
-                LIMIT :week_limit
-                """
-            )
-            week_rows = db.execute(week_query, params).fetchall()
-            retro_weeks = []
-            for row in week_rows:
-                data = row._mapping
-                week_date = _parse_date_safe(data.get("date"))
-                retro_val = float(data.get("retrocession") or 0)
-                retro_weeks.append(
-                    {
-                        "date": week_date,
-                        "date_str": week_date.strftime("%d/%m/%Y") if week_date else (data.get("date") or ""),
-                        "retrocession": retro_val,
-                        "retrocession_str": "{:,.2f}".format(retro_val).replace(",", " "),
-                        "valo_total": float(data.get("valo_total") or 0),
-                        "valo_total_str": "{:,.0f}".format(float(data.get("valo_total") or 0)).replace(",", " "),
-                        "nb_contrats": int(data.get("nb_contrats") or 0),
-                    }
-                )
-                retro_total_week += retro_val
-            logger.debug(
-                "Dashboard rétrocessions: %s lignes hebdo récupérées pour le contrat %s",
-                len(retro_weeks),
-                retro_selected_contract,
-            )
-
-            support_params = {
-                "start": retro_start_effective.isoformat(),
-                "end": retro_end_effective.isoformat(),
-                "contract_id": retro_selected_contract,
-                "support_limit": retro_support_limit,
-                "promoteur": retro_promoteur,
-                "promoteur_pattern": f"%{retro_promoteur.lower()}%",
-            }
-            support_query = text(
-                f"""
-                SELECT promoteur,
-                       support_nom,
-                       code_isin,
-                       retrocession,
-                       valo_total
-                FROM (
-                    SELECT COALESCE(LOWER(s.promoteur), '') AS promoteur_key,
-                           COALESCE(s.promoteur, 'N/A') AS promoteur,
-                           s.nom AS support_nom,
-                           s.code_isin AS code_isin,
-                           SUM(h.valo) AS valo_total,
-                           SUM(h.valo * COALESCE(cs.taux_retro, 0) / 52.0) AS retrocession
-                    FROM mariadb_historique_support_w h
-                    JOIN mariadb_support s ON s.id = h.id_support
-                    JOIN mariadb_affaires a ON a.id = h.id_source
-                    JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
-                    LEFT JOIN mariadb_contrat_supports cs
-                        ON cs.id_affaire_generique = g.id AND cs.id_support = h.id_support
-                    WHERE h.date BETWEEN :start AND :end
-                      AND g.id = :contract_id
-                    GROUP BY promoteur_key, promoteur, s.nom, s.code_isin
-                ) base
-                WHERE (:promoteur = '' OR promoteur_key LIKE :promoteur_pattern)
-                {retro_order_support}
-                LIMIT :support_limit
-                """
-            )
-            support_rows = db.execute(support_query, support_params).fetchall()
-            retro_supports = []
-            for row in support_rows:
-                data = row._mapping
-                retro_val = float(data.get("retrocession") or 0)
-                retro_supports.append(
-                    {
-                        "promoteur": data.get("promoteur"),
-                        "support_nom": data.get("support_nom"),
-                        "code_isin": data.get("code_isin"),
-                        "retrocession": retro_val,
-                        "retrocession_str": "{:,.2f}".format(retro_val).replace(",", " "),
-                        "valo_total": float(data.get("valo_total") or 0),
-                        "valo_total_str": "{:,.0f}".format(float(data.get("valo_total") or 0)).replace(",", " "),
-                    }
-                )
-                retro_total_support += retro_val
-            logger.debug(
-                "Dashboard rétrocessions: %s lignes support récupérées pour le contrat %s",
-                len(retro_supports),
-                retro_selected_contract,
-            )
-        except Exception as exc:
-            retro_error = "Impossible de calculer les rétrocessions pour la période demandée."
-            logger.debug("Dashboard rétrocessions: erreur de calcul: %s", exc, exc_info=True)
 
     # --- ESG (global) UI context: allocation names + ESG field labels (cached) ---
     try:
@@ -13447,45 +13476,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "veille_grouped": veille_ctx.get("grouped"),
         "veille_markets": veille_ctx.get("markets"),
         "veille_markets_meta": veille_ctx.get("markets_meta"),
-        "rem_contracts": rem_contracts,
-        "rem_selected_contract": rem_selected_contract,
-        "rem_limit": rem_limit,
-        "rem_limit_options": rem_limit_options,
-        "rem_start_input": rem_start_input,
-        "rem_end_input": rem_end_input,
-        "rem_start_effective": rem_start_effective,
-        "rem_end_effective": rem_end_effective,
-        "rem_rows": rem_rows,
-        "rem_total_commission": rem_total_commission,
-        "rem_total_valorisation": rem_total_valorisation,
-        "rem_rows_count": rem_rows_count_total,
-        "rem_total_contracts": rem_total_contracts,
-        "rem_error": rem_error,
-        "rem_page": rem_page,
-        "rem_total_pages": rem_total_pages,
-        "rem_has_prev": rem_has_prev,
-        "rem_has_next": rem_has_next,
-        "rem_prev_url": rem_prev_url,
-        "rem_next_url": rem_next_url,
-        "rem_page_start": rem_page_start,
-        "rem_page_end": rem_page_end,
-        "retro_contracts": retro_contracts,
-        "retro_selected_contract": retro_selected_contract,
-        "retro_sort": retro_sort,
-        "retro_week_limit": retro_week_limit,
-        "retro_week_limit_options": retro_week_limit_options,
-        "retro_support_limit": retro_support_limit,
-        "retro_support_limit_options": retro_support_limit_options,
-        "retro_start_input": parsed_retro_start.isoformat(),
-        "retro_end_input": parsed_retro_end.isoformat(),
-        "retro_start_effective": retro_start_effective,
-        "retro_end_effective": retro_end_effective,
-        "retro_promoteur": retro_promoteur,
-        "retro_weeks": retro_weeks,
-        "retro_supports": retro_supports,
-        "retro_total_week": retro_total_week,
-        "retro_total_support": retro_total_support,
-        "retro_error": retro_error,
         # ESG (global) UI context
         "alloc_names": alloc_names_dash,
         "esg_fields": esg_fields_dash,            # backwards compatibility

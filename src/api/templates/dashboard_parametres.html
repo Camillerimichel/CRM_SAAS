@@ -102,6 +102,14 @@
   #paramContainer .accordion-subtoggle:not(.collapsed) .chevron {
     color: #fff;
   }
+  #paramContainer #courtierFeesToggle .fa-percent {
+    font-size: 0.85em;
+  }
+  #paramContainer #courtierPanel .courtier-subpanel,
+  #paramContainer #remunerationsPanel .courtier-subpanel {
+    border-top: 1px solid var(--border);
+    padding: 1rem 1.25rem;
+  }
   #paramContainer .btn-list {
     display: inline-flex;
     align-items: center;
@@ -421,6 +429,7 @@
   <div class="card" style="padding:0; overflow:hidden;">
     <div class="param-tabs" id="paramTabs">
       <button class="param-tab active" data-target="courtierPanel"><i class="fa-solid fa-user-tie"></i> Courtier</button>
+      <button class="param-tab" data-target="remunerationsPanel"><i class="fa-solid fa-hand-holding-dollar"></i> Rémunérations</button>
       <button class="param-tab" data-target="contratsPanel"><i class="fa-solid fa-file-contract"></i> Contrats génériques</button>
       <button class="param-tab" data-target="assureursPanel"><i class="fa-solid fa-building"></i> Assureurs / Sociétés</button>
       <button class="param-tab" data-target="supportPanel"><i class="fa-solid fa-chart-line"></i> Supports</button>
@@ -927,7 +936,7 @@
         <span>Détails</span>
         <span class="chevron">▾</span>
       </div>
-      <div class="accordion-panel" id="courtierDetailsPanel" style="display:none; border-top:1px solid var(--border); padding:1rem 1.25rem;">
+      <div class="accordion-panel courtier-subpanel" id="courtierDetailsPanel" style="display:none;">
         <div class="detail-grid">
         <div class="card" style="margin:0;">
           <h3 style="margin:0 0 .5rem 0;">Activité</h3>
@@ -1233,6 +1242,250 @@
         </div>
       </div>
       <!-- Fin Courtier -->
+      </div>
+      <div class="accordion-toggle" data-target="remunerationsPanel" data-level="root">
+        <span><i class="fa-solid fa-hand-holding-dollar" style="margin-right:6px;"></i> Rémunérations</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="accordion-panel" id="remunerationsPanel" style="display:none; border-top:1px solid var(--border);">
+        <div class="accordion-toggle accordion-subtoggle" id="courtierFeesToggle" data-target="courtierFeesPanel" data-group="remunerationsSub">
+          <span><i class="fa-solid fa-percent" style="margin-right:6px;"></i> Commissions sur frais de gestion</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel courtier-subpanel" id="courtierFeesPanel" style="display:none;">
+          <div class="card" style="margin:0; text-align:left;">
+            <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
+            {% if not rem_contracts %}
+              <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
+            {% else %}
+              <form id="remForm" method="get" action="/dashboard/parametres" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+                <input type="hidden" name="open" value="remunerations" />
+                <div style="display:flex; flex-direction:column;">
+                  <label for="rem_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
+                  <select id="rem_contract" name="rem_contract" style="min-width:220px; padding:8px 12px; height:38px;">
+                    {% for contrat in rem_contracts %}
+                      <option value="{{ contrat.id }}" {% if contrat.id == rem_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="rem_start" style="font-size:0.85rem; color:#555;">Date de début</label>
+                  <input id="rem_start" name="rem_start" type="date" value="{{ rem_start_input }}" style="padding:6px 8px;" />
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="rem_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
+                  <input id="rem_end" name="rem_end" type="date" value="{{ rem_end_input }}" style="padding:6px 8px;" />
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="rem_limit" style="font-size:0.85rem; color:#555;">Nombre de lignes</label>
+                  <select id="rem_limit" name="rem_limit" style="padding:8px 12px; height:38px;">
+                    {% for opt in rem_limit_options %}
+                      <option value="{{ opt }}" {% if opt == rem_limit %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <input type="hidden" name="rem_page" value="1" />
+                <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
+              </form>
+
+              {% if rem_error %}
+                <div style="margin-top:12px; padding:10px 12px; background:#fdecea; color:#a94442; border-radius:6px;">{{ rem_error }}</div>
+              {% else %}
+                <div style="margin-top:12px; font-size:0.9rem; color:#555;">
+                  <div>Période effective (vendredi) :
+                    {% if rem_start_effective and rem_end_effective %}
+                      du {{ rem_start_effective.strftime('%d/%m/%Y') }} au {{ rem_end_effective.strftime('%d/%m/%Y') }}
+                    {% else %}
+                      non définie
+                    {% endif %}
+                  </div>
+                  <div>Total commissions dues : <strong>{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</strong></div>
+                </div>
+
+                <div style="overflow-x:auto; margin-top:12px;">
+                  <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Contrats</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation totale</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Commission frais de gestion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in rem_rows %}
+                        <tr>
+                          <td style="padding:8px;">{{ row.date.strftime('%d/%m/%Y') if row.date else row.date or 'N/A' }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.contracts_count }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.total_valorisation or 0).replace(',', ' ') }} €</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.commission or 0).replace(',', ' ') }} €</td>
+                        </tr>
+                      {% endfor %}
+                      {% if not rem_rows %}
+                        <tr>
+                          <td colspan="4" style="padding:8px; color:#666;">Aucune donnée disponible pour cette période.</td>
+                        </tr>
+                      {% endif %}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th style="padding:8px; text-align:left;">Total période</th>
+                        <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);"></th>
+                        <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);"></th>
+                        <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</th>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <div style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:0.9rem; color:#555;">
+                  {% if rem_has_prev %}
+                    {% set rem_prev_link = rem_prev_url + '#courtierFeesToggle' %}
+                    <a href="{{ rem_prev_link }}" class="btn btn-choice" title="Page précédente"><i class="fa-solid fa-arrow-left"></i></a>
+                  {% endif %}
+                  <span>Page {{ rem_page }} / {{ rem_total_pages }}</span>
+                  {% if rem_has_next %}
+                    {% set rem_next_link = rem_next_url + '#courtierFeesToggle' %}
+                    <a href="{{ rem_next_link }}" class="btn btn-choice" title="Page suivante"><i class="fa-solid fa-arrow-right"></i></a>
+                  {% endif %}
+                </div>
+                <div style="margin-top:6px; font-size:0.85rem; color:#777;">
+Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
+                </div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+        <div class="accordion-toggle accordion-subtoggle" id="retroSupportsToggle" data-target="retroSupportsPanel" data-group="remunerationsSub">
+          <span><i class="fa-solid fa-coins" style="margin-right:6px;"></i> Rétrocession des supports</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="accordion-panel courtier-subpanel" id="retroSupportsPanel" style="display:none;">
+          <div class="card" style="margin:0; text-align:left;">
+            <h3 style="margin-top:0;">Rétrocession des supports</h3>
+            {% if retro_error %}
+              <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
+            {% elif not retro_contracts %}
+              <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
+            {% else %}
+              <form id="retroForm" method="get" action="/dashboard/parametres#retroSupportsToggle" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+                <input type="hidden" name="open" value="remunerations" />
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
+                  <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
+                    {% for contrat in retro_contracts %}
+                      <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
+                  <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
+                  <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
+                  <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
+                    <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
+                    <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
+                    <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
+                    <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
+                  </select>
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
+                  <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
+                    {% for opt in retro_week_limit_options %}
+                      <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
+                  <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
+                    {% for opt in retro_support_limit_options %}
+                      <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
+                  <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
+                </div>
+                <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
+              </form>
+
+              <div style="margin-top:12px; font-size:0.9rem; color:#555;">
+                <div>Période effective (vendredi) :
+                  {% if retro_start_effective and retro_end_effective %}
+                    du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
+                  {% else %}
+                    non définie
+                  {% endif %}
+                </div>
+                <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
+              </div>
+
+              <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
+                <div style="overflow-x:auto;">
+                  <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
+                  <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in retro_weeks %}
+                        <tr>
+                          <td style="padding:8px;">{{ row.date_str }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                        </tr>
+                      {% endfor %}
+                      {% if not retro_weeks %}
+                        <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
+                <div style="overflow-x:auto;">
+                  <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
+                  <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
+                        <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
+                        <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
+                        <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in retro_supports %}
+                        <tr>
+                          <td style="padding:8px;">{{ row.code_isin }}</td>
+                          <td style="padding:8px;">{{ row.support_nom }}</td>
+                          <td style="padding:8px;">{{ row.promoteur }}</td>
+                          <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
+                        </tr>
+                      {% endfor %}
+                      {% if not retro_supports %}
+                        <tr><td colspan="4" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                  <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
       </div>
       <div class="accordion-toggle" data-target="contratsPanel" data-level="root">
         <span><i class="fa-solid fa-file-contract" style="margin-right:6px;"></i> Contrats d'assurance vie</span>
@@ -2093,150 +2346,6 @@
         <span class="chevron">▾</span>
       </div>
       <div class="accordion-panel" id="administrationPanel" style="display:none; border-top:1px solid var(--border);">
-        <div class="accordion-toggle accordion-subtoggle" data-target="adminPortfolioPanel" data-group="adminSub">
-          <span><i class="fa-solid fa-briefcase" style="margin-right:6px;"></i> Portefeuille</span>
-          <span class="chevron">▾</span>
-        </div>
-        <div class="accordion-panel" id="adminPortfolioPanel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
-          <div class="card" style="margin:0; text-align:left;">
-            <h3 style="margin:0;">Portefeuille -13</h3>
-            <div class="muted" style="margin:6px 0 10px 0; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); font-size:0.9rem; white-space:pre; overflow:auto;">
-SELECT MAX(date(h.date)) AS max_date
-FROM mariadb_historique_support_w h;
--- max_date = {{ finance_max_date_iso or '—' }}
-            </div>
-            <form id="financeForm" method="get" action="/dashboard/parametres#adminPortfolioPanel" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
-              <input type="hidden" name="open" value="administration_portefeuille" />
-              <div>
-                <label class="muted" style="font-size:0.85rem;">Date d'analyse</label><br>
-                <input type="date" name="finance_date" value="{{ finance_effective_date_iso or finance_date_input or 'YYYY-MM-DD' }}" style="height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
-              </div>
-              <div>
-                <label class="muted" style="font-size:0.85rem;">Responsable commercial</label><br>
-                <select name="finance_rh" style="min-width:220px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;">
-                  <option value="">Tous</option>
-                  {% for rh in finance_rh_options %}
-                    <option value="{{ rh.id }}" {% if finance_rh_selected is not none and rh.id == finance_rh_selected %}selected{% endif %}>{{ rh.label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label class="muted" style="font-size:0.85rem;">Valorisation</label><br>
-                <input type="text" name="finance_valo" value="{{ finance_valo_input or '' }}" placeholder=">100k, 100k-500k" style="min-width:200px; height:36px; padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
-              </div>
-              <div>
-                <button type="submit" class="btn-primary" style="height:36px;">Filtrer</button>
-              </div>
-              <div>
-                <button type="button" class="btn" id="finance_export_btn" style="height:36px;">Exporter CSV</button>
-              </div>
-            </form>
-            <div class="muted" style="margin-top:8px; font-size:0.85rem;">Date retenue (vendredi max mariadb_historique_support_w) : {{ finance_effective_date_display or finance_effective_date_iso or finance_max_date_display or finance_max_date_iso or 'YYYY-MM-DD' }}</div>
-            <div style="margin-top:4px; font-weight:600;">Total valorisation : {{ finance_total_valo_str }} €</div>
-            <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); font-size:0.9rem; white-space:pre; overflow:auto;">
-SELECT
-    s.code_isin AS code_isin,
-    s.nom AS nom,
-    s.cat_principale AS cat_principale,
-    s.cat_geo AS cat_geo,
-    s.SRRI AS srri,
-    SUM(h.valo) AS total_valo
-FROM mariadb_historique_support_w h
-JOIN mariadb_support s ON s.id = h.id_support
-JOIN mariadb_affaires a ON a.id = h.id_source
-LEFT JOIN mariadb_clients c ON c.id = a.id_personne
-WHERE h.date = '{{ finance_effective_date_iso or finance_max_date_iso or 'YYYY-MM-DD' }}'
-GROUP BY s.code_isin, s.nom, s.cat_principale, s.cat_geo, s.SRRI
-HAVING SUM(h.valo) > 0
-ORDER BY total_valo DESC;
-            </div>
-            {% if finance_supports %}
-            <div style="margin-top:12px; overflow-x:auto;">
-          <table id="financeSupportsTable" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-            <thead>
-              <tr style="background:#f1f5f9; text-align:left; font-size:0.85rem;">
-                <th style="padding:4px 8px;">Code ISIN</th>
-                <th style="padding:4px 8px;">Support</th>
-                <th style="padding:4px 8px;">Catégorie principale</th>
-                <th style="padding:4px 8px;">Catégorie géo</th>
-                <th style="padding:4px 8px;">SRRI</th>
-                <th style="padding:4px 8px; text-align:right;">Valorisation</th>
-              </tr>
-            </thead>
-                <tbody>
-                  {% for sup in finance_supports %}
-                  <tr data-row-index="{{ loop.index0 }}"{% if loop.index is even %} style="background:#f8fafc;"{% endif %}>
-                    <td style="padding:6px 10px;">
-                      {% if sup.code_isin %}
-                        <a href="/dashboard/supports/details?code_isin={{ sup.code_isin }}" target="_blank" rel="noopener" class="finance-support-link" data-support-code="{{ sup.code_isin }}" data-support-name="{{ sup.nom or '' }}" data-clients='{{ sup.clients | tojson | safe }}'>{{ sup.code_isin }}</a>
-                      {% else %}
-                        {{ sup.code_isin or '—' }}
-                      {% endif %}
-                    </td>
-                    <td style="padding:6px 10px;">
-                      {% if sup.code_isin %}
-                        <a href="/dashboard/supports/details?code_isin={{ sup.code_isin }}" target="_blank" rel="noopener">{{ sup.nom or '—' }}</a>
-                      {% else %}
-                        {{ sup.nom or '—' }}
-                      {% endif %}
-                    </td>
-                    <td style="padding:6px 10px;">{{ sup.cat_principale or '—' }}</td>
-                    <td style="padding:6px 10px;">{{ sup.cat_geo or '—' }}</td>
-                    <td style="padding:6px 10px;">{{ sup.srri if sup.srri is not none else '—' }}</td>
-                    <td style="padding:6px 10px; text-align:right;">{{ sup.total_valo_str }} €</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-            <div style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap;">
-              <div style="font-weight:600;">Page <span id="financePageLabel">1</span></div>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <button type="button" class="btn" id="financePrevBtn" onclick="financeGoPage(-1)">Précédent</button>
-                <button type="button" class="btn" id="financeNextBtn" onclick="financeGoPage(1)">Suivant</button>
-              </div>
-            </div>
-
-    <div id="financeSupportModal" onclick="if(event.target===this) closeFinanceSupportModal()">
-              <div class="modal-card">
-                <div class="modal-header">
-                  <h3><i class="fa-solid fa-users-line" style="margin-right:8px;"></i><span id="financeSupportModalLabel">Clients par support</span></h3>
-                  <button class="modal-close" onclick="closeFinanceSupportModal()">✕</button>
-                </div>
-                <div class="modal-body">
-                  <div id="financeSupportGroupActions" style="display:none; margin-bottom:12px;">
-                    <div style="font-weight:600; margin-bottom:6px;">Ajouter ces clients à un groupe</div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-                      <div>
-                        <label class="muted" style="font-size:0.85rem; display:block; margin-bottom:4px;">Groupe existant</label>
-                        <select id="financeSupportGroupSelect" style="min-width:240px; height:34px;"></select>
-                      </div>
-                      <div>
-                        <button type="button" class="btn btn-primary" id="financeSupportGroupAddBtn" style="height:34px;">
-                          <i class="fa-solid fa-user-group" style="margin-right:6px; color:#fff;"></i>Ajouter la liste
-                        </button>
-                      </div>
-                    </div>
-                    <div id="financeSupportGroupStatus" class="muted" style="margin-top:4px;"></div>
-                  </div>
-                  <table id="financeSupportModalTable">
-                    <thead>
-                      <tr>
-                        <th>Client</th>
-                        <th>Contrat</th>
-                        <th style="text-align:right;">Valorisation</th>
-                      </tr>
-                    </thead>
-                    <tbody></tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            {% else %}
-            <div class="muted" style="margin-top:12px;">Aucune donnée pour les critères sélectionnés.</div>
-            {% endif %}
-          </div>
-        </div>
         <div class="accordion-toggle accordion-subtoggle" data-target="adminRelationsIntro" data-group="adminSub">
           <span><i class="fa-solid fa-circle-nodes" style="margin-right:6px;"></i> Gestion des relations</span>
           <span class="chevron">▾</span>
@@ -2587,264 +2696,6 @@ ORDER BY total_valo DESC;
 
 <script>
 document.addEventListener('DOMContentLoaded', function(){
-  // Portefeuille: pagination simple
-  function financeGoPage(delta){
-    var rows = Array.from(document.querySelectorAll('#financeSupportsTable tbody tr'));
-    if (!rows.length) return;
-    var pageSize = 20;
-    var total = Math.ceil(rows.length / pageSize);
-    var label = document.getElementById('financePageLabel');
-    var prev = document.getElementById('financePrevBtn');
-    var next = document.getElementById('financeNextBtn');
-    var current = parseInt(label ? label.textContent : '1', 10);
-    if (!isFinite(current) || current < 1) current = 1;
-    var target = Math.min(Math.max(current + delta, 1), total);
-    rows.forEach(function(r){ r.style.display = 'none'; });
-    var start = (target - 1) * pageSize;
-    var end = start + pageSize;
-    rows.slice(start, end).forEach(function(r){ r.style.display = ''; });
-    if (label) label.textContent = String(target);
-    if (prev) prev.disabled = target <= 1;
-    if (next) next.disabled = target >= total;
-  }
-  window.financeGoPage = financeGoPage;
-  document.addEventListener('DOMContentLoaded', function(){ financeGoPage(0); });
-
-  // Portefeuille: export CSV
-  (function(){
-    var exportBtn = document.getElementById('finance_export_btn');
-    if (!exportBtn) return;
-    exportBtn.addEventListener('click', function(){
-      var params = new URLSearchParams();
-      var dateInput = document.querySelector('input[name="finance_date"]');
-      if (dateInput && dateInput.value) params.set('finance_date', dateInput.value);
-      var rhSelect = document.querySelector('select[name="finance_rh"]');
-      if (rhSelect && rhSelect.value) params.set('finance_rh', rhSelect.value);
-      var valoInput = document.querySelector('input[name="finance_valo"]');
-      if (valoInput && valoInput.value) params.set('finance_valo', valoInput.value);
-      params.set('open', 'administration_portefeuille');
-      var url = '/dashboard/finance/export';
-      var qs = params.toString();
-      if (qs) url += '?' + qs;
-      window.location.href = url;
-    });
-  })();
-
-  // Portefeuille: modal clients par support
-  function closeFinanceSupportModal(){
-    const modal = document.getElementById('financeSupportModal');
-    if (modal) modal.style.display = 'none';
-  }
-  let financeSupportCurrentClients = [];
-  let financeSupportGroupDetails = [];
-  let financeSupportGroupsLoaded = false;
-  let financeSupportGroupLoading = false;
-  function setFinanceSupportGroupStatus(message, isError){
-    const el = document.getElementById('financeSupportGroupStatus');
-    if (!el) return;
-    el.textContent = message || '';
-    el.style.color = isError ? '#b91c1c' : '#475569';
-  }
-  function renderFinanceSupportGroupSelect(){
-    const sel = document.getElementById('financeSupportGroupSelect');
-    if (!sel) return;
-    sel.innerHTML = '';
-    if (!financeSupportGroupsLoaded){
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Chargement des groupes…';
-      sel.appendChild(opt);
-      return;
-    }
-    if (!Array.isArray(financeSupportGroupDetails) || financeSupportGroupDetails.length === 0){
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Aucun groupe Personnes';
-      sel.appendChild(opt);
-      setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
-      return;
-    }
-    financeSupportGroupDetails.forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g.id;
-      opt.textContent = g.nom + (g.actif === 0 ? ' (inactif)' : '');
-      sel.appendChild(opt);
-    });
-    setFinanceSupportGroupStatus('', false);
-  }
-  async function loadFinanceSupportGroups(){
-    if (financeSupportGroupLoading) return;
-    financeSupportGroupLoading = true;
-    setFinanceSupportGroupStatus('Chargement des groupes…', false);
-    try{
-      let details = [];
-      const res = await fetch('/api/groupes/details?type=client&actifs_only=true');
-      if (res.ok){
-        details = await res.json();
-      }
-      if (!Array.isArray(details) || details.length === 0){
-        const res2 = await fetch('/api/groupes/details?type=client&actifs_only=false');
-        if (res2.ok){
-          details = await res2.json();
-        }
-      }
-      financeSupportGroupDetails = Array.isArray(details) ? details : [];
-      financeSupportGroupsLoaded = true;
-      renderFinanceSupportGroupSelect();
-      if (financeSupportGroupDetails.length === 0){
-        setFinanceSupportGroupStatus('Aucun groupe Personnes trouvé. Créez-en dans Administration > Groupes.', true);
-      } else {
-        setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
-      }
-    } catch(err){
-      console.warn('finance support group load error', err);
-      setFinanceSupportGroupStatus('Erreur de chargement des groupes.', true);
-    } finally {
-      financeSupportGroupLoading = false;
-    }
-  }
-  function toggleFinanceSupportGroupActions(shouldShow){
-    const container = document.getElementById('financeSupportGroupActions');
-    if (!container) return;
-    if (!shouldShow){
-      container.style.display = 'none';
-      setFinanceSupportGroupStatus('', false);
-      return;
-    }
-    container.style.display = '';
-    renderFinanceSupportGroupSelect();
-    if (!financeSupportGroupsLoaded && !financeSupportGroupLoading){
-      loadFinanceSupportGroups();
-    } else if (financeSupportGroupDetails.length){
-      setFinanceSupportGroupStatus('Sélectionnez un groupe pour y ajouter la liste.', false);
-    }
-  }
-  async function addFinanceSupportClientsToGroup(){
-    const btn = document.getElementById('financeSupportGroupAddBtn');
-    const sel = document.getElementById('financeSupportGroupSelect');
-    if (!btn || !sel) return;
-    const gid = parseInt(sel.value, 10);
-    if (!gid){
-      setFinanceSupportGroupStatus('Sélectionnez un groupe valide.', true);
-      return;
-    }
-    const clients = Array.isArray(financeSupportCurrentClients) ? financeSupportCurrentClients.filter(c => c && c.client_id) : [];
-    if (!clients.length){
-      setFinanceSupportGroupStatus('Aucun client identifiable à ajouter.', true);
-      return;
-    }
-    btn.disabled = true;
-    setFinanceSupportGroupStatus('Ajout en cours…', false);
-    let success = 0;
-    let attempted = 0;
-    for (const client of clients){
-      attempted++;
-      try{
-        const resp = await fetch('/api/groupes/memberships', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupe_id: gid, client_id: client.client_id })
-        });
-        if (resp.ok){
-          success++;
-        } else {
-          console.warn('finance support group add error', resp.status);
-        }
-      } catch(err){
-        console.warn('finance support group add error', err);
-      }
-    }
-    btn.disabled = false;
-    if (!attempted){
-      setFinanceSupportGroupStatus('Aucun client valide pour l’ajout.', true);
-    } else if (success === attempted){
-      const plural = success > 1 ? 'clients' : 'client';
-      setFinanceSupportGroupStatus(`Liste ajoutée (${success} ${plural}).`, false);
-    } else {
-      setFinanceSupportGroupStatus(`Ajout partiel : ${success}/${attempted} clients.`, true);
-    }
-  }
-  function openFinanceSupportModal(code, name, clients){
-    const modal = document.getElementById('financeSupportModal');
-    if (!modal) return;
-    const tbody = modal.querySelector('#financeSupportModalTable tbody');
-    const labelEl = document.getElementById('financeSupportModalLabel');
-    if (labelEl){
-      const parts = ['Clients par support'];
-      const detail = [name, code].filter(Boolean).join(' • ');
-      if (detail) parts.push(detail);
-      labelEl.textContent = parts.join(' — ');
-    }
-    if (tbody){
-      tbody.innerHTML = '';
-      const rows = Array.isArray(clients) ? clients : [];
-      financeSupportCurrentClients = rows.filter(function(item){ return item && item.client_id; });
-      toggleFinanceSupportGroupActions(rows.length > 0);
-      rows.forEach(function(item){
-        const tr = document.createElement('tr');
-        const clientTd = document.createElement('td');
-        const fullname = item.client_fullname || item.client_nom || 'Client';
-        if (item.client_id){
-          const link = document.createElement('a');
-          link.href = `/dashboard/clients/${encodeURIComponent(item.client_id)}`;
-          link.textContent = fullname;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          clientTd.appendChild(link);
-        } else {
-          clientTd.textContent = fullname;
-        }
-        tr.appendChild(clientTd);
-        const contratTd = document.createElement('td');
-        if (item.affaire_id){
-          const link = document.createElement('a');
-          link.href = `/dashboard/affaires/${encodeURIComponent(item.affaire_id)}`;
-          link.textContent = item.affaire_ref || `Affaire ${item.affaire_id}`;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          contratTd.appendChild(link);
-        } else {
-          contratTd.textContent = item.affaire_ref || '-';
-        }
-        tr.appendChild(contratTd);
-        const valoTd = document.createElement('td');
-        valoTd.className = 'numeric';
-        valoTd.textContent = item.valorisation_str ? item.valorisation_str + ' €' : '-';
-        tr.appendChild(valoTd);
-        tbody.appendChild(tr);
-      });
-      if (!rows.length){
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 3;
-        td.className = 'muted';
-        td.textContent = 'Aucun client trouvé pour ce support.';
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-      }
-    }
-    modal.style.display = 'flex';
-  }
-  document.querySelectorAll('.finance-support-link').forEach(function(link){
-    link.addEventListener('click', function(ev){
-      ev.preventDefault();
-      let clients = [];
-      try{
-        clients = this.dataset.clients ? JSON.parse(this.dataset.clients) : [];
-      }catch(err){
-        console.warn('finance support clients parse error', err);
-      }
-      openFinanceSupportModal(this.dataset.supportCode || '', this.dataset.supportName || '', clients);
-    });
-  });
-  const addBtn = document.getElementById('financeSupportGroupAddBtn');
-  if (addBtn){
-    addBtn.addEventListener('click', function(ev){
-      ev.preventDefault();
-      addFinanceSupportClientsToGroup();
-    });
-  }
-
   // Reorder: place Ressources humaines first under Administration
   try {
     const adminPanel = document.getElementById('administrationPanel');
@@ -2866,7 +2717,7 @@ document.addEventListener('DOMContentLoaded', function(){
   } catch(e) { /* noop */ }
 
   // Tabs principaux pour remplacer les accordéons racine
-  const rootPanels = ["courtierPanel","contratsPanel","assureursPanel","supportPanel","groupesPanel","administrationPanel"];
+  const rootPanels = ["courtierPanel","remunerationsPanel","contratsPanel","assureursPanel","supportPanel","groupesPanel","administrationPanel"];
   const tabs = Array.from(document.querySelectorAll('#paramTabs .param-tab'));
   const rootToggles = rootPanels
     .map(id => document.querySelector(`.accordion-toggle[data-target="${id}"][data-level="root"]`))
@@ -2947,6 +2798,7 @@ document.addEventListener('DOMContentLoaded', function(){
       'courtier_identite': ['courtierPanel','courtierIdentitePanel'],
       'courtierDocuments': ['courtierPanel','courtierDocumentsPanel'],
       'courtierDetails': ['courtierPanel','courtierDetailsPanel'],
+      'remunerations': ['remunerationsPanel'],
       'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
       'societes_categories': ['assureursPanel','societeCatsPanel'],
       'societes_compagnies': ['assureursPanel','societesPanel'],
@@ -2955,7 +2807,6 @@ document.addEventListener('DOMContentLoaded', function(){
       'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
       'supports': ['supportPanel'],
       'administration': ['administrationPanel'],
-      'administration_portefeuille': ['administrationPanel','adminPortfolioPanel'],
       'administration_types': ['administrationPanel','adminRelationsIntro'],
       'administration_intervenants': ['administrationPanel','adminIntervenantsPanel'],
       'administration_relations': ['administrationPanel','adminRelationsPanel'],
@@ -2973,6 +2824,22 @@ document.addEventListener('DOMContentLoaded', function(){
           setPanelState(panel, btn, true);
         }
       });
+    }
+  }
+  if (open === 'remunerations'){
+    const hash = (window.location.hash || '').replace('#','');
+    const params = new URLSearchParams(window.location.search || '');
+    const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
+    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
+    const hasRemParams = remParamKeys.some(key => params.has(key));
+    const hasRetroParams = retroParamKeys.some(key => params.has(key));
+    const wantsRetro = hasRetroParams || hash === 'retroSupportsToggle' || hash === 'retroSupportsPanel';
+    const wantsFees = hasRemParams || hash === 'courtierFeesToggle' || hash === 'courtierFeesPanel';
+    const targetId = wantsRetro && !wantsFees ? 'retroSupportsPanel' : 'courtierFeesPanel';
+    const btn = document.querySelector(`.accordion-toggle[data-target="${targetId}"]`);
+    const panel = document.getElementById(targetId);
+    if (btn && panel){
+      setPanelState(panel, btn, true);
     }
   }
   const shouldScrollCourtierDocEdit = {{ 'true' if courtier_document_edit else 'false' }};
