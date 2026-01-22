@@ -210,7 +210,6 @@
 <div class="dash-tabs" id="dashTabs">
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
   <button class="dash-tab client-hide backoffice-hide" data-key="groups" data-target="groupsSection"><i class="fa-solid fa-layer-group"></i> Groupes</button>
-  <button class="dash-tab" data-key="commissions" data-target="remSection"><i class="fa-solid fa-coins"></i> Commissions</button>
 </div>
 
   <style>
@@ -1194,267 +1193,6 @@
 
 <!-- Tâches (déplacé plus haut) -->
 
-<!-- Accordéon Rémunérations -->
-<div id="remToggle" class="card" data-tb-marker="TB_75" style="background:var(--primary); color:#fff;">
-  <h3 style="margin:0; font-size:1.05rem; color:#fff;">Rémunérations</h3>
-</div>
-<div id="remSection" data-tb-marker="TB_76" style="max-width:1100px; margin: 0 auto 1rem auto; display:block;">
-  <!-- Sous-accordéon: Frais de gestion -->
-<div id="remFraisToggle" class="card" data-tb-marker="TB_77" style="background:var(--primary); color:#fff;">
-    <h3 style="margin:0; font-size:1.0rem; color:#fff;">Frais de gestion</h3>
-  </div>
-  <div id="remFraisSection" data-tb-marker="TB_78" style="display:block;">
-    <div class="card" data-tb-marker="TB_79" style="text-align:left;">
-      <h3 style="margin-top:0;">Commissions sur frais de gestion</h3>
-      {% if not rem_contracts %}
-        <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
-      {% else %}
-        <form id="remForm" method="get" action="/dashboard#remFraisToggle" data-tb-marker="TB_80" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
-          {% if tb_markers_param %}
-            <input type="hidden" name="markers" value="1" />
-          {% endif %}
-          <div style="display:flex; flex-direction:column;">
-            <label for="rem_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
-            <select id="rem_contract" name="rem_contract" style="min-width:220px; padding:8px 12px; height:38px;">
-              {% for contrat in rem_contracts %}
-                <option value="{{ contrat.id }}" {% if contrat.id == rem_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="rem_start" style="font-size:0.85rem; color:#555;">Date de début</label>
-            <input id="rem_start" name="rem_start" type="date" value="{{ rem_start_input }}" style="padding:6px 8px;" />
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="rem_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
-            <input id="rem_end" name="rem_end" type="date" value="{{ rem_end_input }}" style="padding:6px 8px;" />
-          </div>
-          <div style="display:flex; flex-direction:column;">
-            <label for="rem_limit" style="font-size:0.85rem; color:#555;">Nombre de lignes</label>
-            <select id="rem_limit" name="rem_limit" style="padding:8px 12px; height:38px;">
-              {% for opt in rem_limit_options %}
-                <option value="{{ opt }}" {% if opt == rem_limit %}selected{% endif %}>{{ opt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <input type="hidden" name="rem_page" value="1" />
-          <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
-        </form>
-
-        {% if rem_error %}
-          <div style="margin-top:12px; padding:10px 12px; background:#fdecea; color:#a94442; border-radius:6px;">{{ rem_error }}</div>
-        {% else %}
-          <div data-tb-marker="TB_81" style="margin-top:12px; font-size:0.9rem; color:#555;">
-            <div>Période effective (vendredi) :
-              {% if rem_start_effective and rem_end_effective %}
-                du {{ rem_start_effective.strftime('%d/%m/%Y') }} au {{ rem_end_effective.strftime('%d/%m/%Y') }}
-              {% else %}
-                non définie
-              {% endif %}
-            </div>
-            <div>Total commissions dues : <strong>{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</strong></div>
-          </div>
-
-          <div data-tb-marker="TB_82" style="overflow-x:auto; margin-top:12px;">
-            <table data-tb-marker="TB_83" style="width:100%; border-collapse:collapse;">
-              <thead>
-                <tr>
-                  <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Contrats</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation totale</th>
-                  <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Commission frais de gestion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in rem_rows %}
-                  <tr>
-                    <td style="padding:8px;">{{ row.date.strftime('%d/%m/%Y') if row.date else row.date or 'N/A' }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.contracts_count }}</td>
-                    <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.total_valorisation or 0).replace(',', ' ') }} €</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(row.commission or 0).replace(',', ' ') }} €</td>
-                </tr>
-              {% endfor %}
-              {% if not rem_rows %}
-                <tr>
-                  <td colspan="4" style="padding:8px; color:#666;">Aucune donnée disponible pour cette période.</td>
-                </tr>
-              {% endif %}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th style="padding:8px; text-align:left;">Total période</th>
-                <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);"></th>
-                <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);"></th>
-                <th style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ '{:,.2f}'.format(rem_total_commission or 0).replace(',', ' ') }} €</th>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <div data-tb-marker="TB_84" style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:0.9rem; color:#555;">
-          {% if rem_has_prev %}
-            {% set rem_prev_link = rem_prev_url %}
-            {% if tb_markers_param %}
-              {% set rem_prev_link = rem_prev_url + ('&' if '?' in rem_prev_url else '?') + tb_markers_param %}
-            {% endif %}
-            <a href="{{ rem_prev_link }}#remToggle" class="btn btn-choice" title="Page précédente"><i class="fa-solid fa-arrow-left"></i></a>
-          {% endif %}
-          <span>Page {{ rem_page }} / {{ rem_total_pages }}</span>
-          {% if rem_has_next %}
-            {% set rem_next_link = rem_next_url %}
-            {% if tb_markers_param %}
-              {% set rem_next_link = rem_next_url + ('&' if '?' in rem_next_url else '?') + tb_markers_param %}
-            {% endif %}
-            <a href="{{ rem_next_link }}#remToggle" class="btn btn-choice" title="Page suivante"><i class="fa-solid fa-arrow-right"></i></a>
-          {% endif %}
-        </div>
-        <div data-tb-marker="TB_95" style="margin-top:6px; font-size:0.85rem; color:#777;">
-Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
-        </div>
-      {% endif %}
-    {% endif %}
-  </div>
-
-</div>
-
-<!-- Bloc Rétrocession des supports (sans accordéon) -->
-<div id="retroToggle" class="card" data-tb-marker="TB_85" style="background:var(--primary); color:#fff;">
-  <h3 style="margin:0; font-size:1.05rem; color:#fff;">Rétrocession des supports</h3>
-</div>
-<div id="retroSection" data-tb-marker="TB_86" style="max-width:1100px; margin: 0 auto 1rem auto; display:block;">
-  <div class="card" data-tb-marker="TB_87" style="text-align:left;">
-    <h3 style="margin-top:0;">Rétrocession des supports</h3>
-    {% if retro_error %}
-      <div style="margin:0; color:#a94442; background:#fdecea; padding:10px 12px; border-radius:6px;">{{ retro_error }}</div>
-    {% elif not retro_contracts %}
-      <p style="margin:0; color:#555;">Aucun contrat générique actif disponible. Veuillez en créer un dans les paramètres.</p>
-    {% else %}
-      <form id="retroForm" method="get" action="/dashboard#retroToggle" data-tb-marker="TB_88" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
-        {% if tb_markers_param %}
-          <input type="hidden" name="markers" value="1" />
-        {% endif %}
-        <input id="retroHiddenRemContract" type="hidden" name="rem_contract" value="{{ rem_selected_contract }}" />
-        <input id="retroHiddenRemStart" type="hidden" name="rem_start" value="{{ rem_start_input }}" />
-        <input id="retroHiddenRemEnd" type="hidden" name="rem_end" value="{{ rem_end_input }}" />
-        <input type="hidden" name="rem_limit" value="{{ rem_limit }}" />
-        <input type="hidden" name="rem_page" value="{{ rem_page }}" />
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_contract" style="font-size:0.85rem; color:#555;">Contrat générique</label>
-          <select id="ret_contract" name="ret_contract" style="min-width:220px; padding:8px 12px; height:38px;">
-            {% for contrat in retro_contracts %}
-              <option value="{{ contrat.id }}" {% if contrat.id == retro_selected_contract %}selected{% endif %}>{{ contrat.nom_contrat }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_start" style="font-size:0.85rem; color:#555;">Date de début</label>
-          <input id="ret_start" name="ret_start" type="date" value="{{ retro_start_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_end" style="font-size:0.85rem; color:#555;">Date de fin</label>
-          <input id="ret_end" name="ret_end" type="date" value="{{ retro_end_input }}" style="padding:6px 8px;" />
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_sort" style="font-size:0.85rem; color:#555;">Tri</label>
-          <select id="ret_sort" name="ret_sort" style="padding:8px 12px; height:38px;">
-            <option value="date_desc" {% if retro_sort == 'date_desc' %}selected{% endif %}>Date décroissante</option>
-            <option value="date_asc" {% if retro_sort == 'date_asc' %}selected{% endif %}>Date croissante</option>
-            <option value="retrocession_desc" {% if retro_sort == 'retrocession_desc' %}selected{% endif %}>Rétrocession décroissante</option>
-            <option value="retrocession_asc" {% if retro_sort == 'retrocession_asc' %}selected{% endif %}>Rétrocession croissante</option>
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_week_limit" style="font-size:0.85rem; color:#555;">Lignes (semaines)</label>
-          <select id="ret_week_limit" name="ret_week_limit" style="padding:8px 12px; height:38px;">
-            {% for opt in retro_week_limit_options %}
-              <option value="{{ opt }}" {% if opt == retro_week_limit %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_support_limit" style="font-size:0.85rem; color:#555;">Lignes (supports)</label>
-          <select id="ret_support_limit" name="ret_support_limit" style="padding:8px 12px; height:38px;">
-            {% for opt in retro_support_limit_options %}
-              <option value="{{ opt }}" {% if opt == retro_support_limit %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <label for="ret_promoteur" style="font-size:0.85rem; color:#555;">Promoteur contient</label>
-          <input id="ret_promoteur" name="ret_promoteur" type="text" value="{{ retro_promoteur }}" placeholder="(optionnel)" style="padding:6px 8px;" />
-        </div>
-        <button type="submit" class="btn" style="padding:7px 16px;">Actualiser</button>
-      </form>
-
-      <div data-tb-marker="TB_89" style="margin-top:12px; font-size:0.9rem; color:#555;">
-        <div>Période effective (vendredi) :
-          {% if retro_start_effective and retro_end_effective %}
-            du {{ retro_start_effective.strftime('%d/%m/%Y') }} au {{ retro_end_effective.strftime('%d/%m/%Y') }}
-          {% else %}
-            non définie
-          {% endif %}
-        </div>
-        <div>Total rétrocessions (semaines sélectionnées) : <strong>{{ '{:,.2f}'.format(retro_total_week).replace(',', ' ') }}</strong></div>
-      </div>
-
-      <div data-tb-marker="TB_90" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:12px;">
-        <div data-tb-marker="TB_91" style="overflow-x:auto;">
-          <h4 style="margin:0 0 6px;">Rétrocession par semaines</h4>
-          <table data-tb-marker="TB_92" style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Date</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Nb contrats</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Valorisation</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in retro_weeks %}
-                <tr>
-                  <td style="padding:8px;">{{ row.date_str }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.nb_contrats }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.valo_total_str }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                </tr>
-              {% endfor %}
-              {% if not retro_weeks %}
-                <tr><td colspan="4" style="padding:8px; color:#666;">Aucune donnée pour cette période.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-        <div data-tb-marker="TB_93" style="overflow-x:auto;">
-          <h4 style="margin:0 0 6px;">Rétrocession par support financier</h4>
-          <table data-tb-marker="TB_94" style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">ISIN</th>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Support</th>
-                <th style="text-align:left; padding:8px; background:var(--primary); color:#fff;">Promoteur</th>
-                <th style="text-align:right; padding:8px; background:var(--primary); color:#fff;">Rétrocession</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in retro_supports %}
-                <tr>
-                  <td style="padding:8px;">{{ row.code_isin }}</td>
-                  <td style="padding:8px;">{{ row.support_nom }}</td>
-                  <td style="padding:8px;">{{ row.promoteur }}</td>
-                  <td style="padding:8px; text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace);">{{ row.retrocession_str }}</td>
-                </tr>
-              {% endfor %}
-              {% if not retro_supports %}
-                <tr><td colspan="4" style="padding:8px; color:#666;">Aucun support trouvé pour cette période.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-          <div style="margin-top:6px; font-size:0.85rem; color:#777;">Total rétrocessions (supports listés) : {{ '{:,.2f}'.format(retro_total_support).replace(',', ' ') }}</div>
-        </div>
-      </div>
-    {% endif %}
-  </div>
-</div>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
   // Chart.js texte/axes en bleu corporate
@@ -1628,56 +1366,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     window.__loadConformiteSection = function(){ if (!confLoaded) loadConformite(); };
   })();
 
-  (function syncRemRetroForms(){
-    const remContract = document.getElementById('rem_contract');
-    const remStart = document.getElementById('rem_start');
-    const remEnd = document.getElementById('rem_end');
-    const retContract = document.getElementById('ret_contract');
-    const retStart = document.getElementById('ret_start');
-    const retEnd = document.getElementById('ret_end');
-    const retroHiddenRemContract = document.getElementById('retroHiddenRemContract');
-    const retroHiddenRemStart = document.getElementById('retroHiddenRemStart');
-    const retroHiddenRemEnd = document.getElementById('retroHiddenRemEnd');
-    if (!remContract || !retContract || !remStart || !remEnd || !retStart || !retEnd) {
-      return;
-    }
-    let syncingFromRem = false;
-    let syncingFromRetro = false;
-
-    function copyRemToRetro(){
-      if (syncingFromRetro) return;
-      syncingFromRem = true;
-      if (retContract) retContract.value = remContract.value;
-      if (retStart) retStart.value = remStart.value;
-      if (retEnd) retEnd.value = remEnd.value;
-      if (retroHiddenRemContract) retroHiddenRemContract.value = remContract.value;
-      if (retroHiddenRemStart) retroHiddenRemStart.value = remStart.value;
-      if (retroHiddenRemEnd) retroHiddenRemEnd.value = remEnd.value;
-      syncingFromRem = false;
-    }
-
-    function copyRetroToRem(){
-      if (syncingFromRem) return;
-      syncingFromRetro = true;
-      if (remContract) remContract.value = retContract.value;
-      if (remStart) remStart.value = retStart.value;
-      if (remEnd) remEnd.value = retEnd.value;
-      if (retroHiddenRemContract) retroHiddenRemContract.value = retContract.value;
-      if (retroHiddenRemStart) retroHiddenRemStart.value = retStart.value;
-      if (retroHiddenRemEnd) retroHiddenRemEnd.value = retEnd.value;
-      syncingFromRetro = false;
-    }
-
-    copyRemToRetro();
-
-    remContract.addEventListener('change', copyRemToRetro);
-    remStart.addEventListener('change', copyRemToRetro);
-    remEnd.addEventListener('change', copyRemToRetro);
-    retContract.addEventListener('change', copyRetroToRem);
-    retStart.addEventListener('change', copyRetroToRem);
-    retEnd.addEventListener('change', copyRetroToRem);
-  })();
-
   // Tabs principaux (remplacent les accordéons racine)
   (function(){
     let veilleLoaded = false;
@@ -1688,7 +1376,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       { key:'veille', toggle:null, section:'' },
       { key:'risks', toggle:'risksToggle', section:'risksSection' },
       { key:'groups', toggle:'groupsToggle', section:'groupsSection' },
-      { key:'commissions', toggle:'remToggle', section:'remSection' },
     ];
     const $ = (id)=> document.getElementById(id);
     const tabs = Array.from(document.querySelectorAll('#dashTabs .dash-tab'));
@@ -1704,10 +1391,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     function show(key, doScroll){
       const g = getGroupByKey(key);
       if (!g) return;
-      const remFraisToggle = document.getElementById('remFraisToggle');
-      const remFraisSection = document.getElementById('remFraisSection');
-      const retroToggle = document.getElementById('retroToggle');
-      const retroSection = document.getElementById('retroSection');
       groups.forEach(item => {
         const s = $(item.section);
         const t = $(item.toggle);
@@ -1728,15 +1411,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
             }
           }
         }
-        // Cas spécifique Commissions : ne jamais masquer le bloc "Commissions sur frais de gestion" quand l'onglet est actif
-        if (item.key === 'commissions'){
-          // Pas d'accordéon : toujours visibles, jamais masqués
-          if (remFraisToggle) { remFraisToggle.onclick = null; }
-          if (retroToggle)    { retroToggle.onclick = null; }
-          if (remFraisSection) remFraisSection.style.display = '';
-          if (retroSection)    retroSection.style.display    = '';
-        }
-
       });
       if (key === 'risks' && window.__loadConformiteSection) { window.__loadConformiteSection(); }
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.key === key));
@@ -1762,18 +1436,11 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
       if (hash){
         const match = getGroupByTarget(hash) || getGroupByKey(hash);
         if (match) return match.key;
-        if (hash === 'remFraisToggle' || hash === 'remFraisSection' || hash === 'retroToggle' || hash === 'retroSection') return 'commissions';
-      }
-      const params = new URLSearchParams(window.location.search || '');
-      const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
-      if (retroParamKeys.some(key => params.has(key))) return 'commissions';
-      if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
-        return 'tasks';
-      }
-      const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
-      if (remParamKeys.some(key => params.has(key))){
-        return 'commissions';
-      }
+    }
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
+      return 'tasks';
+    }
       return 'risks';
     }
 
@@ -1787,44 +1454,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     // Initialisation
     const initialKey = detectInitialKey();
     show(initialKey, false);
-  })();
-
-  // Bloc Rétrocession (accordéon indépendant - désactivé car géré par l'onglet Commissions)
-  (function(){
-    if (document.getElementById('dashTabs')) return; // géré par tabs
-    const toggle = document.getElementById('retroToggle');
-    const section = document.getElementById('retroSection');
-    const remFraisToggle = document.getElementById('remFraisToggle');
-    const remFraisSection = document.getElementById('remFraisSection');
-    const retroHash = (window.location.hash || '').replace('#','');
-    const retroParams = new URLSearchParams(window.location.search || '');
-    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
-    const shouldOpenByParams = retroParamKeys.some(key => retroParams.has(key));
-    const shouldOpenByHash = retroHash === 'retroToggle' || retroHash === 'retroSection';
-    const shouldOpenInitially = shouldOpenByParams || shouldOpenByHash;
-    if (!toggle || !section) return;
-    function closeRemFrais(){
-      if (!remFraisToggle || !remFraisSection) return;
-      remFraisSection.style.display = 'none';
-      remFraisToggle.classList.add('collapsed');
-    }
-    function apply(isOpen){
-      section.style.display = isOpen ? '' : 'none';
-      toggle.classList.toggle('collapsed', !isOpen);
-      if (isOpen) closeRemFrais();
-    }
-    apply(shouldOpenInitially);
-    if (shouldOpenInitially){
-      try { toggle.scrollIntoView({ behavior:'auto', block:'start' }); } catch(e) {}
-    }
-    toggle.addEventListener('click', function(){
-      const isOpen = section.style.display !== 'none';
-      const next = !isOpen;
-      apply(next);
-      if (next){
-        try { toggle.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
-      }
-    });
   })();
 
   // Sous-accordéons Risques / Analyse portefeuille (indépendants, ouverts via data-open)
@@ -1869,69 +1498,6 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     });
   })();
 
-  // Sous-accordéons Rémunérations (indépendants)
-  (function(){
-    if (document.getElementById('dashTabs')) {
-      const remFraisSection = document.getElementById('remFraisSection');
-      const retroSection = document.getElementById('retroSection');
-      const remFraisToggle = document.getElementById('remFraisToggle');
-      const retroToggle = document.getElementById('retroToggle');
-      if (remFraisSection) remFraisSection.style.display = '';
-      if (retroSection) retroSection.style.display = '';
-      if (remFraisToggle) remFraisToggle.onclick = null;
-      if (retroToggle) retroToggle.onclick = null;
-      return;
-    }
-    const pairs = [
-      ['remFraisToggle','remFraisSection'],
-    ];
-    const nodes = pairs.map(([tid,sid]) => ({
-      t: document.getElementById(tid),
-      s: document.getElementById(sid)
-    })).filter(o => o.t && o.s);
-    const retroToggle = document.getElementById('retroToggle');
-    const retroSection = document.getElementById('retroSection');
-    const remHash = (window.location.hash || '').replace('#','');
-    const remParams = new URLSearchParams(window.location.search || '');
-    const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
-    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
-    const hasRetroParams = retroParamKeys.some(key => remParams.has(key));
-    const shouldOpenByParams = !hasRetroParams && remParamKeys.some(key => remParams.has(key));
-    function closeRetro(){
-      if (!retroToggle || !retroSection) return;
-      retroSection.style.display = 'none';
-      retroToggle.classList.add('collapsed');
-    }
-
-    nodes.forEach(o => {
-      function open(){
-        o.s.style.display = '';
-        o.t.classList.remove('collapsed');
-        closeRetro();
-      }
-      function close(){
-        o.s.style.display = 'none';
-        o.t.classList.add('collapsed');
-      }
-      const targetToggleId = o.t ? o.t.id : '';
-      const targetSectionId = o.s ? o.s.id : '';
-      const shouldOpen = shouldOpenByParams || remHash === targetToggleId || remHash === targetSectionId;
-      if (shouldOpen){ open(); }
-      else { close(); }
-      o.t.addEventListener('click', function(ev){
-        ev.stopPropagation();
-        const isOpen = o.s.style.display !== 'none';
-        if (isOpen) { close(); }
-        else {
-          open();
-          try{ o.t.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){}
-        }
-      });
-    });
-  })();
-
-  
-
   </script>
 
 <script>
@@ -1956,16 +1522,5 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
     });
   })();
 
-  // Forcer l'affichage des deux blocs commissions au submit
-  const remForm = document.getElementById('remForm');
-  const retroForm = document.getElementById('retroForm');
-  function showCommBlocks(){
-    const remFraisSection = document.getElementById('remFraisSection');
-    const retroSection = document.getElementById('retroSection');
-    if (remFraisSection) remFraisSection.style.display = '';
-    if (retroSection) retroSection.style.display = '';
-  }
-  if (remForm){ remForm.addEventListener('submit', showCommBlocks); }
-  if (retroForm){ retroForm.addEventListener('submit', showCommBlocks); }
 </script>
 {% endblock %}
