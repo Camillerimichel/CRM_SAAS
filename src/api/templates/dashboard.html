@@ -7,6 +7,16 @@
 
 {% block content %}
 
+<div id="dashboardLoadingOverlay" aria-live="polite" aria-busy="true">
+  <div class="dashboard-loading-card">
+    <div class="dashboard-loading-title">Chargement du tableau de bord…</div>
+    <div class="dashboard-loading-percent" id="dashboardLoadingPercent">0%</div>
+    <div class="dashboard-loading-bar">
+      <div class="dashboard-loading-bar__fill" id="dashboardLoadingBarFill"></div>
+    </div>
+    <div class="dashboard-loading-note muted">Cela peut prendre quelques secondes.</div>
+  </div>
+</div>
 
 {% set tb_markers_param = tb_markers_param or '' %}
 {% set tb_markers_suffix = ('&' + tb_markers_param) if tb_markers_param else '' %}
@@ -16,6 +26,56 @@
   .header-title-text { display: inline-flex; align-items: center; gap: 8px; }
   /* Rapprocher la zone de travail du bandeau d'onglets */
   .container { margin-top: 0; padding-top: 0; }
+  #dashboardLoadingOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+  }
+  #dashboardLoadingOverlay.hidden {
+    display: none;
+  }
+  .dashboard-loading-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    width: min(420px, 92vw);
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+    border: 1px solid #e2e8f0;
+  }
+  .dashboard-loading-title {
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 10px;
+  }
+  .dashboard-loading-bar {
+    position: relative;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .dashboard-loading-bar__fill {
+    position: absolute;
+    inset: 0;
+    width: 0%;
+    background: linear-gradient(90deg, #1f4eb8, #38bdf8, #1f4eb8);
+    transition: width .2s ease;
+  }
+  .dashboard-loading-percent {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 8px;
+  }
+  .dashboard-loading-note {
+    margin-top: 10px;
+    font-size: 0.85rem;
+  }
 </style>
 <style>
   .accordion-toggle {
@@ -1522,5 +1582,77 @@
     });
   })();
 
+</script>
+<script>
+  (function(){
+    var overlay = document.getElementById('dashboardLoadingOverlay');
+    var fill = document.getElementById('dashboardLoadingBarFill');
+    var percentEl = document.getElementById('dashboardLoadingPercent');
+    var loadId = {{ dashboard_load_id|tojson }};
+    if (!overlay) return;
+    function hideOverlay(){
+      overlay.classList.add('hidden');
+      overlay.setAttribute('aria-busy', 'false');
+    }
+    function setPercent(val){
+      var pct = Math.max(0, Math.min(100, Math.round(val)));
+      if (fill) fill.style.width = pct + '%';
+      if (percentEl) percentEl.textContent = pct + '%';
+      if (pct >= 100) hideOverlay();
+    }
+    function report(action){
+      if (!loadId) return;
+      if (action === 'start' || action === 'end' || action === 'ready') {
+        try{
+          fetch('/dashboard/load-progress/update', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ load_id: loadId, action: action })
+          });
+        } catch(e){}
+      }
+    }
+    function shouldTrack(url){
+      if (!url) return false;
+      if (typeof url === 'string' && url.indexOf('/dashboard/load-progress') !== -1) return false;
+      return true;
+    }
+    if (loadId && window.fetch) {
+      var _fetch = window.fetch;
+      window.fetch = function(){
+        var url = arguments[0];
+        if (url && url.url) url = url.url;
+        var track = shouldTrack(url);
+        if (track) report('start');
+        return _fetch.apply(this, arguments).then(function(res){
+          if (track) report('end');
+          return res;
+        }).catch(function(err){
+          if (track) report('end');
+          throw err;
+        });
+      };
+    }
+    function poll(){
+      if (!loadId) return;
+      fetch('/dashboard/load-progress?load_id=' + encodeURIComponent(loadId))
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(data){
+          if (!data) return;
+          if (typeof data.percent === 'number') setPercent(data.percent);
+        })
+        .catch(function(){});
+    }
+    var pollTimer = setInterval(poll, 300);
+    window.addEventListener('load', function(){
+      report('ready');
+      poll();
+      clearInterval(pollTimer);
+      setTimeout(hideOverlay, 500);
+    }, { once: true });
+    document.addEventListener('DOMContentLoaded', function(){
+      poll();
+    }, { once: true });
+  })();
 </script>
 {% endblock %}

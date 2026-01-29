@@ -5,7 +5,8 @@ import json
 import re
 import secrets
 import math
-from time import perf_counter
+from time import perf_counter, time
+from uuid import uuid4
 from pathlib import Path
 from typing import Literal
 
@@ -256,6 +257,7 @@ HOME_CACHE: dict = {}
 ESG_FIELDS_CACHE: dict = {}
 ESG_GLOBAL_CACHE: dict = {}
 ESG_COLUMNS_CACHE: dict = {}
+LOAD_PROGRESS: dict = {}
 ESG_CANON_TABLE = "esg_fonds_norm"
 ESG_FIELDS_TABLE = "esg_fonds_norm"
 ESG_TABLE_FALLBACKS = ["donnees_esg_etendu", "esg_fonds"]
@@ -1626,6 +1628,59 @@ def dashboard_veille(request: Request):
 def dashboard_veille_data():
     # Veille non chargée sur la page principale pour réduire le temps de rendu ; chargée via /dashboard/veille
     return _get_veille_context()
+
+def _cleanup_load_progress(now_ts: float, ttl_seconds: float = 900.0) -> None:
+    stale = [k for k, v in LOAD_PROGRESS.items() if (now_ts - float(v.get("ts", 0))) > ttl_seconds]
+    for k in stale:
+        LOAD_PROGRESS.pop(k, None)
+
+def _init_load_progress() -> str:
+    load_id = str(uuid4())
+    LOAD_PROGRESS[load_id] = {"total": 0, "done": 0, "ready": False, "ts": time()}
+    return load_id
+
+@router.post("/load-progress/update", response_class=JSONResponse)
+async def dashboard_load_progress_update(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    load_id = payload.get("load_id")
+    action = payload.get("action")
+    if not load_id or action not in {"start", "end", "ready"}:
+        return {"status": "ignored"}
+    entry = LOAD_PROGRESS.get(load_id)
+    if not entry:
+        return {"status": "missing"}
+    now_ts = time()
+    entry["ts"] = now_ts
+    if action == "start":
+        entry["total"] = int(entry.get("total", 0)) + 1
+    elif action == "end":
+        entry["done"] = int(entry.get("done", 0)) + 1
+    elif action == "ready":
+        entry["ready"] = True
+    _cleanup_load_progress(now_ts)
+    return {"status": "ok"}
+
+@router.get("/load-progress", response_class=JSONResponse)
+def dashboard_load_progress(load_id: str = Query(None, alias="load_id")):
+    if not load_id:
+        return {"percent": 0}
+    entry = LOAD_PROGRESS.get(load_id)
+    if not entry:
+        return {"percent": 0}
+    total = int(entry.get("total", 0))
+    done = int(entry.get("done", 0))
+    ready = bool(entry.get("ready"))
+    if total <= 0:
+        percent = 100 if ready else 0
+    else:
+        base = int((done / max(1, total)) * 100)
+        percent = 100 if (ready and done >= total) else min(99, base)
+    entry["ts"] = time()
+    _cleanup_load_progress(entry["ts"])
+    return {"percent": percent, "total": total, "done": done, "ready": ready}
 
 @router.get("/tasks/summary", response_class=JSONResponse)
 def dashboard_tasks_summary(range: int = Query(14), db: Session = Depends(get_db)):
@@ -3730,6 +3785,10 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     except NameError:
         esg_unmatched_fields_value = None
     try:
+        esg_outlier_fields_value = esg_outlier_fields
+    except NameError:
+        esg_outlier_fields_value = None
+    try:
         esg_default_fields_value = esg_default_fields
     except NameError:
         esg_default_fields_value = None
@@ -3769,6 +3828,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         "esg_comparison_rows": esg_comparison_rows_value,
         "esg_comparison_chart_png": esg_comparison_chart_value,
         "esg_unmatched_fields": esg_unmatched_fields_value,
+        "esg_outlier_fields": esg_outlier_fields_value,
         "esg_default_fields": esg_default_fields_value,
         "esg_field_labels": esg_field_labels_value,
         "contracts": contracts,
@@ -4993,6 +5053,167 @@ def dashboard_reclamations_export(db: Session = Depends(get_db)) -> StreamingRes
     )
 
 
+def _populate_synthese_esg_context(db: Session, ctx: dict, client_id: int) -> dict:
+    if ctx.get("esg_comparison_rows"):
+        return ctx
+
+    esg_fields_max = 10
+    ctx["esg_outlier_fields"] = []
+    esg_alloc = ctx.get("allocation_reference_name") or None
+    if not esg_alloc:
+        try:
+            row = db.execute(
+                text("SELECT allocation_id FROM mariadb_clients WHERE id = :cid"),
+                {"cid": client_id},
+            ).fetchone()
+            allocation_id = None
+            if row:
+                allocation_id = row[0] if not hasattr(row, "_mapping") else (row._mapping.get("allocation_id") or row[0])
+            if allocation_id:
+                row_alloc = db.execute(
+                    text("SELECT nom FROM allocations WHERE id = :aid"),
+                    {"aid": allocation_id},
+                ).fetchone()
+                if row_alloc:
+                    esg_alloc = row_alloc[0] if not hasattr(row_alloc, "_mapping") else (row_alloc._mapping.get("nom") or row_alloc[0])
+            if not esg_alloc and allocation_id:
+                row_alloc = db.execute(
+                    text("SELECT allocation_name FROM allocation_risque WHERE id = :aid"),
+                    {"aid": allocation_id},
+                ).fetchone()
+                if row_alloc:
+                    esg_alloc = row_alloc[0] if not hasattr(row_alloc, "_mapping") else (row_alloc._mapping.get("allocation_name") or row_alloc[0])
+        except Exception:
+            esg_alloc = esg_alloc or None
+
+    esg_fields_client: list[dict] = []
+    try:
+        esg_fields_client, _ = _get_esg_fields(db, debug=False)
+    except Exception:
+        esg_fields_client = []
+
+    excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
+    coverage_map: dict[str, float] = {}
+    try:
+        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
+        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
+        if stats:
+            for key, val in stats.items():
+                if not key.endswith("_coverage_pct"):
+                    continue
+                metric_key = key[: -len("_coverage_pct")]
+                try:
+                    coverage_map[metric_key] = float(val) if val is not None else None
+                except Exception:
+                    coverage_map[metric_key] = None
+    except Exception:
+        coverage_map = {}
+
+    filtered_esg_fields: list[dict] = []
+    for item in esg_fields_client:
+        col = item.get("col")
+        if not col or col in excluded_esg_fields:
+            continue
+        coverage = coverage_map.get(col)
+        if coverage is not None and coverage < 60.0:
+            continue
+        filtered_esg_fields.append(item)
+    esg_fields_client = filtered_esg_fields
+    esg_field_labels = {it["col"]: it["label"] for it in esg_fields_client if it.get("col")}
+    ctx["esg_field_labels"] = esg_field_labels
+
+    esg_top_metric_keys: list[str] = []
+    esg_top_metrics: list[dict] = []
+    try:
+        esg_top_metrics = get_esg_top_metrics(db, client_id, top_n=esg_fields_max)
+        esg_top_metric_keys = [
+            m.get("metric_key")
+            for m in esg_top_metrics
+            if m and m.get("metric_key")
+        ]
+    except Exception:
+        esg_top_metric_keys = []
+        esg_top_metrics = []
+    ctx["esg_top_metrics"] = esg_top_metrics
+
+    available_cols = [it.get("col") for it in esg_fields_client if it.get("col")]
+    available_set = set(available_cols)
+    sensitivity_fields = [f for f in esg_top_metric_keys if f in available_set]
+    use_priority_metrics = bool(sensitivity_fields)
+    fields_to_try = sensitivity_fields + [f for f in available_cols if f not in sensitivity_fields]
+    if len(fields_to_try) > esg_fields_max:
+        fields_to_try = fields_to_try[:esg_fields_max]
+    if not fields_to_try and available_cols:
+        fields_to_try = available_cols[:esg_fields_max]
+
+    if esg_alloc and fields_to_try:
+        try:
+            payload_tmp, _ = _compute_client_esg_comparison(
+                db=db,
+                client_id=client_id,
+                fields=fields_to_try,
+                alloc=esg_alloc,
+                alloc_isin=None,
+                as_of=None,
+                alloc_date=None,
+                debug=False,
+            )
+            all_rows: list[dict] = []
+            for row in payload_tmp.get("results", []):
+                if not isinstance(row, dict):
+                    continue
+                field_name = row.get("field")
+                label = row.get("label") or esg_field_labels.get(field_name) or row.get("field_original") or field_name
+                all_rows.append({
+                    "field": field_name,
+                    "label": label,
+                    "index": row.get("index"),
+                    "client": row.get("client"),
+                    "cli_present": row.get("cli_present"),
+                    "idx_present": row.get("idx_present"),
+                })
+
+            rows_with_values = [
+                r for r in all_rows if (r.get("index") is not None and r.get("client") is not None)
+            ]
+            if use_priority_metrics:
+                esg_comparison_rows = all_rows[:esg_fields_max]
+                esg_default_fields = sensitivity_fields[:]
+            else:
+                esg_comparison_rows = rows_with_values[:esg_fields_max] if rows_with_values else all_rows[:esg_fields_max]
+                esg_default_fields = [r.get("field") for r in esg_comparison_rows if r.get("field")]
+
+            ctx["esg_comparison_rows"] = esg_comparison_rows
+            ctx["esg_unmatched_fields"] = payload_tmp.get("unmatched_fields") or []
+            ctx["esg_default_fields"] = esg_default_fields or fields_to_try[:esg_fields_max]
+            ctx["esg_comparison_alloc"] = esg_alloc
+
+            esg_outlier_fields = []
+            chart_rows = []
+            for r in rows_with_values:
+                try:
+                    diff = float(r.get("client") or 0.0) - 100.0
+                except Exception:
+                    diff = 0.0
+                if abs(diff) > 150.0:
+                    esg_outlier_fields.append(r.get("field"))
+                    continue
+                chart_rows.append(r)
+            ctx["esg_outlier_fields"] = esg_outlier_fields
+            if chart_rows:
+                cats = [str(r.get("label") or r.get("field")) for r in chart_rows]
+                idx_vals = [float(r.get("index") or 0.0) for r in chart_rows]
+                cli_vals = [float(r.get("client") or 0.0) for r in chart_rows]
+                try:
+                    ctx["esg_comparison_chart_png"] = _build_matplotlib_esg_bar_chart(cats, idx_vals, cli_vals)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return ctx
+
+
 @router.get("/api/synthese")
 def dashboard_api_synthese(
     request: Request,
@@ -5003,71 +5224,8 @@ def dashboard_api_synthese(
     if ctx is None:
         raise HTTPException(status_code=404, detail="Client introuvable.")
 
-    if not ctx.get('esg_comparison_rows'):
-        try:
-            esg_alloc = ctx.get('allocation_reference_name') or None
-            esg_fields = ctx.get('esg_default_fields') or []
-            if esg_alloc and not esg_fields:
-                esg_fields = [
-                    col
-                    for col in (ctx.get('esg_field_labels') or {}).keys()
-                ][:4]
-            if esg_alloc and not esg_fields:
-                esg_fields = [
-                    'Avoiding water scarcity',
-                    'Board independence',
-                    'GHG intensity-Value',
-                    'Gender pay gap'
-                ]
-            if esg_fields:
-                ctx['esg_default_fields'] = esg_fields[:4]
-            if esg_alloc and esg_fields:
-                payload_tmp, _ = _compute_client_esg_comparison(
-                    db=db,
-                    client_id=id_client,
-                    fields=esg_fields,
-                    alloc=esg_alloc,
-                    alloc_isin=None,
-                    as_of=None,
-                    alloc_date=None,
-                    debug=False,
-                )
-                rows_payload = payload_tmp.get('results') or []
-                labels_map = ctx.get('esg_field_labels') or {}
-                resolved_pairs = payload_tmp.get('resolved_pairs') or []
-                if not labels_map and resolved_pairs:
-                    for pair in resolved_pairs:
-                        req = pair.get('requested')
-                        res = pair.get('resolved')
-                        if res and req:
-                            labels_map[res] = req
-                formatted_rows = []
-                for row in rows_payload:
-                    if not isinstance(row, dict):
-                        continue
-                    field = row.get('field')
-                    label = row.get('label') or labels_map.get(field) or row.get('field_original') or field
-                    row['label'] = label
-                    formatted_rows.append(row)
-                ctx['esg_comparison_rows'] = formatted_rows
-                ctx['esg_unmatched_fields'] = payload_tmp.get('unmatched_fields') or []
-                ctx['esg_default_fields'] = payload_tmp.get('resolved_fields') or esg_fields[:4]
-                ctx['esg_comparison_alloc'] = esg_alloc
-                ctx['esg_field_labels'] = labels_map
-                rows_chart = [
-                    r for r in formatted_rows
-                    if r and r.get('index') is not None and r.get('client') is not None
-                ]
-                if rows_chart:
-                    cats = [str(r.get('label') or r.get('field')) for r in rows_chart]
-                    idx_vals = [float(r.get('index') or 0.0) for r in rows_chart]
-                    cli_vals = [float(r.get('client') or 0.0) for r in rows_chart]
-                    try:
-                        ctx['esg_comparison_chart_png'] = _build_matplotlib_esg_bar_chart(cats, idx_vals, cli_vals)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+    if not ctx.get("esg_comparison_rows"):
+        ctx = _populate_synthese_esg_context(db, ctx, id_client)
 
     if not ctx.get("report_logo_png"):
         try:
@@ -5108,70 +5266,7 @@ def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Sessio
 
     client_id = getattr(client_obj, "id", None)
     if client_id and not ctx.get("esg_comparison_rows"):
-        try:
-            esg_alloc = ctx.get("allocation_reference_name") or None
-            esg_fields = ctx.get("esg_default_fields") or []
-            if esg_alloc and not esg_fields:
-                esg_fields = [
-                    col
-                    for col in (ctx.get("esg_field_labels") or {}).keys()
-                ][:4]
-            if esg_alloc and not esg_fields:
-                esg_fields = [
-                    'Avoiding water scarcity',
-                    'Board independence',
-                    'GHG intensity-Value',
-                    'Gender pay gap'
-                ]
-            if esg_fields:
-                ctx['esg_default_fields'] = esg_fields[:4]
-            if esg_alloc and esg_fields:
-                payload_tmp, _ = _compute_client_esg_comparison(
-                    db=db,
-                    client_id=client_id,
-                    fields=esg_fields,
-                    alloc=esg_alloc,
-                    alloc_isin=None,
-                    as_of=None,
-                    alloc_date=None,
-                    debug=False,
-                )
-                rows_payload = payload_tmp.get('results') or []
-                labels_map = ctx.get('esg_field_labels') or {}
-                resolved_pairs = payload_tmp.get('resolved_pairs') or []
-                if not labels_map and resolved_pairs:
-                    for pair in resolved_pairs:
-                        req = pair.get('requested')
-                        res = pair.get('resolved')
-                        if res and req:
-                            labels_map[res] = req
-                formatted_rows = []
-                for row in rows_payload:
-                    if not isinstance(row, dict):
-                        continue
-                    field = row.get('field')
-                    label = row.get('label') or labels_map.get(field) or row.get('field_original') or field
-                    row['label'] = label
-                    formatted_rows.append(row)
-                ctx['esg_comparison_rows'] = formatted_rows
-                ctx['esg_unmatched_fields'] = payload_tmp.get('unmatched_fields') or []
-                ctx['esg_default_fields'] = payload_tmp.get('resolved_fields') or esg_fields[:4]
-                ctx['esg_comparison_alloc'] = esg_alloc
-                ctx['esg_field_labels'] = labels_map
-                rows_chart = [
-                    r for r in formatted_rows
-                    if r and r.get('index') is not None and r.get('client') is not None
-                ]
-                if rows_chart:
-                    cats = [str(r.get('label') or r.get('field')) for r in rows_chart]
-                    idx_vals = [float(r.get('index') or 0.0) for r in rows_chart]
-                    cli_vals = [float(r.get('client') or 0.0) for r in rows_chart]
-                    try:
-                        ctx['esg_comparison_chart_png'] = _build_matplotlib_esg_bar_chart(cats, idx_vals, cli_vals)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        ctx = _populate_synthese_esg_context(db, ctx, client_id)
 
     if not ctx.get("report_logo_png"):
         try:
@@ -8371,6 +8466,38 @@ async def delete_courtier_document(doc_id: int, request: Request, db: Session = 
         )
     file_path = _resolve_document_path(row)
     try:
+        # Purge dependent rows first to avoid FK constraints (validation/export/audit).
+        analyse_table = _resolve_table_name(db, ["document_controle_analyse"])
+        validation_table = _resolve_table_name(db, ["document_controle_validation"])
+        export_table = _resolve_table_name(db, ["document_controle_export"])
+        audit_table = _resolve_table_name(db, ["document_controle_audit_log"])
+        if validation_table and analyse_table:
+            db.execute(
+                text(
+                    f"""
+                    DELETE FROM {validation_table}
+                    WHERE analyse_id IN (
+                        SELECT id FROM {analyse_table} WHERE document_id = :id
+                    )
+                    """
+                ),
+                {"id": doc_id},
+            )
+        if export_table:
+            db.execute(
+                text(f"DELETE FROM {export_table} WHERE document_id = :id"),
+                {"id": doc_id},
+            )
+        if audit_table:
+            db.execute(
+                text(f"DELETE FROM {audit_table} WHERE document_id = :id"),
+                {"id": doc_id},
+            )
+        if analyse_table:
+            db.execute(
+                text(f"DELETE FROM {analyse_table} WHERE document_id = :id"),
+                {"id": doc_id},
+            )
         db.execute(
             text(f"DELETE FROM {table_name} WHERE id = :id"),
             {"id": doc_id},
@@ -12429,6 +12556,7 @@ async def delete_contrat_support(row_id: int, request: Request, db: Session = De
 def dashboard_home(request: Request, db: Session = Depends(get_db)):
     t0 = perf_counter()
     # Pas de cache afin d'assurer le chargement des derniers assets/templates
+    dashboard_load_id = _init_load_progress()
 
     tb_markers_visible = request.query_params.get("markers") == "1"
     # Totaux simples
@@ -13510,6 +13638,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "evt_types": evt_types if 'evt_types' in locals() else [],
         "evt_categories": evt_categories if 'evt_categories' in locals() else [],
         "evt_statuts": evt_statuts if 'evt_statuts' in locals() else [],
+        "dashboard_load_id": dashboard_load_id,
     }
     total_time = perf_counter() - t0
     logger.info("dashboard_home: total context built in %.3fs", total_time)
@@ -28327,6 +28456,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     esg_comparison_rows: list[dict] = []
     esg_comparison_chart_png = None
     esg_unmatched_fields: list[str] = []
+    esg_outlier_fields: list[str] = []
     esg_default_fields: list[str] = []
     esg_fields_max = 10
     esg_top_metric_keys: list[str] = []
@@ -28385,6 +28515,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     available_cols = [it.get("col") for it in esg_fields_client if it.get("col")]
     available_set = set(available_cols)
     sensitivity_fields = [f for f in esg_top_metric_keys if f in available_set]
+    use_priority_metrics = bool(sensitivity_fields)
     fields_to_try = sensitivity_fields + [f for f in available_cols if f not in sensitivity_fields]
     if len(fields_to_try) > esg_fields_max:
         fields_to_try = fields_to_try[:esg_fields_max]
@@ -28416,12 +28547,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             rows_with_values = [
                 r for r in all_rows if (r.get("index") is not None and r.get("client") is not None)
             ]
-            esg_comparison_rows = rows_with_values[:esg_fields_max] if rows_with_values else all_rows[:esg_fields_max]
-            esg_default_fields = [r.get("field") for r in esg_comparison_rows if r.get("field")]
-            if sensitivity_fields:
+            if use_priority_metrics:
+                esg_comparison_rows = all_rows[:esg_fields_max]
                 esg_default_fields = sensitivity_fields[:]
-
-            preferred_fields = [r.get("field") for r in rows_with_values]
+                preferred_fields = sensitivity_fields[:]
+            else:
+                esg_comparison_rows = rows_with_values[:esg_fields_max] if rows_with_values else all_rows[:esg_fields_max]
+                esg_default_fields = [r.get("field") for r in esg_comparison_rows if r.get("field")]
+                preferred_fields = [r.get("field") for r in rows_with_values]
             if preferred_fields:
                 ordered = []
                 seen_pf = set()
@@ -28438,10 +28571,21 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 esg_fields_client = ordered
                 esg_field_labels_client = { it["col"]: it["label"] for it in esg_fields_client }
 
-            if rows_with_values:
-                categories = [str(r.get("label") or r.get("field")) for r in rows_with_values]
-                index_values = [float(r.get("index") or 0.0) for r in rows_with_values]
-                client_values = [float(r.get("client") or 0.0) for r in rows_with_values]
+            esg_outlier_fields = []
+            chart_rows = []
+            for r in rows_with_values:
+                try:
+                    diff = float(r.get("client") or 0.0) - 100.0
+                except Exception:
+                    diff = 0.0
+                if abs(diff) > 150.0:
+                    esg_outlier_fields.append(r.get("field"))
+                    continue
+                chart_rows.append(r)
+            if chart_rows:
+                categories = [str(r.get("label") or r.get("field")) for r in chart_rows]
+                index_values = [float(r.get("index") or 0.0) for r in chart_rows]
+                client_values = [float(r.get("client") or 0.0) for r in chart_rows]
                 esg_comparison_chart_png = _build_matplotlib_esg_bar_chart(categories, index_values, client_values)
         except Exception:
             esg_comparison_payload = None
