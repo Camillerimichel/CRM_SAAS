@@ -255,6 +255,20 @@
   </div>
   <div class="page-break"></div>
   <h2 id="section-esg" class="section-title">6. Notations ESG</h2>
+  {% if esg_top_metrics %}
+    <p style="margin:0 0 8px;"><strong>Métriques de surveillance issues du questionnaire ESG</strong></p>
+    <ul style="margin:0 0 12px 18px; padding:0; font-size:0.9rem;">
+      {% for m in esg_top_metrics %}
+        <li style="margin:4px 0;">
+          {{ m.label }}
+          {% if m.unit %}<span class="muted"> ({{ m.unit }})</span>{% endif %}
+          {% if m.coverage_pct is not none %}
+            <span class="muted"> — Couverture: {{ '%.1f'|format(m.coverage_pct) }}%</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
   {% if esg_comparison_rows %}
     {% if esg_comparison_alloc %}
       <p style="margin:0 0 8px;">Comparaison réalisée par rapport à l'allocation de référence <strong>{{ esg_comparison_alloc }}</strong> (indice = 100).</p>
@@ -274,7 +288,10 @@
       <tbody>
         {% for row in esg_comparison_rows %}
           <tr>
-            <td>{{ row.label }}</td>
+            <td>
+              {{ row.label }}
+              {% if esg_outlier_fields and row.field in esg_outlier_fields %}*{% endif %}
+            </td>
             <td style="text-align:right;">{{ row.index is not none and ('%.1f'|format(row.index)) or '—' }}</td>
             <td style="text-align:right;">{{ row.client is not none and ('%.1f'|format(row.client)) or '—' }}</td>
             <td style="text-align:right;">{{ row.cli_present or 0 }} / {{ row.idx_present or 0 }}</td>
@@ -282,6 +299,9 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if esg_outlier_fields %}
+      <p class="muted" style="font-size:0.75rem;">* Lignes exclues du graphique : différentiel client vs indice supérieur à 150 (en plus ou en moins) pour améliorer la lisibilité.</p>
+    {% endif %}
     <p class="muted" style="font-size:0.75rem;">Lecture : une valeur client supérieure à 100 signifie une performance ESG relative supérieure à l'indice de référence sélectionné.</p>
     {% if esg_comparison_chart_png %}
       <div style="width:100%; text-align:center; margin-bottom:12px;">
