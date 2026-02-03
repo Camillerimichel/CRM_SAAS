@@ -171,7 +171,7 @@
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .client-esg-split { display:flex; gap:12px; align-items:stretch; }
   .client-esg-left { flex:1 1 320px; min-width:260px; }
-  .client-esg-right { flex:1 1 420px; min-width:260px; display:flex; align-items:center; overflow:hidden; }
+  .client-esg-right { flex:1 1 420px; min-width:260px; display:flex; flex-direction:column; align-items:stretch; gap:8px; overflow:visible; }
   .client-esg-right #clientEsgChart { width:100%; max-width:100%; }
   @media (max-width: 900px) {
     .client-esg-split { flex-direction:column; }
@@ -239,6 +239,16 @@
     padding: 12px 12px 6px 12px;
   }
   .chart-frame canvas { width: 100% !important; }
+  /* Evolution des investissements: contraindre la hauteur */
+  #graphValoPanel { max-height: 55vh; overflow: auto; }
+  #graphValoPanel .chart-frame-valo { height: 34vh; max-height: 320px; padding: 8px 8px 6px 8px; }
+  #graphValoPanel .chart-frame-valo canvas { height: 100% !important; }
+  /* Comparaison offre: contraindre la hauteur (Chart.js est en maintainAspectRatio:false => dépend de la hauteur du conteneur) */
+  #graphAllocPanel { max-height: 55vh; overflow: auto; }
+  #graphAllocPanel .chart-frame-alloc { height: 34vh; max-height: 320px; padding: 8px 8px 6px 8px; }
+  #graphAllocPanel .chart-frame-alloc canvas { height: 100% !important; }
+  /* Scroll anchors: keep titles visible below sticky topbar. */
+  #contractsTitle, #supportsTitle { scroll-margin-top: 110px; }
   .data-frame {
     background: #fff;
     border: 1px solid #e2e8f0;
@@ -1446,6 +1456,22 @@ function openClientTaskPage(){
   window.open(url, '_blank', 'noopener');
 }
 
+function openClientTasksListPage(){
+  if (!CLIENT_ID){
+    alert('Client introuvable.');
+    return;
+  }
+  var params = new URLSearchParams();
+  // Server-side filter is by client_id; we also pass the full name to prefill the UI filter on the tasks page.
+  params.set('client_id', String(CLIENT_ID));
+  var fullname = '{{ (client.nom or "") ~ " " ~ (client.prenom or "") if client else "" }}'.trim();
+  if (fullname) params.set('client_filter', fullname);
+  params.set('open', 'list');
+  if (CL_MARKERS_PARAM){ params.set('markers', '1'); }
+  var url = '/dashboard/taches' + (params.toString() ? ('?' + params.toString()) : '');
+  window.location.href = url;
+}
+
 function generateClientSynthese(){
   if (!CLIENT_ID){
     alert('Client introuvable.');
@@ -2320,6 +2346,7 @@ function generateClientSynthese(){
     #clientMsgsTable tbody tr.row-selected { background: #e9f0ff; border-left: 3px solid var(--primary); }
   </style>
   <div id="invSection" class="card" data-tb-marker="CL_15" style="display:none;">
+    <div id="invContractsBlock">
     <div style="display:flex; flex-direction:column; gap:4px;">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <h3 id="contractsTitle" class="section-title-blue toggle-title" style="margin:4px 8px 8px 0;">Contrats du client</h3>
@@ -2456,7 +2483,8 @@ function generateClientSynthese(){
       </a>
       {% endfor %}
     </div>
-    <hr style="border:0; border-top:3px solid #cbd5f5; margin:16px 0 12px;">
+    </div>
+    <div id="invSupportsBlock">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <h3 id="supportsTitle" class="section-title-blue toggle-title" style="margin-top:0;">Supports consolidés (tous contrats)</h3>
     </div>
@@ -2576,6 +2604,7 @@ function generateClientSynthese(){
         <div class="muted">Aucun support consolidé trouvé.</div>
       {% endif %}
     </div>
+    </div>
   </div>
 
   <script>
@@ -2597,6 +2626,41 @@ function generateClientSynthese(){
       }
       setupToggle('contractsList', 'contractsTitle');
       setupToggle('supportsList', 'supportsTitle');
+    })();
+  </script>
+
+  <script>
+    // Investissements: bascule entre "Placements" (contrats) et "Supports financiers" (supports consolidés).
+    (function(){
+      window.openInvestSubView = function(mode){
+        var c = document.getElementById('invContractsBlock');
+        var s = document.getElementById('invSupportsBlock');
+        if (!c || !s) return;
+        function scrollToEl(id){
+          try {
+            var el = document.getElementById(id);
+            if (!el) return;
+            // Defer to allow layout after display toggles (accordion open).
+            setTimeout(function(){
+              try { el.scrollIntoView({ block:'start', behavior:'smooth' }); } catch(e){}
+            }, 0);
+          } catch(e){}
+        }
+        if (mode === 'contracts'){
+          c.style.display = '';
+          s.style.display = 'none';
+          scrollToEl('contractsTitle');
+          return;
+        }
+        if (mode === 'supports'){
+          c.style.display = 'none';
+          s.style.display = '';
+          scrollToEl('supportsTitle');
+          return;
+        }
+        c.style.display = '';
+        s.style.display = '';
+      };
     })();
   </script>
 
@@ -2626,24 +2690,25 @@ function generateClientSynthese(){
         </div>
         <div class="client-esg-right">
           <div id="clientEsgChart" style="min-height:320px; width:100%; display:none;"></div>
+          <div id="clientEsgExcluded" class="muted" style="margin-top:8px; font-size:12px; display:none;"></div>
         </div>
       </div>
     </div>
   </div>
 
 <div id="graphsSection" style="display:none;">
-  <div class="card" style="margin-bottom:10px;">
+  <div class="card graphs-card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="graphValoPanel" style="margin:0; justify-content:flex-start;">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-line"></i> Evolution des investissements et de la valorisation des placements</h3>
       <span class="chevron">▾</span>
     </div>
     <div id="graphValoPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-      <div class="chart-frame">
-        <canvas id="valoChart" height="120"></canvas>
+      <div class="chart-frame chart-frame-valo">
+        <canvas id="valoChart"></canvas>
       </div>
     </div>
   </div>
-  <div class="card" style="margin-bottom:10px;">
+  <div class="card graphs-card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="graphSrriPanel" style="margin:0; justify-content:flex-start;">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-line"></i> Performances et risques</h3>
       <span class="chevron">▾</span>
@@ -2652,36 +2717,38 @@ function generateClientSynthese(){
       <canvas id="clientSrriChart" height="120"></canvas>
     </div>
   </div>
-  <div class="card" style="margin-bottom:10px;">
+  <div class="card graphs-card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="graphAllocPanel" style="margin:0; justify-content:flex-start;">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-column"></i> Comparaison placements clients / Offre financière</h3>
       <span class="chevron">▾</span>
     </div>
-      <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:10px 0 0 0;">
-        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin:6px 0 8px 0;">
-          <div>
-            <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
-            <select id="allocSelectClient"></select>
-            <div style="margin-top:6px;">
-              <button id="allocResetBtnClient" type="button" class="dim-btn" title="Revenir à l'allocation par défaut">Réinitialiser</button>
-            </div>
+    <div id="graphAllocPanel" class="accordion-panel" style="display:none; padding:8px 0 0 0;">
+      <div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; margin:4px 0 8px 0;">
+        <div style="min-width:220px;">
+          <label class="muted" style="font-size:0.85rem;">Sélection d'allocations</label><br>
+          <select id="allocSelectClient" style="max-width:320px;"></select>
+          <div style="margin-top:6px;">
+            <button id="allocResetBtnClient" type="button" class="dim-btn" title="Revenir à l'allocation par défaut">Réinitialiser</button>
           </div>
-          <div>
-            <label class="muted" style="font-size:0.85rem;">Période</label><br>
+        </div>
+        <div style="flex:1 1 220px;">
+          <label class="muted" style="font-size:0.85rem;">Période</label><br>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:2px;">
             <button class="rangeBtn" data-range="all">Tout</button>
             <button class="rangeBtn" data-range="365">1 an</button>
-          <button class="rangeBtn" data-range="180">6 mois</button>
-          <button class="rangeBtn" data-range="90">3 mois</button>
-          <button class="rangeBtn" data-range="30">1 mois</button>
+            <button class="rangeBtn" data-range="180">6 mois</button>
+            <button class="rangeBtn" data-range="90">3 mois</button>
+            <button class="rangeBtn" data-range="30">1 mois</button>
+          </div>
         </div>
       </div>
-      <div class="chart-frame">
-        <canvas id="clientAllocChart" height="120"></canvas>
+      <div class="chart-frame chart-frame-alloc">
+        <canvas id="clientAllocChart"></canvas>
       </div>
+    </div>
   </div>
-</div>
 
-  <div class="card" style="margin-bottom:10px;">
+  <div class="card graphs-card" style="margin-bottom:10px;">
     <div class="accordion-toggle" data-target="simuAllocPanel" style="margin:0; justify-content:flex-start;">
       <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-flask"></i> Simulation financière</h3>
       <span class="chevron">▾</span>
@@ -3003,6 +3070,7 @@ function openClientMsgs(kind){
     var $fieldsWrap = document.getElementById('clientEsgFields');
     var $unmatched = document.getElementById('clientEsgUnmatched');
     var $chart = document.getElementById('clientEsgChart');
+    var $excluded = document.getElementById('clientEsgExcluded');
     var metaLoaded = false;
     var esgFields = [];
     var esgRefIsins = [];
@@ -3203,13 +3271,62 @@ function openClientMsgs(kind){
             if (!displayRows.length){ displayRows = rows; }
             if (!displayRows.length){
               if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+              if ($excluded){ $excluded.style.display='none'; $excluded.innerHTML=''; }
               return;
             }
-            var cats = displayRows.map(function(r){
+            var THRESH_RATIO_PCT = 300; // +/- 300% (Client/Indice)
+            function _labelFor(r){
               return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
+            }
+            function _fmtNum(x){
+              var n = Number(x);
+              if (!isFinite(n)) return '—';
+              return n.toFixed(2);
+            }
+            function _fmtPct(x){
+              var n = Number(x);
+              if (!isFinite(n)) return '—';
+              return n.toFixed(1) + ' %';
+            }
+            var kept = [];
+            var excluded = [];
+            displayRows.forEach(function(r){
+              if (!r) return;
+              var label = _labelFor(r);
+              var i = r.index == null ? null : Number(r.index);
+              var c = r.client == null ? null : Number(r.client);
+              if (i == null || c == null || !isFinite(i) || !isFinite(c)) return;
+              var ratio = (i !== 0) ? (c / i) * 100 : Infinity;
+              if (!isFinite(ratio) || Math.abs(ratio) > THRESH_RATIO_PCT){
+                excluded.push({ label: label, index: i, client: c, ratio: ratio });
+                return;
+              }
+              kept.push({ label: label, index: i, client: c });
             });
-            var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
-            var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
+
+            if ($excluded){
+              var header =
+                '<div style="font-weight:700; color:#334155; margin-bottom:4px;">' +
+                'Indicateurs exclus du graphique (|Client/Indice| &gt; ' + THRESH_RATIO_PCT + '%)' +
+                '</div>';
+              if (excluded.length){
+                var lines = excluded.map(function(e){
+                  return '<div><strong>' + escHtml(e.label) + '</strong> — Indice: ' + _fmtNum(e.index) + ' / Client: ' + _fmtNum(e.client) + ' / Rapport: ' + _fmtPct(e.ratio) + '</div>';
+                });
+                $excluded.innerHTML = header + lines.join('');
+              } else {
+                $excluded.innerHTML = header + '<div>Aucun indicateur exclu.</div>';
+              }
+              $excluded.style.display = '';
+            }
+
+            if (!kept.length){
+              if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+              return;
+            }
+            var cats = kept.map(function(r){ return r.label; });
+            var idx = kept.map(function(r){ return r.index; });
+            var cli = kept.map(function(r){ return r.client; });
             var traces = [
               { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
               { x: cli, y: cats, type:'bar', orientation:'h', name:'Client', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
@@ -3261,21 +3378,71 @@ function openClientMsgs(kind){
     }, 0);
   })();
 
-  // Accordéons internes du bloc Graphiques (indépendants, fermés par défaut)
+  // Accordéons internes du bloc Graphiques (exclusifs, fermés par défaut)
   (function(){
-    const toggles = document.querySelectorAll('#graphsSection .accordion-toggle[data-target]');
-    toggles.forEach(function(t){
+    const root = document.getElementById('graphsSection');
+    if (!root) return;
+    const toggles = Array.from(root.querySelectorAll('.accordion-toggle[data-target]'));
+    const cards = Array.from(root.querySelectorAll('.graphs-card'));
+    function getTogglePanel(t){
       const targetId = t.getAttribute('data-target');
+      if (!targetId) return null;
       const panel = document.getElementById(targetId);
-      if (!panel) return;
-      t.classList.add('collapsed');
-      panel.style.display = 'none';
+      if (!panel) return null;
+      return { targetId, panel };
+    }
+    function setExclusive(targetId){
+      if (!cards.length) return;
+      if (!targetId){
+        cards.forEach(function(c){ c.style.display = ''; });
+        return;
+      }
+      const activeToggle = toggles.find(function(t){ return t.getAttribute('data-target') === targetId; }) || null;
+      const activeCard = activeToggle ? activeToggle.closest('.graphs-card') : null;
+      cards.forEach(function(c){
+        c.style.display = (activeCard && c === activeCard) ? '' : 'none';
+      });
+    }
+    function closeAll(exceptId){
+      toggles.forEach(function(t){
+        const tp = getTogglePanel(t);
+        if (!tp) return;
+        const isTarget = exceptId && tp.targetId === exceptId;
+        tp.panel.style.display = isTarget ? '' : 'none';
+        t.classList.toggle('collapsed', !isTarget);
+      });
+      setExclusive(exceptId || null);
+    }
+    function openPanel(targetId){
+      closeAll(targetId);
+      // Scroll to the top of the block (its header/toggle), not the panel content.
+      const t = toggles.find(function(x){ return x.getAttribute('data-target') === targetId; });
+      if (t){
+        try { t.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch(e){}
+      }
+    }
+    // Init: close everything
+    closeAll(null);
+    // Wire clicks: open one closes the others
+    toggles.forEach(function(t){
+      const tp = getTogglePanel(t);
+      if (!tp) return;
       t.addEventListener('click', function(){
-        const isOpen = panel.style.display !== 'none';
-        panel.style.display = isOpen ? 'none' : '';
-        t.classList.toggle('collapsed', isOpen);
+        const isOpen = tp.panel.style.display !== 'none';
+        if (isOpen){
+          closeAll(null); // show all cards again
+          return;
+        }
+        openPanel(tp.targetId);
       });
     });
+    // Allow external navigation (sidebar tree) to open a specific panel.
+    window.openGraphsPanel = function(panelId){
+      if (!panelId) return;
+      const exists = toggles.some(function(t){ return t.getAttribute('data-target') === panelId; });
+      if (!exists) return;
+      openPanel(panelId);
+    };
   })();
 
   // Toggle consolidation panel
@@ -5071,12 +5238,13 @@ function openClientMsgs(kind){
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
-    function openConfConnaissanceDetail(){
+    function openConfConnaissanceDetail(openKey){
       try {
         // Force reload even if the user re-opens the modal (Safari can be aggressive with iframe cache).
+        var key = (openKey || 'knowledge');
         var iframe = document.querySelector('#confConnaissanceDetailModal iframe');
         if (iframe){
-          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
+          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=" + encodeURIComponent(key) + "&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
         }
       } catch(e){}
       __showOverlay('confConnaissanceDetailModal');

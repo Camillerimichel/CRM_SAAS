@@ -134,6 +134,17 @@
             box-shadow: none;
         }
         .sidebar-nav a.active i { color: var(--primary-600); }
+        .sidebar-subtree {
+            display: none;
+            margin: 0.25rem 0 0.35rem 0.75rem;
+            padding-left: 0.6rem;
+            border-left: 2px solid rgba(36, 86, 166, 0.18);
+        }
+        .sidebar-subtree a {
+            font-size: 0.92rem;
+            padding: 0.45rem 0.75rem;
+        }
+        .sidebar-subtree a i { opacity: 0.9; }
         .sidebar-footer {
             border-top: 1px solid var(--border);
             padding-top: 12px;
@@ -206,6 +217,23 @@
             gap: 10px;
         }
         .container { max-width: 1200px; margin: 1.2rem auto 2rem; padding: 0 1rem; width: 100%; }
+
+        /* Embedded pages (iframes in modals, etc.) */
+        body.embed-mode {
+            background: #fff;
+        }
+        body.embed-mode .app-shell {
+            grid-template-columns: 1fr;
+        }
+        body.embed-mode .sidebar,
+        body.embed-mode .topbar {
+            display: none !important;
+        }
+        body.embed-mode .container {
+            max-width: none;
+            margin: 0;
+            padding: 0.75rem 0.75rem;
+        }
         .sidebar-backdrop {
             position: fixed;
             inset: 0;
@@ -494,7 +522,8 @@
     </style>
 </head>
 {% set _role_hint = (request.headers.get('X-User-Role') or request.headers.get('X-User-Type') or request.cookies.get('user_role') or request.cookies.get('user_type') or request.query_params.get('role') or 'staff') | lower %}
-<body data-user-role="{{ _role_hint }}">
+{% set _is_embed = ((request.query_params.get('embed') or '') | lower) in ['1','true','yes'] %}
+<body data-user-role="{{ _role_hint }}"{% if _is_embed %} class="embed-mode"{% endif %}>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navigation principale">
         <div class="sidebar-brand">
@@ -506,46 +535,229 @@
         </div>
         <nav class="sidebar-nav">
             {% set path = request.url.path if request and request.url else '' %}
+            {% set _segs = (path.strip('/') if path else '').split('/') %}
+            {% set _is_client_detail_page = (_segs|length == 3 and _segs[0] == 'dashboard' and _segs[1] == 'clients' and _segs[2].isdigit()) %}
             {% set _is_client = _role_hint == 'client' %}
             {% set _is_backoffice = _role_hint == 'back_office' %}
             {% set _is_dirigeant = _role_hint == 'dirigeant' %}
             {% set _is_directeur = _role_hint == 'directeur_commercial' %}
             {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
             {% set _is_commercial = _role_hint == 'commercial' %}
-            {% if not _is_responsable_bo %}
-            <div>
-              <div class="sidebar-section-title">Pilotage</div>
-              <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
-            </div>
-            {% endif %}
-            {% if not _is_client %}
-            <div>
-              <div class="sidebar-section-title">CRM</div>
-              <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
-              <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
-              <a href="/dashboard/groupes" class="{% if path.startswith('/dashboard/groupes') %}active{% endif %}"><i class="fa-solid fa-layer-group"></i>Groupes</a>
-            </div>
-            {% endif %}
-            {% if not _is_client %}
-            <div>
-              <div class="sidebar-section-title">Opérations</div>
-              {% if not _is_backoffice %}
-              <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
-              <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
+            {% if _is_client_detail_page %}
+            <div id="sidebarNavClient" data-menu="client">
+              <div class="sidebar-section-title">Client</div>
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(false); }catch(e){}; return false;">
+                <i class="fa-solid fa-arrow-left"></i>Retour
+              </a>
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteTree && window.toggleSidebarConformiteTree(); }catch(e){}; return false;">
+                <i class="fa-solid fa-scale-balanced"></i>Conformité
+                {% if kyc_status is defined and kyc_status.overall %}
+                  <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.overall.percent }}%</span>
+                {% endif %}
+              </a>
+              <div class="sidebar-subtree" id="sidebarConformiteTree" aria-label="Sous-menu conformité">
+                <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteKycTree && window.toggleSidebarConformiteKycTree(); }catch(e){}; return false;">
+                  <i class="fa-solid fa-user-check"></i>Connaissance client
+                  {% if kyc_status is defined and kyc_status.overall %}
+                    <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.overall.percent }}%</span>
+                  {% endif %}
+                </a>
+                <div class="sidebar-subtree" id="sidebarConformiteKycTree" aria-label="Sous-menu connaissance client">
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('etat'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-id-card"></i>Etat-civil
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.etat_civil %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.etat_civil.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('patrimoine'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-box-open"></i>Patrimoine et revenu
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.patrimoine_revenus %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.patrimoine_revenus.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('knowledge'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-brain"></i>Connaissance financières
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.connaissances_financieres %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.connaissances_financieres.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('esg'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-leaf"></i>Sensibilité ESG
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.sensibilite_esg %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.sensibilite_esg.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('objectifs'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-bullseye"></i>Objectifs
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.objectifs %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.objectifs.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('contrats'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-contract"></i>Choix du contrat
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.choix_contrat %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.choix_contrat.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('lcbft'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-shield-halved"></i>LCBFT
+                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.lcbft %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
+                    {% endif %}
+                  </a>
+                  {% set _kyc_overall = (kyc_status.overall if (kyc_status is defined and kyc_status and kyc_status.overall) else None) %}
+                  {% set _kyc_complete = (_kyc_overall.complete if _kyc_overall and (_kyc_overall.complete is not none) else False) %}
+                  <a href="javascript:void(0)" {% if not _kyc_complete %}style="opacity:0.55; pointer-events:none;" aria-disabled="true"{% endif %} onclick="try{ window.openClientCompteRenduEntretien && window.openClientCompteRenduEntretien(); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-pdf"></i>Compte rendu d'entretien
+                    {% if _kyc_overall %}
+                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _kyc_overall.percent }}%</span>
+                    {% endif %}
+                  </a>
+                </div>
+
+                <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteEditionsTree && window.toggleSidebarConformiteEditionsTree(); }catch(e){}; return false;">
+                  <i class="fa-solid fa-file-pdf"></i>Editions
+                </a>
+                <div class="sidebar-subtree" id="sidebarConformiteEditionsTree" aria-label="Sous-menu éditions">
+                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('der'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-signature"></i>DER
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('mission'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-contract"></i>Lettre de mission
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('adequation'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-circle-check"></i>Adéquation
+                  </a>
+                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('synthese'); }catch(e){}; return false;">
+                    <i class="fa-solid fa-file-lines"></i>Synthèse
+                  </a>
+                </div>
+              </div>
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarInvestTree && window.toggleSidebarInvestTree(); }catch(e){}; return false;">
+                <i class="fa-solid fa-chart-line"></i>Investissements
+              </a>
+              <div class="sidebar-subtree" id="sidebarInvestTree" aria-label="Sous-menu investissements">
+                <a href="javascript:void(0)" onclick="try{ window.openClientInvestSub && window.openClientInvestSub('contracts'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-file-contract"></i>Placements
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientInvestSub && window.openClientInvestSub('supports'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-layer-group"></i>Supports financiers
+                </a>
+              </div>
+              <a href="javascript:void(0)" onclick="try{ var b=document.getElementById('esgToggle'); if(b) b.click(); }catch(e){}; return false;">
+                <i class="fa-solid fa-leaf"></i>Suivi ESG
+              </a>
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarGraphsTree && window.toggleSidebarGraphsTree(); }catch(e){}; return false;">
+                <i class="fa-solid fa-chart-pie"></i>Graphiques
+              </a>
+              <div class="sidebar-subtree" id="sidebarGraphsTree" aria-label="Sous-menu graphiques">
+                <a href="javascript:void(0)" onclick="try{ window.openClientGraphsPanel && window.openClientGraphsPanel('graphValoPanel'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-chart-line"></i>Evolution des investissements
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientGraphsPanel && window.openClientGraphsPanel('graphSrriPanel'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-gauge-high"></i>Performance et risques
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientGraphsPanel && window.openClientGraphsPanel('graphAllocPanel'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-chart-column"></i>Comparaison offre
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientGraphsPanel && window.openClientGraphsPanel('simuAllocPanel'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-flask"></i>Simulation financière
+                </a>
+              </div>
+              <a href="javascript:void(0)" onclick="try{ var b=document.getElementById('reportToggle'); if(b) b.click(); }catch(e){}; return false;">
+                <i class="fa-solid fa-file-lines"></i>Reportings annuels
+              </a>
+              <a href="javascript:void(0)" onclick="try{ if(window.generateClientSynthese){ window.generateClientSynthese(); } else if(window.openClientEditionDoc){ window.openClientEditionDoc('synthese'); } }catch(e){}; return false;">
+                <i class="fa-solid fa-file-pdf"></i>Rapport de synthèse
+              </a>
+              <a href="javascript:void(0)" onclick="try{ var b=document.getElementById('docsToggle'); if(b) b.click(); }catch(e){}; return false;">
+                <i class="fa-solid fa-folder-open"></i>Documents
+              </a>
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarMessagesTree && window.toggleSidebarMessagesTree(); }catch(e){}; return false;">
+                <i class="fa-solid fa-envelope"></i>Messages
+                {% if msgs_reg_count is defined or msgs_nonreg_count is defined %}
+                  {% set _mreg = (msgs_reg_count or 0) %}
+                  {% set _mnon = (msgs_nonreg_count or 0) %}
+                  {% set _mtot = (_mreg + _mnon) %}
+                  {% if _mtot > 0 %}
+                    <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _mtot }}</span>
+                  {% endif %}
+                {% endif %}
+              </a>
+              <div class="sidebar-subtree" id="sidebarMessagesTree" aria-label="Sous-menu messages">
+                <a href="javascript:void(0)" onclick="try{ window.openClientMsgs && window.openClientMsgs('reg'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-triangle-exclamation"></i>Réglementaires
+                  {% if msgs_reg_count is defined and msgs_reg_count and (msgs_reg_count|int > 0) %}
+                    <span class="badge" style="margin-left:6px; background:#fee2e2; color:#991b1b;">{{ msgs_reg_count }}</span>
+                  {% endif %}
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientMsgs && window.openClientMsgs('nonreg'); }catch(e){}; return false;">
+                  <i class="fa-solid fa-triangle-exclamation"></i>Autres
+                  {% if msgs_nonreg_count is defined and msgs_nonreg_count and (msgs_nonreg_count|int > 0) %}
+                    <span class="badge" style="margin-left:6px; background:#dcfce7; color:#166534;">{{ msgs_nonreg_count }}</span>
+                  {% endif %}
+                </a>
+              </div>
+              {% if not _is_client %}
+              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarTasksTree && window.toggleSidebarTasksTree(); }catch(e){}; return false;">
+                <i class="fa-solid fa-list-check"></i>Tâches
+              </a>
+              <div class="sidebar-subtree" id="sidebarTasksTree" aria-label="Sous-menu tâches">
+                <a href="javascript:void(0)" onclick="try{ window.openClientTaskPage && window.openClientTaskPage(); }catch(e){}; return false;">
+                  <i class="fa-solid fa-plus"></i>Créer
+                </a>
+                <a href="javascript:void(0)" onclick="try{ window.openClientTasksListPage && window.openClientTasksListPage(); }catch(e){}; return false;">
+                  <i class="fa-solid fa-eye"></i>Voir
+                </a>
+              </div>
               {% endif %}
-              <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
-              <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
             </div>
             {% endif %}
-            {% if not _is_client and not _is_backoffice and not _is_commercial %}
-            <div>
-              <div class="sidebar-section-title">Administration</div>
-              <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
-              {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
-              <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+
+            <div id="sidebarNavMain" data-menu="main">
+              {% if _is_client_detail_page %}
+              <div>
+                <div class="sidebar-section-title">Navigation</div>
+                <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(true); }catch(e){}; return false;">
+                  <i class="fa-solid fa-user-check"></i>Sous-menu client
+                </a>
+              </div>
+              {% endif %}
+              {% if not _is_responsable_bo %}
+              <div>
+                <div class="sidebar-section-title">Pilotage</div>
+                <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
+              </div>
+              {% endif %}
+              {% if not _is_client %}
+              <div>
+                <div class="sidebar-section-title">CRM</div>
+                <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
+                <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
+                <a href="/dashboard/groupes" class="{% if path.startswith('/dashboard/groupes') %}active{% endif %}"><i class="fa-solid fa-layer-group"></i>Groupes</a>
+              </div>
+              {% endif %}
+              {% if not _is_client %}
+              <div>
+                <div class="sidebar-section-title">Opérations</div>
+                {% if not _is_backoffice %}
+                <a href="/dashboard/supports" class="{% if path.startswith('/dashboard/supports') %}active{% endif %}"><i class="fa-solid fa-chart-pie"></i>Supports</a>
+                <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
+                {% endif %}
+                <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
+                <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
+              </div>
+              {% endif %}
+              {% if not _is_client and not _is_backoffice and not _is_commercial %}
+              <div>
+                <div class="sidebar-section-title">Administration</div>
+                <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
+                {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
+                <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
+                {% endif %}
+              </div>
               {% endif %}
             </div>
-            {% endif %}
         </nav>
         <div class="sidebar-footer">
           <div class="sidebar-user">
@@ -1137,6 +1349,210 @@
           var link = ev.target.closest('.sidebar-nav a');
           if (link){ setSidebar(false); }
         });
+      })();
+
+      // Client detail: replace the main sidebar menu with a quick-action submenu.
+      (function(){
+        function apply(mode){
+          var navClient = document.getElementById('sidebarNavClient');
+          var navMain = document.getElementById('sidebarNavMain');
+          if (!navClient || !navMain) return; // not on client detail pages
+          var useClient = (mode !== 'main');
+          navClient.style.display = useClient ? '' : 'none';
+          navMain.style.display = useClient ? 'none' : '';
+        }
+        window.toggleSidebarClientMenu = function(openClient){
+          apply(openClient ? 'client' : 'main');
+        };
+        // Always default to the client submenu when landing on a client detail page.
+        // (Keeps the existing sidebar open/close mechanics; only swaps the menu content.)
+        apply('client');
+      })();
+
+      // Client detail: Conformité tree (KYC modal + Editions PDFs)
+      ;(function(){
+        function toggleTree(id){
+          var el = document.getElementById(id);
+          if (!el) return false;
+          var isVisible = el.style.display === 'block';
+          el.style.display = isVisible ? 'none' : 'block';
+          return !isVisible;
+        }
+        window.toggleSidebarConformiteTree = function(){
+          var opened = toggleTree('sidebarConformiteTree');
+          if (opened){
+            // Default to showing the first level so it's one click to reach items.
+            var kyc = document.getElementById('sidebarConformiteKycTree');
+            if (kyc) kyc.style.display = 'block';
+            var ed = document.getElementById('sidebarConformiteEditionsTree');
+            if (ed) ed.style.display = 'none';
+          }
+        };
+        window.toggleSidebarConformiteKycTree = function(){ toggleTree('sidebarConformiteKycTree'); };
+        window.toggleSidebarConformiteEditionsTree = function(){ toggleTree('sidebarConformiteEditionsTree'); };
+
+        window.openClientConformiteKyc = function(openKey){
+          try{
+            if (window.openConfConnaissanceDetail){
+              window.openConfConnaissanceDetail(openKey || 'knowledge');
+              return;
+            }
+          }catch(e){}
+          // Fallback: open in-page
+          try{
+            if (typeof CLIENT_ID !== 'undefined' && CLIENT_ID){
+              window.location.href = '/dashboard/clients/kyc/' + encodeURIComponent(CLIENT_ID) + '?open=' + encodeURIComponent(openKey || 'knowledge') + '&embed=1&v=1';
+            }
+          }catch(e){}
+        };
+
+        window.openClientCompteRenduEntretien = function(){
+          try{
+            if (typeof CLIENT_ID === 'undefined' || !CLIENT_ID) return;
+            var url = '/dashboard/clients/kyc/' + encodeURIComponent(CLIENT_ID) + '/rapport?style=conformite&pdf=1';
+            try{ if (window.appendMarkers) url = window.appendMarkers(url); } catch(e){}
+            if (window.generateKycReportPdf){
+              window.generateKycReportPdf(); // if exists in the future
+              return;
+            }
+            var a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function(){ try{ document.body.removeChild(a); }catch(e){} }, 1000);
+          }catch(e){}
+        };
+
+        window.openClientEditionDoc = function(kind){
+          try{
+            if (kind === 'der' && window.generateDerPdf){ window.generateDerPdf(); return; }
+            if (kind === 'mission' && window.generateMissionPdf){ window.generateMissionPdf(); return; }
+            if (kind === 'adequation' && window.generateAdequationPdf){ window.generateAdequationPdf(); return; }
+            if (kind === 'synthese' && window.generateClientSynthese){ window.generateClientSynthese(); return; }
+          }catch(e){}
+        };
+      })();
+
+      // Client detail: Graphiques tree + deep-link to an internal panel in #graphsSection
+      ;(function(){
+        function ensureSectionOpen(sectionId, toggleId){
+          var s = document.getElementById(sectionId);
+          var t = document.getElementById(toggleId);
+          if (!s || !t) return false;
+          if (s.style.display === 'none'){
+            try { t.click(); } catch(e){}
+          }
+          return true;
+        }
+        function ensureGraphsPanelOpen(panelId){
+          var panel = document.getElementById(panelId);
+          if (!panel) return;
+          if (panel.style.display === 'none'){
+            var tg = document.querySelector('#graphsSection .accordion-toggle[data-target=\"' + panelId + '\"]');
+            if (tg){
+              try { tg.click(); } catch(e){}
+            }
+          }
+        }
+        window.toggleSidebarGraphsTree = function(){
+          var tree = document.getElementById('sidebarGraphsTree');
+          if (!tree) return;
+          var isVisible = tree.style.display === 'block';
+          tree.style.display = isVisible ? 'none' : 'block';
+          if (!isVisible){
+            ensureSectionOpen('graphsSection', 'graphsToggle');
+          }
+        };
+        window.openClientGraphsPanel = function(panelId){
+          // Ensure Graphiques section is open, then open the requested internal block.
+          ensureSectionOpen('graphsSection', 'graphsToggle');
+          // Keep the tree visible so the navigation remains understandable.
+          var tree = document.getElementById('sidebarGraphsTree');
+          if (tree) tree.style.display = 'block';
+          try {
+            if (window.openGraphsPanel){
+              window.openGraphsPanel(panelId);
+              return;
+            }
+          } catch(e){}
+          ensureGraphsPanelOpen(panelId);
+        };
+      })();
+
+      // Client detail: Investissements tree + toggle between contracts and consolidated supports.
+      ;(function(){
+        function ensureSectionOpen(sectionId, toggleId){
+          var s = document.getElementById(sectionId);
+          var t = document.getElementById(toggleId);
+          if (!s || !t) return false;
+          if (s.style.display === 'none'){
+            try { t.click(); } catch(e){}
+          }
+          return true;
+        }
+        window.toggleSidebarInvestTree = function(){
+          var tree = document.getElementById('sidebarInvestTree');
+          if (!tree) return;
+          var isVisible = tree.style.display === 'block';
+          tree.style.display = isVisible ? 'none' : 'block';
+          if (!isVisible){
+            ensureSectionOpen('invSection', 'invToggle');
+          }
+        };
+        window.openClientInvestSub = function(mode){
+          ensureSectionOpen('invSection', 'invToggle');
+          var tree = document.getElementById('sidebarInvestTree');
+          if (tree) tree.style.display = 'block';
+          try {
+            if (window.openInvestSubView){
+              // Defer to allow the accordion to render before scrolling.
+              setTimeout(function(){
+                try { window.openInvestSubView(mode); } catch(e){}
+              }, 0);
+              return;
+            }
+          } catch(e){}
+          // Fallback if inv page hasn't loaded helper yet
+          try {
+            var c = document.getElementById('invContractsBlock');
+            var s = document.getElementById('invSupportsBlock');
+            if (c && s){
+              if (mode === 'contracts'){
+                c.style.display='';
+                s.style.display='none';
+                setTimeout(function(){ try{ document.getElementById('contractsTitle')?.scrollIntoView({ block:'start', behavior:'smooth' }); }catch(e){} }, 0);
+              }
+              else if (mode === 'supports'){
+                c.style.display='none';
+                s.style.display='';
+                setTimeout(function(){ try{ document.getElementById('supportsTitle')?.scrollIntoView({ block:'start', behavior:'smooth' }); }catch(e){} }, 0);
+              }
+            }
+          } catch(e){}
+        };
+      })();
+
+      // Client detail: Messages tree + open the corresponding modal (reg / nonreg)
+      ;(function(){
+        window.toggleSidebarMessagesTree = function(){
+          var tree = document.getElementById('sidebarMessagesTree');
+          if (!tree) return;
+          var isVisible = tree.style.display === 'block';
+          tree.style.display = isVisible ? 'none' : 'block';
+        };
+      })();
+
+      // Client detail: Tâches tree + open the "create task" flow
+      ;(function(){
+        window.toggleSidebarTasksTree = function(){
+          var tree = document.getElementById('sidebarTasksTree');
+          if (!tree) return;
+          var isVisible = tree.style.display === 'block';
+          tree.style.display = isVisible ? 'none' : 'block';
+        };
       })();
 
       // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
