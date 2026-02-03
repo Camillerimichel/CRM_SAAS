@@ -420,6 +420,7 @@
         try {
           const params = new URLSearchParams(window.location.search);
           const clientVal = params.get('client_fullname');
+          const clientFilterVal = params.get('client_filter');
           const affaireVal = params.get('affaire_ref');
           const rhVal = params.get('rh_id');
           const clientInput = document.querySelector('input[name="client_fullname"]');
@@ -435,6 +436,10 @@
             rhSelect.value = rhVal;
           }
           updateAffairesDatalist();
+          // Prefill list filter (DataTable) from URL; applied after DataTable init.
+          if (clientFilterVal){
+            window.__prefillTasksClientFilterValue = clientFilterVal;
+          }
           // Si prérempli depuis une fiche, ouvrir directement la section création
           if (clientVal || affaireVal || rhVal){
             window.__prefillOpenTacheForm = true;
@@ -748,6 +753,16 @@
               var esc = $.fn.dataTable.util.escapeRegex(v);
               window.tasksDT.column(5).search(esc, true, false).draw();
             });
+
+            // Apply URL-driven client filter (from client detail sidebar → "Tâches > Voir")
+            try {
+              if (window.__prefillTasksClientFilterValue){
+                var v = String(window.__prefillTasksClientFilterValue || '').trim();
+                var inp = document.getElementById('tasks_client_filter');
+                if (inp) inp.value = v;
+                if (v) { window.tasksDT.column(2).search(v).draw(); }
+              }
+            } catch(e) {}
           } catch(e) {}
         });
       </script>
@@ -1544,6 +1559,16 @@
     window.toggleReclamPivot = function(){ setSectionOpen('reclamCard'); };
     // Section par défaut au chargement
     document.addEventListener('DOMContentLoaded', function(){
+      // Open a specific section from URL (?open=list, etc.)
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var open = (params.get('open') || '').toLowerCase();
+        if (open === 'list') {
+          setSectionOpen('tasksListCard');
+          try { document.getElementById('tasksListCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){}
+          return;
+        }
+      } catch(e){}
       if (window.__prefillOpenTacheForm){
         setSectionOpen('tacheFormCard');
         try {

@@ -1,17 +1,20 @@
 {% extends "base.html" %}
+{% set _is_embed = ((request.query_params.get('embed') or '') | lower) in ['1','true','yes'] %}
 
 {% block title %}KYC – {% if client %}{{ client.prenom }} {{ client.nom }}{% else %}Client{% endif %}{% endblock %}
 
 {% block header_title %}
-  <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-    <button type="button" class="btn" onclick="try{ if (window.parent && window.parent.closeConfConnaissanceDetail && window.parent.openConfMain){ window.parent.closeConfConnaissanceDetail(); window.parent.openConfMain(); } else { window.history.back(); } }catch(e){ window.history.back(); }" style="margin-right:8px;">
-      ← Retour
-    </button>
-    <span><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</span>
-    {% if client %}
-      <span class="muted" style="font-size:0.9rem;">Client&nbsp;: {{ client.prenom }} {{ client.nom }}</span>
-    {% endif %}
-  </span>
+  {% if not _is_embed %}
+    <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn" onclick="try{ if (window.parent && window.parent.closeConfConnaissanceDetail && window.parent.openConfMain){ window.parent.closeConfConnaissanceDetail(); window.parent.openConfMain(); } else { window.history.back(); } }catch(e){ window.history.back(); }" style="margin-right:8px;">
+        ← Retour
+      </button>
+      <span><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</span>
+      {% if client %}
+        <span class="muted" style="font-size:0.9rem;">Client&nbsp;: {{ client.prenom }} {{ client.nom }}</span>
+      {% endif %}
+    </span>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -126,14 +129,15 @@
     .badge.secondary { background:#f1f0ff; color:#3a2f8f; }
   </style>
 
-  <div class="card hero-card">
-    {% if client %}
-      <div>
-        <strong>Client :</strong> <a href="/dashboard/clients/{{ client.id }}" style="text-decoration:underline; color:inherit;">{{ client.prenom }} {{ client.nom }}</a>
-        {% if client_id %}<span class="badge">ID&nbsp;{{ client_id }}</span>{% endif %}
-      </div>
-    {% endif %}
-  <div class="kyc-btn-row">
+  {% if not _is_embed %}
+    <div class="card hero-card">
+      {% if client %}
+        <div>
+          <strong>Client :</strong> <a href="/dashboard/clients/{{ client.id }}" style="text-decoration:underline; color:inherit;">{{ client.prenom }} {{ client.nom }}</a>
+          {% if client_id %}<span class="badge">ID&nbsp;{{ client_id }}</span>{% endif %}
+        </div>
+      {% endif %}
+    <div class="kyc-btn-row">
       <button type="button" class="kyc-main-btn" id="openEtatCivilBtn">
         <i class="fa-solid fa-user"></i>
         Etat civil
@@ -216,7 +220,8 @@
       {% endif %}
     {% endif %}
     
-  </div>
+    </div>
+  {% endif %}
 
   
 
@@ -3236,20 +3241,8 @@
         });
       });
 
-      // Ouvrir une section via paramètre ?open=...
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const open = (params.get('open') || '').toLowerCase();
-        if (open) {
-          if (open === 'etat') setActivePanel('etatCivilPanel');
-          else if (open === 'patrimoine') setActivePanel('actifsPanel');
-          else if (open === 'knowledge' || open === 'connaissance') setActivePanel('knowledgePanel');
-          else if (open === 'esg') setActivePanel('esgPanel');
-          else if (open === 'objectifs') setActivePanel('objectifsPanel');
-          else if (open === 'contrats' || open === 'contrat') setActivePanel('contratsPanel');
-          else if (open === 'lcbft' || open === 'tracfin' || open === 'fatca') { openMainSection('lcbft'); setActivePanel('lcbftPanel'); }
-        }
-      } catch(e){}
+      // NOTE: handling of ?open=... is done in the "Ouverture initiale" block below,
+      // so it correctly overrides the default initialization.
 
       const addBtn = document.getElementById('addActifBtn');
       if (addBtn){
@@ -4113,8 +4106,24 @@ if (objectifFormNiveau){
         }
       }
 
-      // Ouverture initiale: rester sur la section/panneau actif si fourni par le serveur
+      // Ouverture initiale: priorité à ?open=..., sinon focus serveur, sinon défaut.
       (function(){
+        // 1) URL param override (used by client sidebar navigation)
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const open = (params.get('open') || '').toLowerCase();
+          if (open) {
+            if (open === 'etat') { setActivePanel('etatCivilPanel'); return; }
+            if (open === 'patrimoine') { setActivePanel('actifsPanel'); return; }
+            if (open === 'knowledge' || open === 'connaissance') { setActivePanel('knowledgePanel'); return; }
+            if (open === 'esg') { setActivePanel('esgPanel'); return; }
+            if (open === 'objectifs') { setActivePanel('objectifsPanel'); return; }
+            if (open === 'contrats' || open === 'contrat') { setActivePanel('contratsPanel'); return; }
+            if (open === 'lcbft' || open === 'tracfin' || open === 'fatca') { setActivePanel('lcbftPanel'); return; }
+          }
+        } catch(e){}
+
+        // 2) Server-provided focus (after POST/save)
         const initialSection = '{{ ui_focus_section or '' }}';
         const initialPanel = '{{ ui_focus_panel or '' }}';
         if (initialPanel) {
