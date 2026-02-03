@@ -12,6 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam, desc, case, inspect
 from sqlalchemy import text
@@ -4199,11 +4200,28 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                         pct_str = "—"
                     return {"euro": _fmt_euro_sri(v), "pct": pct_str}
 
+                def _round_life_label(label: str | None) -> str:
+                    if not label:
+                        return "Horizon"
+                    try:
+                        import re as _re
+                        if not _re.search(r"\\b(demi\\s*-?\\s*vie|vie)\\b", label, flags=_re.I):
+                            return label
+                        def _repl(m):
+                            try:
+                                val = float(m.group(1).replace(",", "."))
+                                return str(int(round(val)))
+                            except Exception:
+                                return m.group(1)
+                        return _re.sub(r"(\\d+(?:[.,]\\d+)?)", _repl, label)
+                    except Exception:
+                        return label
+
                 allocation_sri_scenarios = []
                 for row in scen_rows:
                     allocation_sri_scenarios.append(
                         {
-                            "label": row.get("horizon") or "Horizon",
+                            "label": _round_life_label(row.get("horizon")),
                             "tension": _row_sri(row.get("tension")),
                             "defavorable": _row_sri(row.get("defavorable")),
                             "intermediaire": _row_sri(row.get("intermediaire")),
@@ -5218,14 +5236,24 @@ def _populate_synthese_esg_context(db: Session, ctx: dict, client_id: int) -> di
 def dashboard_api_synthese(
     request: Request,
     id_client: int = Query(..., alias="id_client"),
+    esg: int = Query(1, description="Inclure l'analyse ESG (1=oui, 0=non)"),
     db: Session = Depends(get_db),
 ):
+    from time import perf_counter
+    _t0 = perf_counter()
+    logger.info("Synthese PDF start client_id=%s esg=%s", id_client, esg)
     ctx = _build_client_synthese_context(db, id_client)
     if ctx is None:
         raise HTTPException(status_code=404, detail="Client introuvable.")
 
-    if not ctx.get("esg_comparison_rows"):
+    if esg and not ctx.get("esg_comparison_rows"):
+        _t_esg = perf_counter()
         ctx = _populate_synthese_esg_context(db, ctx, id_client)
+        logger.info(
+            "Synthese PDF ESG done client_id=%s duration=%.3fs",
+            id_client,
+            perf_counter() - _t_esg,
+        )
 
     if not ctx.get("report_logo_png"):
         try:
@@ -5243,13 +5271,47 @@ def dashboard_api_synthese(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
 
+    _t_render = perf_counter()
     html = templates.get_template("synthese_report.html").render(ctx_render)
+    logger.info(
+        "Synthese PDF HTML rendered client_id=%s duration=%.3fs",
+        id_client,
+        perf_counter() - _t_render,
+    )
+    _t_pdf = perf_counter()
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    logger.info(
+        "Synthese PDF write_pdf done client_id=%s duration=%.3fs total=%.3fs",
+        id_client,
+        perf_counter() - _t_pdf,
+        perf_counter() - _t0,
+    )
     filename = f"synthese_{id_client}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
-    return StreamingResponse(
-        iter([pdf_bytes]),
+    try:
+        import tempfile
+        from pathlib import Path as _Path
+        fd, tmp_path = tempfile.mkstemp(prefix="synthese_", suffix=".pdf")
+        with open(fd, "wb") as f:
+            f.write(pdf_bytes)
+        tmp_path_str = str(tmp_path)
+    except Exception:
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    def _cleanup_tmp(path: str) -> None:
+        try:
+            _Path(path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return FileResponse(
+        tmp_path_str,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
+        background=BackgroundTask(_cleanup_tmp, tmp_path_str),
     )
 
 
@@ -5351,6 +5413,12 @@ async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Ses
     }
     context.update(der_context)
     context.update(mission_context)
+    try:
+        logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+        if logo_path.exists():
+            context["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    except Exception:
+        pass
     try:
         from weasyprint import HTML  # type: ignore
     except Exception as exc:
