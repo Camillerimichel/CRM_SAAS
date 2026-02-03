@@ -1455,7 +1455,8 @@ function generateClientSynthese(){
     window.showGlobalLoader('Génération du PDF…');
   }
   const url = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
-  window.open(url, '_blank', 'noopener');
+  // Download in same tab to avoid popup/streaming issues in some browsers.
+  window.location.href = url;
   const clearLoader = function(){
     if (typeof window.hideGlobalLoader === 'function'){
       window.hideGlobalLoader();

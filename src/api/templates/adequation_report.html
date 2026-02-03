@@ -36,6 +36,10 @@
     .title-subtext { margin-top:2rem; display:flex; flex-direction:column; gap:0.6rem; color:#475569; align-items:center; }
     .meta-box { display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; border:1px solid #d1d5db; border-radius:12px; background:#f8fafc; margin:12px 0; }
     .meta-box > div { min-width:220px; }
+    .meta-grid { width:100%; border-collapse:collapse; }
+    .meta-grid td { width:33.33%; padding:4px 6px; vertical-align:top; }
+    .meta-grid-2 { width:100%; border-collapse:collapse; }
+    .meta-grid-2 td { width:50%; padding:4px 6px; vertical-align:top; }
     .section-card { border:1px solid #d1d5db; border-radius:12px; padding:12px 14px; margin:10px 0; background:#fff; }
     .sig-box { display:grid; grid-template-columns: 1fr 1fr; gap:18px; margin-top:14px; }
     .sig-cell { border:1px dashed #cbd5f5; border-radius:10px; padding:12px; min-height:110px; }
@@ -61,6 +65,7 @@
   </div>
 
   <div class="page-break"></div>
+  <br/><br/><br/><br/><br/>
   <h2>Références réglementaires</h2>
   <ul>
     <li><strong>Code des assurances</strong> : article L. 522-5</li>
@@ -77,12 +82,20 @@
   <div class="meta-box">
     <div><strong>Situation familiale</strong><br/>{{ situation_familiale or '—' }}</div>
     <div><strong>Enfants à charge</strong><br/>{{ nb_enfants or 0 }}</div>
-    <div><strong>Niveau de revenu annuel</strong><br/>{{ revenus_total_str }} €</div>
-    <div><strong>Niveau de charges annuelles</strong><br/>{{ charges_total_str }} €</div>
-    <div><strong>Budget disponible</strong><br/>{{ budget_disponible_str }} €</div>
-    <div><strong>Patrimoine total</strong><br/>{{ actif_total_str }} €</div>
-    <div><strong>Endettement total</strong><br/>{{ passif_total_str }} €</div>
-    <div><strong>Patrimoine net</strong><br/>{{ patrimoine_net_str }} €</div>
+    <table class="meta-grid">
+      <tbody>
+        <tr>
+          <td><strong>Revenus / an</strong><br/>{{ revenus_total_str }} €</td>
+          <td><strong>Charges / an</strong><br/>{{ charges_total_str }} €</td>
+          <td><strong>Budget disponible</strong><br/>{{ budget_disponible_str }} €</td>
+        </tr>
+        <tr>
+          <td><strong>Patrimoine total</strong><br/>{{ actif_total_str }} €</td>
+          <td><strong>Endettement total</strong><br/>{{ passif_total_str }} €</td>
+          <td><strong>Patrimoine net</strong><br/>{{ patrimoine_net_str }} €</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
   <p>
     Ces éléments patrimoniaux et familiaux ont été pris en compte pour définir une allocation cohérente avec vos besoins. 
@@ -93,13 +106,21 @@
 
   <h2>3. Profil d’investissement</h2>
   <div class="meta-box">
-    <div><strong>Horizon de placement</strong><br/>{{ horizon_placement or '—' }}</div>
-    <div><strong>Niveau de risque accepté</strong><br/>{{ niveau_risque or '—' }}</div>
-    <div><strong>Expérience des produits financiers</strong><br/>{{ experience or '—' }}</div>
-    <div><strong>Connaissance des marchés</strong><br/>{{ connaissance or '—' }}</div>
+    <table class="meta-grid-2">
+      <tbody>
+        <tr>
+          <td><strong>Horizon de placement</strong><br/>{{ horizon_placement or '—' }}</td>
+          <td><strong>Niveau de risque accepté</strong><br/>{{ niveau_risque or '—' }}</td>
+        </tr>
+        <tr>
+          <td><strong>Expérience des produits financiers</strong><br/>{{ experience or '—' }}</td>
+          <td><strong>Connaissance des marchés</strong><br/>{{ connaissance or '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
-  {% if risque_latest and risque_latest.commentaire %}
-    <p class="muted">{{ risque_latest.commentaire }}</p>
+  {% if allocation_reference_name %}
+    <p style="text-align:center; font-weight:700;">{{ allocation_reference_name }}</p>
   {% endif %}
   <p>Le profil retenu reflète la tolérance au risque que vous avez exprimée, ainsi que vos capacités financières à absorber les fluctuations inhérentes aux marchés.</p>
 
@@ -200,7 +221,20 @@
       <tbody>
         {% for row in allocation_sri_scenarios %}
           <tr>
-            <td>{{ row.label }}</td>
+            {% set _label = row.label or 'Horizon' %}
+            {% if 'Demi-vie' in _label or 'demi-vie' in _label or _label.startswith('Vie') or ' Vie ' in _label %}
+              {% if '(' in _label and 'ans' in _label %}
+                {% set _num_str = _label.split('(')[1].split(' ')[0].replace(',', '.') %}
+                {% set _num = _num_str|float %}
+                {% set _rounded = _num|round(0, 'common')|int %}
+                {% if 'Demi-vie' in _label or 'demi-vie' in _label %}
+                  {% set _label = 'Demi-vie (' ~ _rounded ~ ' ans)' %}
+                {% else %}
+                  {% set _label = 'Vie (' ~ _rounded ~ ' ans)' %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+            <td>{{ _label }}</td>
             <td class="number">{{ row.tension.euro }}<br/><span class="muted">{{ row.tension.pct }}</span></td>
             <td class="number">{{ row.defavorable.euro }}<br/><span class="muted">{{ row.defavorable.pct }}</span></td>
             <td class="number">{{ row.intermediaire.euro }}<br/><span class="muted">{{ row.intermediaire.pct }}</span></td>

@@ -1,0 +1,36 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name crm_saas crmsaas.eu www.crmsaas.eu;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name crm_saas crmsaas.eu www.crmsaas.eu;
+
+    ssl_certificate     /etc/letsencrypt/live/crmsaas.eu/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crmsaas.eu/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Route tout le domaine vers le backend FastAPI (port 8100)
+    location / {
+        proxy_pass http://127.0.0.1:8100;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_connect_timeout 300s;
+        proxy_read_timeout    300s;
+        proxy_send_timeout    300s;
+
+        # Disable buffering to avoid temp-file permission errors on streamed PDFs.
+        proxy_buffering      off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+    }
+}

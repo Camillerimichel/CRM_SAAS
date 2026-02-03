@@ -68,6 +68,13 @@
 
 ---
 
+## 🧰 Maintenance
+
+Guide rapide nginx + uvicorn :
+- `config/README_maintenance.md`
+
+---
+
 ## ⏸️ Reste à faire
 
 1. **Nettoyage** : supprimer reliquats/doublons éventuels dans `src/services`
