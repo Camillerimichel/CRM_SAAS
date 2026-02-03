@@ -5071,7 +5071,16 @@ function openClientMsgs(kind){
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
-    function openConfConnaissanceDetail(){ __showOverlay('confConnaissanceDetailModal'); }
+    function openConfConnaissanceDetail(){
+      try {
+        // Force reload even if the user re-opens the modal (Safari can be aggressive with iframe cache).
+        var iframe = document.querySelector('#confConnaissanceDetailModal iframe');
+        if (iframe){
+          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
+        }
+      } catch(e){}
+      __showOverlay('confConnaissanceDetailModal');
+    }
     function closeConfConnaissanceDetail(){
       var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
       var la = document.getElementById('confAdequationDetailModal');
