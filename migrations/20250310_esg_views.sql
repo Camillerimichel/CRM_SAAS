@@ -17,7 +17,7 @@ SELECT
   COALESCE(ef.hazardous_waste, CAST(REPLACE(NULLIF(de.hazardouswaste, ''), ',', '.') AS DECIMAL(20,6))) AS hazardous_waste,
   COALESCE(ef.scope_1_and_2_carbon_intensity, CAST(REPLACE(NULLIF(de.scope1and2carbonintensity, ''), ',', '.') AS DECIMAL(20,6))) AS scope_1_and_2_carbon_intensity,
   COALESCE(ef.scope_3_carbon_intensity, CAST(REPLACE(NULLIF(de.scope3carbonintensity, ''), ',', '.') AS DECIMAL(20,6))) AS scope_3_carbon_intensity,
-  COALESCE(ef.carbon_trend, CAST(REPLACE(NULLIF(de.carbontrend, ''), ',', '.') AS DECIMAL(20,6))) AS carbon_trend,
+  COALESCE(CAST(REPLACE(NULLIF(de.carbontrend, ''), ',', '.') AS DECIMAL(20,6)), CAST(ef.carbon_trend AS DECIMAL(20,6))) AS carbon_trend,
   COALESCE(ef.temperature_score, CAST(REPLACE(NULLIF(de.temperaturescore, ''), ',', '.') AS DECIMAL(20,6))) AS temperature_score,
   COALESCE(ef.exposure_to_fossil_fuels, CAST(REPLACE(NULLIF(de.exposuretofossilfuels, ''), ',', '.') AS DECIMAL(20,6))) AS exposure_to_fossil_fuels,
   COALESCE(ef.renewable_energy, CAST(REPLACE(NULLIF(de.renewableenergy, ''), ',', '.') AS DECIMAL(20,6))) AS renewable_energy,

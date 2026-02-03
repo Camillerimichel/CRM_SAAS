@@ -642,8 +642,8 @@
                     <th style="padding:0.75rem;">Type</th>
                     <th style="padding:0.75rem;">Date de validité</th>
                     <th style="padding:0.75rem;">Document</th>
-                    <th style="padding:0.75rem;">Contrôle</th>
-                    <th style="padding:0.75rem;">Validation</th>
+                    <th style="padding:0.75rem; width:160px;">Contrôle</th>
+                    <th style="padding:0.75rem; width:120px;">Validation</th>
                     <th style="padding:0.75rem; width:200px; text-align:center;">Actions</th>
                   </tr>
                   <tr style="text-align:left; border-bottom:1px solid var(--border); background:rgba(31,43,108,0.04);">
@@ -682,7 +682,7 @@
                         {% else %}—{% endif %}
                       </td>
                       <td style="padding:0.65rem 0.75rem;">{{ doc.original_filename or doc.stored_filename }}</td>
-                      <td style="padding:0.65rem 0.75rem; min-width:220px;">
+                      <td style="padding:0.65rem 0.75rem; min-width:160px;">
                         {% set controle_status = doc.controle_status or doc.controle_statut or '—' %}
                         {% set controle_resume = doc.controle_resume or '' %}
                         {% set score = doc.controle_score_display or '' %}
@@ -694,7 +694,7 @@
                           <div class="muted" style="font-size:0.8rem;">—</div>
                         {% endif %}
                       </td>
-                      <td style="padding:0.65rem 0.75rem; min-width:150px;">
+                      <td style="padding:0.65rem 0.75rem; min-width:120px;">
                         {% if doc.validation_decision %}
                           {% set val_color = '#166534' if doc.validation_decision == 'ACCEPT' else '#b91c1c' %}
                           <div style="font-weight:600; color:{{ val_color }};">{{ doc.validation_decision }}</div>
@@ -893,7 +893,8 @@
                 <label>Sous-type (règle)</label>
                 <select id="courtierDocSubtypeSelect" name="document_type_id" required {% if not document_types %}disabled{% endif %}>
                   <option value="">Choisir…</option>
-                  {% for item in document_types %}
+                  {% set sorted_doc_types = document_types|sort(attribute='libelle') %}
+                  {% for item in sorted_doc_types %}
                     <option value="{{ item.id }}" data-activite="{{ item.activite_id }}" {% if courtier_document_edit and (item.id|string) == (courtier_document_edit.document_type_id|string) %}selected{% endif %}>{{ item.libelle or item.code }}</option>
                   {% endfor %}
                   {% if not document_types %}
