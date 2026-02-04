@@ -265,6 +265,19 @@
   body[data-user-role="client"] .client-hide { display: none !important; }
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
   body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
+  /* Card headers (block titles inside blocks) */
+  .dash-card { padding: 0 !important; overflow: hidden; }
+  .dash-card-head {
+    background: var(--primary);
+    color: #fff;
+    padding: 10px 14px;
+    font-weight: 700;
+    font-size: 1.02rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dash-card-body { padding: 12px 14px; }
 </style>
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs" style="display:none;">
@@ -358,14 +371,13 @@
     <div style="height:1px; background:var(--border); margin:10px 0;"></div>
   <!-- Sous-accordéon: Conformité réglementaire -->
   <div id="complianceToggle" ></div>
-  <div id="complianceSection" data-tb-marker="TB_24" >
-    <div class="card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
-      <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-        <button id="conformiteLoadBtn" class="btn" style="height:34px; display:inline-flex; align-items:center; gap:6px;">
-          <i class="fa-solid fa-rotate"></i> Charger la conformité
-        </button>
-        <span id="conformiteStatus" class="muted" style="align-self:center; font-size:0.9rem;">(non chargé)</span>
-      </div>
+	  <div id="complianceSection" data-tb-marker="TB_24" >
+	    <div class="card dash-card" data-tb-marker="TB_25" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+	      <div class="dash-card-head"><i class="fa-solid fa-scale-balanced"></i>Conformité réglementaire</div>
+	      <div class="dash-card-body">
+	      <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+	        <span id="conformiteStatus" class="muted" style="align-self:center; font-size:0.9rem;">Chargement…</span>
+	      </div>
       <div style="display:none; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;" aria-hidden="true">
         <div class="card" style="width:360px; padding:18px; border:1px solid var(--primary); border-radius:10px; box-shadow:0 4px 12px rgba(15,23,42,0.08); text-align:center;">
           <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:8px;">
@@ -433,7 +445,7 @@
         </div>
       </div>
       <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
-        <div data-tb-marker="TB_27" class="compliance-mini-card">
+        <div data-tb-marker="TB_27" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="der" aria-label="Voir les documents DER obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">DER</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="derTotal">—</span> / <span id="derTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="derObs">—</span> / <span id="derObsPct">—</span> %</div>
@@ -442,7 +454,7 @@
             <div id="derObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_28" class="compliance-mini-card">
+        <div data-tb-marker="TB_28" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="recueil d'informations" aria-label="Voir les documents Connaissance client obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Connaissance client</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="ccTotal">—</span> / <span id="ccTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="ccObs">—</span> / <span id="ccObsPct">—</span> %</div>
@@ -451,7 +463,16 @@
             <div id="ccObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_30" class="compliance-mini-card">
+        <div data-tb-marker="TB_29" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="questionnaire esg" aria-label="Voir les documents Questionnaire ESG obsolètes">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Questionnaire ESG</div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="esgTotal">—</span> / <span id="esgTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="esgObs">—</span> / <span id="esgObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="Questionnaire ESG">
+            <div id="esgValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="esgObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
+          </div>
+        </div>
+        <div data-tb-marker="TB_30" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="lettre de mission" aria-label="Voir les documents Lettres de mission obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres de mission</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="lmTotal">—</span> / <span id="lmTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="lmObs">—</span> / <span id="lmObsPct">—</span> %</div>
@@ -460,7 +481,7 @@
             <div id="lmObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_31" class="compliance-mini-card">
+        <div data-tb-marker="TB_31" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="lettre d'adéquation" aria-label="Voir les documents Lettres d'adéquation obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres d'adéquation</div>
           <div class="muted" style="font-size:0.85rem;">Total : <span id="laTotal">—</span> / <span id="laTotalPct">—</span> %</div>
           <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="laObs">—</span> / <span id="laObsPct">—</span> %</div>
@@ -469,17 +490,27 @@
             <div id="laObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
-        <div data-tb-marker="TB_32" class="compliance-mini-card">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
-            <div style="font-weight:600; background:#f1f5f9; border-radius:8px; padding:6px; flex:1; text-align:center;">Réclamations</div>
-            <button type="button" onclick="openInfoModal('reclamPivot')" aria-label="Voir le détail des réclamations" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; border:1px solid var(--primary); background:#fff; color:var(--primary); font-weight:600; cursor:pointer;">i</button>
+        <div data-tb-marker="TB_31B" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="questionnaire risque" aria-label="Voir les documents Questionnaire de risque obsolètes">
+          <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Questionnaire de risque</div>
+          <div class="muted" style="font-size:0.85rem;">Total : <span id="rqTotal">—</span> / <span id="rqTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="rqObs">—</span> / <span id="rqObsPct">—</span> %</div>
+          <div class="compliance-progress" role="img" aria-label="Questionnaire de risque">
+            <div id="rqValidBar" class="compliance-progress-valid" style="width:0%;"></div>
+            <div id="rqObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="reclamTotal">—</span></div>
-          <div id="reclamStatusList" class="muted" style="font-size:0.85rem;">(non chargé)</div>
         </div>
-      </div>
-    </div>
-  </div>
+	        <div data-tb-marker="TB_32" class="compliance-mini-card">
+	          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+	            <div style="font-weight:600; background:#f1f5f9; border-radius:8px; padding:6px; flex:1; text-align:center;">Réclamations</div>
+	            <button type="button" onclick="openInfoModal('reclamPivot')" aria-label="Voir le détail des réclamations" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; border:1px solid var(--primary); background:#fff; color:var(--primary); font-weight:600; cursor:pointer;">i</button>
+	          </div>
+	          <div class="muted" style="font-size:0.85rem;">Total : <span id="reclamTotal">—</span></div>
+	          <div id="reclamStatusList" class="muted" style="font-size:0.85rem;">(non chargé)</div>
+	        </div>
+	      </div>
+	      </div>
+	    </div>
+	  </div>
 
   <div class="info-modal-backdrop" id="infoModal-reclamPivot" aria-hidden="true">
     <div class="info-modal-dialog" style="max-height: 90vh; overflow-y:auto;">
@@ -583,7 +614,9 @@
   <!-- Sous-accordéon: Répartition par clientèle -->
   <div id="rcpToggle" ></div>
   <div id="rcpSection" data-tb-marker="TB_34" style="display:none; max-width:900px; margin: 0 auto 1rem auto;">
-    <div class="card" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+    <div class="card dash-card" style="max-width:900px; margin: 0 auto 1rem auto; text-align:center;">
+      <div class="dash-card-head"><i class="fa-solid fa-list-check"></i>Requis réglementaires</div>
+      <div class="dash-card-body">
       
       <style>
         .info-modal-backdrop {
@@ -729,7 +762,13 @@
       {% if title == 'Souscription RC Pro' and rcpro_doc_count > 0 and not rcpro_doc_valid %}
         {% set tile_style = "background:#fee2e2; border-color:#b91c1c;" %}
       {% endif %}
-      <div class="compliance-mini-card" style="{{ tile_style }}">
+      {% set courtier_filter_label = title %}
+      {% if title == 'LCBFT' %}
+        {% set courtier_filter_label = 'Blanchiment' %}
+      {% elif title == 'Offre produit' %}
+        {% set courtier_filter_label = 'Gouvernance produits' %}
+      {% endif %}
+      <div class="compliance-mini-card" style="{{ tile_style }}" role="button" tabindex="0" data-courtier-doc-type="{{ courtier_filter_label }}" aria-label="Voir les documents du courtier: {{ courtier_filter_label }}">
         <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px; display:flex; align-items:center; justify-content:center; gap:8px;">{{ title }}{% set info_id = info_ids.get(title) %}{% if info_id %} <button type='button' class='info-btn' onclick="openInfoModal('{{ info_id }}')" title='Informations'>ℹ️</button>{% endif %}</div>
           {% if title == 'Inscription ORIAS' %}
             {% if orias_doc_valid %}
@@ -883,6 +922,7 @@
         </div>
         {% endfor %}
       </div>
+      </div>
     </div>
   </div>
 
@@ -1020,6 +1060,78 @@
     });
 </script>
 
+<script>
+// Depuis "Conformité réglementaire": clic sur une carte => ouvre la liste des documents filtrée + obsolescences.
+(function(){
+  function openDocs(topic){
+    try {
+      var params = new URLSearchParams();
+      if (topic) params.set('document', String(topic));
+      // Demande : afficher les documents obsolescents (sauf sur "réclamations")
+      params.set('obsolescence', 'oui');
+      var url = '/dashboard/documents?' + params.toString();
+      // Ouvrir dans une nouvelle fenêtre/onglet pour garder le tableau de bord actif.
+      try { window.open(url, '_blank', 'noopener'); } catch(e) { /* fallback */ window.open(url, '_blank'); }
+      return false;
+    } catch(e){
+      return true;
+    }
+  }
+  function bindCard(card){
+    if (!card) return;
+    var topic = card.getAttribute('data-doc-topic');
+    if (!topic) return;
+    card.addEventListener('click', function(ev){
+      if (ev && ev.target && ev.target.closest && ev.target.closest('button,a,input,select,textarea,label')) return;
+      openDocs(topic);
+    });
+    card.addEventListener('keydown', function(ev){
+      if (!ev) return;
+      if (ev.key === 'Enter' || ev.key === ' '){
+        ev.preventDefault();
+        openDocs(topic);
+      }
+    });
+  }
+  document.querySelectorAll('#complianceSection .compliance-mini-card[data-doc-topic]').forEach(bindCard);
+})();
+</script>
+
+<script>
+// Depuis "Requis réglementaires": clic sur un bloc => ouvre Paramètres > Courtier > Documents réglementaires filtrés.
+(function(){
+  function openCourtierDocs(typeLabel){
+    try {
+      var params = new URLSearchParams();
+      params.set('open', 'courtierDocuments');
+      if (typeLabel) params.set('cd_type', String(typeLabel));
+      var url = '/dashboard/parametres?' + params.toString();
+      try { window.open(url, '_blank', 'noopener'); } catch(e) { window.open(url, '_blank'); }
+      return false;
+    } catch(e){
+      return true;
+    }
+  }
+  function bindReqCard(card){
+    if (!card) return;
+    var label = card.getAttribute('data-courtier-doc-type');
+    if (!label) return;
+    card.addEventListener('click', function(ev){
+      if (ev && ev.target && ev.target.closest && ev.target.closest('button,a,input,select,textarea,label')) return;
+      openCourtierDocs(label);
+    });
+    card.addEventListener('keydown', function(ev){
+      if (!ev) return;
+      if (ev.key === 'Enter' || ev.key === ' '){
+        ev.preventDefault();
+        openCourtierDocs(label);
+      }
+    });
+  }
+  document.querySelectorAll('#rcpSection .compliance-mini-card[data-courtier-doc-type]').forEach(bindReqCard);
+})();
+</script>
+
 {% set tableau_one = tableau_one if tableau_one is defined else {} %}
 <div id="csrdSection" data-tb-marker="TB_34A" style="display:none; max-width:1100px; margin: 0 auto 1rem auto;">
   <div class="card tableau-one-card">
@@ -1083,23 +1195,32 @@
 
 <div id="clienteleToggle" ></div>
   <div id="clienteleSection" data-tb-marker="TB_36" >
-    <div class="card compliance-mini-card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
-      <h3>Découpage clients par détention</h3>
-      <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
-  </div>
+    <div class="card compliance-mini-card dash-card" data-tb-marker="TB_35" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+      <div class="dash-card-head"><i class="fa-solid fa-users"></i>Répartition par clientèle</div>
+      <div class="dash-card-body" style="display:flex; flex-direction:column; flex:1 1 auto; min-height:0;">
+        <div style="font-weight:700; margin: 0 0 8px 0;">Découpage clients par détention</div>
+        <canvas id="chartClientsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+      </div>
+    </div>
 </div>
 
 <div id="contractsToggle" ></div>
   <div id="contractsSection" data-tb-marker="TB_37" style="display:none;">
-    <div class="card compliance-mini-card" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
-      <h3>Découpage contrat par détention</h3>
-      <canvas id="chartContractsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+    <div class="card compliance-mini-card dash-card" style="max-width: 900px; margin: 0 auto 1rem auto; height: calc(18vh + 50px); display:flex; flex-direction:column;">
+      <div class="dash-card-head"><i class="fa-solid fa-file-contract"></i>Répartition par contrats</div>
+      <div class="dash-card-body" style="display:flex; flex-direction:column; flex:1 1 auto; min-height:0;">
+        <div style="font-weight:700; margin: 0 0 8px 0;">Découpage contrats par détention</div>
+        <canvas id="chartContractsBuckets" style="flex:1 1 auto; min-height:0;"></canvas>
+      </div>
     </div>
   </div>
 
 <!-- Sous-accordéon: Répartitions SRRI -->
   <div id="srriToggle" ></div>
   <div id="srriSection" data-tb-marker="TB_38" >
+    <div class="card dash-card" style="max-width:1200px; margin: 0 auto 12px auto;">
+      <div class="dash-card-head"><i class="fa-solid fa-triangle-exclamation"></i>Suivi du risque (SRRI)</div>
+    </div>
     <div class="charts" data-tb-marker="TB_44" style="display:grid; grid-template-columns: minmax(260px, 320px) repeat(2, minmax(260px, 1fr)); gap:12px; max-width:1200px; margin:0 auto 12px auto; align-items:stretch;">
       <div class="card compliance-mini-card" data-tb-marker="TB_38" style="display:flex; flex-direction:column; align-items:flex-start; text-align:left;">
         <div data-tb-marker="TB_39" style="display:flex; align-items:center; justify-content:flex-start; gap:8px; width:100%;">
@@ -1205,8 +1326,9 @@
     #groupsSection .group-meta span { font-weight:600; color:#1e293b; }
     #groupsSection .group-card .btn { align-self:flex-start; margin-top:auto; padding:6px 10px; font-size:0.9rem; min-height:32px; }
   </style>
-  <div class="card" style="margin-bottom:12px;">
-    <h3 style="margin:0 0 8px 0;">Groupes de personnes</h3>
+  <div class="card dash-card" style="margin-bottom:12px;">
+    <div class="dash-card-head"><i class="fa-solid fa-users"></i>Groupes de personnes</div>
+    <div class="dash-card-body">
     {% if dashboard_groups_personnes %}
     <div class="group-grid">
       {% for grp in dashboard_groups_personnes %}
@@ -1227,9 +1349,11 @@
     {% else %}
     <div class="muted">Aucun groupe de personnes défini.</div>
     {% endif %}
+    </div>
   </div>
-  <div class="card">
-    <h3 style="margin:0 0 8px 0;">Groupes d'affaires</h3>
+  <div class="card dash-card">
+    <div class="dash-card-head"><i class="fa-solid fa-briefcase"></i>Groupes d'affaires</div>
+    <div class="dash-card-body">
     {% if dashboard_groups_affaires %}
     <div class="group-grid">
       {% for grp in dashboard_groups_affaires %}
@@ -1250,6 +1374,7 @@
     {% else %}
     <div class="muted">Aucun groupe d'affaires défini.</div>
     {% endif %}
+    </div>
   </div>
 </div>
 
@@ -1355,7 +1480,6 @@
   // ------- Conformité: lazy load -------
   (function(){
     let confLoaded = false;
-    const btn = document.getElementById('conformiteLoadBtn');
     const statusEl = document.getElementById('conformiteStatus');
     const setStatus = (txt)=> { if (statusEl) statusEl.textContent = txt; };
     const setText = (id, val)=> { const el=document.getElementById(id); if (el) el.textContent = (val ?? '—'); };
@@ -1402,6 +1526,11 @@
         setText('ccObsPct', (data.docs_cc_obsolete_pct||0).toFixed(1));
         setPctBars('ccValidBar', 'ccObsBar', data.docs_cc_obsolete_pct);
 
+        setText('esgTotal', data.docs_esg_total);
+        setText('esgTotalPct', (data.docs_esg_total_pct||0).toFixed(1));
+        setText('esgObs', data.docs_esg_obsolete);
+        setText('esgObsPct', (data.docs_esg_obsolete_pct||0).toFixed(1));
+        setPctBars('esgValidBar', 'esgObsBar', data.docs_esg_obsolete_pct);
 
         setText('lmTotal', data.docs_lm_total);
         setText('lmTotalPct', (data.docs_lm_total_pct||0).toFixed(1));
@@ -1415,6 +1544,12 @@
         setText('laObsPct', (data.docs_la_obsolete_pct||0).toFixed(1));
         setPctBars('laValidBar', 'laObsBar', data.docs_la_obsolete_pct);
 
+        setText('rqTotal', data.docs_rq_total);
+        setText('rqTotalPct', (data.docs_rq_total_pct||0).toFixed(1));
+        setText('rqObs', data.docs_rq_obsolete);
+        setText('rqObsPct', (data.docs_rq_obsolete_pct||0).toFixed(1));
+        setPctBars('rqValidBar', 'rqObsBar', data.docs_rq_obsolete_pct);
+
         setText('reclamTotal', (data.reclam_stats && data.reclam_stats.total) || 0);
         renderReclam(data);
         setStatus('Chargé');
@@ -1424,7 +1559,8 @@
         setStatus('Erreur de chargement');
       }
     }
-    if (btn) btn.addEventListener('click', loadConformite);
+    // Auto-load: plus de bouton "Charger la conformité".
+    loadConformite();
     window.__loadConformiteSection = function(){ if (!confLoaded) loadConformite(); };
   })();
 

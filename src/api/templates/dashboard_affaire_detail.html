@@ -498,7 +498,7 @@
     </h3>
   </div>
   <div id="affSynthPanel" class="accordion-panel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
-    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+    <div style="display:none; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
         <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')" title="Messages en cours">
           <i class="fa-solid fa-triangle-exclamation"></i> {{ msgs_nonreg_count }}

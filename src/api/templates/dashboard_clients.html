@@ -36,20 +36,67 @@
         background: white;
         table-layout: fixed;
     }
-    #clientsTable th,
-    #clientsTable td {
-        font-size: 13.5px;
-    }
-    thead input, thead select { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; box-sizing:border-box; }
-    tbody td {
-        padding: 4px 6px;
-        line-height: 1.1;
+	    #clientsTable th,
+	    #clientsTable td {
+	        font-size: 13.5px;
+	    }
+	    #clientsTable thead tr:first-child th { cursor: pointer; user-select: none; }
+	    #clientsTable thead tr:first-child th .sort-arrow { margin-left: 6px; font-size: 11px; color: #6b7280; }
+	    #clientsTable thead tr:first-child th.sorted-asc .sort-arrow::before { content: "▲"; }
+	    #clientsTable thead tr:first-child th.sorted-desc .sort-arrow::before { content: "▼"; }
+	    thead input, thead select { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; box-sizing:border-box; }
+	    tbody td {
+	        padding: 4px 6px;
+	        line-height: 1.1;
         white-space: nowrap;
     }
-    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
-    .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
-    .btn-danger:hover { background:#dc2626; }
-</style>
+	    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
+	    .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+	    .btn-danger:hover { background:#dc2626; }
+	    tr.client-selected-row td { background: #dcfce7 !important; }
+	    tr.client-selected-row:hover td { background: #bbf7d0 !important; }
+	    #clientsSelectionBar {
+	      position: fixed;
+	      left: 12px;
+	      right: 12px;
+	      bottom: 14px;
+	      z-index: 2500;
+	      display: none;
+	      justify-content: center;
+	      pointer-events: none;
+	    }
+	    #clientsSelectionBar .bar {
+	      width: min(1100px, calc(100vw - 24px));
+	      background: #f3f4f6;
+	      border: 1px solid #d1d5db;
+	      border-radius: 14px;
+	      box-shadow: 0 18px 42px rgba(15,23,42,0.18);
+	      padding: 10px 12px;
+	      display: flex;
+	      align-items: center;
+	      gap: 10px;
+	      flex-wrap: wrap;
+	      pointer-events: all;
+	    }
+	    #clientsSelectionBar .count {
+	      font-weight: 700;
+	      color: #111827;
+	    }
+	    #clientsSelectionBar select {
+	      height: 34px;
+	      border-radius: 10px;
+	      border: 1px solid #d1d5db;
+	      padding: 0 10px;
+	      background: #fff;
+	      min-width: 260px;
+	      max-width: min(520px, 92vw);
+	    }
+	    #clientsSelectionBar .status {
+	      color: #6b7280;
+	      font-size: 0.9rem;
+	      margin-left: auto;
+	    }
+	</style>
 
 {% set tb_markers_param = tb_markers_param or '' %}
 {% set tb_markers_visible = tb_markers_visible or false %}
@@ -75,35 +122,44 @@
       {% endif %}
     </div>
 
-    <div class="table-container">
-      <table id="clientsTable" class="display nowrap" style="width:100%">
-        <thead>
-          <tr>
-            <th>Nom</th>
-            <th>Prénom</th>
-            <th>Responsable</th>
-            <th>SRRI</th>
-            <th>Valorisation</th>
-            <th>Perf 52 sem. (%)</th>
-            <th>Volatilité (%)</th>
-          </tr>
-          <tr>
-            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..."></th>
-            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..."></th>
-            <th><input type="text" id="client-resp-filter" placeholder="Filtrer..."></th>
-            <th>
-              <select id="client-srri-filter">
-                <option value=""></option>
-                {% for s in srri_options %}
-                  <option value="{{ s }}">{{ s }}</option>
-                {% endfor %}
-              </select>
-            </th>
-            <th><input type="text" id="client-valo-filter" placeholder="Ex: >100k, 100k-500k"></th>
-            <th><input type="text" id="client-perf-filter" placeholder="Ex: >5, 3-7"></th>
-            <th><input type="text" id="client-vol-filter" placeholder="Ex: <10, 2-6"></th>
-          </tr>
-        </thead>
+	    <div class="table-container">
+	      <table id="clientsTable" class="display nowrap" style="width:100%">
+	        <thead>
+	          <tr>
+	            <th data-sort="nom">Nom<span class="sort-arrow"></span></th>
+	            <th data-sort="prenom">Prénom<span class="sort-arrow"></span></th>
+	            <th data-sort="responsable">Responsable<span class="sort-arrow"></span></th>
+	            <th data-sort="srri">SRRI<span class="sort-arrow"></span></th>
+	            <th data-sort="valo">Valorisation<span class="sort-arrow"></span></th>
+	            <th data-sort="perf">Perf 52 sem. (%)<span class="sort-arrow"></span></th>
+	            <th data-sort="vol">Volatilité (%)<span class="sort-arrow"></span></th>
+	          </tr>
+	          <tr>
+	            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..." value="{{ filters.nom or '' }}"></th>
+	            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..." value="{{ filters.prenom or '' }}"></th>
+	            <th>
+	              <select id="client-resp-filter">
+	                <option value=""></option>
+	                {% for r in responsables or [] %}
+	                  {% set _rid = r.id %}
+	                  {% set _rlabel = ((r.prenom or '') ~ ' ' ~ (r.nom or '')).strip() %}
+	                  <option value="{{ _rid }}" {% if filters.resp_id and (filters.resp_id|string) == (_rid|string) %}selected{% endif %}>{{ _rlabel or ('Resp #' ~ _rid) }}</option>
+	                {% endfor %}
+	              </select>
+	            </th>
+	            <th>
+	              <select id="client-srri-filter">
+	                <option value=""></option>
+	                {% for s in srri_options %}
+	                  <option value="{{ s }}" {% if filters.srri_calc and (filters.srri_calc|string) == (s|string) %}selected{% endif %}>{{ s }}</option>
+	                {% endfor %}
+	              </select>
+	            </th>
+	            <th><input type="text" id="client-valo-filter" placeholder="Ex: >100k, 100k-500k" value="{{ filters.valo or '' }}"></th>
+	            <th><input type="text" id="client-perf-filter" placeholder="Ex: >5, 3-7" value="{{ filters.perf or '' }}"></th>
+	            <th><input type="text" id="client-vol-filter" placeholder="Ex: <10, 2-6" value="{{ filters.vol or '' }}"></th>
+	          </tr>
+	        </thead>
         <tbody>
           {% for c in clients %}
           <tr data-client-id="{{ c.id }}">
@@ -122,9 +178,23 @@
             <td data-vol="{{ c.volatilite if c.volatilite is not none else '' }}" style="text-align:right;">{{ c.volatilite_str }}</td>
           </tr>
           {% endfor %}
-        </tbody>
-      </table>
-    </div>
+	        </tbody>
+	      </table>
+	    </div>
+
+	    <div id="clientsSelectionBar" aria-live="polite">
+	      <div class="bar">
+	        <div class="count" id="clientsSelectedCount">0 client sélectionné</div>
+	        <label for="clientsGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
+	        <select id="clientsGroupSelect" disabled>
+	          <option value="">Chargement des groupes…</option>
+	        </select>
+	        <button type="button" class="btn btn-primary" id="clientsSelectionAddBtn">Ajouter</button>
+	        <button type="button" class="btn btn-danger" id="clientsSelectionRemoveBtn">Retirer</button>
+	        <button type="button" class="btn btn-secondary" id="clientsSelectionPurgeBtn">Purge</button>
+	        <div class="status" id="clientsSelectionStatus"></div>
+	      </div>
+	    </div>
 
     {% set cur_page = page|default(1) %}
     {% set max_pages = total_pages|default(1) %}
@@ -161,131 +231,280 @@ $(document).ready(function () {
     };
     const actionsBar = document.getElementById('clientsGroupActions');
     const btnGrouped = document.getElementById('btnGroupedTasksClients');
-    var table = $('#clientsTable').DataTable({
-        dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
-        paging: false,
-        info: false,
-        order: [[4, "desc"]],
-        columnDefs: [
-          { targets: 0, width: '200px' },
-          { targets: 1, width: '160px' },
-          { targets: 2, width: '180px' },
+	    var table = $('#clientsTable').DataTable({
+	        dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
+	        paging: false,
+	        info: false,
+	        ordering: false,
+	        order: [],
+	        columnDefs: [
+	          { targets: 0, width: '200px' },
+	          { targets: 1, width: '160px' },
+	          { targets: 2, width: '180px' },
           { targets: 3, width: '110px', className: 'dt-center' },
           { targets: 4, width: '140px' },
           { targets: 5, width: '120px' },
           { targets: 6, width: '120px' }
         ]
+	    });
+
+	    // Tri (côté serveur) : clic sur l'entête
+	    function applySortIndicators(){
+	      try {
+	        var params = new URLSearchParams(window.location.search);
+	        var by = (params.get('sort_by') || 'valo').toLowerCase();
+	        var dir = (params.get('sort_dir') || 'desc').toLowerCase();
+	        document.querySelectorAll('#clientsTable thead tr:first-child th[data-sort]').forEach(function(th){
+	          var key = (th.getAttribute('data-sort') || '').toLowerCase();
+	          th.classList.toggle('sorted-asc', key === by && dir === 'asc');
+	          th.classList.toggle('sorted-desc', key === by && dir === 'desc');
+	        });
+	      } catch(e){}
+	    }
+	    function setSort(sortKey){
+	      try {
+	        var params = new URLSearchParams(window.location.search);
+	        var curBy = (params.get('sort_by') || 'valo').toLowerCase();
+	        var curDir = (params.get('sort_dir') || 'desc').toLowerCase();
+	        var nextDir = 'desc';
+	        if (String(sortKey).toLowerCase() === curBy){
+	          nextDir = (curDir === 'asc') ? 'desc' : 'asc';
+	        } else {
+	          // par défaut asc sur colonnes texte, desc sur numériques
+	          nextDir = (['valo','perf','vol','srri'].indexOf(String(sortKey).toLowerCase()) !== -1) ? 'desc' : 'asc';
+	        }
+	        params.set('sort_by', String(sortKey));
+	        params.set('sort_dir', nextDir);
+	        params.delete('page');
+	        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
+	        window.location.search = params.toString();
+	      } catch(e){}
+	    }
+	    document.querySelectorAll('#clientsTable thead tr:first-child th[data-sort]').forEach(function(th){
+	      th.addEventListener('click', function(){
+	        var key = th.getAttribute('data-sort');
+	        if (key) setSort(key);
+	      });
+	    });
+	    applySortIndicators();
+
+	    // --- Sélection multi-clients (mémoire session par onglet) ---
+	    const STORAGE_KEY = 'crm_selected_client_ids_v1';
+    function loadSelected(){
+      try {
+        const raw = sessionStorage.getItem(STORAGE_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(arr)) return new Set();
+        return new Set(arr.map(function(x){ return String(x); }).filter(Boolean));
+      } catch(e){
+        return new Set();
+      }
+    }
+    function saveSelected(set){
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set))); } catch(e){}
+    }
+    let selected = loadSelected();
+    const selBar = document.getElementById('clientsSelectionBar');
+    const selCountEl = document.getElementById('clientsSelectedCount');
+    const selStatusEl = document.getElementById('clientsSelectionStatus');
+    const selGroupSelect = document.getElementById('clientsGroupSelect');
+    const addBtn = document.getElementById('clientsSelectionAddBtn');
+    const removeBtn = document.getElementById('clientsSelectionRemoveBtn');
+    const purgeBtn = document.getElementById('clientsSelectionPurgeBtn');
+
+    function updateSelectionUI(){
+      const count = selected.size;
+      if (selCountEl){
+        selCountEl.textContent = count + ' client' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
+      }
+      if (selBar){
+        selBar.style.display = count ? 'flex' : 'none';
+      }
+      if (addBtn) addBtn.disabled = !count;
+      if (removeBtn) removeBtn.disabled = !count;
+      if (purgeBtn) purgeBtn.disabled = !count;
+    }
+
+    function applyRowSelection(){
+      document.querySelectorAll('#clientsTable tbody tr[data-client-id]').forEach(function(tr){
+        const cid = tr.getAttribute('data-client-id');
+        const isSel = cid && selected.has(String(cid));
+        tr.classList.toggle('client-selected-row', !!isSel);
+      });
+      updateSelectionUI();
+    }
+
+    function shouldIgnoreClick(ev){
+      const t = ev && ev.target ? ev.target : null;
+      if (!t) return false;
+      if (t.closest && t.closest('a,button,input,select,label,textarea')) return true;
+      return false;
+    }
+
+    $('#clientsTable tbody').on('click', 'tr', function(ev){
+      try {
+        if (shouldIgnoreClick(ev)) return;
+        const tr = this;
+        const firstCell = tr.querySelector('td:first-child');
+        if (firstCell && firstCell.contains(ev.target)) return; // 1ère colonne exclue
+        const cid = tr.getAttribute('data-client-id');
+        if (!cid) return;
+        if (selected.has(String(cid))){
+          selected.delete(String(cid));
+        } else {
+          selected.add(String(cid));
+        }
+        saveSelected(selected);
+        applyRowSelection();
+      } catch(e){}
     });
 
-    // Filtres texte
-    $('#client-nom-filter').on('keyup change', function(){ table.column(0).search(this.value).draw(); });
-    $('#client-prenom-filter').on('keyup change', function(){ table.column(1).search(this.value).draw(); });
-    $('#client-resp-filter').on('keyup change', function(){ table.column(2).search(this.value).draw(); });
-    $('#client-srri-filter').on('change', function(){ table.column(3).search(this.value).draw(); });
+    table.on('draw', function(){
+      applyRowSelection();
+    });
+    applyRowSelection();
 
-    // Filtres numériques avancés (valo/perf/vol)
-    function parseNumToken(raw){
-      var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
-      s = s.replace(',', '.');
-      var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
-      if (!m) return NaN;
-      var n = parseFloat(m[1]);
-      if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
-      return n;
-    }
-    function toNum(raw){
-      if (raw === undefined || raw === null) return null;
-      var s = String(raw).replace(/[^0-9,.\-]/g, '').replace(',', '.');
-      if (!s) return null;
-      var n = parseFloat(s);
-      return Number.isFinite(n) ? n : null;
-    }
-    function normalizePct(n){
-      if (!Number.isFinite(n)) return null;
-      return Math.abs(n) <= 1 ? n * 100 : n;
-    }
-    function buildNumPredicate(expr, isPercent){
-      var q = String(expr||'').trim();
-      if (!q) return function(){ return true; };
-      var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
-      if (range){
-        var a = isPercent ? parseFloat(String(range[1]).replace('%','').replace(',','.')) : parseNumToken(range[1]);
-        var b = isPercent ? parseFloat(String(range[2]).replace('%','').replace(',','.')) : parseNumToken(range[2]);
-        if (isFinite(a) && isFinite(b)){
-          var lo = Math.min(a,b), hi = Math.max(a,b);
-          return function(x){ return isFinite(x) && x >= lo && x <= hi; };
-        }
-      }
-      var tokens = [];
-      q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
-        var n = parseFloat(String(num).replace(',','.'));
-        if (isFinite(n)) tokens.push({op: op, n: n});
-        return '';
-      });
-      if (tokens.length){
-        return function(x){
-          if (!isFinite(x)) return false;
-          for (var i=0;i<tokens.length;i++){
-            var t = tokens[i];
-            if (t.op === '>' && !(x > t.n)) return false;
-            if (t.op === '>=' && !(x >= t.n)) return false;
-            if (t.op === '<' && !(x < t.n)) return false;
-            if (t.op === '<=' && !(x <= t.n)) return false;
-            if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
-            if (t.op === '!=' && !(x !== t.n)) return false;
-          }
-          return true;
-        };
-      }
-      var single = isPercent ? parseFloat(q.replace('%','').replace(',','.')) : parseNumToken(q);
-      if (isFinite(single)){
-        return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
-      }
-      return function(){ return true; };
+    function setStatus(text, isError){
+      if (!selStatusEl) return;
+      selStatusEl.textContent = text || '';
+      selStatusEl.style.color = isError ? '#b91c1c' : '#6b7280';
     }
 
-    function applyAdvancedFilters(){
-      var qValo = $('#client-valo-filter').val() || '';
-      var qPerf = $('#client-perf-filter').val() || '';
-      var qVol = $('#client-vol-filter').val() || '';
-      var predValo = buildNumPredicate(qValo, false);
-      var predPerf = buildNumPredicate(qPerf, true);
-      var predVol = buildNumPredicate(qVol, true);
-      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
-      $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
-        if (settings.nTable !== document.getElementById('clientsTable')) return true;
-        var rowNode = table.row(dataIndex).node();
-        var valoRaw = null, perfRaw = null, volRaw = null;
-        if (rowNode){
-          var elValo = rowNode.querySelector ? rowNode.querySelector('[data-valo]') : null;
-          var elPerf = rowNode.querySelector ? rowNode.querySelector('[data-perf]') : null;
-          var elVol = rowNode.querySelector ? rowNode.querySelector('[data-vol]') : null;
-          valoRaw = elValo && elValo.dataset ? elValo.dataset.valo : null;
-          perfRaw = elPerf && elPerf.dataset ? elPerf.dataset.perf : null;
-          volRaw = elVol && elVol.dataset ? elVol.dataset.vol : null;
-        }
-        var valoNum = toNum(valoRaw !== null && valoRaw !== undefined ? valoRaw : data[4]);
-        var perfNum = normalizePct(toNum(perfRaw !== null && perfRaw !== undefined ? perfRaw : data[5]));
-        var volNum = normalizePct(toNum(volRaw !== null && volRaw !== undefined ? volRaw : data[6]));
-        var ok = true;
-        if (qValo){
-          if (!Number.isFinite(valoNum)) return false;
-          if (!predValo(valoNum)) ok = false;
-        }
-        if (ok && qPerf){
-          if (!Number.isFinite(perfNum)) return false;
-          if (!predPerf(perfNum)) ok = false;
-        }
-        if (ok && qVol){
-          if (!Number.isFinite(volNum)) return false;
-          if (!predVol(volNum)) ok = false;
-        }
-        return ok;
-      });
-      var last = $.fn.dataTable.ext.search[$.fn.dataTable.ext.search.length-1];
-      if (last) last.__cli_advanced = true;
-      table.draw();
+    function loadClientGroups(){
+      if (!selGroupSelect) return;
+      selGroupSelect.disabled = true;
+      fetch('/api/groupes/details?type=client&actifs_only=true')
+        .then(function(res){
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function(groups){
+          const opts = ['<option value=\"\">— Choisir un groupe —</option>'];
+          (groups || []).forEach(function(g){
+            if (!g || g.id == null) return;
+            const name = (g.nom || ('Groupe #' + g.id)).toString();
+            opts.push('<option value=\"' + String(g.id) + '\">' + name.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</option>');
+          });
+          selGroupSelect.innerHTML = opts.join('');
+          selGroupSelect.disabled = false;
+        })
+        .catch(function(){
+          selGroupSelect.innerHTML = '<option value=\"\">(groupes indisponibles)</option>';
+          selGroupSelect.disabled = true;
+        });
     }
+    loadClientGroups();
+
+    function runBatch(action){
+      const gid = selGroupSelect ? (selGroupSelect.value || '') : '';
+      if (!gid){
+        setStatus('Choisir un groupe.', true);
+        return;
+      }
+      const ids = Array.from(selected).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+      if (!ids.length){
+        setStatus('', false);
+        return;
+      }
+      setStatus('Traitement en cours…', false);
+      if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Mise à jour des groupes…'); }
+      fetch('/api/groupes/memberships/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, groupe_id: parseInt(gid, 10), client_ids: ids })
+      })
+      .then(function(res){
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json().catch(function(){ return {}; });
+      })
+      .then(function(payload){
+        const done = payload && (payload.affected != null ? payload.affected : payload.count);
+        if (action === 'add'){
+          setStatus('Ajout terminé' + (done != null ? ' (' + done + ')' : '') + '.', false);
+        } else {
+          setStatus('Retrait terminé' + (done != null ? ' (' + done + ')' : '') + '.', false);
+        }
+      })
+      .catch(function(err){
+        console.warn('Batch membership failed', err);
+        setStatus('Erreur lors de la mise à jour.', true);
+      })
+      .finally(function(){
+        if (typeof window.hideGlobalLoader === 'function'){ window.hideGlobalLoader(250); }
+      });
+    }
+
+    if (addBtn){
+      addBtn.addEventListener('click', function(){ runBatch('add'); });
+    }
+    if (removeBtn){
+      removeBtn.addEventListener('click', function(){ runBatch('remove'); });
+    }
+    if (purgeBtn){
+      purgeBtn.addEventListener('click', function(){
+        try {
+          selected = new Set();
+          try { sessionStorage.removeItem(STORAGE_KEY); } catch(e){}
+          updateSelectionUI();
+          applyRowSelection();
+          setStatus('Sélection purgée.', false);
+        } catch(e){}
+      });
+    }
+
+	    // Filtres (côté serveur) : applique à la liste entière, pas seulement la page courante.
+	    var _reloadTimer = null;
+	    function _setParam(params, key, value){
+	      var v = String(value || '').trim();
+	      if (v) params.set(key, v); else params.delete(key);
+	    }
+	    function _reloadWithFilters(immediate){
+	      if (_reloadTimer){ clearTimeout(_reloadTimer); _reloadTimer = null; }
+	      var doReload = function(){
+	        try {
+	          var current = new URLSearchParams(window.location.search);
+	          var next = new URLSearchParams(window.location.search);
+	          _setParam(next, 'nom', $('#client-nom-filter').val());
+	          _setParam(next, 'prenom', $('#client-prenom-filter').val());
+	          _setParam(next, 'resp_id', $('#client-resp-filter').val());
+	          _setParam(next, 'srri_calc', $('#client-srri-filter').val());
+	          _setParam(next, 'valo', $('#client-valo-filter').val());
+	          _setParam(next, 'perf', $('#client-perf-filter').val());
+	          _setParam(next, 'vol', $('#client-vol-filter').val());
+	          next.delete('page');
+	          if (next.toString() === current.toString()) return;
+	          if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
+	          window.location.search = next.toString();
+	        } catch(e){}
+	      };
+	      if (immediate){
+	        doReload();
+	      } else {
+	        _reloadTimer = setTimeout(doReload, 450);
+	      }
+	    }
+	    function _bindServerFilterInput(selector){
+	      var el = document.querySelector(selector);
+	      if (!el) return;
+	      el.addEventListener('keydown', function(ev){
+	        if (ev && ev.key === 'Enter'){
+	          ev.preventDefault();
+	          _reloadWithFilters(true);
+	        }
+	      });
+	      el.addEventListener('input', function(){ _reloadWithFilters(false); });
+	      el.addEventListener('change', function(){ _reloadWithFilters(true); });
+	    }
+	    _bindServerFilterInput('#client-nom-filter');
+	    _bindServerFilterInput('#client-prenom-filter');
+	    // selects: reload on change only (no debounce)
+	    var respSel = document.getElementById('client-resp-filter');
+	    if (respSel){ respSel.addEventListener('change', function(){ _reloadWithFilters(true); }); }
+	    var srriSel = document.getElementById('client-srri-filter');
+	    if (srriSel){ srriSel.addEventListener('change', function(){ _reloadWithFilters(true); }); }
+	    _bindServerFilterInput('#client-valo-filter');
+	    _bindServerFilterInput('#client-perf-filter');
+	    _bindServerFilterInput('#client-vol-filter');
 
     function gatherFiltersSummary(){
       var parts = [];
@@ -323,7 +542,7 @@ $(document).ready(function () {
       if (actionsBar) actionsBar.style.display = active ? 'flex' : 'none';
       if (actionsBar) actionsBar.style.alignItems = 'center';
     }
-    $('#client-valo-filter, #client-perf-filter, #client-vol-filter').on('keyup change', applyAdvancedFilters);
+	    // Plus de filtrage DataTable (page courante) : on filtre via SQL (liste entière).
 
     ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
       var el = document.querySelector(sel);
@@ -363,22 +582,14 @@ $(document).ready(function () {
       });
     }
 
-    window.clearClientFilters = function(){
-      $('#client-nom-filter, #client-prenom-filter, #client-resp-filter, #client-srri-filter, #client-valo-filter, #client-perf-filter, #client-vol-filter').val('');
-      // Déclenche les handlers existants pour nettoyer les recherches colonne
-      $('#client-nom-filter').trigger('change');
-      $('#client-prenom-filter').trigger('change');
-      $('#client-resp-filter').trigger('change');
-      $('#client-srri-filter').trigger('change');
-      $('#client-valo-filter').trigger('change');
-      $('#client-perf-filter').trigger('change');
-      $('#client-vol-filter').trigger('change');
-      table.search('');
-      table.columns().search('');
-      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__cli_advanced; });
-      table.draw();
-      updateGroupedButtonVisibility();
-    };
+	    window.clearClientFilters = function(){
+	      try {
+	        var params = new URLSearchParams(window.location.search);
+	        ['nom','prenom','resp_id','srri_calc','valo','perf','vol','page'].forEach(function(k){ params.delete(k); });
+	        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
+	        window.location.search = params.toString();
+	      } catch(e){}
+	    };
 
     // Pagination côté serveur (préserve les autres paramètres)
     window.changeClientPage = function(delta){

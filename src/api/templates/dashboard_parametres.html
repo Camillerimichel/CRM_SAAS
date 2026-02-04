@@ -426,17 +426,17 @@
     </div>
   </div>
 
-  <div class="card" style="padding:0; overflow:hidden;">
-    <div class="param-tabs" id="paramTabs">
-      <button class="param-tab active" data-target="courtierPanel"><i class="fa-solid fa-user-tie"></i> Courtier</button>
-      <button class="param-tab" data-target="remunerationsPanel"><i class="fa-solid fa-hand-holding-dollar"></i> Rémunérations</button>
-      <button class="param-tab" data-target="contratsPanel"><i class="fa-solid fa-file-contract"></i> Contrats génériques</button>
-      <button class="param-tab" data-target="assureursPanel"><i class="fa-solid fa-building"></i> Assureurs / Sociétés</button>
-      <button class="param-tab" data-target="supportPanel"><i class="fa-solid fa-chart-line"></i> Supports</button>
-      <button class="param-tab" data-target="groupesPanel"><i class="fa-solid fa-layer-group"></i> Groupes</button>
-      <button class="param-tab" data-target="administrationPanel"><i class="fa-solid fa-sitemap"></i> Administration</button>
-    </div>
-    <div class="accordion" id="accordionWrapper">
+	  <div class="card" style="padding:0; overflow:hidden;">
+	    <div class="param-tabs" id="paramTabs">
+	      <button class="param-tab active" data-target="courtierPanel"><i class="fa-solid fa-user-tie"></i> Courtier</button>
+	      <button class="param-tab" data-target="remunerationsPanel"><i class="fa-solid fa-hand-holding-dollar"></i> Rémunérations</button>
+	      <button class="param-tab" data-target="contratsPanel"><i class="fa-solid fa-file-contract"></i> Contrats génériques</button>
+	      <button class="param-tab" data-target="assureursPanel"><i class="fa-solid fa-building"></i> Assureurs / Sociétés</button>
+	      <button class="param-tab" data-target="supportPanel"><i class="fa-solid fa-chart-line"></i> Supports</button>
+	      <button class="param-tab" data-target="groupesPanel"><i class="fa-solid fa-layer-group"></i> Groupes</button>
+	      <button class="param-tab" data-target="administrationPanel"><i class="fa-solid fa-sitemap"></i> Administration</button>
+	    </div>
+	    <div class="accordion" id="accordionWrapper">
       <div class="accordion-toggle" data-target="courtierPanel" data-level="root">
         <span><i class="fa-solid fa-user-tie" style="margin-right:6px;"></i> Courtier</span>
         <span class="chevron">▾</span>
@@ -2716,133 +2716,129 @@ document.addEventListener('DOMContentLoaded', function(){
       }
     }
   } catch(e) { /* noop */ }
+	
+	  // Tabs principaux pour remplacer les accordéons racine
+	  const rootPanels = ["courtierPanel","remunerationsPanel","contratsPanel","assureursPanel","supportPanel","groupesPanel","administrationPanel"];
+	  const tabs = Array.from(document.querySelectorAll('#paramTabs .param-tab'));
+	  const rootToggles = rootPanels
+	    .map(id => document.querySelector(`.accordion-toggle[data-target="${id}"][data-level="root"]`))
+	    .filter(Boolean);
 
-  // Tabs principaux pour remplacer les accordéons racine
-  const rootPanels = ["courtierPanel","remunerationsPanel","contratsPanel","assureursPanel","supportPanel","groupesPanel","administrationPanel"];
-  const tabs = Array.from(document.querySelectorAll('#paramTabs .param-tab'));
-  const rootToggles = rootPanels
-    .map(id => document.querySelector(`.accordion-toggle[data-target="${id}"][data-level="root"]`))
-    .filter(Boolean);
+	  function showPanel(id){
+	    rootPanels.forEach(pid => {
+	      const panel = document.getElementById(pid);
+	      if (panel){ panel.style.display = pid === id ? '' : 'none'; }
+	    });
+	    tabs.forEach(t => t.classList.toggle('active', t.getAttribute('data-target') === id));
+	  }
 
-  function showPanel(id){
-    rootPanels.forEach(pid => {
-      const panel = document.getElementById(pid);
-      if (panel){ panel.style.display = pid === id ? '' : 'none'; }
-    });
-    tabs.forEach(t => t.classList.toggle('active', t.getAttribute('data-target') === id));
-  }
+	  function setPanelState(panel, btn, expanded){
+	    panel.style.display = expanded ? '' : 'none';
+	    const chevron = btn.querySelector('.chevron');
+	    if (chevron){
+	      chevron.textContent = expanded ? '▴' : '▾';
+	    }
+	    btn.classList.toggle('collapsed', !expanded);
+	  }
 
-  // Les toggles racine deviennent invisibles (les tabs prennent le relais)
-  rootToggles.forEach(t => { t.style.display = 'none'; });
-  tabs.forEach(tab => {
-    tab.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      showPanel(tab.getAttribute('data-target'));
-    });
-  });
-  // Valeur par défaut
-  showPanel("courtierPanel");
+	  // Les toggles racine deviennent invisibles (les tabs prennent le relais)
+	  rootToggles.forEach(t => { t.style.display = 'none'; });
+	  tabs.forEach(tab => {
+	    tab.addEventListener('click', (ev) => {
+	      ev.preventDefault();
+	      showPanel(tab.getAttribute('data-target'));
+	      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	    });
+	  });
+	  // Valeur par défaut
+	  showPanel("courtierPanel");
 
-  function setPanelState(panel, btn, expanded){
-    panel.style.display = expanded ? '' : 'none';
-    const chevron = btn.querySelector('.chevron');
-    if (chevron){
-      chevron.textContent = expanded ? '▴' : '▾';
-    }
-    btn.classList.toggle('collapsed', !expanded);
-  }
+	  const toggles = Array.from(document.querySelectorAll('.accordion-toggle[data-target]'));
 
-  const toggles = Array.from(document.querySelectorAll('.accordion-toggle[data-target]'));
+	  toggles.forEach(btn => {
+	    btn.classList.add('collapsed');
+	    const panel = document.getElementById(btn.dataset.target);
+	    if (!panel){
+	      return;
+	    }
+	    btn.addEventListener('click', () => {
+	      // Root toggles are hidden, but can still be triggered programmatically:
+	      // just switch tab/panel and stop.
+	      if (btn.dataset.level === 'root'){
+	        showPanel(btn.dataset.target);
+	        return;
+	      }
+	      const willOpen = panel.style.display === 'none';
+	      if (!willOpen){
+	        setPanelState(panel, btn, false);
+	        return;
+	      }
+	      if (btn.dataset.group){
+	        toggles.forEach(other => {
+	          if (other === btn || other.dataset.group !== btn.dataset.group){
+	            return;
+	          }
+	          const otherPanel = document.getElementById(other.dataset.target);
+	          if (otherPanel && otherPanel.style.display !== 'none'){
+	            setPanelState(otherPanel, other, false);
+	          }
+	        });
+	      }
+	      setPanelState(panel, btn, true);
+	    });
+	  });
 
-  toggles.forEach(btn => {
-    btn.classList.add('collapsed');
-    const panel = document.getElementById(btn.dataset.target);
-    if (!panel){
-      return;
-    }
-    btn.addEventListener('click', () => {
-      const willOpen = panel.style.display === 'none';
-      if (!willOpen){
-        setPanelState(panel, btn, false);
-        return;
-      }
-      if (btn.dataset.level === 'root'){
-        toggles.forEach(other => {
-          if (other === btn || other.dataset.level !== 'root'){
-            return;
-          }
-          const otherPanel = document.getElementById(other.dataset.target);
-          if (otherPanel && otherPanel.style.display !== 'none'){
-            setPanelState(otherPanel, other, false);
-          }
-        });
-      }
-      if (btn.dataset.group){
-        toggles.forEach(other => {
-          if (other === btn || other.dataset.group !== btn.dataset.group){
-            return;
-          }
-          const otherPanel = document.getElementById(other.dataset.target);
-          if (otherPanel && otherPanel.style.display !== 'none'){
-            setPanelState(otherPanel, other, false);
-          }
-        });
-      }
-      setPanelState(panel, btn, true);
-    });
-  });
-
-  const open = '{{ open_section or '' }}';
-  if (open){
-    const mapping = {
-      'courtier': ['courtierPanel'],
-      'courtier_identite': ['courtierPanel','courtierIdentitePanel'],
-      'courtierDocuments': ['courtierPanel','courtierDocumentsPanel'],
-      'courtierDetails': ['courtierPanel','courtierDetailsPanel'],
-      'remunerations': ['remunerationsPanel'],
-      'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
-      'societes_categories': ['assureursPanel','societeCatsPanel'],
-      'societes_compagnies': ['assureursPanel','societesPanel'],
-      'contrats': ['contratsPanel','contratCatsPanel','contratGeneriquesPanel'],
-      'contrats_categories': ['contratsPanel','contratCatsPanel'],
-      'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
-      'supports': ['supportPanel'],
-      'administration': ['administrationPanel'],
-      'administration_types': ['administrationPanel','adminRelationsIntro'],
-      'administration_intervenants': ['administrationPanel','adminIntervenantsPanel'],
-      'administration_relations': ['administrationPanel','adminRelationsPanel'],
-      'administration_rh': ['administrationPanel','adminRhPanel'],
-      'groupes': ['groupesPanel'],
-      'administration_groupes': ['groupesPanel']
-    };
-    const panels = mapping[open];
-    if (panels){
-      showPanel(panels[0]);
-      panels.forEach(id => {
-        const btn = document.querySelector(`.accordion-toggle[data-target="${id}"]`);
-        const panel = document.getElementById(id);
-        if (btn && panel){
-          setPanelState(panel, btn, true);
-        }
-      });
-    }
-  }
-  if (open === 'remunerations'){
-    const hash = (window.location.hash || '').replace('#','');
-    const params = new URLSearchParams(window.location.search || '');
-    const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
-    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
-    const hasRemParams = remParamKeys.some(key => params.has(key));
-    const hasRetroParams = retroParamKeys.some(key => params.has(key));
-    const wantsRetro = hasRetroParams || hash === 'retroSupportsToggle' || hash === 'retroSupportsPanel';
-    const wantsFees = hasRemParams || hash === 'courtierFeesToggle' || hash === 'courtierFeesPanel';
-    const targetId = wantsRetro && !wantsFees ? 'retroSupportsPanel' : 'courtierFeesPanel';
-    const btn = document.querySelector(`.accordion-toggle[data-target="${targetId}"]`);
-    const panel = document.getElementById(targetId);
-    if (btn && panel){
-      setPanelState(panel, btn, true);
-    }
-  }
+	  const open = '{{ open_section or '' }}';
+	  if (open){
+	    const mapping = {
+	      'courtier': ['courtierPanel'],
+	      'courtier_identite': ['courtierPanel','courtierIdentitePanel'],
+	      'courtierDocuments': ['courtierPanel','courtierDocumentsPanel'],
+	      'courtierDetails': ['courtierPanel','courtierDetailsPanel'],
+	      'remunerations': ['remunerationsPanel'],
+	      'societes': ['assureursPanel','societeCatsPanel','societesPanel'],
+	      'societes_categories': ['assureursPanel','societeCatsPanel'],
+	      'societes_compagnies': ['assureursPanel','societesPanel'],
+	      'contrats': ['contratsPanel','contratCatsPanel','contratGeneriquesPanel'],
+	      'contrats_categories': ['contratsPanel','contratCatsPanel'],
+	      'contrats_generiques': ['contratsPanel','contratGeneriquesPanel'],
+	      'supports': ['supportPanel'],
+	      'administration': ['administrationPanel'],
+	      'administration_types': ['administrationPanel','adminRelationsIntro'],
+	      'administration_intervenants': ['administrationPanel','adminIntervenantsPanel'],
+	      'administration_relations': ['administrationPanel','adminRelationsPanel'],
+	      'administration_rh': ['administrationPanel','adminRhPanel'],
+	      'groupes': ['groupesPanel'],
+	      'administration_groupes': ['groupesPanel']
+	    };
+	    const panels = mapping[open];
+	    if (panels){
+	      showPanel(panels[0]);
+	      panels.slice(1).forEach(id => {
+	        const btn = document.querySelector(`.accordion-toggle[data-target="${id}"]`);
+	        const panel = document.getElementById(id);
+	        if (btn && panel){
+	          setPanelState(panel, btn, true);
+	        }
+	      });
+	    }
+	  }
+	  if (open === 'remunerations'){
+	    const hash = (window.location.hash || '').replace('#','');
+	    const params = new URLSearchParams(window.location.search || '');
+	    const remParamKeys = ['rem_contract','rem_start','rem_end','rem_limit','rem_page'];
+	    const retroParamKeys = ['ret_contract','ret_start','ret_end','ret_sort','ret_week_limit','ret_support_limit','ret_promoteur'];
+	    const hasRemParams = remParamKeys.some(key => params.has(key));
+	    const hasRetroParams = retroParamKeys.some(key => params.has(key));
+	    const wantsRetro = hasRetroParams || hash === 'retroSupportsToggle' || hash === 'retroSupportsPanel';
+	    const wantsFees = hasRemParams || hash === 'courtierFeesToggle' || hash === 'courtierFeesPanel';
+	    const targetId = wantsRetro && !wantsFees ? 'retroSupportsPanel' : 'courtierFeesPanel';
+	    const btn = document.querySelector(`.accordion-toggle[data-target="${targetId}"]`);
+	    const panel = document.getElementById(targetId);
+	    if (btn && panel){
+	      setPanelState(panel, btn, true);
+	    }
+	  }
   const shouldScrollCourtierDocEdit = {{ 'true' if courtier_document_edit else 'false' }};
   if (open === 'courtierDocuments'){
     const scrollOffset = 80;
