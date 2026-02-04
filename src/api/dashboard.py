@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFil
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, bindparam, desc, case, inspect
+from sqlalchemy import func, or_, bindparam, desc, case, inspect, cast, String, Float
 from sqlalchemy import text
 from datetime import datetime, date as _date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -1442,6 +1442,7 @@ def _compute_conformite_summary(db: Session) -> dict:
         der_total, der_obs, der_total_pct, der_obs_pct = _doc_stats('der')
         cc_total, cc_obs, cc_total_pct, cc_obs_pct = _doc_stats("recueil d'informations")
         esg_total, esg_obs, esg_total_pct, esg_obs_pct = _doc_stats('questionnaire esg')
+        rq_total, rq_obs, rq_total_pct, rq_obs_pct = _doc_stats('questionnaire risque')
         lm_total, lm_obs, lm_total_pct, lm_obs_pct = _doc_stats('lettre de mission')
         la_total, la_obs, la_total_pct, la_obs_pct = _doc_stats("lettre d'adéquation")
 
@@ -1559,6 +1560,7 @@ def _compute_conformite_summary(db: Session) -> dict:
         der_total = der_obs = der_total_pct = der_obs_pct = 0.0
         cc_total = cc_obs = cc_total_pct = cc_obs_pct = 0.0
         esg_total = esg_obs = esg_total_pct = esg_obs_pct = 0.0
+        rq_total = rq_obs = rq_total_pct = rq_obs_pct = 0.0
         lm_total = lm_obs = lm_total_pct = lm_obs_pct = 0.0
         la_total = la_obs = la_total_pct = la_obs_pct = 0.0
         orias_doc_found = orias_doc_valid = False
@@ -1585,6 +1587,10 @@ def _compute_conformite_summary(db: Session) -> dict:
         "docs_esg_obsolete": esg_obs,
         "docs_esg_total_pct": esg_total_pct,
         "docs_esg_obsolete_pct": esg_obs_pct,
+        "docs_rq_total": rq_total,
+        "docs_rq_obsolete": rq_obs,
+        "docs_rq_total_pct": rq_total_pct,
+        "docs_rq_obsolete_pct": rq_obs_pct,
         "docs_lm_total": lm_total,
         "docs_lm_obsolete": lm_obs,
         "docs_lm_total_pct": lm_total_pct,
@@ -4513,6 +4519,28 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
     nb_contrats_ouverts = 1 if getattr(affaire, "date_cle", None) in (None, "") else 0
     nb_contrats_fermes = 1 - nb_contrats_ouverts
 
+    def _fmt_date_fr(value):
+        if value in (None, ""):
+            return None
+        try:
+            if hasattr(value, "strftime"):
+                return value.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+        try:
+            parsed = _parse_date_safe(value)
+            if parsed:
+                return parsed.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+        try:
+            return str(value)[:10]
+        except Exception:
+            return None
+
+    contrat_ouverture_str = _fmt_date_fr(getattr(affaire, "date_debut", None) or first_history_date)
+    contrat_fermeture_str = _fmt_date_fr(getattr(affaire, "date_cle", None))
+
     last_support_date = db.execute(
         text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"),
         {"aid": affaire_id},
@@ -4896,6 +4924,8 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
     synthese_card = {
         "nb_contrats_ouverts": nb_contrats_ouverts,
         "nb_contrats_fermes": nb_contrats_fermes,
+        "contrat_ouverture_str": contrat_ouverture_str,
+        "contrat_fermeture_str": contrat_fermeture_str,
         "duree_historique": duree_historique_str,
         "responsable": responsable_label,
     }
@@ -18315,6 +18345,10 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     q_valo = params.get("valo", "").strip()
     q_perf = params.get("perf", "").strip()
     q_vol = params.get("vol", "").strip()
+    sort_by = (params.get("sort_by") or "").strip().lower()
+    sort_dir = (params.get("sort_dir") or "").strip().lower()
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "desc"
     # Pagination côté serveur
     page_size = 50
     try:
@@ -18411,7 +18445,20 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         base_query = base_query.filter(cond)
 
     total_filtered = base_query.count()
-    base_query = base_query.order_by(HistoriquePersonne.valo.desc(), Client.nom.asc())
+
+    sort_map = {
+        "nom": Client.nom,
+        "prenom": Client.prenom,
+        "responsable": Client.commercial_id,
+        "srri": HistoriquePersonne.SRRI,
+        "valo": HistoriquePersonne.valo,
+        "perf": HistoriquePersonne.perf_sicav_52,
+        "vol": HistoriquePersonne.volat,
+    }
+    sort_col = sort_map.get(sort_by) or HistoriquePersonne.valo
+    sort_expr = sort_col.asc() if sort_dir == "asc" else sort_col.desc()
+    # stable secondary sort
+    base_query = base_query.order_by(sort_expr, Client.nom.asc(), Client.prenom.asc(), Client.id.asc())
     offset = (page - 1) * page_size
     rows = base_query.offset(offset).limit(page_size).all()
     total_pages = max(1, (total_filtered + page_size - 1) // page_size)
@@ -18520,6 +18567,12 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     risk_filter = (request.query_params.get("risk") or "").lower().strip()
     client_filter = (request.query_params.get("client") or "").strip()
     client_id_param = (request.query_params.get("client_id") or "").strip()
+    q_date_debut = (request.query_params.get("date_debut") or "").strip()
+    q_valo = (request.query_params.get("valo") or "").strip()
+    sort_by = (request.query_params.get("sort_by") or "").strip().lower()
+    sort_dir = (request.query_params.get("sort_dir") or "").strip().lower()
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "desc"
     page_size = 50
     try:
         page = int(request.query_params.get("page") or 1)
@@ -18545,7 +18598,12 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         .group_by(hist_aff_col)
         .subquery()
     )
-    norm_vol = case((func.abs(HistoriqueAffaire.volat) <= 1, HistoriqueAffaire.volat * 100.0), else_=HistoriqueAffaire.volat)
+    # perf_sicav_52 / volat sont des champs numériques en base (DOUBLE).
+    # Les valeurs "None" vues en UI proviennent en réalité de NULL (pas d'historique, ou valeurs non calculées).
+    perf_num = HistoriqueAffaire.perf_sicav_52
+    vol_num = HistoriqueAffaire.volat
+    norm_perf = case((func.abs(perf_num) <= 1, perf_num * 100.0), else_=perf_num)
+    norm_vol = case((func.abs(vol_num) <= 1, vol_num * 100.0), else_=vol_num)
     srri_calc_expr = case(
         (norm_vol <= 0.5, 1),
         (norm_vol <= 2, 2),
@@ -18565,8 +18623,8 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         Client.nom.label("client_nom"),
         Client.prenom.label("client_prenom"),
         HistoriqueAffaire.valo.label("last_valo"),
-        HistoriqueAffaire.perf_sicav_52.label("last_perf"),
-        HistoriqueAffaire.volat.label("last_volat"),
+        perf_num.label("last_perf"),
+        vol_num.label("last_volat"),
         srri_calc_expr.label("srri_calc_case"),
     ).outerjoin(subq, subq.c.affaire_id == Affaire.id)
     affaires_query = affaires_query.outerjoin(
@@ -18646,8 +18704,95 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             conds.append(Affaire.id == client_num)
         affaires_query = affaires_query.filter(or_(*conds))
 
+    def _num_token(value: str | None) -> float | None:
+        if value is None:
+            return None
+        s = str(value).strip().lower().replace(" ", "")
+        s = s.replace(",", ".")
+        m = re.match(r"^([-+]?\d*\.?\d+)([km])?$", s)
+        if not m:
+            return None
+        try:
+            n = float(m.group(1))
+        except Exception:
+            return None
+        suf = m.group(2) or ""
+        if suf == "k":
+            n *= 1_000
+        elif suf == "m":
+            n *= 1_000_000
+        return n
+
+    def build_sql_range(expr: str | None, column):
+        """Parse a simple numeric expression into SQLAlchemy filters."""
+        if not expr:
+            return []
+        expr = str(expr).replace("%", "").strip()
+        range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
+        if range_match:
+            a = _num_token(range_match.group(1))
+            b = _num_token(range_match.group(2))
+            if a is not None and b is not None:
+                lo, hi = (a, b) if a <= b else (b, a)
+                return [column >= lo, column <= hi]
+        filters = []
+        for op, num, suf in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)", expr, flags=re.I):
+            n = _num_token(str(num) + str(suf))
+            if n is None:
+                continue
+            if op == ">":
+                filters.append(column > n)
+            elif op == ">=":
+                filters.append(column >= n)
+            elif op == "<":
+                filters.append(column < n)
+            elif op == "<=":
+                filters.append(column <= n)
+            elif op in ("=", "=="):
+                filters.append(column == n)
+            elif op == "!=":
+                filters.append(column != n)
+        if filters:
+            return filters
+        single = _num_token(expr)
+        if single is not None:
+            return [column == single]
+        return []
+
+    # Filtres supplémentaires (serveur)
+    if q_date_debut:
+        dt = None
+        try:
+            s = q_date_debut.strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+                dt = datetime.fromisoformat(s)
+                affaires_query = affaires_query.filter(Affaire.date_debut >= dt, Affaire.date_debut < (dt + timedelta(days=1)))
+            elif re.match(r"^\d{4}-\d{2}$", s):
+                y, m = s.split("-")
+                dt = datetime(int(y), int(m), 1)
+                next_month = datetime(int(y) + (1 if int(m) == 12 else 0), 1 if int(m) == 12 else int(m) + 1, 1)
+                affaires_query = affaires_query.filter(Affaire.date_debut >= dt, Affaire.date_debut < next_month)
+            elif re.match(r"^\d{4}$", s):
+                dt = datetime(int(s), 1, 1)
+                next_year = datetime(int(s) + 1, 1, 1)
+                affaires_query = affaires_query.filter(Affaire.date_debut >= dt, Affaire.date_debut < next_year)
+        except Exception:
+            pass
+
+    for cond in build_sql_range(q_valo, HistoriqueAffaire.valo):
+        affaires_query = affaires_query.filter(cond)
+
     total_filtered = affaires_query.count()
-    affaires_query = affaires_query.order_by(desc(HistoriqueAffaire.valo), Affaire.id)
+    sort_map = {
+        "ref": Affaire.ref,
+        "client": Client.nom,
+        "srri": Affaire.SRRI,
+        "date_debut": Affaire.date_debut,
+        "valo": HistoriqueAffaire.valo,
+    }
+    sort_col = sort_map.get(sort_by) or HistoriqueAffaire.valo
+    sort_expr = sort_col.asc() if sort_dir == "asc" else sort_col.desc()
+    affaires_query = affaires_query.order_by(sort_expr, Affaire.ref.asc(), Affaire.id.asc())
     offset = (page - 1) * page_size
     affaires_rows = affaires_query.offset(offset).limit(page_size).all()
     total_pages = max(1, (total_filtered + page_size - 1) // page_size)
@@ -18767,6 +18912,15 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_compare_counts": compare_counts,
             "group_filter_label": group_filter_label,
             "client_filter": client_filter,
+            "filters": {
+                "risk": risk_filter,
+                "client": client_filter,
+            "client_id": client_id_param,
+            "date_debut": q_date_debut,
+            "valo": q_valo,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
+        },
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
@@ -18887,6 +19041,7 @@ def _build_group_items(group_id: int, group_type: str, db: Session) -> list[dict
             vol_raw = getattr(r, "volatilite_52", None)
             items.append(
                 {
+                    "entity_id": getattr(r, "id", None),
                     "item": item_label,
                     "valorisation": valo_raw,
                     "valorisation_str": _fmt_valo(valo_raw),
@@ -18943,6 +19098,7 @@ def _build_group_items(group_id: int, group_type: str, db: Session) -> list[dict
             vol_raw = getattr(r, "volatilite_52", None)
             items.append(
                 {
+                    "entity_id": getattr(r, "id", None),
                     "item": item_label,
                     "valorisation": valo_raw,
                     "valorisation_str": _fmt_valo(valo_raw),

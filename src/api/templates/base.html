@@ -141,11 +141,30 @@
 	            padding-left: 0.6rem;
 	            border-left: 2px solid rgba(15, 23, 42, 0.14);
 	        }
-        .sidebar-subtree a {
-            font-size: 0.92rem;
-            padding: 0.45rem 0.75rem;
-        }
-        .sidebar-subtree a i { opacity: 0.9; }
+	        .sidebar-subtree a {
+	            font-size: 0.92rem;
+	            padding: 0.45rem 0.75rem;
+	        }
+	        .sidebar-subtree a i { opacity: 0.9; }
+	        .sidebar-subtree a.subtree-group {
+	            font-weight: 800;
+	            font-size: 0.95rem;
+	            padding-top: 0.65rem;
+	        }
+	        .sidebar-subtree a.subtree-child {
+	            padding-left: 1.6rem;
+	            font-weight: 650;
+	        }
+	        .sidebar-subtree--nested {
+	            margin: 0.15rem 0 0.5rem 0.5rem;
+	            padding-left: 0.6rem;
+	            border-left: 2px solid rgba(15, 23, 42, 0.10);
+	        }
+	        .sidebar-subtree a.subtree-group .mgmt-caret {
+	            margin-left: auto;
+	            opacity: 0.7;
+	            font-size: 0.85em;
+	        }
         .sidebar-footer {
             border-top: 1px solid var(--border);
             padding-top: 12px;
@@ -549,7 +568,7 @@
 	            <div id="sidebarNavAffaire" data-menu="affaire">
 	              <div class="sidebar-section-title">Affaire</div>
 	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireMenu && window.toggleSidebarAffaireMenu(false); }catch(e){}; return false;">
-	                <i class="fa-solid fa-arrow-left"></i>Retour au menu principal
+	                <i class="fa-solid fa-arrow-left"></i>Retour
 	              </a>
 	              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('inv') : true; }catch(e){}">
 	                <i class="fa-solid fa-chart-line"></i>Investissements
@@ -580,8 +599,12 @@
 		              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('report') : true; }catch(e){}">
 		                <i class="fa-solid fa-file-lines"></i>Reporting annuel
 		              </a>
+		              {% set _msgs_reg_count = (msgs_reg_count if (msgs_reg_count is defined and msgs_reg_count is not none) else 0) %}
 		              <a href="javascript:void(0)" onclick="try{ window.openAffMsgs && window.openAffMsgs('reg'); return false; }catch(e){}">
-		                <i class="fa-solid fa-envelope"></i>Messages réglementaires
+		                <i class="fa-solid fa-envelope"></i>Messages ({{ _msgs_reg_count }})
+		              </a>
+		              <a href="javascript:void(0)" onclick="try{ window.openAffAdminGroups && window.openAffAdminGroups(); return false; }catch(e){}">
+		                <i class="fa-solid fa-gear"></i>Groupe
 		              </a>
 		              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireTasksTree && window.toggleSidebarAffaireTasksTree(); return false; }catch(e){}">
 		                <i class="fa-solid fa-list-check"></i>Tâches
@@ -596,9 +619,6 @@
 		              </div>
 		              <a href="javascript:void(0)" onclick="try{ window.generateAffaireSynthese && window.generateAffaireSynthese(); return false; }catch(e){}">
 		                <i class="fa-solid fa-file-pdf"></i>Synthèse
-		              </a>
-		              <a href="javascript:void(0)" onclick="try{ window.openAffAdminGroups && window.openAffAdminGroups(); return false; }catch(e){}">
-		                <i class="fa-solid fa-gear"></i>Groupe
 		              </a>
 		            </div>
 		            {% endif %}
@@ -756,12 +776,15 @@
                     <span class="badge" style="margin-left:6px; background:#dcfce7; color:#166534;">{{ msgs_nonreg_count }}</span>
                   {% endif %}
                 </a>
-              </div>
-              {% if not _is_client %}
-              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarTasksTree && window.toggleSidebarTasksTree(); }catch(e){}; return false;">
-                <i class="fa-solid fa-list-check"></i>Tâches
-              </a>
-              <div class="sidebar-subtree" id="sidebarTasksTree" aria-label="Sous-menu tâches">
+	              </div>
+	              {% if not _is_client %}
+	              <a href="javascript:void(0)" onclick="try{ window.openClientAdminGroups && window.openClientAdminGroups(); }catch(e){}; return false;">
+	                <i class="fa-solid fa-gear"></i>Groupe
+	              </a>
+	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarTasksTree && window.toggleSidebarTasksTree(); }catch(e){}; return false;">
+	                <i class="fa-solid fa-list-check"></i>Tâches
+	              </a>
+	              <div class="sidebar-subtree" id="sidebarTasksTree" aria-label="Sous-menu tâches">
                 <a href="javascript:void(0)" onclick="try{ window.openClientTaskPage && window.openClientTaskPage(); }catch(e){}; return false;">
                   <i class="fa-solid fa-plus"></i>Créer
                 </a>
@@ -788,7 +811,7 @@
                 <a
                   href="/dashboard/"
                   class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"
-                  onclick="try{ if(window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){ window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(); return false; } }catch(e){}"
+                  onclick="try{ if(window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){ window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(); return false; } return window.navigateWithLoader ? window.navigateWithLoader(event, '/dashboard/', 'Chargement du tableau de bord…') : true; }catch(e){}"
                 ><i class="fa-solid fa-house"></i>Tableau de bord</a>
                 <div
                   class="sidebar-subtree"
@@ -875,7 +898,94 @@
               {% if not _is_client and not _is_backoffice and not _is_commercial %}
               <div>
                 <div class="sidebar-section-title">Administration</div>
-                <a href="/dashboard/parametres" class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"><i class="fa-solid fa-gear"></i>Management</a>
+                <a
+                  href="/dashboard/parametres"
+                  class="{% if path.startswith('/dashboard/parametres') %}active{% endif %}"
+                  onclick="try{ if(window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/parametres')){ window.toggleSidebarManagementTree && window.toggleSidebarManagementTree(); return false; } return window.navigateWithLoader ? window.navigateWithLoader(event, '/dashboard/parametres', 'Chargement des paramètres…') : true; }catch(e){}"
+                ><i class="fa-solid fa-gear"></i>Management</a>
+	                <div
+	                  class="sidebar-subtree"
+	                  id="sidebarManagementTree"
+	                  aria-label="Sous-menu management"
+	                  style="{% if path.startswith('/dashboard/parametres') %}display:block{% endif %}"
+	                >
+	                  <a class="subtree-group" href="#" onclick="try{ return window.toggleManagementGroup ? window.toggleManagementGroup('courtier') : false; }catch(e){} return false;">
+	                    <i class="fa-solid fa-user-tie"></i>Courtier <i class="fa-solid fa-chevron-down mgmt-caret"></i>
+	                  </a>
+	                  <div class="sidebar-subtree sidebar-subtree--nested" id="mgmtGroup_courtier" aria-label="Courtier">
+	                    <a class="subtree-child" href="/dashboard/parametres?open=courtier_identite" onclick="try{ return window.openManagementSection ? window.openManagementSection('courtier_identite') : true; }catch(e){}">
+	                      <i class="fa-solid fa-id-card"></i>Identité
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=courtierDocuments" onclick="try{ return window.openManagementSection ? window.openManagementSection('courtierDocuments') : true; }catch(e){}">
+	                      <i class="fa-solid fa-file-shield"></i>Documents
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=courtierDetails" onclick="try{ return window.openManagementSection ? window.openManagementSection('courtierDetails') : true; }catch(e){}">
+	                      <i class="fa-solid fa-circle-info"></i>Détails
+	                    </a>
+	                  </div>
+
+	                  <a class="subtree-group" href="#" onclick="try{ return window.toggleManagementGroup ? window.toggleManagementGroup('remunerations') : false; }catch(e){} return false;">
+	                    <i class="fa-solid fa-hand-holding-dollar"></i>Rémunérations <i class="fa-solid fa-chevron-down mgmt-caret"></i>
+	                  </a>
+	                  <div class="sidebar-subtree sidebar-subtree--nested" id="mgmtGroup_remunerations" aria-label="Rémunérations">
+	                    <a class="subtree-child" href="/dashboard/parametres?open=remunerations#courtierFeesToggle" onclick="try{ return window.openManagementSection ? window.openManagementSection('remunerations','courtierFeesToggle') : true; }catch(e){}">
+	                      <i class="fa-solid fa-percent"></i>Commissions
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=remunerations#retroSupportsToggle" onclick="try{ return window.openManagementSection ? window.openManagementSection('remunerations','retroSupportsToggle') : true; }catch(e){}">
+	                      <i class="fa-solid fa-coins"></i>Rétrocessions
+	                    </a>
+	                  </div>
+
+	                  <a class="subtree-group" href="#" onclick="try{ return window.toggleManagementGroup ? window.toggleManagementGroup('contrats') : false; }catch(e){} return false;">
+	                    <i class="fa-solid fa-file-contract"></i>Contrats <i class="fa-solid fa-chevron-down mgmt-caret"></i>
+	                  </a>
+	                  <div class="sidebar-subtree sidebar-subtree--nested" id="mgmtGroup_contrats" aria-label="Contrats">
+	                    <a class="subtree-child" href="/dashboard/parametres?open=contrats_generiques" onclick="try{ return window.openManagementSection ? window.openManagementSection('contrats_generiques') : true; }catch(e){}">
+	                      <i class="fa-solid fa-file-lines"></i>Génériques
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=contrats_categories" onclick="try{ return window.openManagementSection ? window.openManagementSection('contrats_categories') : true; }catch(e){}">
+	                      <i class="fa-solid fa-list"></i>Typologie
+	                    </a>
+	                  </div>
+
+	                  <a class="subtree-group" href="#" onclick="try{ return window.toggleManagementGroup ? window.toggleManagementGroup('societes') : false; }catch(e){} return false;">
+	                    <i class="fa-solid fa-building-columns"></i>Sociétés <i class="fa-solid fa-chevron-down mgmt-caret"></i>
+	                  </a>
+	                  <div class="sidebar-subtree sidebar-subtree--nested" id="mgmtGroup_societes" aria-label="Sociétés">
+	                    <a class="subtree-child" href="/dashboard/parametres?open=societes_compagnies" onclick="try{ return window.openManagementSection ? window.openManagementSection('societes_compagnies') : true; }catch(e){}">
+	                      <i class="fa-solid fa-building"></i>Compagnies
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=societes_categories" onclick="try{ return window.openManagementSection ? window.openManagementSection('societes_categories') : true; }catch(e){}">
+	                      <i class="fa-solid fa-list"></i>Typologie
+	                    </a>
+	                  </div>
+
+	                  <a class="subtree-group" href="/dashboard/parametres?open=supports" onclick="try{ return window.openManagementSection ? window.openManagementSection('supports') : true; }catch(e){}">
+	                    <i class="fa-solid fa-layer-group"></i>Supports
+	                  </a>
+
+	                  <a class="subtree-group" href="/dashboard/parametres?open=groupes" onclick="try{ return window.openManagementSection ? window.openManagementSection('groupes') : true; }catch(e){}">
+	                    <i class="fa-solid fa-people-group"></i>Groupes
+	                  </a>
+
+	                  <a class="subtree-group" href="#" onclick="try{ return window.toggleManagementGroup ? window.toggleManagementGroup('administration') : false; }catch(e){} return false;">
+	                    <i class="fa-solid fa-gear"></i>Administration <i class="fa-solid fa-chevron-down mgmt-caret"></i>
+	                  </a>
+	                  <div class="sidebar-subtree sidebar-subtree--nested" id="mgmtGroup_administration" aria-label="Administration">
+	                    <a class="subtree-child" href="/dashboard/parametres?open=administration_types" onclick="try{ return window.openManagementSection ? window.openManagementSection('administration_types') : true; }catch(e){}">
+	                      <i class="fa-solid fa-circle-nodes"></i>Types de relations
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=administration_intervenants" onclick="try{ return window.openManagementSection ? window.openManagementSection('administration_intervenants') : true; }catch(e){}">
+	                      <i class="fa-solid fa-users"></i>Intervenants externes
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=administration_relations" onclick="try{ return window.openManagementSection ? window.openManagementSection('administration_relations') : true; }catch(e){}">
+	                      <i class="fa-solid fa-link"></i>Relations
+	                    </a>
+	                    <a class="subtree-child" href="/dashboard/parametres?open=administration_rh" onclick="try{ return window.openManagementSection ? window.openManagementSection('administration_rh') : true; }catch(e){}">
+	                      <i class="fa-solid fa-id-badge"></i>RH
+	                    </a>
+	                  </div>
+	                </div>
                 {% if not _is_dirigeant and not _is_directeur and not _is_responsable_bo %}
                 <a href="/dashboard/superadmin" class="{% if path.startswith('/dashboard/superadmin') %}active{% endif %}"><i class="fa-solid fa-shield-halved"></i>Superadministration</a>
                 {% endif %}
@@ -1452,6 +1562,21 @@
         }
         window.showGlobalLoader = show;
         window.hideGlobalLoader = hide;
+        window.navigateWithLoader = function(ev, url, label){
+          try {
+            if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button === 1)) return true;
+            if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          } catch(e){}
+          try { show(label || 'Chargement…'); } catch(e){}
+          try {
+            if (window.requestAnimationFrame){
+              window.requestAnimationFrame(function(){ window.location.href = url; });
+            } else {
+              setTimeout(function(){ window.location.href = url; }, 0);
+            }
+          } catch(e){}
+          return false;
+        };
       })();
 
       (function(){
@@ -1813,8 +1938,8 @@
         });
 	      })();
 
-	      // Main menu: Tableau de bord subtree + deep-links (Risques/Groupes)
-	      ;(function(){
+		      // Main menu: Tableau de bord subtree + deep-links (Risques/Groupes)
+		      ;(function(){
 	        window.toggleSidebarDashboardTree = function(forceOpen){
 	          var tree = document.getElementById('sidebarDashboardTree');
 	          if (!tree) return;
@@ -1832,50 +1957,52 @@
 	          try { window.openDashboardTabFromSidebar && window.openDashboardTabFromSidebar('risks'); } catch(e){}
 	          return false;
 	        };
-	        window.openDashboardTabFromSidebar = function(key){
-	          var k = String(key || '').toLowerCase();
-	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
-	          try {
-	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
-	              // Open subtree for convenience
-	              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
-	              if (k === 'risks'){ window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true); }
-	              if (typeof window.openDashboardTab === 'function'){
-	                window.openDashboardTab(k);
-	                return false;
-	              }
-	              var tab = document.querySelector('#dashTabs .dash-tab[data-key=\"'+k+'\"]');
-	              if (tab && typeof tab.click === 'function'){ tab.click(); return false; }
-	            }
-	          } catch(e){}
-	          try {
-	            window.location.href = '/dashboard/#' + encodeURIComponent(k);
-	            return false;
-	          } catch(e){}
-	          return true;
-	        };
-	        window.openDashboardRiskSectionFromSidebar = function(sectionId){
-	          var sid = String(sectionId || '');
-	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
-	          try {
-	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
-	              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
-	              window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true);
-	              if (typeof window.openDashboardRiskSection === 'function'){
-	                window.openDashboardRiskSection(sid);
-	                return false;
-	              }
-	              // Fallback: click the horizontal risk button if it exists.
-	              var btn = document.querySelector('.risk-toggle-row .risk-toggle[data-target=\"'+sid+'\"]');
-	              if (btn && typeof btn.click === 'function'){ btn.click(); return false; }
-	            }
-	          } catch(e){}
-	          try {
-	            window.location.href = '/dashboard/?open_risk=' + encodeURIComponent(sid) + '#risksSection';
-	            return false;
-	          } catch(e){}
-	          return true;
-	        };
+		        window.openDashboardTabFromSidebar = function(key){
+		          var k = String(key || '').toLowerCase();
+		          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+		          try {
+		            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
+		              // Open subtree for convenience
+		              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
+		              if (k === 'risks'){ window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true); }
+		              if (typeof window.openDashboardTab === 'function'){
+		                window.openDashboardTab(k);
+		                return false;
+		              }
+		              var tab = document.querySelector('#dashTabs .dash-tab[data-key=\"'+k+'\"]');
+		              if (tab && typeof tab.click === 'function'){ tab.click(); return false; }
+		            }
+		          } catch(e){}
+		          try {
+		            if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement du tableau de bord…'); }
+		            window.location.href = '/dashboard/#' + encodeURIComponent(k);
+		            return false;
+		          } catch(e){}
+		          return true;
+		        };
+		        window.openDashboardRiskSectionFromSidebar = function(sectionId){
+		          var sid = String(sectionId || '');
+		          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+		          try {
+		            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
+		              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
+		              window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true);
+		              if (typeof window.openDashboardRiskSection === 'function'){
+		                window.openDashboardRiskSection(sid);
+		                return false;
+		              }
+		              // Fallback: click the horizontal risk button if it exists.
+		              var btn = document.querySelector('.risk-toggle-row .risk-toggle[data-target=\"'+sid+'\"]');
+		              if (btn && typeof btn.click === 'function'){ btn.click(); return false; }
+		            }
+		          } catch(e){}
+		          try {
+		            if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement du tableau de bord…'); }
+		            window.location.href = '/dashboard/?open_risk=' + encodeURIComponent(sid) + '#risksSection';
+		            return false;
+		          } catch(e){}
+		          return true;
+		        };
 	        document.addEventListener('DOMContentLoaded', function(){
 	          try {
 	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
@@ -1883,7 +2010,117 @@
 	            }
 	          } catch(e){}
 	        });
-	      })();
+		      })();
+
+	          // Main menu: Management subtree + deep-links inside /dashboard/parametres
+	          ;(function(){
+	            function getManagementGroupForOpenKey(openKey){
+	              var k = String(openKey || '');
+	              if (!k) return '';
+	              if (k === 'courtier' || k.indexOf('courtier') === 0) return 'courtier';
+	              if (k === 'remunerations') return 'remunerations';
+	              if (k === 'societes' || k.indexOf('societes_') === 0) return 'societes';
+	              if (k === 'contrats' || k.indexOf('contrats_') === 0) return 'contrats';
+	              if (k === 'administration' || k.indexOf('administration_') === 0) return 'administration';
+	              return '';
+	            }
+	            function closeAllManagementGroups(){
+	              try {
+	                var nodes = document.querySelectorAll('#sidebarManagementTree .sidebar-subtree--nested[id^="mgmtGroup_"]');
+	                nodes.forEach(function(el){ el.style.display = 'none'; });
+	              } catch(e){}
+	            }
+	            window.toggleManagementGroup = function(groupKey, forceOpen){
+	              var key = String(groupKey || '');
+	              if (!key) return false;
+	              var panel = document.getElementById('mgmtGroup_' + key);
+	              if (!panel) return false;
+	              var isVisible = panel.style.display === 'block';
+	              var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	              if (willOpen){
+	                closeAllManagementGroups();
+	                panel.style.display = 'block';
+	              } else {
+	                panel.style.display = 'none';
+	              }
+	              return false;
+	            };
+	            window.toggleSidebarManagementTree = function(forceOpen){
+	              var tree = document.getElementById('sidebarManagementTree');
+	              if (!tree) return;
+	              var isVisible = tree.style.display === 'block';
+	              var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	              tree.style.display = willOpen ? 'block' : 'none';
+	              if (!willOpen){
+	                closeAllManagementGroups();
+	              }
+	            };
+	            window.openManagementSection = function(openKey, hash){
+	              try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	              try {
+	                // If we're already on Paramètres, prefer in-page toggle (avoids hash-only navigation doing nothing).
+	                if (window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/parametres')){
+	                  var curParams = new URLSearchParams(window.location.search || '');
+	                  var curOpen = curParams.get('open') || '';
+	                  var wantedOpen = String(openKey || '');
+	                  if (wantedOpen && curOpen === wantedOpen){
+	                    if (wantedOpen === 'remunerations'){
+	                      try {
+	                        var rootPanel = document.getElementById('remunerationsPanel');
+	                        var rootBtn = document.querySelector('.accordion-toggle[data-target="remunerationsPanel"]');
+	                        if (rootPanel && rootBtn && rootPanel.style.display === 'none' && typeof rootBtn.click === 'function'){
+	                          rootBtn.click();
+	                        }
+	                        var h = String(hash || '');
+	                        if (h === 'retroSupportsPanel') h = 'retroSupportsToggle';
+	                        if (h === 'courtierFeesPanel') h = 'courtierFeesToggle';
+	                        if (h){
+	                          var targetPanelId = h.replace(/Toggle$/,'Panel');
+	                          var targetPanel = document.getElementById(targetPanelId);
+	                          var targetToggle = document.getElementById(h);
+	                          if (targetPanel && targetPanel.style.display === 'none' && targetToggle && typeof targetToggle.click === 'function'){
+	                            targetToggle.click();
+	                          } else if (targetPanel){
+	                            try {
+	                              var top = targetPanel.getBoundingClientRect().top + window.pageYOffset - 80;
+	                              window.scrollTo({ top: top, behavior: 'smooth' });
+	                            } catch(e){}
+	                          }
+	                        }
+	                        return false;
+	                      } catch(e){}
+	                    }
+	                  }
+	                }
+	                var base = '/dashboard/parametres';
+	                var url = base;
+	                if (openKey){
+	                  url += '?open=' + encodeURIComponent(String(openKey));
+	                }
+                if (hash){
+                  url += '#' + encodeURIComponent(String(hash)).replace(/%2F/g,'/'); // keep safe
+                }
+                if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des paramètres…'); }
+                window.location.href = url;
+                return false;
+              } catch(e){}
+              return true;
+	            };
+	            document.addEventListener('DOMContentLoaded', function(){
+	              try {
+	                if (window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/parametres')){
+	                  window.toggleSidebarManagementTree && window.toggleSidebarManagementTree(true);
+	                  closeAllManagementGroups();
+	                  var params = new URLSearchParams(window.location.search || '');
+	                  var open = params.get('open') || '';
+	                  var grp = getManagementGroupForOpenKey(open);
+	                  if (grp){
+	                    window.toggleManagementGroup && window.toggleManagementGroup(grp, true);
+	                  }
+	                }
+	              } catch(e){}
+	            });
+	          })();
 
       // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
       (function () {

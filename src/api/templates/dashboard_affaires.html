@@ -55,6 +55,10 @@
     #affairesTable td {
         font-size: 13.5px;
     }
+    #affairesTable thead tr:first-child th[data-sort] { cursor: pointer; user-select: none; }
+    #affairesTable thead tr:first-child th .sort-arrow { margin-left: 6px; font-size: 11px; color: #6b7280; }
+    #affairesTable thead tr:first-child th.sorted-asc .sort-arrow::before { content: "▲"; }
+    #affairesTable thead tr:first-child th.sorted-desc .sort-arrow::before { content: "▼"; }
     #affairesTable th:nth-child(3),
     #affairesTable td:nth-child(3) {
         text-align: center;
@@ -144,10 +148,53 @@
     .srri-blue { background:#3b82f6; }
     .srri-hidden { display:none; }
     .badge-filter { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#1d4ed8; border:1px solid #c7d2fe; border-radius:999px; padding:4px 10px; font-size:.85rem; }
-    .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
-    .badge-filter .x:hover { opacity:1; }
-    .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
-</style>
+	    .badge-filter .x { color:#1d4ed8; text-decoration:none; opacity:.8; }
+	    .badge-filter .x:hover { opacity:1; }
+	    .badge-row { display:flex; gap:6px; flex-wrap:wrap; margin:.25rem 0 .5rem 0; }
+	    tr.affaire-selected-row td { background: #dcfce7 !important; }
+	    tr.affaire-selected-row:hover td { background: #bbf7d0 !important; }
+	    #affairesSelectionBar {
+	      position: fixed;
+	      left: 12px;
+	      right: 12px;
+	      bottom: 14px;
+	      z-index: 2500;
+	      display: none;
+	      justify-content: center;
+	      pointer-events: none;
+	    }
+	    #affairesSelectionBar .bar {
+	      width: min(1100px, calc(100vw - 24px));
+	      background: #f3f4f6;
+	      border: 1px solid #d1d5db;
+	      border-radius: 14px;
+	      box-shadow: 0 18px 42px rgba(15,23,42,0.18);
+	      padding: 10px 12px;
+	      display: flex;
+	      align-items: center;
+	      gap: 10px;
+	      flex-wrap: wrap;
+	      pointer-events: all;
+	    }
+	    #affairesSelectionBar .count {
+	      font-weight: 700;
+	      color: #111827;
+	    }
+	    #affairesSelectionBar select {
+	      height: 34px;
+	      border-radius: 10px;
+	      border: 1px solid #d1d5db;
+	      padding: 0 10px;
+	      background: #fff;
+	      min-width: 260px;
+	      max-width: min(520px, 92vw);
+	    }
+	    #affairesSelectionBar .status {
+	      color: #6b7280;
+	      font-size: 0.9rem;
+	      margin-left: auto;
+	    }
+	</style>
 
 <div class="main-container">
     <!-- Bandeau total retiré -->
@@ -194,28 +241,28 @@
         <table id="affairesTable" class="display nowrap" style="width:100%">
             <thead>
                 <tr>
-                    <th>Contrat / Client</th>
-                    <th>SRRI</th>
-                    <th>Date début</th>
-                    <th>Montant</th>
+                    <th data-sort="ref">Contrat / Client<span class="sort-arrow"></span></th>
+                    <th data-sort="srri">SRRI<span class="sort-arrow"></span></th>
+                    <th data-sort="date_debut">Date début<span class="sort-arrow"></span></th>
+                    <th data-sort="valo">Montant<span class="sort-arrow"></span></th>
                     <th>Perf 52 sem. (%)</th>
                     <th>Vol. 52s (%)</th>
                 </tr>
                 <tr>
-                    <th><input type="text" id="contrat-filter" placeholder="Filtrer..." value="{{ client_filter|default('') }}"></th>
+                    <th><input type="text" id="contrat-filter" placeholder="Filtrer..." value="{{ filters.client|default('') }}"></th>
                     <th>
                         <select id="srri-icon-filter">
                             <option value=""></option>
                             <!-- Afficher des gros points colorés tout en conservant les valeurs d'origine pour le filtrage -->
-                            <option value="❄️">🔴</option>
-                            <option value="🙏">🟢</option>
-                            <option value="🔥">🔵</option>
+                            <option value="below" {% if (filters.risk|default('')) == 'below' %}selected{% endif %}>🔴</option>
+                            <option value="equal" {% if (filters.risk|default('')) == 'equal' %}selected{% endif %}>🟢</option>
+                            <option value="above" {% if (filters.risk|default('')) == 'above' %}selected{% endif %}>🔵</option>
                         </select>
                     </th>
-                    <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ"></th>
-                    <th><input type="text" id="montant-filter" placeholder="Ex: >100k, 100k-500k"></th>
-                    <th><input type="text" id="perf-filter" placeholder="Ex: >5, 3-7"></th>
-                    <th><input type="text" id="volat-filter" placeholder="Ex: <10, 2-6"></th>
+                    <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ" value="{{ filters.date_debut|default('') }}"></th>
+                    <th><input type="text" id="montant-filter" placeholder="Ex: >100k, 100k-500k" value="{{ filters.valo|default('') }}"></th>
+                    <th></th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -238,13 +285,27 @@
                         {% endif %}
                     </td>
                     <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
-                    <td style="text-align:right;">{{ a.last_valo }}</td>
-                    <td style="text-align:right;">{{ a.last_perf }}</td>
-                    <td style="text-align:right;">{{ a.last_volat }}</td>
+                    <td style="text-align:right;">{{ a.last_valo if a.last_valo is not none else '' }}</td>
+                    <td style="text-align:right;">{{ a.last_perf if a.last_perf is not none else '' }}</td>
+                    <td style="text-align:right;">{{ a.last_volat if a.last_volat is not none else '' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div id="affairesSelectionBar" aria-live="polite">
+      <div class="bar">
+        <div class="count" id="affairesSelectedCount">0 affaire sélectionnée</div>
+        <label for="affairesGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
+        <select id="affairesGroupSelect" disabled>
+          <option value="">Chargement des groupes…</option>
+        </select>
+        <button type="button" class="btn btn-primary" id="affairesSelectionAddBtn">Ajouter</button>
+        <button type="button" class="btn btn-danger" id="affairesSelectionRemoveBtn">Retirer</button>
+        <button type="button" class="btn btn-secondary" id="affairesSelectionPurgeBtn">Purge</button>
+        <div class="status" id="affairesSelectionStatus"></div>
+      </div>
     </div>
 
     {% set cur_page = page|default(1) %}
@@ -294,7 +355,8 @@ $(document).ready(function () {
         dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
         paging: false,
         info: false,
-        order: [[3, "desc"]], // trier sur le montant (col 3)
+        ordering: false,
+        order: [],
         columnDefs: [
           // Réduire Contrat/Client, élargir SRRI et Montant
           { targets: 0, width: '260px' },
@@ -310,57 +372,263 @@ $(document).ready(function () {
         ]
     });
 
-    function applyServerClientFilter(val){
-        try {
-            var params = new URLSearchParams(window.location.search);
-            var cur = params.get('client') || '';
-            var next = String(val || '').trim();
-            if (next === cur) return;
-            if (next) params.set('client', next); else params.delete('client');
-            params.delete('page');
-            window.location.search = params.toString();
-        } catch(e) {}
+    // Tri (côté serveur) : clic sur l'entête
+    function applySortIndicatorsAff(){
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var by = (params.get('sort_by') || 'valo').toLowerCase();
+        var dir = (params.get('sort_dir') || 'desc').toLowerCase();
+        document.querySelectorAll('#affairesTable thead tr:first-child th[data-sort]').forEach(function(th){
+          var key = (th.getAttribute('data-sort') || '').toLowerCase();
+          th.classList.toggle('sorted-asc', key === by && dir === 'asc');
+          th.classList.toggle('sorted-desc', key === by && dir === 'desc');
+        });
+      } catch(e){}
+    }
+    function setSortAff(sortKey){
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var curBy = (params.get('sort_by') || 'valo').toLowerCase();
+        var curDir = (params.get('sort_dir') || 'desc').toLowerCase();
+        var nextDir = 'desc';
+        if (String(sortKey).toLowerCase() === curBy){
+          nextDir = (curDir === 'asc') ? 'desc' : 'asc';
+        } else {
+          nextDir = (['srri','date_debut','valo','perf','vol'].indexOf(String(sortKey).toLowerCase()) !== -1) ? 'desc' : 'asc';
+        }
+        params.set('sort_by', String(sortKey));
+        params.set('sort_dir', nextDir);
+        params.delete('page');
+        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des affaires…'); }
+        window.location.search = params.toString();
+      } catch(e){}
+    }
+    document.querySelectorAll('#affairesTable thead tr:first-child th[data-sort]').forEach(function(th){
+      th.addEventListener('click', function(){
+        var key = th.getAttribute('data-sort');
+        if (key) setSortAff(key);
+      });
+    });
+    applySortIndicatorsAff();
+
+    // --- Sélection multi-affaires (mémoire session par onglet) ---
+    const STORAGE_KEY_AFF = 'crm_selected_affaire_ids_v1';
+    function loadSelectedAff(){
+      try {
+        const raw = sessionStorage.getItem(STORAGE_KEY_AFF);
+        const arr = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(arr)) return new Set();
+        return new Set(arr.map(function(x){ return String(x); }).filter(Boolean));
+      } catch(e){
+        return new Set();
+      }
+    }
+    function saveSelectedAff(set){
+      try { sessionStorage.setItem(STORAGE_KEY_AFF, JSON.stringify(Array.from(set))); } catch(e){}
+    }
+    let selectedAff = loadSelectedAff();
+    const selBarAff = document.getElementById('affairesSelectionBar');
+    const selCountElAff = document.getElementById('affairesSelectedCount');
+    const selStatusElAff = document.getElementById('affairesSelectionStatus');
+    const selGroupSelectAff = document.getElementById('affairesGroupSelect');
+    const addBtnAff = document.getElementById('affairesSelectionAddBtn');
+    const removeBtnAff = document.getElementById('affairesSelectionRemoveBtn');
+    const purgeBtnAff = document.getElementById('affairesSelectionPurgeBtn');
+
+    function updateSelectionUIAff(){
+      const count = selectedAff.size;
+      if (selCountElAff){
+        selCountElAff.textContent = count + ' affaire' + (count > 1 ? 's' : '') + ' sélectionnée' + (count > 1 ? 's' : '');
+      }
+      if (selBarAff){
+        selBarAff.style.display = count ? 'flex' : 'none';
+      }
+      if (addBtnAff) addBtnAff.disabled = !count;
+      if (removeBtnAff) removeBtnAff.disabled = !count;
+      if (purgeBtnAff) purgeBtnAff.disabled = !count;
     }
 
-    // Filtres texte simples
-    var clientFilterTimer = null;
-    $('#contrat-filter').on('keyup', function (e) {
-        if (e && e.key === 'Enter') {
-            applyServerClientFilter(this.value);
-            return;
+    function applyRowSelectionAff(){
+      document.querySelectorAll('#affairesTable tbody tr[data-affaire-id]').forEach(function(tr){
+        const aid = tr.getAttribute('data-affaire-id');
+        const isSel = aid && selectedAff.has(String(aid));
+        tr.classList.toggle('affaire-selected-row', !!isSel);
+      });
+      updateSelectionUIAff();
+    }
+
+    function shouldIgnoreClickAff(ev){
+      const t = ev && ev.target ? ev.target : null;
+      if (!t) return false;
+      if (t.closest && t.closest('a,button,input,select,label,textarea')) return true;
+      return false;
+    }
+
+    $('#affairesTable tbody').on('click', 'tr', function(ev){
+      try {
+        if (shouldIgnoreClickAff(ev)) return;
+        const tr = this;
+        const firstCell = tr.querySelector('td:first-child');
+        if (firstCell && firstCell.contains(ev.target)) return; // 1ère colonne exclue
+        const aid = tr.getAttribute('data-affaire-id');
+        if (!aid) return;
+        if (selectedAff.has(String(aid))){
+          selectedAff.delete(String(aid));
+        } else {
+          selectedAff.add(String(aid));
         }
-        clearTimeout(clientFilterTimer);
-        var val = this.value;
-        clientFilterTimer = setTimeout(function(){ applyServerClientFilter(val); }, 600);
-    });
-    $('#contrat-filter').on('change', function () { applyServerClientFilter(this.value); });
-    $('#date-debut-filter').on('keyup change', function () { table.column(2).search(this.value).draw(); });
-
-    // filtre par icône SRRI (colonne 1) — recherche par emoji
-    $('#srri-icon-filter').on('change', function(){
-        var val = $(this).val();
-        table.column(1).search(val).draw();
-        try { var params=new URLSearchParams(window.location.search); if(val) params.set('risk', val); else params.delete('risk'); var u=window.location.pathname + (params.toString()?('?'+params.toString()):''); window.history.replaceState({}, '', u);} catch(e) {}
+        saveSelectedAff(selectedAff);
+        applyRowSelectionAff();
+      } catch(e){}
     });
 
-    // bouton effacer (réinitialise aussi le filtre SRRI)
-    window.clearFilters = function() {
+    table.on('draw', function(){
+      applyRowSelectionAff();
+    });
+    applyRowSelectionAff();
+
+    function setStatusAff(text, isError){
+      if (!selStatusElAff) return;
+      selStatusElAff.textContent = text || '';
+      selStatusElAff.style.color = isError ? '#b91c1c' : '#6b7280';
+    }
+
+    function loadAffaireGroups(){
+      if (!selGroupSelectAff) return;
+      selGroupSelectAff.disabled = true;
+      fetch('/api/groupes/details?type=affaire&actifs_only=true')
+        .then(function(res){
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function(groups){
+          const opts = ['<option value=\"\">— Choisir un groupe —</option>'];
+          (groups || []).forEach(function(g){
+            if (!g || g.id == null) return;
+            const name = (g.nom || ('Groupe #' + g.id)).toString();
+            opts.push('<option value=\"' + String(g.id) + '\">' + name.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</option>');
+          });
+          selGroupSelectAff.innerHTML = opts.join('');
+          selGroupSelectAff.disabled = false;
+        })
+        .catch(function(){
+          selGroupSelectAff.innerHTML = '<option value=\"\">(groupes indisponibles)</option>';
+          selGroupSelectAff.disabled = true;
+        });
+    }
+    loadAffaireGroups();
+
+    function runBatchAff(action){
+      const gid = selGroupSelectAff ? (selGroupSelectAff.value || '') : '';
+      if (!gid){
+        setStatusAff('Choisir un groupe.', true);
+        return;
+      }
+      const ids = Array.from(selectedAff).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+      if (!ids.length){
+        setStatusAff('', false);
+        return;
+      }
+      setStatusAff('Traitement en cours…', false);
+      if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Mise à jour des groupes…'); }
+      fetch('/api/groupes/memberships/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, groupe_id: parseInt(gid, 10), affaire_ids: ids })
+      })
+      .then(function(res){
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json().catch(function(){ return {}; });
+      })
+      .then(function(payload){
+        const done = payload && (payload.affected != null ? payload.affected : payload.count);
+        if (action === 'add'){
+          setStatusAff('Ajout terminé' + (done != null ? ' (' + done + ')' : '') + '.', false);
+        } else {
+          setStatusAff('Retrait terminé' + (done != null ? ' (' + done + ')' : '') + '.', false);
+        }
+      })
+      .catch(function(err){
+        console.warn('Batch membership failed', err);
+        setStatusAff('Erreur lors de la mise à jour.', true);
+      })
+      .finally(function(){
+        if (typeof window.hideGlobalLoader === 'function'){ window.hideGlobalLoader(250); }
+      });
+    }
+
+    if (addBtnAff){
+      addBtnAff.addEventListener('click', function(){ runBatchAff('add'); });
+    }
+    if (removeBtnAff){
+      removeBtnAff.addEventListener('click', function(){ runBatchAff('remove'); });
+    }
+    if (purgeBtnAff){
+      purgeBtnAff.addEventListener('click', function(){
         try {
-            var params = new URLSearchParams(window.location.search);
-            if (params.has('client')) {
-                params.delete('client');
-                params.delete('page');
-                window.location.search = params.toString();
-                return;
-            }
-        } catch(e) {}
-        $('#contrat-filter, #date-debut-filter, #montant-filter, #perf-filter, #volat-filter').val('');
-        $('#srri-icon-filter').val('');
-        table.search('');
-        for (var i=0;i<table.columns().count();i++){ table.column(i).search(''); }
-        $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__aff_advanced; });
-        table.draw();
-        updateGroupedButtonVisibilityAff();
+          selectedAff = new Set();
+          try { sessionStorage.removeItem(STORAGE_KEY_AFF); } catch(e){}
+          updateSelectionUIAff();
+          applyRowSelectionAff();
+          setStatusAff('Sélection purgée.', false);
+        } catch(e){}
+      });
+    }
+
+    // Filtres (côté serveur) : applique à la liste entière, pas seulement la page courante.
+    var _reloadTimerAff = null;
+    function _setParamAff(params, key, value){
+      var v = String(value || '').trim();
+      if (v) params.set(key, v); else params.delete(key);
+    }
+    function _reloadWithFiltersAff(immediate){
+      if (_reloadTimerAff){ clearTimeout(_reloadTimerAff); _reloadTimerAff = null; }
+      var doReload = function(){
+        try {
+          var current = new URLSearchParams(window.location.search);
+          var next = new URLSearchParams(window.location.search);
+          _setParamAff(next, 'client', $('#contrat-filter').val());
+          _setParamAff(next, 'risk', $('#srri-icon-filter').val());
+          _setParamAff(next, 'date_debut', $('#date-debut-filter').val());
+          _setParamAff(next, 'valo', $('#montant-filter').val());
+          next.delete('page');
+          if (next.toString() === current.toString()) return;
+          if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des affaires…'); }
+          window.location.search = next.toString();
+        } catch(e){}
+      };
+      if (immediate){
+        doReload();
+      } else {
+        _reloadTimerAff = setTimeout(doReload, 450);
+      }
+    }
+    function _bindServerFilterInputAff(selector){
+      var el = document.querySelector(selector);
+      if (!el) return;
+      el.addEventListener('keydown', function(ev){
+        if (ev && ev.key === 'Enter'){
+          ev.preventDefault();
+          _reloadWithFiltersAff(true);
+        }
+      });
+      el.addEventListener('input', function(){ _reloadWithFiltersAff(false); });
+      el.addEventListener('change', function(){ _reloadWithFiltersAff(true); });
+    }
+    _bindServerFilterInputAff('#contrat-filter');
+    _bindServerFilterInputAff('#date-debut-filter');
+    _bindServerFilterInputAff('#montant-filter');
+    var riskSelAff = document.getElementById('srri-icon-filter');
+    if (riskSelAff){ riskSelAff.addEventListener('change', function(){ _reloadWithFiltersAff(true); }); }
+
+    // bouton effacer
+    window.clearFilters = function() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        ['client','risk','date_debut','valo','sort_by','sort_dir','page'].forEach(function(k){ params.delete(k); });
+        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des affaires…'); }
+        window.location.search = params.toString();
+      } catch(e){}
     };
 
     // Pagination côté serveur (préserve les autres paramètres de requête)
@@ -373,23 +641,14 @@ $(document).ready(function () {
         window.location.search = params.toString();
     };
 
-    // Préfiltre via ?risk= (above/equal/below) ou emoji/icon
-    (function(){
-      try {
-        const params = new URLSearchParams(window.location.search);
-        let risk = params.get('risk');
-        if (!risk) return;
-        // Revenir au mapping précédent: Au‑dessus = 🔥, En‑dessous = ❄️, Équivalent = 🙏
-        const map = { 'above':'🔥', 'equal':'🙏', 'below':'❄️', 'fire':'🔥', 'hands-praying':'🙏', 'snowflake':'❄️', '🔥':'🔥', '🙏':'🙏', '❄️':'❄️' };
-        const icon = map[String(risk).toLowerCase ? String(risk).toLowerCase() : risk] || map[risk];
-        if (!icon) return;
-        const sel = document.getElementById('srri-icon-filter');
-        if (sel) { sel.value = icon; sel.dispatchEvent(new Event('change')); }
-      } catch(e) { /* ignore */ }
-    })();
-
-    // Chips Risque (émoticônes)
-    window.chipRiskAff = function(val){ var sel=document.getElementById('srri-icon-filter'); if(val==='all'){ sel.value=''; } else { sel.value=val; } sel.dispatchEvent(new Event('change')); return false; };
+    // Chips Risque
+    window.chipRiskAff = function(val){
+      var sel = document.getElementById('srri-icon-filter');
+      if (!sel) return false;
+      if (val === 'all'){ sel.value = ''; } else { sel.value = String(val || ''); }
+      sel.dispatchEvent(new Event('change'));
+      return false;
+    };
 
     // Accordéon Risque rapide (persistant, fermé par défaut)
     (function(){
@@ -444,110 +703,29 @@ $(document).ready(function () {
         }
     });
 
-    // -------- Filtres numériques avancés (Montant/Perf/Vol) --------
-    function parseNumToken(raw){
-      var s = String(raw||'').trim().toLowerCase().replace(/\s+/g,'');
-      s = s.replace(',', '.');
-      var m = s.match(/^([-+]?\d*\.?\d+)([km]?)$/);
-      if (!m) return NaN;
-      var n = parseFloat(m[1]);
-      if (m[2] === 'k') n *= 1e3; else if (m[2] === 'm') n *= 1e6;
-      return n;
-    }
-    function numFromCell(txt){
-      var s = String(txt||'').replace(/\s+/g,'').replace(',', '.');
-      var m = s.match(/-?\d*\.?\d+/);
-      return m ? parseFloat(m[0]) : NaN;
-    }
-    function buildNumPredicate(expr, isPercent){
-      var q = String(expr||'').trim();
-      if (!q) return function(){ return true; };
-      var range = q.match(/^\s*([^\-]+)\s*-\s*([^\-]+)\s*$/);
-      if (range){
-        var a = isPercent ? parseFloat(String(range[1]).replace('%','').replace(',','.')) : parseNumToken(range[1]);
-        var b = isPercent ? parseFloat(String(range[2]).replace('%','').replace(',','.')) : parseNumToken(range[2]);
-        if (isFinite(a) && isFinite(b)){
-          var lo = Math.min(a,b), hi = Math.max(a,b);
-          return function(x){ return isFinite(x) && x >= lo && x <= hi; };
-        }
-      }
-      var tokens = [];
-      q.replace(/(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*%?/gi, function(_,op,num){
-        var n = parseFloat(String(num).replace(',','.'));
-        if (isFinite(n)) tokens.push({op: op, n: n});
-        return '';
-      });
-      if (tokens.length){
-        return function(x){
-          if (!isFinite(x)) return false;
-          for (var i=0;i<tokens.length;i++){
-            var t = tokens[i];
-            if (t.op === '>' && !(x > t.n)) return false;
-            if (t.op === '>=' && !(x >= t.n)) return false;
-            if (t.op === '<' && !(x < t.n)) return false;
-            if (t.op === '<=' && !(x <= t.n)) return false;
-            if ((t.op === '=' || t.op === '==') && !(x === t.n)) return false;
-            if (t.op === '!=' && !(x !== t.n)) return false;
-          }
-          return true;
-        };
-      }
-      var single = isPercent ? parseFloat(q.replace('%','').replace(',','.')) : parseNumToken(q);
-      if (isFinite(single)){
-        return function(x){ return isFinite(x) && String(x).indexOf(String(single)) !== -1; };
-      }
-      return function(){ return true; };
-    }
-
-    function applyAdvancedFilters(){
-      var qMontant = $('#montant-filter').val() || '';
-      var qPerf = $('#perf-filter').val() || '';
-      var qVol = $('#volat-filter').val() || '';
-      var predMontant = buildNumPredicate(qMontant, false);
-      var predPerf = buildNumPredicate(qPerf, true);
-      var predVol = buildNumPredicate(qVol, true);
-      $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(function(f){ return !f.__aff_advanced; });
-      $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
-        if (settings.nTable !== document.getElementById('affairesTable')) return true;
-        // Montant (col 3), Perf (col 4), Vol (col 5)
-        var montantTxt = data[3];
-        var perfTxt = data[4];
-        var volTxt = data[5];
-        var montantNum = numFromCell(montantTxt);
-        var perfNum = numFromCell(perfTxt);
-        var volNum = numFromCell(volTxt);
-        var ok = true;
-        if (qMontant && !predMontant(montantNum)) ok = false;
-        if (ok && qPerf && !predPerf(perfNum)) ok = false;
-        if (ok && qVol && !predVol(volNum)) ok = false;
-        return ok;
-      });
-      var last = $.fn.dataTable.ext.search[$.fn.dataTable.ext.search.length-1];
-      if (last) last.__aff_advanced = true;
-      table.draw();
-    }
-
     function gatherFiltersSummaryAff(){
       var parts = [];
       var vRef = $('#contrat-filter').val();
       var vSrri = $('#srri-icon-filter').val();
       var vDate = $('#date-debut-filter').val();
       var vMontant = $('#montant-filter').val();
-      var vPerf = $('#perf-filter').val();
-      var vVol = $('#volat-filter').val();
       if (vRef) parts.push('Contrat: ' + vRef);
-      if (vSrri) parts.push('SRRI: ' + vSrri);
+      if (vSrri){
+        var label = vSrri;
+        if (vSrri === 'above') label = 'Au-dessus';
+        else if (vSrri === 'equal') label = 'Identique';
+        else if (vSrri === 'below') label = 'En-dessous';
+        parts.push('SRRI: ' + label);
+      }
       if (vDate) parts.push('Date: ' + vDate);
       if (vMontant) parts.push('Montant: ' + vMontant);
-      if (vPerf) parts.push('Perf: ' + vPerf);
-      if (vVol) parts.push('Vol: ' + vVol);
       if (groupedTasksCfgAff.groupFilterActive) parts.push('Groupe filtré');
       if (groupedTasksCfgAff.hasServerFilter && !parts.length) parts.push('Filtre serveur');
       return parts.join(' · ');
     }
 
     function hasActiveFiltersAff(){
-      return ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter','#perf-filter','#volat-filter'].some(function(sel){ return $(sel).val(); });
+      return ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter'].some(function(sel){ return $(sel).val(); });
     }
 
     function updateGroupedButtonVisibilityAff(){
@@ -561,9 +739,8 @@ $(document).ready(function () {
       if (actionsBarAff) actionsBarAff.style.display = active ? 'flex' : 'none';
       if (actionsBarAff) actionsBarAff.style.alignItems = 'center';
     }
-    $('#montant-filter, #perf-filter, #volat-filter').on('keyup change', applyAdvancedFilters);
 
-    ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter','#perf-filter','#volat-filter'].forEach(function(sel){
+    ['#contrat-filter','#srri-icon-filter','#date-debut-filter','#montant-filter'].forEach(function(sel){
       var el = document.querySelector(sel);
       if (!el) return;
       el.addEventListener('input', updateGroupedButtonVisibilityAff);

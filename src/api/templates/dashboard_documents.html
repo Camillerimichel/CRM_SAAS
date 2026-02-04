@@ -139,9 +139,9 @@
           <td>
             {% set _is_obsolete = d.obsolescence and d.obsolescence|string|lower == 'oui' %}
             {% if _is_obsolete %}
-              <span class="badge badge-ok">Oui</span>
+              <span class="badge badge-obsolete">Oui</span>
             {% else %}
-              <span class="badge badge-obsolete">Non</span>
+              <span class="badge badge-ok">Non</span>
             {% endif %}
           </td>
         </tr>
@@ -405,6 +405,7 @@ $(document).ready(function () {
     }
     applySelectPrefilter('niveau', '#niveau-filter');
     applySelectPrefilter('risque', '#risque-filter');
+    applySelectPrefilter('document', '#doc-filter');
   } catch (e) { /* ignore */ }
 });
 </script>

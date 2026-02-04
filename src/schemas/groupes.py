@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from datetime import date
 
 
@@ -40,3 +40,17 @@ class GroupeLinkCreateSchema(BaseModel):
     @classmethod
     def validate_target(cls, v: "GroupeLinkCreateSchema"):
         return v
+
+
+class GroupeMembershipBatchSchema(BaseModel):
+    action: Literal["add", "remove"]
+    groupe_id: int
+    client_ids: list[int] = []
+    affaire_ids: list[int] = []
+
+
+class GroupeMembershipBatchResultSchema(BaseModel):
+    action: str
+    groupe_id: int
+    requested: int
+    affected: int

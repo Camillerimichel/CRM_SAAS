@@ -5,7 +5,13 @@ from sqlalchemy import text as _text
 
 from src.database import get_db
 from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope
-from src.schemas.groupes import GroupeDetailSchema, GroupeLinkSchema, GroupeLinkCreateSchema
+from src.schemas.groupes import (
+    GroupeDetailSchema,
+    GroupeLinkSchema,
+    GroupeLinkCreateSchema,
+    GroupeMembershipBatchSchema,
+    GroupeMembershipBatchResultSchema,
+)
 from src.services.groupes import (
     list_group_details,
     list_memberships_for_client,
@@ -13,6 +19,7 @@ from src.services.groupes import (
     add_membership,
     soft_delete_membership,
 )
+from src.models.administration_groupe import AdministrationGroupe
 
 
 router = APIRouter(prefix="/api/groupes", tags=["Groupes"])
@@ -141,6 +148,76 @@ def api_delete_membership(link_id: int, request: Request = None, db: Session = D
     if not link:
         raise HTTPException(status_code=404, detail="Lien introuvable")
     return link
+
+
+@router.post("/memberships/batch", response_model=GroupeMembershipBatchResultSchema)
+def api_batch_memberships(payload: GroupeMembershipBatchSchema, request: Request = None, db: Session = Depends(get_db)):
+    _assert_group_permission(request, db)
+    raw_ids = None
+    target = None
+    if payload.client_ids:
+        raw_ids = payload.client_ids
+        target = "client"
+    elif payload.affaire_ids:
+        raw_ids = payload.affaire_ids
+        target = "affaire"
+    else:
+        raise HTTPException(status_code=400, detail="client_ids ou affaire_ids requis")
+
+    ids = []
+    for cid in raw_ids or []:
+        try:
+            n = int(cid)
+        except Exception:
+            continue
+        if n > 0:
+            ids.append(n)
+    # dédoublonnage en conservant l'ordre
+    seen = set()
+    uniq = []
+    for n in ids:
+        if n in seen:
+            continue
+        seen.add(n)
+        uniq.append(n)
+    if not uniq:
+        raise HTTPException(status_code=400, detail="client_ids invalides")
+    if len(uniq) > 2000:
+        raise HTTPException(status_code=400, detail="Trop d'éléments (max 2000).")
+
+    if payload.action == "add":
+        affected = 0
+        for cid in uniq:
+            if target == "client":
+                add_membership(db, groupe_id=payload.groupe_id, client_id=cid)
+            else:
+                add_membership(db, groupe_id=payload.groupe_id, affaire_id=cid)
+            affected += 1
+        return {
+            "action": "add",
+            "groupe_id": payload.groupe_id,
+            "requested": len(uniq),
+            "affected": affected,
+        }
+
+    # remove
+    try:
+        q = db.query(AdministrationGroupe).filter(AdministrationGroupe.groupe_id == payload.groupe_id)
+        if target == "client":
+            q = q.filter(AdministrationGroupe.client_id.in_(uniq))
+        else:
+            q = q.filter(AdministrationGroupe.affaire_id.in_(uniq))
+        affected = int(q.delete(synchronize_session=False) or 0)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur suppression: {e}")
+    return {
+        "action": "remove",
+        "groupe_id": payload.groupe_id,
+        "requested": len(uniq),
+        "affected": affected,
+    }
 
 
 @router.get("/overview/{groupe_key}")

@@ -117,6 +117,8 @@
     text-align: right;
     padding-right: 3ch;
   }
+  #groupItemsTable tr.member-selected-row td { background: #dcfce7 !important; }
+  #groupItemsTable tr.member-selected-row:hover td { background: #bbf7d0 !important; }
   #groupProductsTable th,
   #groupProductsTable td {
     padding: 6px 10px;
@@ -343,13 +345,13 @@
     <div class="group-grid">
       {% for grp in dashboard_groups_personnes %}
       <div class="group-card">
-        <h4 class="group-title">{{ grp.nom }}</h4>
-        <div class="group-meta">
-          <span>Membres</span><div>{{ grp.nb_membres }}</div>
-          <span>Responsable</span><div>{{ grp.responsable }}</div>
-          <span>Création</span><div>{{ grp.date_creation }}</div>
-          <span>Fin</span><div>{{ grp.date_fin }}</div>
-        </div>
+	        <h4 class="group-title">{{ grp.nom }}</h4>
+	        <div class="group-meta">
+	          <span>Membres</span><div class="group-members-count" data-group-id="{{ grp.id }}" data-group-type="client">{{ grp.nb_membres }}</div>
+	          <span>Responsable</span><div>{{ grp.responsable }}</div>
+	          <span>Création</span><div>{{ grp.date_creation }}</div>
+	          <span>Fin</span><div>{{ grp.date_fin }}</div>
+	        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
           <button class="btn btn-primary group-items-btn" type="button" data-group-id="{{ grp.id }}" data-group-type="client" data-group-name="{{ grp.nom }}">Voir les personnes</button>
         </div>
@@ -366,13 +368,13 @@
     <div class="group-grid">
       {% for grp in dashboard_groups_affaires %}
       <div class="group-card">
-        <h4 class="group-title">{{ grp.nom }}</h4>
-        <div class="group-meta">
-          <span>Membres</span><div>{{ grp.nb_membres }}</div>
-          <span>Responsable</span><div>{{ grp.responsable }}</div>
-          <span>Création</span><div>{{ grp.date_creation }}</div>
-          <span>Fin</span><div>{{ grp.date_fin }}</div>
-        </div>
+	        <h4 class="group-title">{{ grp.nom }}</h4>
+	        <div class="group-meta">
+	          <span>Membres</span><div class="group-members-count" data-group-id="{{ grp.id }}" data-group-type="affaire">{{ grp.nb_membres }}</div>
+	          <span>Responsable</span><div>{{ grp.responsable }}</div>
+	          <span>Création</span><div>{{ grp.date_creation }}</div>
+	          <span>Fin</span><div>{{ grp.date_fin }}</div>
+	        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:auto;">
           <button class="btn btn-primary group-items-btn" type="button" data-group-id="{{ grp.id }}" data-group-type="affaire" data-group-name="{{ grp.nom }}">Voir les affaires</button>
         </div>
@@ -417,6 +419,13 @@
       <button class="btn" id="groupItemsNext" type="button">Suivant</button>
     </div>
     <div class="muted" id="groupItemsEmpty" style="margin-top:8px; display:none;">Aucun item à afficher.</div>
+    <div id="groupMembersSelectionBar" style="margin-top:10px; display:none;" aria-live="polite">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+        <div style="font-weight:700; color:#111827;" id="groupMembersSelectedCount">0 sélectionné</div>
+        <button type="button" class="btn btn-danger" id="groupMembersRemoveBtn" disabled>Retirer du groupe</button>
+        <div class="muted" id="groupMembersSelectionStatus" style="margin-left:auto;"></div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -598,11 +607,51 @@
     const pageSize = 15;
     let currentPage = 1;
     let currentRows = [];
-    let sortKeyDisplay = 'valorisation';
-    let sortDir = 'desc';
-    let currentGroupId = null;
-    let currentGroupType = null;
-    const productsTab = document.querySelector('.groups-tab[data-target="groupProductsBlock"]');
+	    let sortKeyDisplay = 'valorisation';
+	    let sortDir = 'desc';
+	    let currentGroupId = null;
+	    let currentGroupType = null;
+	    let currentGroupName = null;
+
+	    // --- Sélection membres (retrait uniquement) ---
+	    let selectedMemberIds = new Set();
+	    const membersSelBar = document.getElementById('groupMembersSelectionBar');
+	    const membersSelCountEl = document.getElementById('groupMembersSelectedCount');
+	    const membersSelRemoveBtn = document.getElementById('groupMembersRemoveBtn');
+	    const membersSelStatusEl = document.getElementById('groupMembersSelectionStatus');
+
+	    function setMembersSelStatus(text, isError){
+	      if (!membersSelStatusEl) return;
+	      membersSelStatusEl.textContent = text || '';
+	      membersSelStatusEl.style.color = isError ? '#b91c1c' : '';
+	    }
+	    function updateMembersSelUI(){
+	      const count = selectedMemberIds.size;
+	      if (membersSelCountEl){
+	        membersSelCountEl.textContent = count + ' sélectionné' + (count > 1 ? 's' : '');
+	      }
+	      if (membersSelBar){
+	        membersSelBar.style.display = count ? 'block' : 'none';
+	      }
+	      if (membersSelRemoveBtn){
+	        membersSelRemoveBtn.disabled = !count || !currentGroupId || !currentGroupType;
+	      }
+	    }
+	    function applyMembersSelToRows(){
+	      try {
+	        document.querySelectorAll('#groupItemsTable tbody tr[data-entity-id]').forEach(function(tr){
+	          const id = tr.getAttribute('data-entity-id');
+	          tr.classList.toggle('member-selected-row', id && selectedMemberIds.has(String(id)));
+	        });
+	      } catch(e){}
+	    }
+	    function clearMembersSel(){
+	      selectedMemberIds = new Set();
+	      setMembersSelStatus('', false);
+	      updateMembersSelUI();
+	      applyMembersSelToRows();
+	    }
+	    const productsTab = document.querySelector('.groups-tab[data-target="groupProductsBlock"]');
     const esgTab = document.querySelector('.groups-tab[data-target="groupEsgBlock"]');
     const productsLabel = document.getElementById('groupProductsLabel');
     const productsStatus = document.getElementById('groupProductsStatus');
@@ -620,7 +669,7 @@
     let productsSortKey = 'total_num';
     let productsSortDir = 'desc';
 
-    function setActive(id){
+	    function setActive(id){
       const same = activeId === id;
       tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.target === id && (!same || !tab.classList.contains('active'))));
       panels.forEach(panel => {
@@ -654,13 +703,14 @@
       itemsExport.href = '/dashboard/groupes/items/export?group_id=' + encodeURIComponent(currentGroupId) + '&type=' + encodeURIComponent(currentGroupType);
     }
 
-    function setItemsLoading(label){
-      if (itemsLabel) itemsLabel.textContent = label;
-      if (itemsEmpty) itemsEmpty.style.display = 'none';
-      if (itemsTableBody) itemsTableBody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
-      setStatus('Chargement', 'loading');
-      if (itemsPager) itemsPager.style.display = 'none';
-      if (productsTab) {
+	    function setItemsLoading(label){
+	      if (itemsLabel) itemsLabel.textContent = label;
+	      if (itemsEmpty) itemsEmpty.style.display = 'none';
+	      clearMembersSel();
+	      if (itemsTableBody) itemsTableBody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
+	      setStatus('Chargement', 'loading');
+	      if (itemsPager) itemsPager.style.display = 'none';
+	      if (productsTab) {
         productsTab.style.display = 'none';
         if (activeId === 'groupProductsBlock') {
           setActive('groupItemsBlock');
@@ -864,36 +914,94 @@
         const cmp = String(av).localeCompare(String(bv), 'fr', { sensitivity: 'base' });
         return sortDir === 'asc' ? cmp : -cmp;
       });
-      const start = (currentPage - 1) * pageSize;
-      const pageRows = sortedRows.slice(start, start + pageSize);
-      itemsTableBody.innerHTML = pageRows.map(row => (
-        '<tr>' +
-        '<td>' + row.item + '</td>' +
-        '<td>' + row.valorisation + '</td>' +
-        '<td>' + row.perf_52 + '</td>' +
-        '<td>' + row.volatilite_52 + '</td>' +
-        '<td>' + row.srri + '</td>' +
-        '</tr>'
-      )).join('');
+	      const start = (currentPage - 1) * pageSize;
+	      const pageRows = sortedRows.slice(start, start + pageSize);
+	      itemsTableBody.innerHTML = pageRows.map(row => (
+	        '<tr data-entity-id="' + (row.entity_id != null ? row.entity_id : '') + '">' +
+	        '<td>' + (row.entity_id != null && currentGroupType ? ('<a href="/dashboard/' + (String(currentGroupType)==='client' ? 'clients' : 'affaires') + '/' + encodeURIComponent(String(row.entity_id)) + '" style="text-decoration:underline; color:inherit;">' + row.item + '</a>') : row.item) + '</td>' +
+	        '<td>' + row.valorisation + '</td>' +
+	        '<td>' + row.perf_52 + '</td>' +
+	        '<td>' + row.volatilite_52 + '</td>' +
+	        '<td>' + row.srri + '</td>' +
+	        '</tr>'
+	      )).join('');
+	      applyMembersSelToRows();
+	      updateMembersSelUI();
       if (itemsPager) itemsPager.style.display = currentRows.length > pageSize ? 'flex' : 'none';
       if (itemsPageInfo) itemsPageInfo.textContent = 'Page ' + currentPage + '/' + totalPages;
       if (itemsPrev) itemsPrev.disabled = currentPage <= 1;
       if (itemsNext) itemsNext.disabled = currentPage >= totalPages;
-      document.querySelectorAll('#groupItemsTable th[data-key]').forEach(th => {
-        th.classList.remove('sorted-asc', 'sorted-desc');
-        if (th.dataset.key === sortKeyDisplay) {
-          th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
-        }
-      });
-    }
+	      document.querySelectorAll('#groupItemsTable th[data-key]').forEach(th => {
+	        th.classList.remove('sorted-asc', 'sorted-desc');
+	        if (th.dataset.key === sortKeyDisplay) {
+	          th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+	        }
+	      });
+	    }
 
-    function setItemsRows(rows, label){
-      if (itemsLabel) itemsLabel.textContent = label;
-      if (!itemsTableBody) return;
-      if (!rows.length){
-        setItemsEmpty(label);
-        return;
-      }
+	    function refreshGroupMembersCount(groupId){
+	      if (!groupId) return;
+	      fetch('/api/groupes/overview/' + encodeURIComponent(groupId))
+	        .then(function(res){
+	          if (!res.ok) throw new Error('HTTP ' + res.status);
+	          return res.json();
+	        })
+	        .then(function(data){
+	          const members = (data && data.members) ? data.members : [];
+	          let activeCount = 0;
+	          (members || []).forEach(function(m){
+	            try {
+	              const actif = m && m.actif;
+	              const dateRetrait = m && m.date_retrait;
+	              const isActive = (actif === null || actif === undefined || Number(actif) !== 0) && (dateRetrait === null || dateRetrait === undefined);
+	              if (isActive) activeCount += 1;
+	            } catch(e){}
+	          });
+	          const el = document.querySelector('.group-members-count[data-group-id=\"' + String(groupId) + '\"]');
+	          if (el) el.textContent = String(activeCount);
+	        })
+	        .catch(function(){ /* silent */ });
+	    }
+
+	    function _shouldIgnoreMemberClick(ev){
+	      try {
+	        const t = ev && ev.target ? ev.target : null;
+	        if (!t) return false;
+	        if (t.closest && t.closest('a,button,input,select,label,textarea')) return true;
+	      } catch(e){}
+	      return false;
+	    }
+
+	    if (itemsTableBody){
+	      itemsTableBody.addEventListener('click', function(ev){
+	        try {
+	          if (_shouldIgnoreMemberClick(ev)) return;
+	          const target = ev.target;
+	          const tr = target && target.closest ? target.closest('tr[data-entity-id]') : null;
+	          if (!tr) return;
+	          const firstCell = tr.querySelector('td:first-child');
+	          if (firstCell && firstCell.contains(target)) return;
+	          const id = tr.getAttribute('data-entity-id');
+	          if (!id) return;
+	          if (selectedMemberIds.has(String(id))){
+	            selectedMemberIds.delete(String(id));
+	          } else {
+	            selectedMemberIds.add(String(id));
+	          }
+	          applyMembersSelToRows();
+	          updateMembersSelUI();
+	        } catch(e){}
+	      });
+	    }
+
+	    function setItemsRows(rows, label){
+	      if (itemsLabel) itemsLabel.textContent = label;
+	      if (!itemsTableBody) return;
+	      clearMembersSel();
+	      if (!rows.length){
+	        setItemsEmpty(label);
+	        return;
+	      }
       if (itemsEmpty) itemsEmpty.style.display = 'none';
       setStatus(rows.length + ' items', null);
       currentRows = rows;
@@ -903,12 +1011,13 @@
       if (esgTab) esgTab.style.display = '';
     }
 
-    async function loadGroupItems(groupId, groupType, groupName){
-      const label = 'Liste items — ' + (groupName || 'Groupe');
-      currentGroupId = groupId;
-      currentGroupType = groupType;
-      window.currentGroupId = groupId;
-      window.currentGroupType = groupType;
+	    async function loadGroupItems(groupId, groupType, groupName){
+	      const label = 'Liste items — ' + (groupName || 'Groupe');
+	      currentGroupId = groupId;
+	      currentGroupType = groupType;
+	      currentGroupName = groupName || null;
+	      window.currentGroupId = groupId;
+	      window.currentGroupType = groupType;
       updateExportLink();
       setItemsLoading(label);
       setActive('groupItemsBlock');
@@ -918,11 +1027,12 @@
           throw new Error('Erreur chargement');
         }
         const data = await res.json();
-        const rows = (data.items || []).map(item => ({
-          item: item.item || '—',
-          valorisation: item.valorisation_str || '—',
-          perf_52: item.perf_52_str || '—',
-          volatilite_52: item.volatilite_52_str || '—',
+	        const rows = (data.items || []).map(item => ({
+	          entity_id: item.entity_id != null ? item.entity_id : null,
+	          item: item.item || '—',
+	          valorisation: item.valorisation_str || '—',
+	          perf_52: item.perf_52_str || '—',
+	          volatilite_52: item.volatilite_52_str || '—',
           srri: item.srri != null ? item.srri : '—',
           valorisation_num: typeof item.valorisation === 'number' ? item.valorisation : null,
           perf_52_num: typeof item.perf_52 === 'number' ? item.perf_52 : null,
@@ -946,15 +1056,51 @@
       tab.addEventListener('click', () => setActive(tab.dataset.target));
     });
 
-    document.querySelectorAll('.group-items-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        loadGroupItems(btn.dataset.groupId, btn.dataset.groupType, btn.dataset.groupName);
-      });
-    });
+	    document.querySelectorAll('.group-items-btn').forEach(btn => {
+	      btn.addEventListener('click', () => {
+	        loadGroupItems(btn.dataset.groupId, btn.dataset.groupType, btn.dataset.groupName);
+	      });
+	    });
 
-    if (itemsPrev) {
-      itemsPrev.addEventListener('click', () => {
-        if (currentPage > 1) {
+	    async function removeSelectedMembers(){
+	      if (!currentGroupId || !currentGroupType) return;
+	      const ids = Array.from(selectedMemberIds).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+	      if (!ids.length) return;
+	      setMembersSelStatus('Retrait en cours…', false);
+	      if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Retrait du groupe…'); }
+	      try {
+	        const payload = { action: 'remove', groupe_id: parseInt(currentGroupId, 10) };
+	        if (String(currentGroupType) === 'client'){
+	          payload.client_ids = ids;
+	        } else {
+	          payload.affaire_ids = ids;
+	        }
+	        const res = await fetch('/api/groupes/memberships/batch', {
+	          method: 'POST',
+	          headers: { 'Content-Type': 'application/json' },
+	          body: JSON.stringify(payload)
+	        });
+	        if (!res.ok) throw new Error('HTTP ' + res.status);
+	        clearMembersSel();
+	        setMembersSelStatus('Retrait terminé.', false);
+	        refreshGroupMembersCount(currentGroupId);
+	        await loadGroupItems(currentGroupId, currentGroupType, currentGroupName || '');
+	      } catch (e) {
+	        console.warn('removeSelectedMembers failed', e);
+	        setMembersSelStatus('Erreur lors du retrait.', true);
+	      } finally {
+	        if (typeof window.hideGlobalLoader === 'function'){ window.hideGlobalLoader(250); }
+	      }
+	    }
+	    if (membersSelRemoveBtn){
+	      membersSelRemoveBtn.addEventListener('click', function(){
+	        removeSelectedMembers();
+	      });
+	    }
+
+	    if (itemsPrev) {
+	      itemsPrev.addEventListener('click', () => {
+	        if (currentPage > 1) {
           currentPage -= 1;
           renderPage();
         }
