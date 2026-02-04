@@ -66,45 +66,10 @@
       border-color: transparent;
       box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
     }
-    .tasks-nav {
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      margin: 0 0 12px 0;
-    }
-    .tasks-nav .nav-btn {
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:8px 12px;
-      border-radius:10px;
-      border:1px solid transparent;
-      background:transparent;
-      cursor:pointer;
-      font-weight:600;
-      font-size:18px;
-      box-shadow:none;
-      transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
-    }
-    .tasks-nav .nav-btn:hover {
-      background: transparent;
-      color: var(--primary-600);
-      border-color: transparent;
-      transform: translateY(-2px) scale(1.03);
-      box-shadow: 0 12px 26px rgba(15,23,42,0.22);
-    }
     .task-section { display:none; }
     .task-section.active { display:block; }
     .task-card.active { border:1px solid var(--primary-100); box-shadow: 0 10px 24px rgba(37,99,235,0.12); }
   </style>
-
-  <div class="tasks-nav">
-    <button type="button" class="nav-btn" onclick="focusTaskSection('tasksSummaryCard','toggleTasksSummary')"><i class="fa-solid fa-list-check"></i>Synthèse</button>
-    <button type="button" class="nav-btn" onclick="focusTaskSection('tacheFormCard','toggleTacheAccordion')"><i class="fa-solid fa-pen-to-square"></i>Définir une tâche</button>
-    <button type="button" class="nav-btn" onclick="focusTaskSection('tasksListCard','toggleTasksList')"><i class="fa-solid fa-list"></i>Liste des tâches</button>
-    <button type="button" class="nav-btn" onclick="focusTaskSection('calendarCard','toggleCalendarAccordion')"><i class="fa-solid fa-calendar"></i>Calendrier</button>
-    <button type="button" class="nav-btn" onclick="focusTaskSection('reclamCard','toggleReclamPivot')"><i class="fa-solid fa-table-list"></i>Livre des réclamations</button>
-  </div>
 
   <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 1rem;">
     <div class="card task-card" id="tasksSummaryCard" style="flex:1 1 100%; width:100%; margin:0;">
@@ -422,6 +387,7 @@
           const clientVal = params.get('client_fullname');
           const clientFilterVal = params.get('client_filter');
           const affaireVal = params.get('affaire_ref');
+          const affaireFilterVal = params.get('affaire_filter');
           const rhVal = params.get('rh_id');
           const clientInput = document.querySelector('input[name="client_fullname"]');
           const affaireInput = document.querySelector('input[name="affaire_ref"]');
@@ -439,6 +405,9 @@
           // Prefill list filter (DataTable) from URL; applied after DataTable init.
           if (clientFilterVal){
             window.__prefillTasksClientFilterValue = clientFilterVal;
+          }
+          if (affaireFilterVal){
+            window.__prefillTasksAffaireFilterValue = affaireFilterVal;
           }
           // Si prérempli depuis une fiche, ouvrir directement la section création
           if (clientVal || affaireVal || rhVal){
@@ -470,11 +439,25 @@
   </div>
 
     <div class="card task-card" id="tasksListCard" style="flex:1 1 100%; width:100%; margin:0;">
-      <div style="padding:10px 12px; display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem;">
-        <i class="fa-solid fa-list-check"></i> Liste des tâches
+      <div style="padding:10px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-weight:600; font-size:1.05rem;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <i class="fa-solid fa-list-check"></i> Liste des tâches
+        </div>
+        <button
+          type="button"
+          id="tasksQuickfiltersToggle"
+          class="btn btn-choice"
+          style="height:32px; display:inline-flex; align-items:center; gap:8px; font-size:12.5px; text-transform:none;"
+          aria-controls="tasksQuickfilters"
+          aria-expanded="true"
+          title="Afficher / masquer les pré-réglages"
+        >
+          <i id="tasksQuickfiltersToggleIcon" class="fa-solid fa-eye-slash"></i>
+          <span id="tasksQuickfiltersToggleLabel">Masquer les pré-réglages</span>
+        </button>
       </div>
       <div id="tasksListBody" class="task-section">
-    <div class="tasks-quickfilters" style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
+    <div id="tasksQuickfilters" class="tasks-quickfilters" style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
       <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
       <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation"></i>En retard <span class="badge">{{ counts.late }}</span></a>
@@ -761,6 +744,16 @@
                 var inp = document.getElementById('tasks_client_filter');
                 if (inp) inp.value = v;
                 if (v) { window.tasksDT.column(2).search(v).draw(); }
+              }
+            } catch(e) {}
+
+            // Apply URL-driven affaire filter (from affaire detail sidebar → "Tâches > Voir")
+            try {
+              if (window.__prefillTasksAffaireFilterValue){
+                var v2 = String(window.__prefillTasksAffaireFilterValue || '').trim();
+                var inp2 = document.getElementById('tasks_affaire_filter');
+                if (inp2) inp2.value = v2;
+                if (v2) { window.tasksDT.column(3).search(v2).draw(); }
               }
             } catch(e) {}
           } catch(e) {}
@@ -1484,6 +1477,7 @@
     function filterTasksFromPivot(typeLabel, statusLabel, attempt){
       attempt = attempt || 0;
       // Open tasks accordion
+      var tasksCard = document.getElementById('tasksListCard');
       var tasksBody = document.getElementById('tasksListBody');
       if (tasksBody && tasksBody.style.display === 'none') {
         toggleTasksList();
@@ -1505,8 +1499,8 @@
       var rhSel = document.getElementById('tasks_rh_filter');
       if (rhSel) rhSel.value = '';
       window.tasksDT.draw();
-      // Scroll to tasks list
-      if (tasksBody) { tasksBody.scrollIntoView({behavior:'smooth', block:'start'}); }
+      // Scroll to tasks list header
+      if (tasksCard) { tasksCard.scrollIntoView({behavior:'smooth', block:'start'}); }
     }
     // Click binding on pivot cells
     document.addEventListener('click', function(ev){
@@ -1549,6 +1543,10 @@
       if (targetCard === 'tasksSummaryCard' && typeof window.__toggleTasksSummary === 'function'){
         window.__toggleTasksSummary(true);
       }
+      // Always scroll to the section header
+      try {
+        if (targetCard) document.getElementById(targetCard)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch(e){}
     }
     // Harmonise les anciennes fonctions d'accordéon pour s'appuyer sur l'affichage exclusif
     window.focusTaskSection = function(targetCard){ setSectionOpen(targetCard); };
@@ -1557,15 +1555,69 @@
     window.toggleTasksList = function(){ setSectionOpen('tasksListCard'); };
     window.toggleCalendarAccordion = function(){ setSectionOpen('calendarCard'); };
     window.toggleReclamPivot = function(){ setSectionOpen('reclamCard'); };
+    (function initTasksQuickfiltersToggle(){
+      var KEY = 'crm_tasks_quickfilters_hidden';
+      function rememberShownDisplay(box){
+        if (!box) return;
+        if (!box.dataset.shownDisplay) {
+          // Keep current inline display (ex: "flex") so we can restore it after hiding.
+          box.dataset.shownDisplay = box.style.display || '';
+        }
+      }
+      function safeGet(){
+        try { return window.localStorage ? window.localStorage.getItem(KEY) : null; } catch(e){ return null; }
+      }
+      function safeSet(val){
+        try { if (window.localStorage) window.localStorage.setItem(KEY, val); } catch(e){}
+      }
+      function applyState(hidden){
+        var box = document.getElementById('tasksQuickfilters');
+        var btn = document.getElementById('tasksQuickfiltersToggle');
+        if (!box || !btn) return;
+        var icon = document.getElementById('tasksQuickfiltersToggleIcon');
+        var label = document.getElementById('tasksQuickfiltersToggleLabel');
+        rememberShownDisplay(box);
+        // Don't rely on the `hidden` attribute because inline styles (display:flex) override it.
+        box.style.display = hidden ? 'none' : (box.dataset.shownDisplay || '');
+        btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+        if (icon) icon.className = hidden ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+        if (label) label.textContent = hidden ? 'Afficher les pré-réglages' : 'Masquer les pré-réglages';
+      }
+      function init(){
+        var btn = document.getElementById('tasksQuickfiltersToggle');
+        var box = document.getElementById('tasksQuickfilters');
+        if (!btn || !box) return;
+        applyState(safeGet() === '1');
+        btn.addEventListener('click', function(){
+          var nextHidden = box.style.display !== 'none';
+          safeSet(nextHidden ? '1' : '0');
+          applyState(nextHidden);
+        });
+      }
+      document.addEventListener('DOMContentLoaded', init);
+    })();
     // Section par défaut au chargement
     document.addEventListener('DOMContentLoaded', function(){
       // Open a specific section from URL (?open=list, etc.)
       try {
         var params = new URLSearchParams(window.location.search);
         var open = (params.get('open') || '').toLowerCase();
-        if (open === 'list') {
-          setSectionOpen('tasksListCard');
-          try { document.getElementById('tasksListCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){}
+        var map = {
+          summary: 'tasksSummaryCard',
+          synthese: 'tasksSummaryCard',
+          create: 'tacheFormCard',
+          definir: 'tacheFormCard',
+          form: 'tacheFormCard',
+          list: 'tasksListCard',
+          calendrier: 'calendarCard',
+          calendar: 'calendarCard',
+          reclam: 'reclamCard',
+          reclamations: 'reclamCard',
+        };
+        if (open && map[open]) {
+          setSectionOpen(map[open]);
+          // When coming from sidebar submenu, always land at the top of the page.
+          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
           return;
         }
       } catch(e){}

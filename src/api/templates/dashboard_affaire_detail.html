@@ -207,13 +207,14 @@
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .aff-esg-split { display:flex; gap:12px; align-items:stretch; }
   .aff-esg-left { flex:1 1 320px; min-width:260px; }
-  .aff-esg-right { flex:1 1 420px; min-width:260px; display:flex; align-items:center; overflow:hidden; }
+  .aff-esg-right { flex:1 1 420px; min-width:260px; display:flex; align-items:stretch; overflow:visible; }
+  .aff-esg-right-inner { width:100%; display:flex; flex-direction:column; min-height:320px; }
   .aff-esg-right #affaireEsgChart { width:100%; max-width:100%; }
   @media (max-width: 900px) {
     .aff-esg-split { flex-direction:column; }
   }
   #affSupportMovementsTable th, #affSupportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
-  #affSupportMovementsTable th { background:#1d4ed8; color:#fff; text-transform:none; font-size:0.87rem; }
+  #affSupportMovementsTable th { background:var(--primary, #475569); color:#fff; text-transform:none; font-size:0.87rem; }
   #affSupportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
   /* Toggle chevron styles (reuse for inv+graphs) */
   #invToggle, #esgToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
@@ -478,43 +479,15 @@
 
 <!-- KPIs en tête -->
   <!-- Tâches désactivées (maintenance) -->
-  <div class="section-toggle-row" style="margin-top:12px;">
-    <div id="invToggle" class="card accordion-toggle" title="Investissements" aria-label="Investissements">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
-        <span>Investissements</span>
-      </h3>
-    </div>
-    <div id="esgToggle" class="card accordion-toggle" title="Suivi ESG" aria-label="Suivi ESG">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-leaf" aria-hidden="true"></i>
-        <span>Suivi ESG</span>
-      </h3>
-    </div>
-    <div id="avisToggle" class="card accordion-toggle" data-tb-marker="AF_12" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-file-contract" aria-hidden="true"></i>
-        <span>Avis d'opération</span>
-      </h3>
-    </div>
-    <div id="riskToggle" class="card accordion-toggle client-hide" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-        <span>SRRI / Risque</span>
-      </h3>
-    </div>
-    <div id="graphsToggle" class="card accordion-toggle" data-tb-marker="AF_17" title="Graphiques" aria-label="Graphiques">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-chart-pie" aria-hidden="true"></i>
-        <span>Graphiques</span>
-      </h3>
-    </div>
-    <div id="reportToggle" class="card accordion-toggle" data-tb-marker="AF_22" title="Reportings annuels" aria-label="Reportings annuels">
-      <h3 style="margin:0; display:flex; align-items:center; gap:8px; justify-content:flex-start;">
-        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
-        <span>Reportings annuels</span>
-      </h3>
-    </div>
+  {# Barre de menu "Investissements → Reportings annuels" supprimée (remplacée par le sous-menu sidebar). #}
+  {# On conserve des toggles cachés (mêmes IDs) pour que les handlers JS existants restent fonctionnels. #}
+  <div id="affHiddenTopToggles" style="display:none;" aria-hidden="true">
+    <div id="invToggle" class="accordion-toggle" title="Investissements" aria-label="Investissements"></div>
+    <div id="esgToggle" class="accordion-toggle" title="Suivi ESG" aria-label="Suivi ESG"></div>
+    <div id="avisToggle" class="accordion-toggle" title="Avis d'opération" aria-label="Avis d'opération" onclick="markAffToggleActive('avisToggle'); openAvisModal()"></div>
+    <div id="riskToggle" class="accordion-toggle client-hide" title="SRRI / Risque" aria-label="SRRI / Risque" onclick="markAffToggleActive('riskToggle'); openAffRiskModal()"></div>
+    <div id="graphsToggle" class="accordion-toggle" title="Graphiques" aria-label="Graphiques"></div>
+    <div id="reportToggle" class="accordion-toggle" title="Reportings annuels" aria-label="Reportings annuels"></div>
   </div>
 <div class="card" style="margin-top:10px; margin-bottom:0.5rem; padding:0;">
   <div id="affSynthToggle" class="accordion-toggle" data-target="affSynthPanel" style="margin:0; cursor:pointer; justify-content:center; text-align:center;">
@@ -989,7 +962,10 @@
           <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Affaire = (Affaire / Indice) × 100.</div>
         </div>
         <div class="aff-esg-right">
-          <div id="affaireEsgChart" style="min-height:320px; width:100%; display:none;"></div>
+          <div class="aff-esg-right-inner">
+            <div id="affaireEsgChart" style="min-height:320px; width:100%; display:none;"></div>
+            <div id="affaireEsgFilteredOut" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1182,6 +1158,7 @@ function appendMarkers(url){
   var $fieldsWrap = document.getElementById('affaireEsgFields');
   var $unmatched = document.getElementById('affaireEsgUnmatched');
   var $chart = document.getElementById('affaireEsgChart');
+  var $filteredOut = document.getElementById('affaireEsgFilteredOut');
   var metaLoaded = false;
   var esgFields = [];
   var esgRefIsins = [];
@@ -1350,6 +1327,7 @@ function appendMarkers(url){
     var ref = getReference();
     if (!ref) return;
     if ($unmatched){ $unmatched.style.display='none'; $unmatched.textContent=''; }
+    if ($filteredOut){ $filteredOut.style.display='none'; $filteredOut.textContent=''; }
     var params = new URLSearchParams();
     params.set('fields', fields.join(','));
     if (ref.kind === 'isin'){ params.set('alloc_isin', ref.value); }
@@ -1379,17 +1357,56 @@ function appendMarkers(url){
               $unmatched.style.display = 'none';
             }
           }
-          var displayRows = rows.filter(function(r){ return r && r.index != null && r.affaire != null; });
-          if (!displayRows.length){ displayRows = rows; }
-          if (!displayRows.length){
-            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-            return;
-          }
-          var cats = displayRows.map(function(r){
-            return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
-          });
-          var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
-          var cli = displayRows.map(function(r){ return r.affaire == null ? (r.client == null ? null : Number(r.client)) : Number(r.affaire); });
+	          var displayRows = rows.filter(function(r){ return r && r.index != null && r.affaire != null; });
+	          if (!displayRows.length){ displayRows = rows; }
+	          if (!displayRows.length){
+	            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+	            return;
+	          }
+	          // Filter out absurd base-100 ratios (±300% from 100) and report them below the chart.
+	          // Ratio displayed = (Affaire / Indice) × 100. We hide metrics where |(ratio-100)/100| > 3,
+	          // i.e. ratio > 400 or ratio < -200.
+	          (function(){
+	            var filtered = [];
+	            var kept = [];
+	            var seen = new Set();
+	            displayRows.forEach(function(r){
+	              var label = esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
+	              var raw = (r.affaire == null) ? (r.client == null ? null : r.client) : r.affaire;
+	              var v = (raw == null) ? null : Number(raw);
+	              var outlier = (v != null && isFinite(v) && Math.abs((v - 100) / 100) > 3);
+	              if (outlier){
+	                if (label && !seen.has(label)){ filtered.push(label); seen.add(label); }
+	              } else {
+	                kept.push(r);
+	              }
+	            });
+	            displayRows = kept;
+	            if ($filteredOut){
+	              if (filtered.length){
+	                $filteredOut.textContent = 'Métriques non affichées (rapport base 100 hors ±300%) : ' + filtered.join(', ');
+	                $filteredOut.style.display = '';
+	              } else {
+	                $filteredOut.textContent = '';
+	                $filteredOut.style.display = 'none';
+	              }
+	            }
+	          })();
+	          if (!displayRows.length){
+	            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+	            if ($filteredOut){
+	              if (!$filteredOut.textContent){
+	                $filteredOut.textContent = 'Aucune métrique affichable (rapport base 100 hors ±300%).';
+	              }
+	              $filteredOut.style.display = '';
+	            }
+	            return;
+	          }
+	          var cats = displayRows.map(function(r){
+	            return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
+	          });
+	          var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+	          var cli = displayRows.map(function(r){ return r.affaire == null ? (r.client == null ? null : Number(r.client)) : Number(r.affaire); });
           var traces = [
             { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
             { x: cli, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
@@ -1399,16 +1416,20 @@ function appendMarkers(url){
           Plotly.react('affaireEsgChart', traces, layout, cfg);
           if ($chart){ $chart.style.display=''; }
         })
-        .catch(function(err){
-          if ($unmatched){
-            $unmatched.textContent = 'Erreur de chargement ESG.';
-            $unmatched.style.display = '';
-          }
-          try{ console.warn('Affaire ESG fetch error', err); }catch(_){}
-          if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-        });
-    });
-  }
+	        .catch(function(err){
+	          if ($unmatched){
+	            $unmatched.textContent = 'Erreur de chargement ESG.';
+	            $unmatched.style.display = '';
+	          }
+	          if ($filteredOut){
+	            $filteredOut.textContent = '';
+	            $filteredOut.style.display = 'none';
+	          }
+	          try{ console.warn('Affaire ESG fetch error', err); }catch(_){}
+	          if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+	        });
+	    });
+	  }
 
   function init(){
     loadMeta(function(){
@@ -1448,6 +1469,15 @@ function openAffTaskPage(){
   if (aref) params.set('affaire_ref', aref);
   var rhId = '{{ client_rh_id if client_rh_id is not none else "" }}';
   if (rhId) params.set('rh_id', rhId);
+  if (AF_MARKERS_PARAM){ params.set('markers', '1'); }
+  var url = '/dashboard/taches' + (params.toString() ? ('?' + params.toString()) : '');
+  window.open(url, '_blank', 'noopener');
+}
+function openAffTasksListPage(){
+  var params = new URLSearchParams();
+  var aref = '{{ affaire.ref if affaire and affaire.ref else "" }}';
+  if (aref) params.set('affaire_filter', aref);
+  params.set('open', 'list');
   if (AF_MARKERS_PARAM){ params.set('markers', '1'); }
   var url = '/dashboard/taches' + (params.toString() ? ('?' + params.toString()) : '');
   window.open(url, '_blank', 'noopener');
@@ -1679,10 +1709,12 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       p.style.display = open ? '' : 'none';
       if (!open) t.classList.add('collapsed'); else t.classList.remove('collapsed');
     }
+    // Par défaut: synthèse ouverte (le bandeau reste toujours visible, seul le contenu se replie).
     set(true);
     t.addEventListener('click', function(){
       var isOpen = p.style.display !== 'none';
       set(!isOpen);
+      try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
     });
   })();
 
@@ -1693,18 +1725,62 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       {t:'graphPerfToggle', p:'graphPerfPanel'},
       {t:'graphCmpToggle', p:'graphCmpPanel'},
     ];
-    accs.forEach(({t,p})=>{
-      const toggle = document.getElementById(t);
-      const panel = document.getElementById(p);
+    function byId(id){ return document.getElementById(id); }
+    function setExclusive(targetPanelId){
+      accs.forEach(function(a){
+        var toggle = byId(a.t);
+        var panel = byId(a.p);
+        if (!toggle || !panel) return;
+        var open = !targetPanelId || a.p === targetPanelId;
+        panel.style.display = open ? '' : 'none';
+        toggle.classList.toggle('collapsed', !open);
+      });
+      // Scroll to the graphs header (synthèse remains visible above).
+      try { document.getElementById('affSynthToggle')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {}
+    }
+    accs.forEach(function(a){
+      var toggle = byId(a.t);
+      var panel = byId(a.p);
       if (!toggle || !panel) return;
       function set(open){
         panel.style.display = open ? '' : 'none';
         toggle.classList.toggle('collapsed', !open);
       }
-      // ouverture par défaut
+      // ouverture par défaut: tout ouvert
       set(true);
-      toggle.addEventListener('click', ()=> set(panel.style.display === 'none'));
+      toggle.addEventListener('click', function(){
+        // Clicks stay local (accordion behavior). Sidebar submenu uses the exclusive helper.
+        set(panel.style.display === 'none');
+      });
     });
+    window.openAffaireGraphsPanel = function(key){
+      // Ensure graphs section is open (sidebar submenu should have done it, but stay safe).
+      try {
+        var gs = document.getElementById('graphsSection');
+        if (gs && gs.style.display === 'none') {
+          document.getElementById('graphsToggle')?.click();
+        }
+      } catch(e) {}
+      var k = String(key || '').toLowerCase();
+      var map = {
+        evolution: 'graphValoPanel',
+        valo: 'graphValoPanel',
+        investissement: 'graphValoPanel',
+        perf: 'graphPerfPanel',
+        performance: 'graphPerfPanel',
+        risques: 'graphPerfPanel',
+        comparatif: 'graphCmpPanel',
+        offre: 'graphCmpPanel',
+        cmp: 'graphCmpPanel',
+      };
+      var target = map[k] || '';
+      setExclusive(target);
+      try {
+        var tg = target ? document.querySelector('#graphsSection .accordion-toggle[data-target=\"' + target + '\"]') : null;
+        if (tg) tg.scrollIntoView({ behavior:'smooth', block:'start' });
+      } catch(e) {}
+      return false;
+    };
   })();
 
   // Accordéons mutualisés: un seul ouvert, possibilité de tout fermer; scroll en haut à l'ouverture
@@ -1740,7 +1816,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       t.addEventListener('click', function(){
         var isOpen = s.style.display !== 'none';
         if (isOpen) { setOpen(''); }
-        else { setOpen(g.key); try { t.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {} }
+        else { setOpen(g.key); try { document.getElementById('affSynthToggle')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) {} }
       });
     });
   })();

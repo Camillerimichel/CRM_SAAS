@@ -5,20 +5,21 @@
     <title>{% block title %}Dashboard{% endblock %}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        :root {
-            --bg: #eef2f7;
-            --surface: #ffffff;
-            --text: #0f172a;
-            --muted: #64748b;
-            --primary: #2563eb;
-            --primary-600: #1d4ed8;
-            --primary-100: #e8f0ff;
-            --accent: #0ea5e9;
-            --success: #16a34a;
-            --danger: #dc2626;
-            --warning: #ea580c;
-            --border: #e5e7eb;
-            --radius: 14px;
+	        :root {
+	            --bg: #eef2f7;
+	            --surface: #ffffff;
+	            --text: #0f172a;
+	            --muted: #64748b;
+	            /* Neutral theme (aluminum grey, slightly lighter) */
+	            --primary: #6b7280;      /* gray-500 */
+	            --primary-600: #4b5563;  /* gray-600 */
+	            --primary-100: #f3f4f6;  /* gray-100 */
+	            --accent: #9ca3af;       /* gray-400 */
+	            --success: #16a34a;
+	            --danger: #dc2626;
+	            --warning: #ea580c;
+	            --border: #e5e7eb;
+	            --radius: 14px;
             --shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
             --shadow-sm: 0 8px 20px rgba(15, 23, 42, 0.08);
         }
@@ -63,17 +64,17 @@
             align-items: center;
             gap: 12px;
         }
-        .brand-mark {
-            width: 46px;
-            height: 46px;
-            border-radius: 12px;
-            display: grid;
-            place-items: center;
-            background: linear-gradient(135deg, #2563eb, #0ea5e9);
-            color: #fff;
-            font-weight: 800;
-            letter-spacing: 0.03em;
-        }
+	        .brand-mark {
+	            width: 46px;
+	            height: 46px;
+	            border-radius: 12px;
+	            display: grid;
+	            place-items: center;
+	            background: linear-gradient(135deg, #6b7280, #9ca3af);
+	            color: #fff;
+	            font-weight: 800;
+	            letter-spacing: 0.03em;
+	        }
         .brand-text p {
             margin: 0;
             color: var(--muted);
@@ -134,12 +135,12 @@
             box-shadow: none;
         }
         .sidebar-nav a.active i { color: var(--primary-600); }
-        .sidebar-subtree {
-            display: none;
-            margin: 0.25rem 0 0.35rem 0.75rem;
-            padding-left: 0.6rem;
-            border-left: 2px solid rgba(36, 86, 166, 0.18);
-        }
+	        .sidebar-subtree {
+	            display: none;
+	            margin: 0.25rem 0 0.35rem 0.75rem;
+	            padding-left: 0.6rem;
+	            border-left: 2px solid rgba(15, 23, 42, 0.14);
+	        }
         .sidebar-subtree a {
             font-size: 0.92rem;
             padding: 0.45rem 0.75rem;
@@ -279,12 +280,12 @@
         .btn:hover { background: #f8fafc; border-color: var(--primary-100); }
         .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
         .btn-primary:hover { background: var(--primary-600); }
-        .btn-secondary { background: #edf2fd; color: var(--primary-600); border-color: rgba(36,86,166,0.3); }
-        .btn-secondary:hover { background: #dbe5fc; }
+	        .btn-secondary { background: #f1f5f9; color: var(--primary-600); border-color: rgba(15,23,42,0.18); }
+	        .btn-secondary:hover { background: #e2e8f0; }
         .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
         .btn-danger:hover { background:#dc2626; }
         .btn-choice { height: 44px; padding: .6rem .9rem; font-size: 1rem; border-radius: 10px; text-transform: capitalize; background:#fff; color:var(--text); border:1px solid var(--border); transition:background .2s ease, color .2s ease, border .2s ease, box-shadow .2s ease; }
-        .btn-choice-active { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow:0 6px 14px rgba(36,86,166,0.25); }
+	        .btn-choice-active { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow:0 6px 14px rgba(15,23,42,0.18); }
         /* Harmonisation blocs définition de tâches (typo proche KPI) */
         .task-block label { font-size: .95rem; font-weight: 600; color: var(--text); }
         .task-block .btn-choice { height: 44px; font-size: .95rem; }
@@ -377,7 +378,7 @@
         /* ===== Accordéons génériques ===== */
         .accordion-toggle { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: .8rem 1rem; font-size: 1rem; font-weight: 600; position: relative; transition: background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
         .accordion-toggle:hover { box-shadow: var(--shadow); }
-        .accordion-toggle:not(.collapsed) { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow: 0 12px 24px rgba(36,86,166,0.25); }
+	        .accordion-toggle:not(.collapsed) { background: var(--primary); color:#fff; border-color: var(--primary); box-shadow: 0 12px 24px rgba(15,23,42,0.18); }
         .accordion-toggle:not(.collapsed) .chevron,
         .accordion-toggle:not(.collapsed) i,
         .accordion-toggle:not(.collapsed) span { color:#fff; }
@@ -534,20 +535,78 @@
           </div>
         </div>
         <nav class="sidebar-nav">
-            {% set path = request.url.path if request and request.url else '' %}
-            {% set _segs = (path.strip('/') if path else '').split('/') %}
-            {% set _is_client_detail_page = (_segs|length == 3 and _segs[0] == 'dashboard' and _segs[1] == 'clients' and _segs[2].isdigit()) %}
-            {% set _is_client = _role_hint == 'client' %}
-            {% set _is_backoffice = _role_hint == 'back_office' %}
-            {% set _is_dirigeant = _role_hint == 'dirigeant' %}
-            {% set _is_directeur = _role_hint == 'directeur_commercial' %}
-            {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
-            {% set _is_commercial = _role_hint == 'commercial' %}
-            {% if _is_client_detail_page %}
-            <div id="sidebarNavClient" data-menu="client">
-              <div class="sidebar-section-title">Client</div>
-              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(false); }catch(e){}; return false;">
-                <i class="fa-solid fa-arrow-left"></i>Retour
+	            {% set path = request.url.path if request and request.url else '' %}
+	            {% set _segs = (path.strip('/') if path else '').split('/') %}
+	            {% set _is_client_detail_page = (_segs|length == 3 and _segs[0] == 'dashboard' and _segs[1] == 'clients' and _segs[2].isdigit()) %}
+	            {% set _is_affaire_detail_page = (_segs|length == 3 and _segs[0] == 'dashboard' and _segs[1] == 'affaires' and _segs[2].isdigit()) %}
+	            {% set _is_client = _role_hint == 'client' %}
+	            {% set _is_backoffice = _role_hint == 'back_office' %}
+	            {% set _is_dirigeant = _role_hint == 'dirigeant' %}
+	            {% set _is_directeur = _role_hint == 'directeur_commercial' %}
+	            {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
+	            {% set _is_commercial = _role_hint == 'commercial' %}
+	            {% if _is_affaire_detail_page %}
+	            <div id="sidebarNavAffaire" data-menu="affaire">
+	              <div class="sidebar-section-title">Affaire</div>
+	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireMenu && window.toggleSidebarAffaireMenu(false); }catch(e){}; return false;">
+	                <i class="fa-solid fa-arrow-left"></i>Retour au menu principal
+	              </a>
+	              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('inv') : true; }catch(e){}">
+	                <i class="fa-solid fa-chart-line"></i>Investissements
+	              </a>
+	              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('esg') : true; }catch(e){}">
+	                <i class="fa-solid fa-leaf"></i>Suivi ESG
+	              </a>
+	              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('avis') : true; }catch(e){}">
+	                <i class="fa-solid fa-file-contract"></i>Avis d'opération
+	              </a>
+		              <a href="javascript:void(0)" class="client-hide" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('risk') : true; }catch(e){}">
+		                <i class="fa-solid fa-triangle-exclamation"></i>SRRI/Risque
+		              </a>
+		              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireGraphsTree && window.toggleSidebarAffaireGraphsTree(); return false; }catch(e){}">
+		                <i class="fa-solid fa-chart-pie"></i>Graphiques
+		              </a>
+		              <div class="sidebar-subtree" id="sidebarAffaireGraphsTree" aria-label="Sous-menu graphiques affaire">
+		                <a href="javascript:void(0)" onclick="try{ return window.openAffaireGraphsSub ? window.openAffaireGraphsSub('evolution') : true; }catch(e){}">
+		                  <i class="fa-solid fa-chart-line"></i>Evolution de l'investissement
+		                </a>
+		                <a href="javascript:void(0)" onclick="try{ return window.openAffaireGraphsSub ? window.openAffaireGraphsSub('perf') : true; }catch(e){}">
+		                  <i class="fa-solid fa-chart-area"></i>Performances et risques
+		                </a>
+		                <a href="javascript:void(0)" onclick="try{ return window.openAffaireGraphsSub ? window.openAffaireGraphsSub('comparatif') : true; }catch(e){}">
+		                  <i class="fa-solid fa-chart-pie"></i>Comparatif / offre
+		                </a>
+		              </div>
+		              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('report') : true; }catch(e){}">
+		                <i class="fa-solid fa-file-lines"></i>Reporting annuel
+		              </a>
+		              <a href="javascript:void(0)" onclick="try{ window.openAffMsgs && window.openAffMsgs('reg'); return false; }catch(e){}">
+		                <i class="fa-solid fa-envelope"></i>Messages réglementaires
+		              </a>
+		              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireTasksTree && window.toggleSidebarAffaireTasksTree(); return false; }catch(e){}">
+		                <i class="fa-solid fa-list-check"></i>Tâches
+		              </a>
+		              <div class="sidebar-subtree" id="sidebarAffaireTasksTree" aria-label="Sous-menu tâches affaire">
+		                <a href="javascript:void(0)" onclick="try{ window.openAffTaskPage && window.openAffTaskPage(); return false; }catch(e){}">
+		                  <i class="fa-solid fa-plus"></i>Créer
+		                </a>
+		                <a href="javascript:void(0)" onclick="try{ window.openAffTasksListPage && window.openAffTasksListPage(); return false; }catch(e){}">
+		                  <i class="fa-solid fa-eye"></i>Voir
+		                </a>
+		              </div>
+		              <a href="javascript:void(0)" onclick="try{ window.generateAffaireSynthese && window.generateAffaireSynthese(); return false; }catch(e){}">
+		                <i class="fa-solid fa-file-pdf"></i>Synthèse
+		              </a>
+		              <a href="javascript:void(0)" onclick="try{ window.openAffAdminGroups && window.openAffAdminGroups(); return false; }catch(e){}">
+		                <i class="fa-solid fa-gear"></i>Groupe
+		              </a>
+		            </div>
+		            {% endif %}
+	            {% if _is_client_detail_page %}
+	            <div id="sidebarNavClient" data-menu="client">
+	              <div class="sidebar-section-title">Client</div>
+	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(false); }catch(e){}; return false;">
+	                <i class="fa-solid fa-arrow-left"></i>Retour
               </a>
               <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteTree && window.toggleSidebarConformiteTree(); }catch(e){}; return false;">
                 <i class="fa-solid fa-scale-balanced"></i>Conformité
@@ -726,7 +785,46 @@
               {% if not _is_responsable_bo %}
               <div>
                 <div class="sidebar-section-title">Pilotage</div>
-                <a href="/dashboard/" class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"><i class="fa-solid fa-house"></i>Tableau de bord</a>
+                <a
+                  href="/dashboard/"
+                  class="{% if path == '/dashboard/' or path == '/dashboard' %}active{% endif %}"
+                  onclick="try{ if(window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){ window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(); return false; } }catch(e){}"
+                ><i class="fa-solid fa-house"></i>Tableau de bord</a>
+                <div
+                  class="sidebar-subtree"
+                  id="sidebarDashboardTree"
+                  aria-label="Sous-menu tableau de bord"
+                  style="{% if path == '/dashboard/' or path == '/dashboard' %}display:block{% endif %}"
+                >
+                  <a href="javascript:void(0)" onclick="try{ window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(); return false; }catch(e){}">
+                    <i class="fa-solid fa-shield-halved"></i>Risques
+                  </a>
+                  <div class="sidebar-subtree" id="sidebarDashboardRisksTree" aria-label="Sous-menu risques (dashboard)">
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('complianceSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-scale-balanced"></i>Conformité
+                    </a>
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('rcpSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-list-check"></i>Requis
+                    </a>
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('csrdSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-leaf"></i>CSRD
+                    </a>
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('srriSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-triangle-exclamation"></i>Risque
+                    </a>
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('clienteleSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-users"></i>Clientèle
+                    </a>
+                    <a href="javascript:void(0)" onclick="try{ window.openDashboardRiskSectionFromSidebar && window.openDashboardRiskSectionFromSidebar('contractsSection'); return false; }catch(e){}">
+                      <i class="fa-solid fa-file-contract"></i>Contrats
+                    </a>
+                  </div>
+                  {% if not _is_client and not _is_backoffice %}
+                  <a href="javascript:void(0)" onclick="try{ window.openDashboardTabFromSidebar && window.openDashboardTabFromSidebar('groups'); return false; }catch(e){}">
+                    <i class="fa-solid fa-layer-group"></i>Groupes
+                  </a>
+                  {% endif %}
+                </div>
               </div>
               {% endif %}
               {% if not _is_client %}
@@ -745,7 +843,33 @@
                 <a href="/dashboard/allocations" class="{% if path.startswith('/dashboard/allocations') %}active{% endif %}"><i class="fa-solid fa-coins"></i>Offres</a>
                 {% endif %}
                 <a href="/dashboard/documents" class="{% if path.startswith('/dashboard/documents') %}active{% endif %}"><i class="fa-solid fa-file"></i>Documents</a>
-                <a href="/dashboard/taches" class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"><i class="fa-solid fa-list-check"></i>Tâches</a>
+                <a
+                  href="/dashboard/taches"
+                  class="{% if path.startswith('/dashboard/taches') %}active{% endif %}"
+                  onclick="try{ if(window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/taches')){ window.toggleSidebarMainTasksTree && window.toggleSidebarMainTasksTree(); return false; } }catch(e){}"
+                ><i class="fa-solid fa-list-check"></i>Tâches</a>
+                <div
+                  class="sidebar-subtree"
+                  id="sidebarMainTasksTree"
+                  aria-label="Sous-menu tâches"
+                  style="{% if path.startswith('/dashboard/taches') %}display:block{% endif %}"
+                >
+                  <a href="/dashboard/taches?open=summary" onclick="try{ return window.openTasksSection ? window.openTasksSection('summary','tasksSummaryCard') : true; }catch(e){}">
+                    <i class="fa-solid fa-list-check"></i>Synthèse
+                  </a>
+                  <a href="/dashboard/taches?open=create" onclick="try{ return window.openTasksSection ? window.openTasksSection('create','tacheFormCard') : true; }catch(e){}">
+                    <i class="fa-solid fa-pen-to-square"></i>Définir une tâche
+                  </a>
+                  <a href="/dashboard/taches?open=list" onclick="try{ return window.openTasksSection ? window.openTasksSection('list','tasksListCard') : true; }catch(e){}">
+                    <i class="fa-solid fa-list"></i>Liste des tâches
+                  </a>
+                  <a href="/dashboard/taches?open=calendar" onclick="try{ return window.openTasksSection ? window.openTasksSection('calendar','calendarCard') : true; }catch(e){}">
+                    <i class="fa-solid fa-calendar"></i>Calendrier
+                  </a>
+                  <a href="/dashboard/taches?open=reclam" onclick="try{ return window.openTasksSection ? window.openTasksSection('reclam','reclamCard') : true; }catch(e){}">
+                    <i class="fa-solid fa-table-list"></i>Livre des réclamations
+                  </a>
+                </div>
               </div>
               {% endif %}
               {% if not _is_client and not _is_backoffice and not _is_commercial %}
@@ -1351,23 +1475,121 @@
         });
       })();
 
-      // Client detail: replace the main sidebar menu with a quick-action submenu.
-      (function(){
-        function apply(mode){
-          var navClient = document.getElementById('sidebarNavClient');
-          var navMain = document.getElementById('sidebarNavMain');
-          if (!navClient || !navMain) return; // not on client detail pages
-          var useClient = (mode !== 'main');
-          navClient.style.display = useClient ? '' : 'none';
-          navMain.style.display = useClient ? 'none' : '';
-        }
-        window.toggleSidebarClientMenu = function(openClient){
-          apply(openClient ? 'client' : 'main');
-        };
-        // Always default to the client submenu when landing on a client detail page.
-        // (Keeps the existing sidebar open/close mechanics; only swaps the menu content.)
-        apply('client');
-      })();
+	      // Client detail: replace the main sidebar menu with a quick-action submenu.
+	      (function(){
+	        function apply(mode){
+	          var navClient = document.getElementById('sidebarNavClient');
+	          var navMain = document.getElementById('sidebarNavMain');
+	          if (!navClient || !navMain) return; // not on client detail pages
+	          var useClient = (mode !== 'main');
+	          navClient.style.display = useClient ? '' : 'none';
+	          navMain.style.display = useClient ? 'none' : '';
+	        }
+	        window.toggleSidebarClientMenu = function(openClient){
+	          apply(openClient ? 'client' : 'main');
+	        };
+	        // Always default to the client submenu when landing on a client detail page.
+	        // (Keeps the existing sidebar open/close mechanics; only swaps the menu content.)
+	        apply('client');
+	      })();
+
+	      // Affaire detail: replace the main sidebar menu with a quick-action submenu.
+	      (function(){
+	        function apply(mode){
+	          var navAffaire = document.getElementById('sidebarNavAffaire');
+	          var navMain = document.getElementById('sidebarNavMain');
+	          if (!navAffaire || !navMain) return; // not on affaire detail pages
+	          var useAffaire = (mode !== 'main');
+	          navAffaire.style.display = useAffaire ? '' : 'none';
+	          navMain.style.display = useAffaire ? 'none' : '';
+	        }
+	        window.toggleSidebarAffaireMenu = function(openAffaire){
+	          apply(openAffaire ? 'affaire' : 'main');
+	        };
+	        window.ensureAffaireDetailSectionOpen = function(key){
+	          var k = String(key || '').toLowerCase();
+	          var map = {
+	            inv: { toggleId: 'invToggle', sectionId: 'invSection' },
+	            investissements: { toggleId: 'invToggle', sectionId: 'invSection' },
+	            esg: { toggleId: 'esgToggle', sectionId: 'esgSection' },
+	            avis: { toggleId: 'avisToggle', sectionId: 'avisSection' },
+	            risk: { toggleId: 'riskToggle', sectionId: null }, // modal
+	            graphs: { toggleId: 'graphsToggle', sectionId: 'graphsSection' },
+	            graph: { toggleId: 'graphsToggle', sectionId: 'graphsSection' },
+	            report: { toggleId: 'reportToggle', sectionId: 'reportSection' },
+	            reporting: { toggleId: 'reportToggle', sectionId: 'reportSection' },
+	          };
+	          var entry = map[k] || { toggleId: key, sectionId: null };
+	          try {
+	            var section = entry.sectionId ? document.getElementById(entry.sectionId) : null;
+	            var toggle = entry.toggleId ? document.getElementById(entry.toggleId) : null;
+	            if (section && section.style.display !== 'none') {
+	              return true; // already open
+	            }
+	            if (toggle && typeof toggle.click === 'function') {
+	              toggle.click();
+	              return true;
+	            }
+	          } catch(e){}
+	          return false;
+	        };
+	        window.toggleSidebarAffaireGraphsTree = function(forceOpen){
+	          var tree = document.getElementById('sidebarAffaireGraphsTree');
+	          if (!tree) return;
+	          var isVisible = tree.style.display === 'block';
+	          var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	          tree.style.display = willOpen ? 'block' : 'none';
+	          if (willOpen){
+	            try { window.ensureAffaireDetailSectionOpen && window.ensureAffaireDetailSectionOpen('graphs'); } catch(e){}
+	          }
+	          return false;
+	        };
+	        window.openAffaireGraphsSub = function(key){
+	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	          // Open graphs section and then open the requested internal block exclusively.
+	          try { window.ensureAffaireDetailSectionOpen && window.ensureAffaireDetailSectionOpen('graphs'); } catch(e){}
+	          window.toggleSidebarAffaireGraphsTree && window.toggleSidebarAffaireGraphsTree(true);
+	          setTimeout(function(){
+	            try {
+	              if (window.openAffaireGraphsPanel){
+	                window.openAffaireGraphsPanel(key);
+	              }
+	            } catch(e){}
+	          }, 50);
+	          return false;
+	        };
+	        window.openAffaireDetailSection = function(key){
+	          var map = {
+	            inv: 'invToggle',
+	            investissements: 'invToggle',
+	            esg: 'esgToggle',
+	            avis: 'avisToggle',
+	            risk: 'riskToggle',
+	            graphs: 'graphsToggle',
+	            graph: 'graphsToggle',
+	            report: 'reportToggle',
+	            reporting: 'reportToggle',
+	          };
+	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	          try {
+	            var id = map[String(key || '').toLowerCase()] || key;
+	            var el = id ? document.getElementById(id) : null;
+	            if (el && typeof el.click === 'function') { el.click(); }
+	          } catch(e){}
+	          return false;
+	        };
+	        // Always default to the affaire submenu when landing on an affaire detail page.
+	        apply('affaire');
+	        // Affaire: Tasks subtree
+	        window.toggleSidebarAffaireTasksTree = function(forceOpen){
+	          var tree = document.getElementById('sidebarAffaireTasksTree');
+	          if (!tree) return;
+	          var isVisible = tree.style.display === 'block';
+	          var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	          tree.style.display = willOpen ? 'block' : 'none';
+	          return false;
+	        };
+	      })();
 
       // Client detail: Conformité tree (KYC modal + Editions PDFs)
       ;(function(){
@@ -1554,6 +1776,114 @@
           tree.style.display = isVisible ? 'none' : 'block';
         };
       })();
+
+	      // Main menu: Tâches subtree + open sections inside /dashboard/taches
+	      ;(function(){
+        window.toggleSidebarMainTasksTree = function(forceOpen){
+          var tree = document.getElementById('sidebarMainTasksTree');
+          if (!tree) return;
+          var isVisible = tree.style.display === 'block';
+          var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+          tree.style.display = willOpen ? 'block' : 'none';
+        };
+        window.openTasksSection = function(openKey, targetCard){
+          try {
+            if (window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/taches')){
+              if (typeof window.focusTaskSection === 'function' && targetCard){
+                window.focusTaskSection(targetCard);
+                // Always scroll to top when navigating via the sidebar tasks submenu.
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+                return false;
+              }
+            }
+          } catch(e){}
+          try {
+            var url = '/dashboard/taches?open=' + encodeURIComponent(openKey || '');
+            window.location.href = url;
+            return false;
+          } catch(e){}
+          return true;
+        };
+        document.addEventListener('DOMContentLoaded', function(){
+          try {
+            if (window.location && window.location.pathname && window.location.pathname.startsWith('/dashboard/taches')){
+              window.toggleSidebarMainTasksTree && window.toggleSidebarMainTasksTree(true);
+            }
+          } catch(e){}
+        });
+	      })();
+
+	      // Main menu: Tableau de bord subtree + deep-links (Risques/Groupes)
+	      ;(function(){
+	        window.toggleSidebarDashboardTree = function(forceOpen){
+	          var tree = document.getElementById('sidebarDashboardTree');
+	          if (!tree) return;
+	          var isVisible = tree.style.display === 'block';
+	          var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	          tree.style.display = willOpen ? 'block' : 'none';
+	        };
+	        window.toggleSidebarDashboardRisksTree = function(forceOpen){
+	          var tree = document.getElementById('sidebarDashboardRisksTree');
+	          if (!tree) return;
+	          var isVisible = tree.style.display === 'block';
+	          var willOpen = (forceOpen === true) ? true : (forceOpen === false) ? false : !isVisible;
+	          tree.style.display = willOpen ? 'block' : 'none';
+	          // Also ensure the dashboard "Risques" tab is active.
+	          try { window.openDashboardTabFromSidebar && window.openDashboardTabFromSidebar('risks'); } catch(e){}
+	          return false;
+	        };
+	        window.openDashboardTabFromSidebar = function(key){
+	          var k = String(key || '').toLowerCase();
+	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	          try {
+	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
+	              // Open subtree for convenience
+	              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
+	              if (k === 'risks'){ window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true); }
+	              if (typeof window.openDashboardTab === 'function'){
+	                window.openDashboardTab(k);
+	                return false;
+	              }
+	              var tab = document.querySelector('#dashTabs .dash-tab[data-key=\"'+k+'\"]');
+	              if (tab && typeof tab.click === 'function'){ tab.click(); return false; }
+	            }
+	          } catch(e){}
+	          try {
+	            window.location.href = '/dashboard/#' + encodeURIComponent(k);
+	            return false;
+	          } catch(e){}
+	          return true;
+	        };
+	        window.openDashboardRiskSectionFromSidebar = function(sectionId){
+	          var sid = String(sectionId || '');
+	          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+	          try {
+	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
+	              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
+	              window.toggleSidebarDashboardRisksTree && window.toggleSidebarDashboardRisksTree(true);
+	              if (typeof window.openDashboardRiskSection === 'function'){
+	                window.openDashboardRiskSection(sid);
+	                return false;
+	              }
+	              // Fallback: click the horizontal risk button if it exists.
+	              var btn = document.querySelector('.risk-toggle-row .risk-toggle[data-target=\"'+sid+'\"]');
+	              if (btn && typeof btn.click === 'function'){ btn.click(); return false; }
+	            }
+	          } catch(e){}
+	          try {
+	            window.location.href = '/dashboard/?open_risk=' + encodeURIComponent(sid) + '#risksSection';
+	            return false;
+	          } catch(e){}
+	          return true;
+	        };
+	        document.addEventListener('DOMContentLoaded', function(){
+	          try {
+	            if (window.location && (window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/')){
+	              window.toggleSidebarDashboardTree && window.toggleSidebarDashboardTree(true);
+	            }
+	          } catch(e){}
+	        });
+	      })();
 
       // Convert ISO datetimes to Europe/Paris (UTC+2 or +1 with DST) on the client
       (function () {
