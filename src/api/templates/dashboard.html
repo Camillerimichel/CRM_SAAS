@@ -267,24 +267,26 @@
   body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
 </style>
 <!-- Tabs principaux -->
-<div class="dash-tabs" id="dashTabs">
+<div class="dash-tabs" id="dashTabs" style="display:none;">
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
   <button class="dash-tab client-hide backoffice-hide" data-key="groups" data-target="groupsSection"><i class="fa-solid fa-layer-group"></i> Groupes</button>
 </div>
 
   <style>
     /* Barre horizontale pour Risques */
-    .risk-toggle-row {
-      display:flex;
-      gap:8px;
-      align-items:stretch;
-      flex-wrap:nowrap;
-    overflow-x:auto;
-    padding:8px 0 10px;
-    margin:8px auto 12px auto;
-    max-width:1100px;
-    box-sizing:border-box;
-  }
+	    .risk-toggle-row {
+	      display:flex;
+	      gap:8px;
+	      align-items:stretch;
+	      flex-wrap:nowrap;
+	    overflow-x:auto;
+	    padding:8px 0 10px;
+	    margin:8px auto 12px auto;
+	    max-width:1100px;
+	    box-sizing:border-box;
+	    /* Remplacé par le sous-menu sidebar (Tableau de bord > Risques) */
+	    display:none;
+	  }
   .risk-toggle-row .risk-toggle {
     flex:1 1 0;
     min-width:160px;
@@ -1448,7 +1450,7 @@
       if (t){ t.style.display = 'none'; }
     });
 
-    function show(key, doScroll){
+	    function show(key, doScroll){
       const g = getGroupByKey(key);
       if (!g) return;
       groups.forEach(item => {
@@ -1489,13 +1491,18 @@
         // Reste en haut : on évite tout scroll automatique pour ne pas décaler la vue
         window.scrollTo({ top: 0, behavior: 'instant' });
       }
-    }
+	    }
 
-    function detectInitialKey(){
-      const hash = (window.location.hash || '').replace('#','');
-      if (hash){
-        const match = getGroupByTarget(hash) || getGroupByKey(hash);
-        if (match) return match.key;
+	    // Expose helper so the sidebar can open tabs without duplicating logic.
+	    window.openDashboardTab = function(key){
+	      try { show(String(key || '').toLowerCase(), true); } catch(e){}
+	    };
+
+	    function detectInitialKey(){
+	      const hash = (window.location.hash || '').replace('#','');
+	      if (hash){
+	        const match = getGroupByTarget(hash) || getGroupByKey(hash);
+	        if (match) return match.key;
     }
     const params = new URLSearchParams(window.location.search || '');
     if (params.has('finance_date') || params.has('finance_rh') || params.has('finance_valo')){
@@ -1511,10 +1518,10 @@
       });
     });
 
-    // Initialisation
-    const initialKey = detectInitialKey();
-    show(initialKey, false);
-  })();
+	    // Initialisation
+	    const initialKey = detectInitialKey();
+	    show(initialKey, false);
+	  })();
 
   // Sous-accordéons Risques / Analyse portefeuille (indépendants, ouverts via data-open)
   (function(){
@@ -1577,9 +1584,24 @@
       });
     }
     openSection('complianceSection');
+    // Expose helper so the sidebar can open sub-sections directly.
+    window.openDashboardRiskSection = function(id){
+      try { window.openDashboardTab && window.openDashboardTab('risks'); } catch(e){}
+      openSection(id);
+    };
     buttons.forEach(function(btn){
       btn.addEventListener('click', function(){ openSection(btn.getAttribute('data-target')); });
     });
+    // Deep-link support (from sidebar): /dashboard/?open_risk=srriSection#risksSection
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      var openRisk = (params.get('open_risk') || '').trim();
+      if (openRisk && sections.indexOf(openRisk) >= 0){
+        setTimeout(function(){
+          try { window.openDashboardRiskSection && window.openDashboardRiskSection(openRisk); } catch(e){}
+        }, 0);
+      }
+    } catch(e){}
   })();
 
 </script>
