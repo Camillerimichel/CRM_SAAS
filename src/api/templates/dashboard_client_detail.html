@@ -4,10 +4,10 @@
 {% block header_title %}
   {% if client %}
     <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-      <span><i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client – {{ client.prenom }} {{ client.nom }}</span>
-      <button id="contactExportBtn" type="button" class="dim-btn" style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px;">
-        <i class="fa-solid fa-file-export"></i><span>Contact</span>
-      </button>
+	      <span><i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client – {{ client.prenom }} {{ client.nom }} ({{ client_tasks_pending_count|default(0) }} tâche{% if (client_tasks_pending_count|default(0)) != 1 %}s{% endif %} en attente)</span>
+	      <button id="contactExportBtn" type="button" class="dim-btn" style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px;">
+	        <i class="fa-solid fa-file-export"></i><span>Contact</span>
+	      </button>
     </span>
   {% else %}
     <i class="fa-solid fa-users" style="margin-right:8px;"></i>Suivi client
@@ -1480,9 +1480,11 @@ function generateClientSynthese(){
   if (typeof window.showGlobalLoader === 'function'){
     window.showGlobalLoader('Génération du PDF…');
   }
-  const url = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
-  // Download in same tab to avoid popup/streaming issues in some browsers.
-  window.location.href = url;
+  var urlInline = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID) + '&inline=1';
+  var urlDl = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
+  urlInline = appendMarkers(urlInline);
+  urlDl = appendMarkers(urlDl);
+  openPdfViewer({ title: 'Synthèse', inlineUrl: urlInline, downloadUrl: urlDl });
   const clearLoader = function(){
     if (typeof window.hideGlobalLoader === 'function'){
       window.hideGlobalLoader();
@@ -1587,6 +1589,25 @@ function generateClientSynthese(){
       } catch (e) { console.error(e); }
     }
   </script>
+</div>
+
+<!-- Visualiseur PDF (DER / Mission / Adéquation / Synthèse) -->
+<div id="pdfViewerModal" class="modal-overlay" onclick="if(event.target===this) closePdfViewer()">
+  <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
+    <div class="modal-header">
+      <h3 id="pdfViewerTitle" style="display:flex; align-items:center; gap:8px; margin:0;">
+        <i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>Document</span>
+      </h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a id="pdfViewerOpenBtn" class="btn btn-secondary" href="#" target="_blank" rel="noopener">Ouvrir</a>
+        <a id="pdfViewerDownloadBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">Télécharger</a>
+        <button class="modal-close" onclick="closePdfViewer()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" style="padding:0; flex:1 1 auto;">
+      <iframe id="pdfViewerFrame" src="about:blank" style="width:100%; height:100%; border:0;" title="Aperçu PDF"></iframe>
+    </div>
+  </div>
 </div>
 
 
@@ -4752,13 +4773,63 @@ function openClientMsgs(kind){
 
 <!-- Modales Conformité (détail) -->
   <div class="modal-overlay" id="confConnaissanceDetailModal" onclick="if(event.target===this) closeConfConnaissanceDetail()">
-    <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
-      <div class="modal-header"><h3><i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client</h3><button class="modal-close" onclick="closeConfConnaissanceDetail()">✕</button></div>
-      <div class="modal-body" style="padding:0; flex:1 1 auto;">
-        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}" style="width:100%; height:100%; border:0;"></iframe>
-      </div>
-    </div>
-  </div>
+	    <div class="modal-card" style="width:960px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
+	      <style>
+	        /* Barre SRRI (bleu -> vert -> orange -> rouge) dans l'entête de la modale */
+	        #confConnaissanceDetailModal .modal-header { gap:10px; }
+	        #confConnaissanceDetailModal .modal-header h3 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+	        #confConnaissanceHeaderSrri { display:none; align-items:center; gap:8px; margin-left:auto; }
+	        #confConnaissanceHeaderSrriPill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
+	        #confConnaissanceHeaderSrriProgress {
+	          width: 120px;
+	          height: 9px;
+	          border-radius: 999px;
+	          border: 1px solid #d7dce9;
+	          background: linear-gradient(90deg, #2563eb 0%, #16a34a 40%, #f59e0b 70%, #ef4444 100%);
+	          position: relative;
+	          overflow: hidden;
+	        }
+	        #confConnaissanceHeaderSrriProgress::after{
+	          content:'';
+	          position:absolute;
+	          inset:0;
+	          background: repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0, rgba(255,255,255,0.0) calc((100%/7) - 1px), rgba(255,255,255,0.55) calc((100%/7) - 1px), rgba(255,255,255,0.55) calc(100%/7));
+	          pointer-events:none;
+	        }
+	        #confConnaissanceHeaderSrriMarker{
+	          position:absolute;
+	          top:-4px;
+	          height: 17px;
+	          width: 2px;
+	          background: #111827;
+	          border-radius: 2px;
+	          left: var(--srri-pos, 0%);
+	          transform: translateX(-50%);
+	          box-shadow: 0 0 0 2px rgba(255,255,255,0.7);
+	        }
+	      </style>
+	      <div class="modal-header">
+	        <h3>
+	          <i class="fa-solid fa-user-check" style="margin-right:8px;"></i>Connaissance client
+	          {% set _niv = (risque_latest.niveau_risque if risque_latest and risque_latest.niveau_risque else ('Niveau ' ~ risque_latest.niveau_id if risque_latest and risque_latest.niveau_id is not none else None)) %}
+	          {% set _srri = (client_srri if client_srri is not none else current_srri) %}
+	          <span id="confConnaissanceTitleMeta" class="muted" style="font-size:0.95rem; font-weight:600; {% if not (_niv or _srri is not none) %}display:none;{% endif %}">
+	            ({% if _niv %}{{ _niv }}{% endif %}{% if _niv and _srri is not none %} – {% endif %}{% if _srri is not none %}SRRI {{ _srri }}{% endif %})
+	          </span>
+	        </h3>
+	        <div id="confConnaissanceHeaderSrri" style="{% if _srri is not none %}display:flex;{% endif %}">
+	          <span id="confConnaissanceHeaderSrriPill">{% if _srri is not none %}SRRI {{ _srri }}{% else %}SRRI —{% endif %}</span>
+	          <span id="confConnaissanceHeaderSrriProgress" aria-label="Niveau SRRI" style="{% if _srri is not none %}--srri-pos: {{ (((_srri|int) - 1) / 6) * 100 }}%;{% endif %}">
+	            <span id="confConnaissanceHeaderSrriMarker" style="{% if _srri is none %}display:none;{% endif %}"></span>
+	          </span>
+	        </div>
+	        <button class="modal-close" onclick="closeConfConnaissanceDetail()">✕</button>
+	      </div>
+	      <div class="modal-body" style="padding:0; flex:1 1 auto;">
+	        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}" style="width:100%; height:100%; border:0;"></iframe>
+	      </div>
+	    </div>
+	  </div>
   <div class="modal-overlay" id="confEerDetailModal" onclick="if(event.target===this) this.style.display='none'">
   <div class="modal-card" style="width:760px; max-width:96vw;">
     <div class="modal-header">
@@ -5238,22 +5309,83 @@ function openClientMsgs(kind){
     function closeConfMain(){ var m=document.getElementById('confMainModal'); if(m) m.style.display='none'; }
     // Open modals (exclusive)
     function __showOverlay(id){ try{ document.querySelectorAll('.modal-overlay').forEach(function(el){ el.style.display='none'; }); }catch(e){} var m=document.getElementById(id); if(m) m.style.display='flex'; }
-    function openConfConnaissanceDetail(openKey){
-      try {
-        // Force reload even if the user re-opens the modal (Safari can be aggressive with iframe cache).
-        var key = (openKey || 'knowledge');
-        var iframe = document.querySelector('#confConnaissanceDetailModal iframe');
-        if (iframe){
-          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=" + encodeURIComponent(key) + "&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
-        }
-      } catch(e){}
-      __showOverlay('confConnaissanceDetailModal');
-    }
-    function closeConfConnaissanceDetail(){
-      var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
-      var la = document.getElementById('confAdequationDetailModal');
-      if (la && la.style.display === 'flex'){
-        var btn = document.getElementById('laRefreshBtn');
+	    function openConfConnaissanceDetail(openKey){
+	      try {
+	        // Force reload even if the user re-opens the modal (Safari can be aggressive with iframe cache).
+	        var key = (openKey || 'knowledge');
+	        var iframe = document.querySelector('#confConnaissanceDetailModal iframe');
+	        if (iframe){
+	          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=" + encodeURIComponent(key) + "&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
+	        }
+	      } catch(e){}
+	      __showOverlay('confConnaissanceDetailModal');
+	    }
+
+	    // Mise à jour dynamique du titre "Connaissances financières" depuis l'iframe (postMessage)
+	    (function(){
+	      function setConfConnaissanceSrriProgress(srri){
+	        try{
+	          var wrap = document.getElementById('confConnaissanceHeaderSrri');
+	          var pill = document.getElementById('confConnaissanceHeaderSrriPill');
+	          var bar = document.getElementById('confConnaissanceHeaderSrriProgress');
+	          var marker = document.getElementById('confConnaissanceHeaderSrriMarker');
+	          if (!wrap || !bar || !marker) return;
+	          if (!srri || !isFinite(srri)){
+	            wrap.style.display = 'none';
+	            marker.style.display = 'none';
+	            if (pill) pill.textContent = 'SRRI —';
+	            bar.style.setProperty('--srri-pos', '0%');
+	            bar.setAttribute('aria-label', 'Niveau SRRI indisponible');
+	            return;
+	          }
+	          var clamped = Math.max(1, Math.min(7, Number(srri)));
+	          var pos = ((clamped - 1) / 6) * 100;
+	          wrap.style.display = 'flex';
+	          if (pill) pill.textContent = 'SRRI ' + clamped;
+	          bar.style.setProperty('--srri-pos', pos.toFixed(2) + '%');
+	          bar.setAttribute('aria-label', 'Niveau SRRI ' + clamped + ' sur 7');
+	          marker.style.display = '';
+	        }catch(e){}
+	      }
+	      function setConfConnaissanceTitleMeta(text){
+	        try{
+	          var el = document.getElementById('confConnaissanceTitleMeta');
+	          if (!el) return;
+	          var t = (text || '').trim();
+	          if (!t || t === '—' || t === '-'){
+	            el.style.display = 'none';
+	            el.textContent = '';
+	            setConfConnaissanceSrriProgress(null);
+	            return;
+	          }
+	          el.style.display = '';
+	          el.textContent = t.startsWith('(') ? t : ('(' + t + ')');
+	        }catch(e){}
+	      }
+	      window.addEventListener('message', function(ev){
+	        try{
+	          if (!ev || ev.origin !== window.location.origin) return;
+	          var data = ev.data || {};
+	          if (!data || data.type !== 'kyc_risk_title') return;
+	          // Attendu: {type:'kyc_risk_title', calcLabel:'Prudente', srriLabel:'SRRI 3'}
+	          var calc = (data.calcLabel || '').trim();
+	          var srri = (data.srriLabel || '').trim();
+	          if (srri && !srri.toUpperCase().startsWith('SRRI')) srri = 'SRRI ' + srri;
+	          var parts = [];
+	          if (calc && calc !== '—') parts.push(calc);
+	          if (srri && srri !== '—') parts.push(srri);
+	          setConfConnaissanceTitleMeta(parts.join(' – '));
+	          // Barre SRRI dans le titre
+	          var m = srri ? String(srri).match(/(\\d+)/) : null;
+	          setConfConnaissanceSrriProgress(m ? Number(m[1]) : null);
+	        }catch(e){}
+	      });
+	    })();
+	    function closeConfConnaissanceDetail(){
+	      var m=document.getElementById('confConnaissanceDetailModal'); if(m) m.style.display='none';
+	      var la = document.getElementById('confAdequationDetailModal');
+	      if (la && la.style.display === 'flex'){
+	        var btn = document.getElementById('laRefreshBtn');
         if (btn){ btn.click(); }
       }
     }
@@ -5281,6 +5413,65 @@ function openClientMsgs(kind){
       setTimeout(function(){ try{ document.body.removeChild(link); }catch(e){} }, 1000);
     }
 
+    function __pdfNoCache(url){
+      try{
+        if(!url) return url;
+        var u = new URL(url, window.location.origin);
+        u.searchParams.set('t', String(Date.now()));
+        return u.toString();
+      }catch(e){
+        return url + (String(url).indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+      }
+    }
+    function openPdfViewer(options){
+      try{
+        var m = document.getElementById('pdfViewerModal');
+        var frame = document.getElementById('pdfViewerFrame');
+        var titleEl = document.getElementById('pdfViewerTitle');
+        var openBtn = document.getElementById('pdfViewerOpenBtn');
+        var dlBtn = document.getElementById('pdfViewerDownloadBtn');
+        if (!m || !frame) return;
+        var title = (options && options.title) ? String(options.title) : 'Document';
+        var inlineUrl = (options && options.inlineUrl) ? String(options.inlineUrl) : '';
+        var downloadUrl = (options && options.downloadUrl) ? String(options.downloadUrl) : '';
+
+        if (titleEl){
+          titleEl.innerHTML = '<i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>' + title.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+        }
+        if (openBtn){
+          openBtn.href = inlineUrl || '#';
+          openBtn.style.display = inlineUrl ? '' : 'none';
+        }
+        if (dlBtn){
+          dlBtn.href = downloadUrl || inlineUrl || '#';
+          dlBtn.style.display = (downloadUrl || inlineUrl) ? '' : 'none';
+        }
+
+        try{
+          if (typeof window.showGlobalLoader === 'function'){
+            window.showGlobalLoader('Chargement du PDF…');
+          }
+        }catch(e){}
+
+        frame.onload = function(){
+          try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(e){}
+        };
+        frame.src = __pdfNoCache(inlineUrl || downloadUrl || 'about:blank');
+
+        m.style.display = 'flex';
+      }catch(e){
+        try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
+      }
+    }
+    function closePdfViewer(){
+      try{
+        var m = document.getElementById('pdfViewerModal');
+        var frame = document.getElementById('pdfViewerFrame');
+        if (m) m.style.display = 'none';
+        if (frame) frame.src = 'about:blank';
+      }catch(e){}
+    }
+
     function generateDerPdf(options){
       try{
         var opts = {};
@@ -5297,9 +5488,11 @@ function openClientMsgs(kind){
         if (typeof window.showGlobalLoader === 'function'){
           window.showGlobalLoader('Génération du PDF…');
         }
-        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/der/pdf';
-        url = appendMarkers(url);
-        triggerPdfDownload(url);
+        var urlInline = '/dashboard/clients/' + encodeURIComponent(clientId) + '/der/pdf?inline=1';
+        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/der/pdf';
+        urlInline = appendMarkers(urlInline);
+        urlDl = appendMarkers(urlDl);
+        openPdfViewer({ title: 'DER', inlineUrl: urlInline, downloadUrl: urlDl });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();
@@ -5330,9 +5523,11 @@ function openClientMsgs(kind){
         if (typeof window.showGlobalLoader === 'function'){
           window.showGlobalLoader('Génération du PDF…');
         }
-        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/mission/pdf';
-        url = appendMarkers(url);
-        triggerPdfDownload(url);
+        var urlInline = '/dashboard/clients/' + encodeURIComponent(clientId) + '/mission/pdf?inline=1';
+        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/mission/pdf';
+        urlInline = appendMarkers(urlInline);
+        urlDl = appendMarkers(urlDl);
+        openPdfViewer({ title: 'Lettre de mission', inlineUrl: urlInline, downloadUrl: urlDl });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();
@@ -5363,9 +5558,11 @@ function openClientMsgs(kind){
         if (typeof window.showGlobalLoader === 'function'){
           window.showGlobalLoader('Génération du PDF…');
         }
-        var url = '/dashboard/clients/' + encodeURIComponent(clientId) + '/adequation/pdf';
-        url = appendMarkers(url);
-        triggerPdfDownload(url);
+        var urlInline = '/dashboard/clients/' + encodeURIComponent(clientId) + '/adequation/pdf?inline=1';
+        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/adequation/pdf';
+        urlInline = appendMarkers(urlInline);
+        urlDl = appendMarkers(urlDl);
+        openPdfViewer({ title: 'Adéquation', inlineUrl: urlInline, downloadUrl: urlDl });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();

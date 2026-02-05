@@ -182,19 +182,20 @@
 	      </table>
 	    </div>
 
-	    <div id="clientsSelectionBar" aria-live="polite">
-	      <div class="bar">
-	        <div class="count" id="clientsSelectedCount">0 client sélectionné</div>
-	        <label for="clientsGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
-	        <select id="clientsGroupSelect" disabled>
-	          <option value="">Chargement des groupes…</option>
-	        </select>
-	        <button type="button" class="btn btn-primary" id="clientsSelectionAddBtn">Ajouter</button>
-	        <button type="button" class="btn btn-danger" id="clientsSelectionRemoveBtn">Retirer</button>
-	        <button type="button" class="btn btn-secondary" id="clientsSelectionPurgeBtn">Purge</button>
-	        <div class="status" id="clientsSelectionStatus"></div>
-	      </div>
-	    </div>
+		    <div id="clientsSelectionBar" aria-live="polite">
+		      <div class="bar">
+		        <div class="count" id="clientsSelectedCount">0 client sélectionné</div>
+		        <label for="clientsGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
+		        <select id="clientsGroupSelect" disabled>
+		          <option value="">Chargement des groupes…</option>
+		        </select>
+		        <button type="button" class="btn btn-primary" id="clientsSelectionAddBtn">Ajouter</button>
+		        <button type="button" class="btn btn-danger" id="clientsSelectionRemoveBtn">Retirer</button>
+		        <button type="button" class="btn btn-primary" id="clientsSelectionTasksBtn">Tâches</button>
+		        <button type="button" class="btn btn-secondary" id="clientsSelectionPurgeBtn">Purge</button>
+		        <div class="status" id="clientsSelectionStatus"></div>
+		      </div>
+		    </div>
 
     {% set cur_page = page|default(1) %}
     {% set max_pages = total_pages|default(1) %}
@@ -222,13 +223,14 @@
 
 <script>
 $(document).ready(function () {
-    const groupedTasksCfgClients = {
-        scope: 'clients',
-        taskTypes: {{ grouped_task_types | tojson }},
-        responsables: {{ responsables | tojson }},
-        hasServerFilter: {{ 'true' if (total_clients_filtered|default(0)) < (total_clients|default(0)) else 'false' }},
-        groupFilterActive: {{ 'true' if group_filter_label else 'false' }}
-    };
+	    const groupedTasksCfgClients = {
+	        scope: 'clients',
+	        taskTypes: {{ grouped_task_types | tojson }},
+	        responsables: {{ responsables | tojson }},
+	        hasServerFilter: {{ 'true' if (total_clients_filtered|default(0)) < (total_clients|default(0)) else 'false' }},
+	        groupFilterActive: {{ 'true' if group_filter_label else 'false' }},
+	        groupLabel: {{ group_filter_label | tojson if group_filter_label else 'null' }}
+	    };
     const actionsBar = document.getElementById('clientsGroupActions');
     const btnGrouped = document.getElementById('btnGroupedTasksClients');
 	    var table = $('#clientsTable').DataTable({
@@ -300,30 +302,55 @@ $(document).ready(function () {
         return new Set();
       }
     }
-    function saveSelected(set){
-      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set))); } catch(e){}
-    }
-    let selected = loadSelected();
-    const selBar = document.getElementById('clientsSelectionBar');
-    const selCountEl = document.getElementById('clientsSelectedCount');
-    const selStatusEl = document.getElementById('clientsSelectionStatus');
-    const selGroupSelect = document.getElementById('clientsGroupSelect');
-    const addBtn = document.getElementById('clientsSelectionAddBtn');
-    const removeBtn = document.getElementById('clientsSelectionRemoveBtn');
-    const purgeBtn = document.getElementById('clientsSelectionPurgeBtn');
+	    function saveSelected(set){
+	      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set))); } catch(e){}
+	    }
+	    let selected = loadSelected();
+	    let lastAnchorClientId = null;
+	    const selBar = document.getElementById('clientsSelectionBar');
+	    const selCountEl = document.getElementById('clientsSelectedCount');
+	    const selStatusEl = document.getElementById('clientsSelectionStatus');
+	    const selGroupSelect = document.getElementById('clientsGroupSelect');
+	    const addBtn = document.getElementById('clientsSelectionAddBtn');
+	    const removeBtn = document.getElementById('clientsSelectionRemoveBtn');
+	    const tasksBtn = document.getElementById('clientsSelectionTasksBtn');
+	    const purgeBtn = document.getElementById('clientsSelectionPurgeBtn');
 
-    function updateSelectionUI(){
-      const count = selected.size;
-      if (selCountEl){
-        selCountEl.textContent = count + ' client' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
-      }
-      if (selBar){
-        selBar.style.display = count ? 'flex' : 'none';
-      }
-      if (addBtn) addBtn.disabled = !count;
-      if (removeBtn) removeBtn.disabled = !count;
-      if (purgeBtn) purgeBtn.disabled = !count;
-    }
+	    function pad2(n){ return String(n).padStart(2, '0'); }
+	    function formatNowFr(){
+	      const d = new Date();
+	      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+	    }
+	    function getGroupLabelForComment(){
+	      var label = groupedTasksCfgClients.groupLabel;
+	      if (!label && selGroupSelect){
+	        try {
+	          var v = selGroupSelect.value || '';
+	          if (v && selGroupSelect.selectedIndex >= 0){
+	            var opt = selGroupSelect.options[selGroupSelect.selectedIndex];
+	            var txt = opt ? (opt.textContent || '') : '';
+	            if (txt && txt.indexOf('Choisir') === -1 && txt.indexOf('Chargement') === -1){
+	              label = txt.trim();
+	            }
+	          }
+	        } catch(e){}
+	      }
+	      return label;
+	    }
+
+	    function updateSelectionUI(){
+	      const count = selected.size;
+	      if (selCountEl){
+	        selCountEl.textContent = count + ' client' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
+	      }
+	      if (selBar){
+	        selBar.style.display = count ? 'flex' : 'none';
+	      }
+	      if (addBtn) addBtn.disabled = !count;
+	      if (removeBtn) removeBtn.disabled = !count;
+	      if (tasksBtn) tasksBtn.disabled = !count;
+	      if (purgeBtn) purgeBtn.disabled = !count;
+	    }
 
     function applyRowSelection(){
       document.querySelectorAll('#clientsTable tbody tr[data-client-id]').forEach(function(tr){
@@ -341,23 +368,42 @@ $(document).ready(function () {
       return false;
     }
 
-    $('#clientsTable tbody').on('click', 'tr', function(ev){
-      try {
-        if (shouldIgnoreClick(ev)) return;
-        const tr = this;
-        const firstCell = tr.querySelector('td:first-child');
-        if (firstCell && firstCell.contains(ev.target)) return; // 1ère colonne exclue
-        const cid = tr.getAttribute('data-client-id');
-        if (!cid) return;
-        if (selected.has(String(cid))){
-          selected.delete(String(cid));
-        } else {
-          selected.add(String(cid));
-        }
-        saveSelected(selected);
-        applyRowSelection();
-      } catch(e){}
-    });
+	    $('#clientsTable tbody').on('click', 'tr', function(ev){
+	      try {
+	        if (shouldIgnoreClick(ev)) return;
+	        const tr = this;
+	        const firstCell = tr.querySelector('td:first-child');
+	        if (firstCell && firstCell.contains(ev.target)) return; // 1ère colonne exclue
+	        const cid = tr.getAttribute('data-client-id');
+	        if (!cid) return;
+	        const isShift = !!(ev && ev.shiftKey);
+	        if (isShift && lastAnchorClientId){
+	          const rows = Array.from(document.querySelectorAll('#clientsTable tbody tr[data-client-id]'));
+	          const ids = rows.map(function(r){ return r.getAttribute('data-client-id'); });
+	          const a = ids.indexOf(String(lastAnchorClientId));
+	          const b = ids.indexOf(String(cid));
+	          if (a !== -1 && b !== -1){
+	            const start = Math.min(a, b);
+	            const end = Math.max(a, b);
+	            for (let i = start; i <= end; i++){
+	              const rid = ids[i];
+	              if (rid) selected.add(String(rid));
+	            }
+	          } else {
+	            selected.add(String(cid));
+	          }
+	        } else {
+	          if (selected.has(String(cid))){
+	            selected.delete(String(cid));
+	          } else {
+	            selected.add(String(cid));
+	          }
+	        }
+	        lastAnchorClientId = String(cid);
+	        saveSelected(selected);
+	        applyRowSelection();
+	      } catch(e){}
+	    });
 
     table.on('draw', function(){
       applyRowSelection();
@@ -553,8 +599,8 @@ $(document).ready(function () {
     table.on('draw', updateGroupedButtonVisibility);
     updateGroupedButtonVisibility();
 
-    if (btnGrouped){
-      btnGrouped.addEventListener('click', function(){
+	    if (btnGrouped){
+	      btnGrouped.addEventListener('click', function(){
         try { console.info('[GroupedTasks][clients] click open'); } catch(e){}
         var ids = [];
         table.rows({ filter: 'applied' }).every(function(){
@@ -571,16 +617,41 @@ $(document).ready(function () {
           alert('Module de tâches groupées indisponible.');
           return;
         }
-        window.GroupedTasksModal.open({
-          scope: 'clients',
-          ids: ids,
-          taskTypes: groupedTasksCfgClients.taskTypes,
-          responsables: groupedTasksCfgClients.responsables,
-          filtersSummary: gatherFiltersSummary() || 'Filtres appliqués',
-          title: 'Créer des tâches groupées (clients)'
-        });
-      });
-    }
+	        window.GroupedTasksModal.open({
+	          scope: 'clients',
+	          ids: ids,
+	          taskTypes: groupedTasksCfgClients.taskTypes,
+	          responsables: groupedTasksCfgClients.responsables,
+	          filtersSummary: gatherFiltersSummary() || 'Filtres appliqués',
+	          title: 'Créer des tâches groupées (clients)',
+	          defaultComment: (getGroupLabelForComment() || 'Clients') + ' ' + formatNowFr() + ': '
+	        });
+	      });
+	    }
+
+	    if (tasksBtn){
+	      tasksBtn.addEventListener('click', function(){
+	        var ids = Array.from(selected).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+	        if (!ids.length){
+	          setStatus('Aucun client sélectionné.', true);
+	          return;
+	        }
+	        if (!window.GroupedTasksModal){
+	          alert('Module de tâches groupées indisponible.');
+	          return;
+	        }
+	        var label = getGroupLabelForComment() || 'Clients';
+	        window.GroupedTasksModal.open({
+	          scope: 'clients',
+	          ids: ids,
+	          taskTypes: groupedTasksCfgClients.taskTypes,
+	          responsables: groupedTasksCfgClients.responsables,
+	          filtersSummary: (groupedTasksCfgClients.groupLabel ? ('Groupe “' + groupedTasksCfgClients.groupLabel + '” · ') : '') + ids.length + ' client(s) sélectionné(s)',
+	          title: 'Créer des tâches — sélection clients',
+	          defaultComment: label + ' ' + formatNowFr() + ': '
+	        });
+	      });
+	    }
 
 	    window.clearClientFilters = function(){
 	      try {

@@ -20,6 +20,12 @@ from src.services.groupes import (
     soft_delete_membership,
 )
 from src.models.administration_groupe import AdministrationGroupe
+from src.models.administration_groupe_detail import AdministrationGroupeDetail
+from src.models.document_client import DocumentClient
+
+from pydantic import BaseModel
+from datetime import date as _date
+from sqlalchemy import func as _func
 
 
 router = APIRouter(prefix="/api/groupes", tags=["Groupes"])
@@ -218,6 +224,128 @@ def api_batch_memberships(payload: GroupeMembershipBatchSchema, request: Request
         "requested": len(uniq),
         "affected": affected,
     }
+
+
+class GroupeCreateFromDocumentsPayload(BaseModel):
+    nom: str
+    responsable_id: int
+    document_client_ids: list[int]
+
+
+@router.post("/create_from_documents")
+def api_create_group_from_documents(payload: GroupeCreateFromDocumentsPayload, request: Request = None, db: Session = Depends(get_db)):
+    """Crée un groupe de personnes (type client) à partir d'une sélection de documents."""
+    _assert_group_permission(request, db)
+    _ensure_group_ids(db)
+
+    name = (payload.nom or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom du groupe requis.")
+    try:
+        responsable_id = int(payload.responsable_id)
+    except Exception:
+        responsable_id = None
+    if not responsable_id or responsable_id <= 0:
+        raise HTTPException(status_code=400, detail="Responsable requis.")
+
+    raw_ids = payload.document_client_ids or []
+    doc_ids: list[int] = []
+    for did in raw_ids:
+        try:
+            n = int(did)
+        except Exception:
+            continue
+        if n > 0:
+            doc_ids.append(n)
+    # dédoublonnage en conservant l'ordre
+    seen = set()
+    uniq_doc_ids: list[int] = []
+    for n in doc_ids:
+        if n in seen:
+            continue
+        seen.add(n)
+        uniq_doc_ids.append(n)
+    if not uniq_doc_ids:
+        raise HTTPException(status_code=400, detail="Aucun document sélectionné.")
+    if len(uniq_doc_ids) > 2000:
+        raise HTTPException(status_code=400, detail="Trop de documents (max 2000).")
+
+    rows = (
+        db.query(DocumentClient.id_client)
+        .filter(DocumentClient.id.in_(uniq_doc_ids))
+        .all()
+    )
+    client_ids: list[int] = []
+    seen_cli = set()
+    for (cid,) in rows or []:
+        try:
+            c = int(cid) if cid is not None else None
+        except Exception:
+            c = None
+        if not c or c <= 0:
+            continue
+        if c in seen_cli:
+            continue
+        seen_cli.add(c)
+        client_ids.append(c)
+    if not client_ids:
+        raise HTTPException(status_code=400, detail="Aucun client lié aux documents sélectionnés.")
+
+    try:
+        next_gid: int | None
+        try:
+            max_id = db.query(_func.max(AdministrationGroupeDetail.id)).scalar()
+            next_gid = (max_id or 0) + 1
+        except Exception:
+            next_gid = None
+        motif = f"Créé depuis Documents ({len(uniq_doc_ids)} doc(s))"
+        g_payload = {
+            "type_groupe": "client",
+            "nom": name,
+            "date_creation": _date.today(),
+            "responsable_id": responsable_id,
+            "motif": motif,
+            "actif": 1,
+        }
+        if next_gid is not None:
+            g_payload["id"] = next_gid
+        group = AdministrationGroupeDetail(**g_payload)
+        db.add(group)
+        db.flush()
+        group_id = getattr(group, "id", None)
+        if group_id is None:
+            db.commit()
+            db.refresh(group)
+            group_id = getattr(group, "id", None)
+        if group_id is None:
+            raise HTTPException(status_code=500, detail="Création du groupe impossible (id manquant).")
+
+        # Memberships (batch)
+        try:
+            next_link_id = (db.query(_func.max(AdministrationGroupe.id)).scalar() or 0) + 1
+        except Exception:
+            next_link_id = None
+        links: list[AdministrationGroupe] = []
+        for cid in client_ids:
+            link_kwargs = {"groupe_id": int(group_id), "client_id": int(cid)}
+            if next_link_id is not None:
+                link_kwargs["id"] = int(next_link_id)
+                next_link_id += 1
+            links.append(AdministrationGroupe(**link_kwargs))
+        db.add_all(links)
+        db.commit()
+        return {
+            "status": "ok",
+            "groupe_id": int(group_id),
+            "groupe_nom": name,
+            "documents_selected": len(uniq_doc_ids),
+            "clients_added": len(client_ids),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Création impossible: {e}")
 
 
 @router.get("/overview/{groupe_key}")

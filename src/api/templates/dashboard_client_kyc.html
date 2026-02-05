@@ -97,14 +97,32 @@
     .btn-icon.danger { color:#c62828; }
     .btn-icon[disabled] { opacity:0.4; cursor:not-allowed; }
     .btn-icon i { font-size:0.95rem; }
-    table { width:100%; border-collapse:collapse; font-size:0.9rem; }
-    th, td { padding:6px 8px; border-bottom:1px solid #eef1ff; }
-    th { background:#f5f7ff; text-align:left; font-size:0.8rem; color:#1f2b6c; }
-    td.number { text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); }
-    td.actions { text-align:right; white-space:nowrap; }
-    .tag-muted { display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; color:#555; }
-    .tag-muted i { color:var(--primary); }
-    .placeholder { padding:12px; background:#f8f9fb; border:1px dashed #d7dce9; border-radius:10px; color:#6c7793; font-size:0.9rem; }
+	    table { width:100%; border-collapse:collapse; font-size:0.9rem; }
+	    th, td { padding:6px 8px; border-bottom:1px solid #eef1ff; }
+	    th { background:#f5f7ff; text-align:left; font-size:0.8rem; color:#1f2b6c; }
+	    td.number { text-align:right; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); }
+	    td.actions { text-align:right; white-space:nowrap; }
+
+	    /* Actifs / Passifs : garder les montants sur une ligne et ne pas laisser la description écraser les colonnes. */
+	    #actifsPanel table,
+	    #passifPanel table { table-layout:fixed; }
+	    #actifsPanel table td.number,
+	    #passifPanel table td.number { white-space:nowrap; }
+	    #actifsPanel table th:nth-child(2),
+	    #passifPanel table th:nth-child(2) { width:35%; }
+	    #actifsPanel table td:nth-child(2),
+	    #passifPanel table td:nth-child(2) { overflow-wrap:anywhere; }
+	    #actifsPanel table th:nth-child(3),
+	    #actifsPanel table th:nth-child(4),
+	    #passifPanel table th:nth-child(3),
+	    #passifPanel table th:nth-child(4),
+	    #actifsPanel table td:nth-child(3),
+	    #actifsPanel table td:nth-child(4),
+	    #passifPanel table td:nth-child(3),
+	    #passifPanel table td:nth-child(4) { text-align:center; }
+	    .tag-muted { display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; color:#555; }
+	    .tag-muted i { color:var(--primary); }
+	    .placeholder { padding:12px; background:#f8f9fb; border:1px dashed #d7dce9; border-radius:10px; color:#6c7793; font-size:0.9rem; }
     .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:9999; }
     .modal-card { background:#fff; border-radius:14px; width:520px; max-width:94vw; max-height:92vh; overflow:auto; box-shadow:0 18px 48px rgba(16,24,64,0.18); }
     .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eef1ff; }
@@ -811,67 +829,108 @@
   </div>
 
   <div class="kyc-container" id="knowledgeContainer">
-    <div class="accordion card">
-      <button class="accordion-toggle collapsed" data-target="knowledgePanel">
-        <span><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
-        <span class="chevron">▾</span>
-      </button>
-      <div class="accordion-panel" id="knowledgePanel">
-        <style>
-          /* Pleine largeur pour une meilleure lisibilité */
-          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
-          .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
-          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
+	    <div class="accordion card">
+	      <button class="accordion-toggle collapsed" data-target="knowledgePanel">
+	        <span><i class="fa-solid fa-lightbulb" style="margin-right:8px;"></i>Connaissances financières</span>
+	        <span class="chevron">▾</span>
+	      </button>
+	      <div class="accordion-panel" id="knowledgePanel">
+	        <style>
+	          /* Pleine largeur pour une meilleure lisibilité */
+	          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+	          .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
+	          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
           #knowledgePanel #risqueSnapshotCard .summary-balance .label { background:#16a34a; color:#fff; padding:4px 8px; border-radius:6px; display:inline-block; }
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
-          #knowledgePanel .btn-choice.btn-choice-active { background:#16a34a; color:#fff; border-color:#16a34a; }
+          /* Boutons sélectionnés : gris (comme ESG) */
+          #knowledgePanel .btn-choice.btn-choice-active {
+            background:#e2e8f0;
+            color:#111827;
+            border-color:#94a3b8;
+            box-shadow:none;
+          }
           #risqueSnapshotCard .kyc-alloc-range.active { background:#16a34a !important; color:#fff !important; border-color:#16a34a !important; }
           .muted-small { color:#6b7280; font-size:0.85rem; }
           .offer-pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
-          .step-hidden { display:none !important; }
-          /* Bandeau sticky en haut du panel */
-          .risk-sticky { position: sticky; top: 0; z-index: 20; background: var(--surface); }
-        </style>
+	          .step-hidden { display:none !important; }
+	          /* Bandeau sticky en haut du panel */
+	          .risk-sticky { position: sticky; top: 0; z-index: 20; background: var(--surface); }
+	          /* Barre SRRI (bleu -> vert -> orange -> rouge) */
+	          .srri-progress-wrap { display:inline-flex; align-items:center; gap:8px; }
+	          .srri-progress {
+	            width: 140px;
+	            height: 10px;
+	            border-radius: 999px;
+	            border: 1px solid #d7dce9;
+	            background:
+	              linear-gradient(90deg, #2563eb 0%, #16a34a 40%, #f59e0b 70%, #ef4444 100%);
+	            position: relative;
+	            overflow: hidden;
+	          }
+	          .srri-progress::after{
+	            content:'';
+	            position:absolute;
+	            inset:0;
+	            background: repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0, rgba(255,255,255,0.0) calc((100%/7) - 1px), rgba(255,255,255,0.55) calc((100%/7) - 1px), rgba(255,255,255,0.55) calc(100%/7));
+	            pointer-events:none;
+	          }
+	          .srri-marker {
+	            position:absolute;
+	            top:-4px;
+	            height: 18px;
+	            width: 2px;
+	            background: #111827;
+	            border-radius: 2px;
+	            left: var(--srri-pos, 0%);
+	            transform: translateX(-50%);
+	            box-shadow: 0 0 0 2px rgba(255,255,255,0.7);
+	          }
+	        </style>
 
         <form method="post" id="riskForm" style="display:flex; flex-direction:column; gap:12px;">
           <input type="hidden" name="form_action" value="risque_save" />
 
           <!-- Bandeau résumé en haut: risque déterminé + dates -->
           {% if not risque_history_mode %}
-          <div class="risk-sticky">
-            <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-              <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
-                <span style="margin-left:10px;">Offre financière retenue : <strong>{{ risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else '—' }}</strong></span>
-              </div>
-              <div class="muted-small">
-                Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
-                <span style="margin:0 6px;">|</span>
-                Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
-                <span style="margin:0 6px;">|</span>
-                SRRI: <span id="riskSrriValue" class="offer-pill">—</span>
-              </div>
-            </div>
-          </div>
-          {% endif %}
+	          <div class="risk-sticky">
+	            <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+	              <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+	                <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
+	                <span style="margin-left:10px;">Offre financière retenue : <strong>{{ risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else '—' }}</strong></span>
+	              </div>
+	              <div class="muted-small">
+	                Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
+	                <span style="margin:0 6px;">|</span>
+	                Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+	                <span style="margin:0 6px;">|</span>
+	                <span class="srri-progress-wrap">
+	                  SRRI: <span id="riskSrriValue" class="offer-pill">—</span>
+	                  <span id="riskSrriProgress" class="srri-progress" aria-label="Niveau SRRI">
+	                    <span id="riskSrriMarker" class="srri-marker" style="display:none;"></span>
+	                  </span>
+	                </span>
+	              </div>
+	            </div>
+	          </div>
+	          {% endif %}
 
           {% if not risque_history_mode %}
           <div class="risk-grid">
-            <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">1</span>Connaissance générale</h5>
-              <div class="btn-group" data-name="connaissance_adequate">
-                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
-                <button type="button" class="btn btn-choice" data-value="non">Non</button>
-              </div>
+	            <div class="risk-block">
+	              <h5>Connaissance générale</h5>
+	              <div class="btn-group" data-name="connaissance_adequate">
+	                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+	                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+	              </div>
               <input type="hidden" name="connaissance_adequate" value="{{ risque_current.connaissance_adequate if risque_current else '' }}" />
               <div class="muted-small">Si Non: offre Court Terme directement.</div>
             </div>
 
-            <div class="risk-block step-kn step-hidden" id="riskStepConnaissance">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">2</span>Niveau par produit</h5>
-              <div class="two-col-grid" style="display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:10px;">
-              {% for p in risque_opts.produits %}
+	            <div class="risk-block step-kn step-hidden" id="riskStepConnaissance">
+	              <h5>Niveau par produit</h5>
+	              <div class="two-col-grid" style="display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap:10px;">
+	              {% for p in risque_opts.produits %}
                 <div class="field" style="margin-bottom:8px;">
                   <label>{{ p.label }}</label>
                   <div class="btn-group" data-name="connaissance_{{ p.id }}_niveau_id">
@@ -885,50 +944,50 @@
               </div>
             </div>
 
-            <div class="risk-block step-other step-hidden" id="riskStepOther1">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">3</span>Perte acceptée</h5>
-              <div class="btn-group" data-name="perte_option_id">
-                {% for o in risque_opts.perte %}
+	            <div class="risk-block step-other step-hidden" id="riskStepOther1">
+	              <h5>Perte acceptée</h5>
+	              <div class="btn-group" data-name="perte_option_id">
+	                {% for o in risque_opts.perte %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
                 {% endfor %}
               </div>
               <input type="hidden" name="perte_option_id" value="{{ risque_current.perte_option_id if risque_current else '' }}" />
             </div>
 
-            <div class="risk-block step-other step-hidden" id="riskStepOther2">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">4</span>Part de l’investissement dans le patrimoine</h5>
-              <div class="btn-group" data-name="patrimoine_part_option_id">
-                {% for o in risque_opts.patrimoine_part %}
+	            <div class="risk-block step-other step-hidden" id="riskStepOther2">
+	              <h5>Part de l’investissement dans le patrimoine</h5>
+	              <div class="btn-group" data-name="patrimoine_part_option_id">
+	                {% for o in risque_opts.patrimoine_part %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
                 {% endfor %}
               </div>
               <input type="hidden" name="patrimoine_part_option_id" value="{{ risque_current.patrimoine_part_option_id if risque_current else '' }}" />
             </div>
 
-            <div class="risk-block step-other step-hidden" id="riskStepOther3">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span>Disponibilité</h5>
-              <div class="btn-group" data-name="disponibilite_option_id">
-                {% for o in risque_opts.disponibilite %}
+	            <div class="risk-block step-other step-hidden" id="riskStepOther3">
+	              <h5>Disponibilité</h5>
+	              <div class="btn-group" data-name="disponibilite_option_id">
+	                {% for o in risque_opts.disponibilite %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
                 {% endfor %}
               </div>
               <input type="hidden" name="disponibilite_option_id" value="{{ risque_current.disponibilite_option_id if risque_current else '' }}" />
             </div>
 
-            <div class="risk-block step-other step-hidden" id="riskStepOther4">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span>Durée de placement envisagée</h5>
-              <div class="btn-group" data-name="duree_option_id">
-                {% for o in risque_opts.duree %}
+	            <div class="risk-block step-other step-hidden" id="riskStepOther4">
+	              <h5>Durée de placement envisagée</h5>
+	              <div class="btn-group" data-name="duree_option_id">
+	                {% for o in risque_opts.duree %}
                   <button type="button" class="btn btn-choice" data-value="{{ o.id }}">{{ o.label }}</button>
                 {% endfor %}
               </div>
               <input type="hidden" name="duree_option_id" value="{{ risque_current.duree_option_id if risque_current else '' }}" />
             </div>
 
-            <div class="risk-block step-other step-hidden" id="riskStepOther5">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">7</span>Objectifs</h5>
-              <div class="btn-group" data-name="objectif_ids">
-                {% for o in risque_opts.objectifs %}
+	            <div class="risk-block step-other step-hidden" id="riskStepOther5">
+	              <h5>Objectifs</h5>
+	              <div class="btn-group" data-name="objectif_ids">
+	                {% for o in risque_opts.objectifs %}
                   <button type="button" class="btn btn-choice" data-id="{{ o.id }}">{{ o.label }}</button>
                 {% endfor %}
               </div>
@@ -946,12 +1005,12 @@
             </div>
 
             <!-- Revenus court-terme: acceptation du risque / choix personnel -->
-            <div class="risk-block step-other step-hidden" id="riskStepRevenusCt">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Revenus court-terme: acceptation du risque</h5>
-              <div class="btn-group" data-name="revenus_ct_accept">
-                <button type="button" class="btn btn-choice" data-value="oui">J'accepte le risque Court Terme</button>
-                <button type="button" class="btn btn-choice" data-value="non">Je n'accepte pas</button>
-              </div>
+	            <div class="risk-block step-other step-hidden" id="riskStepRevenusCt">
+	              <h5>Revenus court-terme: acceptation du risque</h5>
+	              <div class="btn-group" data-name="revenus_ct_accept">
+	                <button type="button" class="btn btn-choice" data-value="oui">J'accepte le risque Court Terme</button>
+	                <button type="button" class="btn btn-choice" data-value="non">Je n'accepte pas</button>
+	              </div>
               <input type="hidden" name="revenus_ct_accept" value="{{ 'non' if risque_decision and risque_decision.decision=='refuse' else ('oui' if risque_decision and risque_decision.decision=='accepte' else '') }}" />
               <div id="revenusCtPersonalChoice" class="step-hidden" style="margin-top:8px;">
                 <div class="muted-small" style="margin-bottom:6px;">Vous pouvez choisir un niveau de risque personnel. Ce choix n'engage pas la responsabilité du courtier.</div>
@@ -967,13 +1026,13 @@
               </div>
             </div>
 
-            <div class="risk-block" id="riskAcceptBlock">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">9</span>Acceptez-vous le risque déterminé ?</h5>
-              <div class="muted-small" style="margin-bottom:6px;">Le risque déterminé par vos réponses est : <strong id="riskDeterminedText">—</strong></div>
-              <div class="btn-group" data-name="accept_offre_calculee">
-                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
-                <button type="button" class="btn btn-choice" data-value="non">Non</button>
-              </div>
+	            <div class="risk-block" id="riskAcceptBlock">
+	              <h5>Acceptez-vous le risque déterminé ?</h5>
+	              <div class="muted-small" style="margin-bottom:6px;">Le risque déterminé par vos réponses est : <strong id="riskDeterminedText">—</strong></div>
+	              <div class="btn-group" data-name="accept_offre_calculee">
+	                <button type="button" class="btn btn-choice" data-value="oui">Oui</button>
+	                <button type="button" class="btn btn-choice" data-value="non">Non</button>
+	              </div>
               <input type="hidden" name="accept_offre_calculee" value="{{ 'oui' if risque_decision and risque_decision.decision=='accepte' else ('non' if risque_decision and risque_decision.decision=='refuse' else '') }}" />
               <div id="acceptYesBox" class="step-hidden" style="margin-top:8px; border:1px solid var(--border); padding:10px; border-radius:8px;">
                 <label style="display:flex; gap:8px; align-items:flex-start;">
@@ -1109,7 +1168,7 @@
               </div>
               {% if allocation_sri_scenarios %}
                 <div style="margin-top:10px;">
-                  <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (base 10 000 €{% if allocation_sri_rhp_years %}, RHP {{ allocation_sri_rhp_years }} ans{% endif %})</div>
+	                  <div style="font-weight:600; margin-bottom:6px;">Scénarios de tension (base 10 000 €{% if allocation_sri_rhp_years %}, RHP {{ allocation_sri_rhp_years|round(0, 'common')|int }} ans{% endif %})</div>
                   <table class="table" style="width:100%; font-size:0.95rem; border-collapse:collapse;">
                     <thead>
                       <tr>
@@ -1345,6 +1404,7 @@
           (function(){
             const panel = document.getElementById('knowledgePanel');
             if (!panel) return;
+            const IS_EMBED = {{ 'true' if _is_embed else 'false' }};
             const form = document.getElementById('riskForm');
             const offerPill = document.getElementById('riskOfferPill');
             const determinedSpan = document.getElementById('riskDeterminedText');
@@ -1482,14 +1542,46 @@
               return map[id] || '—';
             }
 
-            function renderRiskSummary(calcId, finalId){
-              const calcPill = document.getElementById('riskOfferCalcPill');
-              const finalPill = document.getElementById('riskOfferFinalPill');
-              const srriSpan = document.getElementById('riskSrriValue');
-              const calcLabel = offerLabelFromId(calcId || finalId);
-              if (calcPill) calcPill.textContent = calcLabel;
-              if (finalPill) finalPill.textContent = offerLabelFromId(finalId);
-              if (srriSpan) srriSpan.textContent = finalId && SRRI_MAP[finalId] ? 'SRRI ' + SRRI_MAP[finalId] : '—';
+	            function renderRiskSummary(calcId, finalId){
+	              const calcPill = document.getElementById('riskOfferCalcPill');
+	              const finalPill = document.getElementById('riskOfferFinalPill');
+	              const srriSpan = document.getElementById('riskSrriValue');
+	              const srriProgress = document.getElementById('riskSrriProgress');
+	              const srriMarker = document.getElementById('riskSrriMarker');
+	              const calcLabel = offerLabelFromId(calcId || finalId);
+	              if (calcPill) calcPill.textContent = calcLabel;
+	              if (finalPill) finalPill.textContent = offerLabelFromId(finalId);
+	              const srriVal = (finalId && SRRI_MAP[finalId]) ? Number(SRRI_MAP[finalId]) : null;
+	              if (srriSpan) srriSpan.textContent = srriVal ? ('SRRI ' + srriVal) : '—';
+
+	              // Barre de progression SRRI (1..7)
+	              try{
+	                if (srriProgress){
+	                  if (srriVal && isFinite(srriVal)){
+	                    const clamped = Math.max(1, Math.min(7, srriVal));
+	                    const pos = ((clamped - 1) / 6) * 100;
+	                    srriProgress.style.setProperty('--srri-pos', pos.toFixed(2) + '%');
+	                    srriProgress.setAttribute('aria-label', 'Niveau SRRI ' + clamped + ' sur 7');
+	                    if (srriMarker){ srriMarker.style.display = ''; }
+	                  } else {
+	                    srriProgress.style.setProperty('--srri-pos', '0%');
+	                    srriProgress.setAttribute('aria-label', 'Niveau SRRI indisponible');
+	                    if (srriMarker){ srriMarker.style.display = 'none'; }
+	                  }
+	                }
+	              }catch(e){}
+
+	              // Remonter au parent pour mettre à jour le titre de la modale (titre dynamique)
+	              try{
+	                if (IS_EMBED && window.parent && window.parent !== window){
+	                  const payload = {
+                    type: 'kyc_risk_title',
+                    calcLabel: (calcPill && calcPill.textContent) ? String(calcPill.textContent).trim() : String(calcLabel || '').trim(),
+                    srriLabel: (srriSpan && srriSpan.textContent) ? String(srriSpan.textContent).trim() : '',
+                  };
+                  window.parent.postMessage(payload, window.location.origin);
+                }
+              }catch(e){}
             }
 
             function updateOffer(){
