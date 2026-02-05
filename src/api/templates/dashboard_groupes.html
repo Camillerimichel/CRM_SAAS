@@ -291,6 +291,7 @@
   <button class="groups-tab" type="button" data-target="groupItemsBlock">Liste items</button>
   <button class="groups-tab" type="button" data-target="groupProductsBlock" style="display:none;">Liste produits</button>
   <button class="groups-tab" type="button" data-target="groupEsgBlock" style="display:none;">Analyse ESG</button>
+  <button class="groups-tab" type="button" data-target="groupTasksBlock" style="display:none;">Générer une tâche</button>
 </div>
 
 <section id="groupEsgBlock" class="groups-accordion" aria-label="Analyse ESG">
@@ -316,24 +317,49 @@
       <label class="muted" style="font-size:0.85rem;">Champs ESG (max 10)</label>
       <div id="groupEsgFields" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
     </div>
-    <div id="groupEsgChart" style="height:320px; width:100%; display:none;"></div>
+	    <div id="groupEsgChartWrap" style="position:relative;">
+	      <button id="groupEsgChartBarBtn" type="button" class="support-meta-btn" title="Afficher en barres" style="position:absolute; right:52px; top:calc(50% - 17px); height:34px; min-width:0; padding:0 10px; display:none; align-items:center; justify-content:center; border-radius:10px; font-size:0.9rem; z-index:20; pointer-events:auto;">
+	        <span>Barres</span>
+	      </button>
+	      <button id="groupEsgChartToggle" type="button" class="support-meta-btn" title="Basculer en graphique radar" aria-pressed="false" style="position:absolute; right:10px; top:calc(50% - 17px); height:34px; width:34px; min-width:0; padding:0; display:none; align-items:center; justify-content:center; border-radius:10px; z-index:20; pointer-events:auto;">
+	        <span aria-hidden="true" style="font-size:14px; line-height:1;">◎</span>
+	      </button>
+	      <div id="groupEsgChart" style="height:320px; width:100%; display:none; position:relative; z-index:1;"></div>
+	    </div>
     <div id="groupEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
     <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Groupe = (Groupe / Indice) × 100.</div>
     <div id="groupEsgDetails" style="display:none; margin-top:12px;">
-      <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-        <thead>
-          <tr>
-            <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Métrique</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Somme pondérée</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Poids couverts</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Moyenne pondérée</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Indice</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Base 100</th>
-            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Couverture (%)</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+	      <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+	        <thead>
+	          <tr>
+	            <th style="text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);">Métrique</th>
+	            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Somme pondérée</th>
+	            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Moyenne pondérée</th>
+	            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Indice</th>
+	            <th style="text-align:right; padding:6px 8px; border-bottom:1px solid var(--border);">Couverture (%)</th>
+	          </tr>
+	        </thead>
+	        <tbody></tbody>
+	      </table>
+    </div>
+  </div>
+</section>
+
+<section id="groupTasksBlock" class="groups-accordion" aria-label="Générer une tâche">
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div style="min-width:240px; flex:1 1 360px;">
+        <h3 style="margin:0;">Générer une tâche</h3>
+        <div class="muted" id="groupTasksStatus" style="margin-top:4px;">Sélectionnez un groupe pour générer 1 tâche par item.</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button id="groupTasksOpen" type="button" class="support-meta-btn" style="height:40px; min-width:0; padding:0.6rem 0.9rem;" disabled>
+          <span>Configurer & créer</span>
+        </button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:10px; font-size:12px;">
+      Une tâche est créée pour chaque item du groupe (clients ou affaires). Aucun choix manuel client/affaire n’est requis.
     </div>
   </div>
 </section>
@@ -590,8 +616,12 @@
   </div>
 </div>
 
+{% include "fragments/grouped_tasks_modal.html" %}
+
 <script>
   (function(){
+    const groupedTaskTypes = {{ (grouped_task_types or []) | tojson }};
+    const groupedResponsables = {{ (responsables or []) | tojson }};
     const tabs = Array.from(document.querySelectorAll('.groups-tab'));
     const panels = Array.from(document.querySelectorAll('.groups-accordion'));
     let activeId = panels.find(p => p.classList.contains('active'))?.id || null;
@@ -612,6 +642,9 @@
 	    let currentGroupId = null;
 	    let currentGroupType = null;
 	    let currentGroupName = null;
+	    const tasksTab = document.querySelector('.groups-tab[data-target="groupTasksBlock"]');
+	    const tasksOpenBtn = document.getElementById('groupTasksOpen');
+	    const tasksStatus = document.getElementById('groupTasksStatus');
 
 	    // --- Sélection membres (retrait uniquement) ---
 	    let selectedMemberIds = new Set();
@@ -716,15 +749,23 @@
           setActive('groupItemsBlock');
         }
       }
-      if (esgTab) {
-        esgTab.style.display = 'none';
-        if (activeId === 'groupEsgBlock') {
-          setActive('groupItemsBlock');
-        }
-      }
-    }
+	      if (esgTab) {
+	        esgTab.style.display = 'none';
+	        if (activeId === 'groupEsgBlock') {
+	          setActive('groupItemsBlock');
+	        }
+	      }
+	      if (tasksTab) {
+	        tasksTab.style.display = 'none';
+	        if (activeId === 'groupTasksBlock') {
+	          setActive('groupItemsBlock');
+	        }
+	      }
+		      if (tasksOpenBtn) tasksOpenBtn.disabled = true;
+		      if (tasksStatus) tasksStatus.textContent = 'Sélectionnez un groupe pour générer 1 tâche par item.';
+	    }
 
-    function setItemsEmpty(label){
+	    function setItemsEmpty(label){
       if (itemsLabel) itemsLabel.textContent = label;
       if (itemsTableBody) itemsTableBody.innerHTML = '';
       if (itemsEmpty) itemsEmpty.style.display = '';
@@ -736,13 +777,21 @@
           setActive('groupItemsBlock');
         }
       }
-      if (esgTab) {
-        esgTab.style.display = 'none';
-        if (activeId === 'groupEsgBlock') {
-          setActive('groupItemsBlock');
-        }
-      }
-    }
+	      if (esgTab) {
+	        esgTab.style.display = 'none';
+	        if (activeId === 'groupEsgBlock') {
+	          setActive('groupItemsBlock');
+	        }
+	      }
+	      if (tasksTab) {
+	        tasksTab.style.display = 'none';
+	        if (activeId === 'groupTasksBlock') {
+	          setActive('groupItemsBlock');
+	        }
+	      }
+	      if (tasksOpenBtn) tasksOpenBtn.disabled = true;
+	      if (tasksStatus) tasksStatus.textContent = 'Sélectionnez un groupe pour générer 1 tâche par item.';
+	    }
 
     function setProductsStatus(text, state){
       if (!productsStatus) return;
@@ -1007,9 +1056,47 @@
       currentRows = rows;
       currentPage = 1;
       renderPage();
-      if (productsTab) productsTab.style.display = '';
-      if (esgTab) esgTab.style.display = '';
-    }
+	      if (productsTab) productsTab.style.display = '';
+	      if (esgTab) esgTab.style.display = '';
+	      if (tasksTab) tasksTab.style.display = '';
+	      if (tasksOpenBtn) tasksOpenBtn.disabled = false;
+	      if (tasksStatus) tasksStatus.textContent = '1 tâche sera créée par item du groupe (“' + (currentGroupName || 'Groupe') + '”).';
+	    }
+
+	    function openGroupTasksModal(){
+	      if (!window.GroupedTasksModal || typeof window.GroupedTasksModal.open !== 'function'){
+	        alert('Le module de génération de tâches n’est pas disponible.');
+	        return;
+	      }
+	      if (!currentGroupId || !currentGroupType){
+	        alert('Sélectionnez un groupe.');
+	        return;
+	      }
+	      const ids = Array.from(new Set((currentRows || []).map(function(r){
+	        try { return r && r.entity_id != null ? Number(r.entity_id) : null; } catch(e){ return null; }
+	      }).filter(function(v){ return v != null && isFinite(v); })));
+	      if (!ids.length){
+	        alert('Aucun item éligible pour générer des tâches.');
+	        return;
+	      }
+	      const scope = String(currentGroupType) === 'affaire' ? 'affaires' : 'clients';
+	      function pad2(n){ return String(n).padStart(2, '0'); }
+	      function formatNowFr(){
+	        const d = new Date();
+	        return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+	      }
+	      const groupLabel = (currentGroupName || 'Groupe');
+	      const defaultComment = groupLabel + ' ' + formatNowFr() + ': ';
+	      window.GroupedTasksModal.open({
+	        scope: scope,
+	        ids: ids,
+	        taskTypes: groupedTaskTypes || [],
+	        responsables: groupedResponsables || [],
+	        title: 'Créer des tâches — ' + (currentGroupName || 'Groupe'),
+	        filtersSummary: 'Groupe “' + (currentGroupName || 'Groupe') + '” · ' + ids.length + ' item(s)',
+	        defaultComment: defaultComment
+	      });
+	    }
 
 	    async function loadGroupItems(groupId, groupType, groupName){
 	      const label = 'Liste items — ' + (groupName || 'Groupe');
@@ -1052,9 +1139,15 @@
       }
     }
 
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => setActive(tab.dataset.target));
-    });
+	    tabs.forEach(tab => {
+	      tab.addEventListener('click', () => setActive(tab.dataset.target));
+	    });
+	    if (tasksOpenBtn){
+	      tasksOpenBtn.addEventListener('click', function(e){
+	        if (e && e.preventDefault) e.preventDefault();
+	        openGroupTasksModal();
+	      });
+	    }
 
 	    document.querySelectorAll('.group-items-btn').forEach(btn => {
 	      btn.addEventListener('click', () => {
@@ -1228,12 +1321,15 @@ $(function () {
     var $supportEsgAlloc = $('#supportEsgAlloc');
     var $supportEsgUnmatched = $('#supportEsgUnmatched');
     var supportEsgLabelMap = {};
-    var groupEsgFields = [];
-    var groupEsgRefList = [];
-    var groupEsgMetaLoaded = false;
-    var groupEsgLabelMap = {};
-    var $groupEsgAlloc = $('#groupEsgAlloc');
-    var $groupEsgStatus = $('#groupEsgStatus');
+	    var groupEsgFields = [];
+	    var groupEsgRefList = [];
+	    var groupEsgMetaLoaded = false;
+	    var groupEsgLabelMap = {};
+	    var groupEsgChartMode = 'bar';
+	    var groupEsgLastPlot = null;
+	    var groupEsgChartRenderedMode = null;
+	    var $groupEsgAlloc = $('#groupEsgAlloc');
+	    var $groupEsgStatus = $('#groupEsgStatus');
     var supportIndex = [];
     var supportModalClientsData = [];
     var supportModalFilteredData = [];
@@ -1301,12 +1397,27 @@ $(function () {
         }
     }
 
-    function escHtml(str){
-        if (str === null || str === undefined) return '';
-        return String(str).replace(/[&<>"']/g, function(ch){
-            return ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[ch]);
-        });
-    }
+	    function escHtml(str){
+	        if (str === null || str === undefined) return '';
+	        return String(str).replace(/[&<>"']/g, function(ch){
+	            return ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[ch]);
+	        });
+	    }
+
+	    function formatNumberSpaceThousands(value, decimals){
+	        if (value === null || value === undefined) return '—';
+	        var num = Number(value);
+	        if (!isFinite(num)) return '—';
+	        var dec = (decimals === null || decimals === undefined) ? 4 : Number(decimals);
+	        if (!isFinite(dec) || dec < 0) dec = 4;
+	        var sign = num < 0 ? '-' : '';
+	        var fixed = Math.abs(num).toFixed(dec);
+	        var parts = fixed.split('.');
+	        var intPart = parts[0] || '0';
+	        var fracPart = parts[1] || '';
+	        intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+	        return sign + intPart + (dec > 0 ? ('.' + fracPart) : '');
+	    }
 
     function setGroupEsgStatus(text){
         if (!$groupEsgStatus || !$groupEsgStatus.length) return;
@@ -1371,18 +1482,32 @@ $(function () {
             });
     }
 
-    function renderGroupEsgAllocOptions(){
-        if (!$groupEsgAlloc || !$groupEsgAlloc.length) return;
-        var opts = ['<option value=\"\">— choisir —</option>'];
-        groupEsgRefList.forEach(function(item){
-            var isin = item && item.isin ? String(item.isin) : '';
-            if (!isin) return;
-            var label = isin;
-            if (item.nom){ label = isin + ' — ' + item.nom; }
-            opts.push('<option value=\"'+escHtml(isin)+'\">'+escHtml(label)+'</option>');
-        });
-        $groupEsgAlloc.html(opts.join(''));
-    }
+	    function renderGroupEsgAllocOptions(){
+	        if (!$groupEsgAlloc || !$groupEsgAlloc.length) return;
+	        function normalizeLooseText(value){
+	            if (value === null || value === undefined) return '';
+	            var str = String(value).toLowerCase();
+	            try{
+	                str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+	            }catch(_){}
+	            return str;
+	        }
+	        function isOffreFinanciereProduct(item){
+	            if (!item) return false;
+	            var nom = item.nom || item.label || '';
+	            var txt = normalizeLooseText(nom);
+	            return /\boffre\b.*\bfinanciere\b/.test(txt);
+	        }
+	        var opts = ['<option value=\"\">— choisir —</option>'];
+	        (groupEsgRefList || []).filter(isOffreFinanciereProduct).forEach(function(item){
+	            var isin = item && item.isin ? String(item.isin) : '';
+	            if (!isin) return;
+	            var label = isin;
+	            if (item.nom){ label = isin + ' — ' + item.nom; }
+	            opts.push('<option value=\"'+escHtml(isin)+'\">'+escHtml(label)+'</option>');
+	        });
+	        $groupEsgAlloc.html(opts.join(''));
+	    }
 
     function renderGroupEsgFields(){
         var wrap = document.getElementById('groupEsgFields');
@@ -1430,19 +1555,117 @@ $(function () {
         }
     }
 
-    function selectedGroupEsgFields(){
-        var wrap = document.getElementById('groupEsgFields');
-        if (!wrap) return [];
-        return Array.from(wrap.querySelectorAll('.group-esg-field.active')).map(function(b){
-            return b.getAttribute('data-field');
-        }).filter(Boolean);
-    }
+	    function selectedGroupEsgFields(){
+	        var wrap = document.getElementById('groupEsgFields');
+	        if (!wrap) return [];
+	        return Array.from(wrap.querySelectorAll('.group-esg-field.active')).map(function(b){
+	            return b.getAttribute('data-field');
+	        }).filter(Boolean);
+	    }
 
-    function runGroupEsg(){
-        if (!groupEsgMetaLoaded){
-            loadGroupEsgMeta(function(){ runGroupEsg(); });
-            return;
-        }
+	    function renderGroupEsgChartFromLast(){
+	        if (!groupEsgLastPlot) return;
+	        var cats = groupEsgLastPlot.cats || [];
+	        var idx = (groupEsgLastPlot.idx || []).map(function(v){ return v == null ? null : Number(v); });
+	        var cli = (groupEsgLastPlot.cli || []).map(function(v){ return v == null ? null : Number(v); });
+	        if (!cats.length) return;
+
+	        var primary = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
+	        var indexColor = '#f59e0b';
+	        function rgbaFromColor(color, alpha, fallback){
+	            try{
+	                var c = (color || '').trim();
+	                if (!c) return fallback;
+	                if (c[0] === '#'){
+	                    var hex = c.slice(1);
+	                    if (hex.length === 3){
+	                        hex = hex[0]+hex[0] + hex[1]+hex[1] + hex[2]+hex[2];
+	                    }
+	                    if (hex.length !== 6) return fallback;
+	                    var r = parseInt(hex.slice(0,2), 16);
+	                    var g = parseInt(hex.slice(2,4), 16);
+	                    var b = parseInt(hex.slice(4,6), 16);
+	                    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+	                }
+	                var m = c.match(/rgba?\(([^)]+)\)/i);
+	                if (m && m[1]){
+	                    var parts = m[1].split(/\s*,\s*/).map(function(p){ return p.trim(); });
+	                    var r2 = parseFloat(parts[0]);
+	                    var g2 = parseFloat(parts[1]);
+	                    var b2 = parseFloat(parts[2]);
+	                    if (isFinite(r2) && isFinite(g2) && isFinite(b2)){
+	                        return 'rgba(' + r2 + ',' + g2 + ',' + b2 + ',' + alpha + ')';
+	                    }
+	                }
+	            }catch(_){}
+	            return fallback;
+	        }
+	        var indexFill = rgbaFromColor(indexColor, 0.18, 'rgba(245,158,11,0.18)');
+	        var supportFill = rgbaFromColor(primary, 0.16, 'rgba(36,86,166,0.16)');
+	        var cfg = { displayModeBar: false, responsive: true };
+	        var traces;
+	        var layout;
+	        var modeNow = groupEsgChartMode === 'radar' ? 'radar' : 'bar';
+
+	        if (groupEsgChartMode === 'radar'){
+	            var theta = cats.slice();
+	            if (theta.length){
+	                theta.push(theta[0]);
+	                idx = idx.concat([idx[0]]);
+	                cli = cli.concat([cli[0]]);
+		            }
+		            traces = [
+		                { type:'scatterpolar', r: idx, theta: theta, name:'Indice', mode:'lines+markers', line:{ color:indexColor, width:2 }, marker:{ size:5, color:indexColor }, fill:'toself', fillcolor:indexFill },
+		                { type:'scatterpolar', r: cli, theta: theta, name:'Support', mode:'lines+markers', line:{ color: primary, width:2 }, marker:{ size:5, color: primary }, fill:'toself', fillcolor:supportFill }
+		            ];
+		            layout = {
+		                polar: {
+		                    radialaxis: { title:'Base 100', rangemode:'tozero', showline:true, gridcolor:'#e2e8f0' },
+		                    angularaxis: { tickfont:{ size: 11 }, gridcolor:'#e2e8f0' }
+	                },
+	                margin:{ l: 30, r: 30, t: 10, b: 30 },
+	                showlegend: true,
+	                height: Math.max(360, 90 + Math.max(4, cats.length) * 26)
+	            };
+		        } else {
+		            traces = [
+		                { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:indexColor } },
+		                { x: cli, y: cats, type:'bar', orientation:'h', name:'Support', marker:{ color: primary } }
+		            ];
+		            layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
+	        }
+
+	        if (groupEsgChartRenderedMode && groupEsgChartRenderedMode !== modeNow){
+	            try{ Plotly.purge('groupEsgChart'); }catch(_){}
+	        }
+	        Plotly.react('groupEsgChart', traces, layout, cfg);
+	        groupEsgChartRenderedMode = modeNow;
+	        $('#groupEsgChart').show();
+	        var toggleBtn = document.getElementById('groupEsgChartToggle');
+	        if (toggleBtn){
+	            toggleBtn.style.display = '';
+	            toggleBtn.setAttribute('aria-pressed', groupEsgChartMode === 'radar' ? 'true' : 'false');
+	            toggleBtn.classList.toggle('active', groupEsgChartMode === 'radar');
+	            var iconSpan = toggleBtn.querySelector('span[aria-hidden=\"true\"]');
+	            if (groupEsgChartMode === 'radar'){
+	                toggleBtn.title = 'Afficher en barres';
+	                if (iconSpan){ iconSpan.textContent = '▤'; }
+	            } else {
+	                toggleBtn.title = 'Afficher en graphique radar';
+	                if (iconSpan){ iconSpan.textContent = '◎'; }
+	            }
+	        }
+	        var barBtn = document.getElementById('groupEsgChartBarBtn');
+	        if (barBtn){
+	            barBtn.style.display = (groupEsgChartMode === 'radar') ? '' : 'none';
+	        }
+	    }
+
+	    function runGroupEsg(){
+	        if (!groupEsgMetaLoaded){
+	            loadGroupEsgMeta(function(){ runGroupEsg(); });
+	            return;
+	        }
         if (!groupEsgFields.length){
             renderGroupEsgFields();
             return;
@@ -1478,61 +1701,63 @@ $(function () {
                 if (details){
                     details.innerHTML = '';
                 }
-                var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
-                if (!displayRows.length){ displayRows = rows; }
-                if (!displayRows.length){
-                    $('#groupEsgChart').hide().empty();
-                    if (detailsWrap){ detailsWrap.style.display = 'none'; }
-                    return;
-                }
-                var cats = displayRows.map(function(r){
-                    return groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field;
-                });
-                var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
-                var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
-                var traces = [
-                    { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
-                    { x: cli, y: cats, type:'bar', orientation:'h', name:'Support', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
-                ];
-                var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 40 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(320, 80 + Math.max(4, cats.length)*32) };
-                var cfg = { displayModeBar: false, responsive: true };
-                Plotly.react('groupEsgChart', traces, layout, cfg);
-                $('#groupEsgChart').show();
-                if (details && detailsWrap){
-                    details.innerHTML = rows.map(function(r){
-                        var label = groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field || '';
+	                var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+	                if (!displayRows.length){ displayRows = rows; }
+	                if (!displayRows.length){
+	                    $('#groupEsgChart').hide().empty();
+	                    groupEsgLastPlot = null;
+	                    groupEsgChartRenderedMode = null;
+	                    var toggleBtn = document.getElementById('groupEsgChartToggle');
+	                    if (toggleBtn){ toggleBtn.style.display='none'; }
+	                    var barBtn = document.getElementById('groupEsgChartBarBtn');
+	                    if (barBtn){ barBtn.style.display='none'; }
+	                    if (detailsWrap){ detailsWrap.style.display = 'none'; }
+	                    return;
+	                }
+	                var cats = displayRows.map(function(r){
+	                    return groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field;
+	                });
+	                var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+	                var cli = displayRows.map(function(r){ return r.client == null ? null : Number(r.client); });
+	                groupEsgLastPlot = { cats: cats, idx: idx, cli: cli };
+	                renderGroupEsgChartFromLast();
+	                if (details && detailsWrap){
+	                    details.innerHTML = rows.map(function(r){
+	                        var label = groupEsgLabelMap[r.field] || groupEsgLabelMap[r.resolved_field] || r.field_original || r.field || '';
                         var weightedSum = (r.group_weighted_sum != null) ? Number(r.group_weighted_sum) : null;
-                        var weightSum = (r.group_weight_sum != null) ? Number(r.group_weight_sum) : null;
-                        var groupVal = (r.group_value != null) ? Number(r.group_value) : null;
-                        var refVal = (r.ref_value != null) ? Number(r.ref_value) : null;
-                        var ratio = (r.client != null) ? Number(r.client) : null;
-                        var cov = (r.coverage_pct != null) ? Number(r.coverage_pct) : null;
-                        return (
-                            '<tr>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">' + escHtml(label) + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (weightedSum != null ? weightedSum.toFixed(4) : '—') + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (weightSum != null ? weightSum.toFixed(4) : '—') + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (groupVal != null ? groupVal.toFixed(4) : '—') + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (refVal != null ? refVal.toFixed(4) : '—') + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (ratio != null ? ratio.toFixed(2) : '—') + '</td>' +
-                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (cov != null ? cov.toFixed(2) : '—') + '</td>' +
-                            '</tr>'
-                        );
-                    }).join('');
-                    detailsWrap.style.display = '';
+	                        var groupVal = (r.group_value != null) ? Number(r.group_value) : null;
+	                        var refVal = (r.ref_value != null) ? Number(r.ref_value) : null;
+	                        var cov = (r.coverage_pct != null) ? Number(r.coverage_pct) : null;
+	                        return (
+	                            '<tr>' +
+	                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">' + escHtml(label) + '</td>' +
+	                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + formatNumberSpaceThousands(weightedSum, 4) + '</td>' +
+	                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + formatNumberSpaceThousands(groupVal, 4) + '</td>' +
+	                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + formatNumberSpaceThousands(refVal, 4) + '</td>' +
+	                            '<td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">' + (cov != null ? cov.toFixed(2) : '—') + '</td>' +
+	                            '</tr>'
+	                        );
+	                    }).join('');
+	                    detailsWrap.style.display = '';
                 }
-            }).catch(function(err){
-                if (unmatchedEl){
-                    unmatchedEl.textContent = 'Erreur de chargement ESG.';
-                    unmatchedEl.style.display = '';
-                }
-                try{ console.warn('Group ESG fetch error', err); }catch(_){}
-                $('#groupEsgChart').hide().empty();
-                var detailsWrap = document.getElementById('groupEsgDetails');
-                if (detailsWrap){ detailsWrap.style.display = 'none'; }
-            });
-        });
-    }
+	            }).catch(function(err){
+	                if (unmatchedEl){
+	                    unmatchedEl.textContent = 'Erreur de chargement ESG.';
+	                    unmatchedEl.style.display = '';
+	                }
+	                try{ console.warn('Group ESG fetch error', err); }catch(_){}
+	                $('#groupEsgChart').hide().empty();
+	                groupEsgLastPlot = null;
+	                groupEsgChartRenderedMode = null;
+	                var toggleBtn = document.getElementById('groupEsgChartToggle');
+	                if (toggleBtn){ toggleBtn.style.display='none'; }
+	                var barBtn = document.getElementById('groupEsgChartBarBtn');
+	                if (barBtn){ barBtn.style.display='none'; }
+	                var detailsWrap = document.getElementById('groupEsgDetails');
+	                if (detailsWrap){ detailsWrap.style.display = 'none'; }
+	            });
+	        });
+	    }
 
     function loadSupportEsgMeta(cb){
         if (supportEsgMetaLoaded){
@@ -2482,15 +2707,35 @@ $(function () {
             });
         });
     });
-    $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
-    if ($groupEsgAlloc && $groupEsgAlloc.length){
-        $groupEsgAlloc.on('change', function(){ runGroupEsg(); });
-    }
-    $('#groupEsgRefresh').on('click', function(){ runGroupEsg(); });
-    $('#supportEsgToggle').on('click', function(){
-        var isOpen = $('#supportEsgSection').is(':visible');
-        if (isOpen){
-            $('#supportEsgSection').hide();
+	    $('#supportEsgRefresh').on('click', function(){ runSupportEsg(); });
+	    if ($groupEsgAlloc && $groupEsgAlloc.length){
+	        $groupEsgAlloc.on('change', function(){ runGroupEsg(); });
+	    }
+	    $('#groupEsgRefresh').on('click', function(){ runGroupEsg(); });
+	    $('#groupEsgChartToggle').on('click', function(e){
+	        if (e && e.preventDefault) e.preventDefault();
+	        if (e && e.stopPropagation) e.stopPropagation();
+	        groupEsgChartMode = (groupEsgChartMode === 'radar') ? 'bar' : 'radar';
+	        if (groupEsgLastPlot){
+	            renderGroupEsgChartFromLast();
+	        } else {
+	            runGroupEsg();
+	        }
+	    });
+	    $('#groupEsgChartBarBtn').on('click', function(e){
+	        if (e && e.preventDefault) e.preventDefault();
+	        if (e && e.stopPropagation) e.stopPropagation();
+	        groupEsgChartMode = 'bar';
+	        if (groupEsgLastPlot){
+	            renderGroupEsgChartFromLast();
+	        } else {
+	            runGroupEsg();
+	        }
+	    });
+	    $('#supportEsgToggle').on('click', function(){
+	        var isOpen = $('#supportEsgSection').is(':visible');
+	        if (isOpen){
+	            $('#supportEsgSection').hide();
             setEsgButtonActive(false);
             return;
         }

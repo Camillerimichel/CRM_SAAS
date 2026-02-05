@@ -80,6 +80,43 @@
   body[data-user-role="client"] .client-hide { display: none !important; }
   body[data-user-role="client"] .client-readonly { pointer-events: none !important; opacity: 0.5; }
   body[data-user-role="back_office"] .backoffice-hide { display: none !important; }
+
+  /* Sélection multi-documents */
+  .doc-selected-row,
+  .doc-selected-row td { background: #dcfce7 !important; }
+  .doc-selected-row td { border-bottom-color: #86efac; }
+  #docsSelectionBar {
+    display: none;
+    position: sticky;
+    bottom: 12px;
+    z-index: 50;
+    margin-top: 12px;
+  }
+  #docsSelectionBar .bar{
+    display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+    padding:10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.10);
+  }
+  #docsSelectionBar .count{ font-weight:700; color:#111827; }
+  #docsSelectionBar .status{ color:#6b7280; font-size:0.9rem; margin-left:auto; }
+
+  .docs-group-backdrop{
+    position:fixed; inset:0; background:rgba(15,23,42,0.55);
+    display:none; align-items:center; justify-content:center; padding:1.25rem; z-index:2600;
+  }
+  .docs-group-dialog{
+    background:#fff; border-radius:12px; padding:1rem 1.2rem;
+    width:min(560px, 95vw); max-width:560px;
+    box-shadow: 0 15px 30px rgba(15,23,42,0.2); position:relative;
+  }
+  .docs-group-header{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .docs-group-close{ border:none; background:none; font-size:1.2rem; cursor:pointer; color: var(--muted, #475569); }
+  .docs-group-body{ margin-top:10px; display:flex; flex-direction:column; gap:10px; }
+  .dg-field{ display:flex; flex-direction:column; gap:4px; }
+  .dg-field input, .dg-field select{
+    border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; font-size:14px; width:100%;
+  }
+  .docs-group-footer{ margin-top:12px; display:flex; justify-content:flex-end; gap:10px; }
 </style>
 
 <div class="main-container">
@@ -130,7 +167,7 @@
       </thead>
       <tbody>
         {% for d in documents %}
-        <tr>
+        <tr data-doc-id="{{ d.id }}" data-client-id="{{ d.client_id if d.client_id is not none else '' }}">
           <td>{% if d.client_id %}<a href="/dashboard/clients/{{ d.client_id }}" style="text-decoration:underline; color:inherit;">{{ d.nom }}</a>{% else %}{{ d.nom }}{% endif %}</td>
           <td>{% if d.client_id %}<a href="/dashboard/clients/{{ d.client_id }}" style="text-decoration:underline; color:inherit;">{{ d.prenom }}</a>{% else %}{{ d.prenom }}{% endif %}</td>
           <td>{{ d.document }}</td>
@@ -149,6 +186,51 @@
       </tbody>
     </table>
   </div>
+
+  <div id="docsSelectionBar" class="client-hide" aria-live="polite">
+    <div class="bar">
+      <div class="count" id="docsSelectedCount">0 document sélectionné</div>
+      <button type="button" class="btn btn-primary" id="docsSelectionTasksBtn" disabled>Tâches</button>
+      <button type="button" class="btn btn-primary" id="docsCreateGroupBtn" disabled>Créer un groupe de personnes</button>
+      <button type="button" class="btn btn-secondary" id="docsSelectionPurgeBtn" disabled>Purge</button>
+      <div class="status" id="docsSelectionStatus"></div>
+    </div>
+  </div>
+</div>
+
+{% include "fragments/grouped_tasks_modal.html" %}
+
+<div id="docsGroupModalBackdrop" class="docs-group-backdrop client-hide" aria-hidden="true">
+  <div class="docs-group-dialog" role="dialog" aria-modal="true" aria-labelledby="docsGroupTitle">
+    <div class="docs-group-header">
+      <h3 id="docsGroupTitle" style="margin:0;">Créer un groupe de personnes</h3>
+      <button type="button" class="docs-group-close" id="docsGroupClose" aria-label="Fermer">×</button>
+    </div>
+    <div class="docs-group-body">
+      <div class="muted" id="docsGroupSummary" style="font-size:0.95rem;">—</div>
+      <div class="dg-field">
+        <label for="docsGroupName">Nom du groupe</label>
+        <input id="docsGroupName" type="text" placeholder="Ex: Documents 05/02/2026 14:35" />
+      </div>
+      <div class="dg-field">
+        <label for="docsGroupResp">Responsable</label>
+        <select id="docsGroupResp">
+          <option value="">Choisir…</option>
+          {% for r in responsables or [] %}
+            <option value="{{ r.id }}">{{ r.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="muted" style="font-size:12px;">
+        Le groupe contiendra tous les clients liés aux documents sélectionnés (doublons dédupliqués).
+      </div>
+      <div class="muted" id="docsGroupModalStatus" style="min-height:1.1rem;"></div>
+    </div>
+    <div class="docs-group-footer">
+      <button type="button" class="btn" id="docsGroupCancel">Annuler</button>
+      <button type="button" class="btn btn-primary" id="docsGroupSubmit">Créer</button>
+    </div>
+  </div>
 </div>
 
 <!-- jQuery + DataTables -->
@@ -158,6 +240,21 @@
 
 <script>
 $(document).ready(function () {
+  const groupedTasksCfgDocs = {
+    scope: 'clients',
+    taskTypes: {{ grouped_task_types | tojson }},
+    responsables: {{ responsables | tojson }},
+  };
+
+  const docIdToClientId = {};
+  try {
+    document.querySelectorAll('#docsTable tbody tr[data-doc-id]').forEach(function(tr){
+      const did = tr.getAttribute('data-doc-id');
+      const cid = tr.getAttribute('data-client-id');
+      if (did) { docIdToClientId[String(did)] = cid ? String(cid) : ''; }
+    });
+  } catch(e) {}
+
   var table = $('#docsTable').DataTable({
     // Tri par défaut: Obsolescence (obsolète d'abord), puis Niveau, puis Risque
     order: [[5, 'desc'], [3, 'asc'], [4, 'asc']],
@@ -407,6 +504,243 @@ $(document).ready(function () {
     applySelectPrefilter('risque', '#risque-filter');
     applySelectPrefilter('document', '#doc-filter');
   } catch (e) { /* ignore */ }
+
+  // --- Sélection multi-documents + création groupe ---
+  const STORAGE_KEY_DOCS = 'crm_selected_document_client_ids_v1';
+  function loadSelectedDocs(){
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY_DOCS);
+      const arr = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(arr)) return new Set();
+      return new Set(arr.map(function(x){ return String(x); }).filter(Boolean));
+    } catch(e){
+      return new Set();
+    }
+  }
+	  function saveSelectedDocs(set){
+	    try { sessionStorage.setItem(STORAGE_KEY_DOCS, JSON.stringify(Array.from(set))); } catch(e){}
+	  }
+	  let selectedDocs = loadSelectedDocs();
+	  let lastAnchorDocId = null;
+	  const selBar = document.getElementById('docsSelectionBar');
+	  const selCountEl = document.getElementById('docsSelectedCount');
+  const selStatusEl = document.getElementById('docsSelectionStatus');
+  const purgeBtn = document.getElementById('docsSelectionPurgeBtn');
+  const createBtn = document.getElementById('docsCreateGroupBtn');
+  const tasksBtn = document.getElementById('docsSelectionTasksBtn');
+
+  function setStatus(text, isError){
+    if (!selStatusEl) return;
+    selStatusEl.textContent = text || '';
+    selStatusEl.style.color = isError ? '#b91c1c' : '#6b7280';
+  }
+  function updateSelectionUI(){
+    const count = selectedDocs.size;
+    if (selCountEl){
+      selCountEl.textContent = count + ' document' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
+    }
+    if (selBar){
+      selBar.style.display = count ? 'block' : 'none';
+    }
+    if (purgeBtn) purgeBtn.disabled = !count;
+    if (createBtn) createBtn.disabled = !count;
+    if (tasksBtn) tasksBtn.disabled = !count;
+  }
+  function applyRowSelection(){
+    try {
+      document.querySelectorAll('#docsTable tbody tr[data-doc-id]').forEach(function(tr){
+        const did = tr.getAttribute('data-doc-id');
+        const isSel = did && selectedDocs.has(String(did));
+        tr.classList.toggle('doc-selected-row', !!isSel);
+      });
+    } catch(e){}
+    updateSelectionUI();
+  }
+  function shouldIgnoreClick(ev){
+    try {
+      const t = ev && ev.target ? ev.target : null;
+      if (!t) return false;
+      if (t.closest && t.closest('a,button,input,select,label,textarea')) return true;
+    } catch(e){}
+    return false;
+  }
+	  $('#docsTable tbody').on('click', 'tr', function(ev){
+	    try {
+	      if (shouldIgnoreClick(ev)) return;
+	      const tr = this;
+	      const did = tr.getAttribute('data-doc-id');
+	      if (!did) return;
+	      const isShift = !!(ev && ev.shiftKey);
+	      if (isShift && lastAnchorDocId){
+	        const rows = Array.from(document.querySelectorAll('#docsTable tbody tr[data-doc-id]'));
+	        const ids = rows.map(function(r){ return r.getAttribute('data-doc-id'); });
+	        const a = ids.indexOf(String(lastAnchorDocId));
+	        const b = ids.indexOf(String(did));
+	        if (a !== -1 && b !== -1){
+	          const start = Math.min(a, b);
+	          const end = Math.max(a, b);
+	          for (let i = start; i <= end; i++){
+	            const rid = ids[i];
+	            if (rid) selectedDocs.add(String(rid));
+	          }
+	        } else {
+	          selectedDocs.add(String(did));
+	        }
+	      } else {
+	        if (selectedDocs.has(String(did))) selectedDocs.delete(String(did));
+	        else selectedDocs.add(String(did));
+	      }
+	      lastAnchorDocId = String(did);
+	      saveSelectedDocs(selectedDocs);
+	      applyRowSelection();
+	    } catch(e){}
+	  });
+  table.on('draw', function(){ applyRowSelection(); });
+  applyRowSelection();
+
+  function pad2(n){ return String(n).padStart(2, '0'); }
+  function formatNowFr(){
+    const d = new Date();
+    return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function openTasksModalFromSelectedDocs(){
+    const docIds = Array.from(selectedDocs).map(function(x){ return String(x); }).filter(Boolean);
+    if (!docIds.length){
+      setStatus('Aucun document sélectionné.', true);
+      return;
+    }
+    const clientIds = [];
+    const seen = {};
+    docIds.forEach(function(did){
+      const cid = docIdToClientId[String(did)] || '';
+      const n = cid ? Number(cid) : NaN;
+      if (!Number.isFinite(n)) return;
+      if (seen[n]) return;
+      seen[n] = true;
+      clientIds.push(n);
+    });
+    if (!clientIds.length){
+      setStatus('Aucun client lié aux documents sélectionnés.', true);
+      return;
+    }
+    if (!window.GroupedTasksModal){
+      alert('Module de tâches groupées indisponible.');
+      return;
+    }
+    window.GroupedTasksModal.open({
+      scope: 'clients',
+      ids: clientIds,
+      taskTypes: groupedTasksCfgDocs.taskTypes,
+      responsables: groupedTasksCfgDocs.responsables,
+      title: 'Créer des tâches — Documents',
+      filtersSummary: docIds.length + ' document(s) sélectionné(s) · ' + clientIds.length + ' client(s) unique(s)',
+      defaultComment: 'Documents ' + formatNowFr() + ': '
+    });
+  }
+
+  const modal = document.getElementById('docsGroupModalBackdrop');
+  const modalClose = document.getElementById('docsGroupClose');
+  const modalCancel = document.getElementById('docsGroupCancel');
+  const modalSubmit = document.getElementById('docsGroupSubmit');
+  const modalName = document.getElementById('docsGroupName');
+  const modalResp = document.getElementById('docsGroupResp');
+  const modalSummary = document.getElementById('docsGroupSummary');
+  const modalStatus = document.getElementById('docsGroupModalStatus');
+
+  function openModal(){
+    const docIds = Array.from(selectedDocs).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+    if (!docIds.length) return;
+    if (modalSummary) modalSummary.textContent = docIds.length + ' document(s) sélectionné(s).';
+    if (modalStatus) modalStatus.textContent = '';
+    if (modalName && !modalName.value){
+      modalName.value = 'Documents ' + formatNowFr();
+    } else if (modalName){
+      modalName.value = (modalName.value || '').trim() || ('Documents ' + formatNowFr());
+    }
+    if (modal && modalResp && !modalResp.value){
+      // pré-sélectionne le premier responsable si disponible
+      try {
+        if (modalResp.options && modalResp.options.length > 1){
+          modalResp.value = modalResp.options[1].value || '';
+        }
+      } catch(e){}
+    }
+    if (modal){
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+  }
+  function closeModal(){
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+  if (modalClose) modalClose.addEventListener('click', closeModal);
+  if (modalCancel) modalCancel.addEventListener('click', closeModal);
+  if (modal) modal.addEventListener('click', function(e){ if (e && e.target === modal) closeModal(); });
+
+  if (purgeBtn){
+    purgeBtn.addEventListener('click', function(){
+      try {
+        selectedDocs = new Set();
+        try { sessionStorage.removeItem(STORAGE_KEY_DOCS); } catch(e){}
+        applyRowSelection();
+        setStatus('Sélection purgée.', false);
+      } catch(e){}
+    });
+  }
+  if (tasksBtn){
+    tasksBtn.addEventListener('click', function(e){
+      if (e && e.preventDefault) e.preventDefault();
+      openTasksModalFromSelectedDocs();
+    });
+  }
+  if (createBtn){
+    createBtn.addEventListener('click', function(e){
+      if (e && e.preventDefault) e.preventDefault();
+      openModal();
+    });
+  }
+  if (modalSubmit){
+    modalSubmit.addEventListener('click', function(){
+      const docIds = Array.from(selectedDocs).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+      const name = modalName ? (modalName.value || '').trim() : '';
+      const respId = modalResp ? (modalResp.value || '') : '';
+      if (!docIds.length) { if (modalStatus) modalStatus.textContent = 'Aucun document sélectionné.'; return; }
+      if (!name) { if (modalStatus) modalStatus.textContent = 'Nom du groupe requis.'; return; }
+      if (!respId) { if (modalStatus) modalStatus.textContent = 'Responsable requis.'; return; }
+      if (modalStatus) modalStatus.textContent = 'Création...';
+      modalSubmit.disabled = true;
+      fetch('/api/groupes/create_from_documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nom: name, responsable_id: Number(respId), document_client_ids: docIds })
+      }).then(function(resp){
+        if (!resp.ok){
+          return resp.json().catch(function(){ return { detail: 'Erreur ' + resp.status }; }).then(function(err){ throw err; });
+        }
+        return resp.json();
+      }).then(function(payload){
+        const msg = 'Groupe créé (' + (payload.groupe_id != null ? ('#' + payload.groupe_id) : '') + ') — ' + (payload.clients_added || 0) + ' client(s).';
+        setStatus(msg, false);
+        if (modalStatus) modalStatus.textContent = msg;
+        // purge sélection
+        selectedDocs = new Set();
+        try { sessionStorage.removeItem(STORAGE_KEY_DOCS); } catch(e){}
+        applyRowSelection();
+        setTimeout(function(){ closeModal(); }, 700);
+      }).catch(function(err){
+        const msg = (err && (err.detail || err.message)) ? (err.detail || err.message) : 'Erreur lors de la création.';
+        if (modalStatus) modalStatus.textContent = msg;
+        setStatus('Erreur: ' + msg, true);
+      }).finally(function(){
+        modalSubmit.disabled = false;
+      });
+    });
+  }
 });
 </script>
 

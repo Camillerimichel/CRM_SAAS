@@ -294,19 +294,20 @@
         </table>
     </div>
 
-    <div id="affairesSelectionBar" aria-live="polite">
-      <div class="bar">
-        <div class="count" id="affairesSelectedCount">0 affaire sélectionnée</div>
-        <label for="affairesGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
-        <select id="affairesGroupSelect" disabled>
-          <option value="">Chargement des groupes…</option>
-        </select>
-        <button type="button" class="btn btn-primary" id="affairesSelectionAddBtn">Ajouter</button>
-        <button type="button" class="btn btn-danger" id="affairesSelectionRemoveBtn">Retirer</button>
-        <button type="button" class="btn btn-secondary" id="affairesSelectionPurgeBtn">Purge</button>
-        <div class="status" id="affairesSelectionStatus"></div>
-      </div>
-    </div>
+	    <div id="affairesSelectionBar" aria-live="polite">
+	      <div class="bar">
+	        <div class="count" id="affairesSelectedCount">0 affaire sélectionnée</div>
+	        <label for="affairesGroupSelect" class="muted" style="font-size:0.9rem;">Groupe :</label>
+	        <select id="affairesGroupSelect" disabled>
+	          <option value="">Chargement des groupes…</option>
+	        </select>
+	        <button type="button" class="btn btn-primary" id="affairesSelectionAddBtn">Ajouter</button>
+	        <button type="button" class="btn btn-danger" id="affairesSelectionRemoveBtn">Retirer</button>
+	        <button type="button" class="btn btn-primary" id="affairesSelectionTasksBtn">Tâches</button>
+	        <button type="button" class="btn btn-secondary" id="affairesSelectionPurgeBtn">Purge</button>
+	        <div class="status" id="affairesSelectionStatus"></div>
+	      </div>
+	    </div>
 
     {% set cur_page = page|default(1) %}
     {% set max_pages = total_pages|default(1) %}
@@ -341,12 +342,13 @@
 try { Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6'; } catch(e) {}
 
 const groupedTasksCfgAff = {
-  scope: 'affaires',
-  taskTypes: {{ grouped_task_types | tojson }},
-  responsables: {{ responsables | tojson }},
-  hasServerFilter: {{ 'true' if (total_affaires_filtered|default(0)) < (total_affaires|default(0)) else 'false' }},
-  groupFilterActive: {{ 'true' if group_filter_label else 'false' }}
-};
+	  scope: 'affaires',
+	  taskTypes: {{ grouped_task_types | tojson }},
+	  responsables: {{ responsables | tojson }},
+	  hasServerFilter: {{ 'true' if (total_affaires_filtered|default(0)) < (total_affaires|default(0)) else 'false' }},
+	  groupFilterActive: {{ 'true' if group_filter_label else 'false' }},
+	  groupLabel: {{ group_filter_label | tojson if group_filter_label else 'null' }}
+	};
 const actionsBarAff = document.getElementById('affairesGroupActions');
 const btnGroupedAff = document.getElementById('btnGroupedTasksAffaires');
 
@@ -427,26 +429,51 @@ $(document).ready(function () {
       try { sessionStorage.setItem(STORAGE_KEY_AFF, JSON.stringify(Array.from(set))); } catch(e){}
     }
     let selectedAff = loadSelectedAff();
+    let lastAnchorAffId = null;
     const selBarAff = document.getElementById('affairesSelectionBar');
     const selCountElAff = document.getElementById('affairesSelectedCount');
     const selStatusElAff = document.getElementById('affairesSelectionStatus');
     const selGroupSelectAff = document.getElementById('affairesGroupSelect');
-    const addBtnAff = document.getElementById('affairesSelectionAddBtn');
-    const removeBtnAff = document.getElementById('affairesSelectionRemoveBtn');
-    const purgeBtnAff = document.getElementById('affairesSelectionPurgeBtn');
+	    const addBtnAff = document.getElementById('affairesSelectionAddBtn');
+	    const removeBtnAff = document.getElementById('affairesSelectionRemoveBtn');
+	    const tasksBtnAff = document.getElementById('affairesSelectionTasksBtn');
+	    const purgeBtnAff = document.getElementById('affairesSelectionPurgeBtn');
 
-    function updateSelectionUIAff(){
-      const count = selectedAff.size;
+	    function pad2(n){ return String(n).padStart(2, '0'); }
+	    function formatNowFr(){
+	      const d = new Date();
+	      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+	    }
+	    function getGroupLabelForCommentAff(){
+	      var label = groupedTasksCfgAff.groupLabel;
+	      if (!label && selGroupSelectAff){
+	        try {
+	          var v = selGroupSelectAff.value || '';
+	          if (v && selGroupSelectAff.selectedIndex >= 0){
+	            var opt = selGroupSelectAff.options[selGroupSelectAff.selectedIndex];
+	            var txt = opt ? (opt.textContent || '') : '';
+	            if (txt && txt.indexOf('Choisir') === -1 && txt.indexOf('Chargement') === -1){
+	              label = txt.trim();
+	            }
+	          }
+	        } catch(e){}
+	      }
+	      return label;
+	    }
+
+	    function updateSelectionUIAff(){
+	      const count = selectedAff.size;
       if (selCountElAff){
         selCountElAff.textContent = count + ' affaire' + (count > 1 ? 's' : '') + ' sélectionnée' + (count > 1 ? 's' : '');
       }
       if (selBarAff){
         selBarAff.style.display = count ? 'flex' : 'none';
       }
-      if (addBtnAff) addBtnAff.disabled = !count;
-      if (removeBtnAff) removeBtnAff.disabled = !count;
-      if (purgeBtnAff) purgeBtnAff.disabled = !count;
-    }
+	      if (addBtnAff) addBtnAff.disabled = !count;
+	      if (removeBtnAff) removeBtnAff.disabled = !count;
+	      if (tasksBtnAff) tasksBtnAff.disabled = !count;
+	      if (purgeBtnAff) purgeBtnAff.disabled = !count;
+	    }
 
     function applyRowSelectionAff(){
       document.querySelectorAll('#affairesTable tbody tr[data-affaire-id]').forEach(function(tr){
@@ -472,11 +499,30 @@ $(document).ready(function () {
         if (firstCell && firstCell.contains(ev.target)) return; // 1ère colonne exclue
         const aid = tr.getAttribute('data-affaire-id');
         if (!aid) return;
-        if (selectedAff.has(String(aid))){
-          selectedAff.delete(String(aid));
+        const isShift = !!(ev && ev.shiftKey);
+        if (isShift && lastAnchorAffId){
+          const rows = Array.from(document.querySelectorAll('#affairesTable tbody tr[data-affaire-id]'));
+          const ids = rows.map(function(r){ return r.getAttribute('data-affaire-id'); });
+          const a = ids.indexOf(String(lastAnchorAffId));
+          const b = ids.indexOf(String(aid));
+          if (a !== -1 && b !== -1){
+            const start = Math.min(a, b);
+            const end = Math.max(a, b);
+            for (let i = start; i <= end; i++){
+              const rid = ids[i];
+              if (rid) selectedAff.add(String(rid));
+            }
+          } else {
+            selectedAff.add(String(aid));
+          }
         } else {
-          selectedAff.add(String(aid));
+          if (selectedAff.has(String(aid))){
+            selectedAff.delete(String(aid));
+          } else {
+            selectedAff.add(String(aid));
+          }
         }
+        lastAnchorAffId = String(aid);
         saveSelectedAff(selectedAff);
         applyRowSelectionAff();
       } catch(e){}
@@ -563,8 +609,8 @@ $(document).ready(function () {
     if (removeBtnAff){
       removeBtnAff.addEventListener('click', function(){ runBatchAff('remove'); });
     }
-    if (purgeBtnAff){
-      purgeBtnAff.addEventListener('click', function(){
+	    if (purgeBtnAff){
+	      purgeBtnAff.addEventListener('click', function(){
         try {
           selectedAff = new Set();
           try { sessionStorage.removeItem(STORAGE_KEY_AFF); } catch(e){}
@@ -572,8 +618,32 @@ $(document).ready(function () {
           applyRowSelectionAff();
           setStatusAff('Sélection purgée.', false);
         } catch(e){}
-      });
-    }
+	      });
+	    }
+
+	    if (tasksBtnAff){
+	      tasksBtnAff.addEventListener('click', function(){
+	        var ids = Array.from(selectedAff).map(function(x){ return parseInt(x, 10); }).filter(function(n){ return Number.isFinite(n); });
+	        if (!ids.length){
+	          setStatusAff('Aucune affaire sélectionnée.', true);
+	          return;
+	        }
+	        if (!window.GroupedTasksModal){
+	          alert('Module de tâches groupées indisponible.');
+	          return;
+	        }
+	        var label = getGroupLabelForCommentAff() || 'Affaires';
+	        window.GroupedTasksModal.open({
+	          scope: 'affaires',
+	          ids: ids,
+	          taskTypes: groupedTasksCfgAff.taskTypes,
+	          responsables: groupedTasksCfgAff.responsables,
+	          filtersSummary: (groupedTasksCfgAff.groupLabel ? ('Groupe “' + groupedTasksCfgAff.groupLabel + '” · ') : '') + ids.length + ' affaire(s) sélectionnée(s)',
+	          title: 'Créer des tâches — sélection affaires',
+	          defaultComment: label + ' ' + formatNowFr() + ': '
+	        });
+	      });
+	    }
 
     // Filtres (côté serveur) : applique à la liste entière, pas seulement la page courante.
     var _reloadTimerAff = null;
@@ -772,7 +842,8 @@ $(document).ready(function () {
           taskTypes: groupedTasksCfgAff.taskTypes,
           responsables: groupedTasksCfgAff.responsables,
           filtersSummary: gatherFiltersSummaryAff() || 'Filtres appliqués',
-          title: 'Créer des tâches groupées (affaires)'
+          title: 'Créer des tâches groupées (affaires)',
+          defaultComment: (getGroupLabelForCommentAff() || 'Affaires') + ' ' + formatNowFr() + ': '
         });
       });
     }

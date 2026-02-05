@@ -5267,6 +5267,7 @@ def dashboard_api_synthese(
     request: Request,
     id_client: int = Query(..., alias="id_client"),
     esg: int = Query(1, description="Inclure l'analyse ESG (1=oui, 0=non)"),
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
     db: Session = Depends(get_db),
 ):
     from time import perf_counter
@@ -5317,6 +5318,7 @@ def dashboard_api_synthese(
         perf_counter() - _t0,
     )
     filename = f"synthese_{id_client}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
     try:
         import tempfile
         from pathlib import Path as _Path
@@ -5328,7 +5330,7 @@ def dashboard_api_synthese(
         return StreamingResponse(
             iter([pdf_bytes]),
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": f'{cd_type}; filename="{filename}"'},
         )
 
     def _cleanup_tmp(path: str) -> None:
@@ -5341,6 +5343,7 @@ def dashboard_api_synthese(
         tmp_path_str,
         media_type="application/pdf",
         filename=filename,
+        content_disposition_type=cd_type,
         background=BackgroundTask(_cleanup_tmp, tmp_path_str),
     )
 
@@ -5397,7 +5400,12 @@ def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Sessio
 
 
 @router.get("/clients/{client_id}/der/pdf")
-async def dashboard_client_der_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+async def dashboard_client_der_pdf(
+    client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
     _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -5420,15 +5428,21 @@ async def dashboard_client_der_pdf(client_id: int, request: Request, db: Session
     html = templates.get_template("der_report.html").render(context)
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     filename = f"der_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
     )
 
 
 @router.get("/clients/{client_id}/mission/pdf")
-async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+async def dashboard_client_mission_pdf(
+    client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
     _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -5457,15 +5471,21 @@ async def dashboard_client_mission_pdf(client_id: int, request: Request, db: Ses
     html = templates.get_template("mission_report.html").render(context)
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     filename = f"lettre_mission_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
     )
 
 
 @router.get("/clients/{client_id}/adequation/pdf")
-async def dashboard_client_adequation_pdf(client_id: int, request: Request, db: Session = Depends(get_db)):
+async def dashboard_client_adequation_pdf(
+    client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
     _require_client_read(request, db, client_id)
     ctx = _build_client_adequation_context(db, client_id)
     if not ctx:
@@ -5500,10 +5520,11 @@ async def dashboard_client_adequation_pdf(client_id: int, request: Request, db: 
     html = templates.get_template("adequation_report.html").render(ctx_render)
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     filename = f"lettre_adequation_{client_id}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
     )
 
 
@@ -13791,11 +13812,11 @@ async def dashboard_client_kyc(
     risque_commentaire: str | None = None
     risque_snapshot: dict | None = None
 
-    def _fmt_amount(v):
+    def _fmt_amount(v, decimals: int = 2):
         if v is None:
             return "-"
         try:
-            return "{:,.2f}".format(float(v)).replace(",", " ")
+            return format(float(v), f",.{decimals}f").replace(",", " ")
         except Exception:
             return str(v)
 
@@ -16242,7 +16263,7 @@ async def dashboard_client_kyc(
                     "type_libelle": _safe_text(data.get("type_libelle")),
                     "description": _safe_text(data.get("description")),
                     "valeur": data.get("valeur"),
-                    "valeur_str": _fmt_amount(data.get("valeur")),
+                    "valeur_str": _fmt_amount(data.get("valeur"), decimals=0),
                     "date_saisie": _fmt_date(data.get("date_saisie")),
                     "date_expiration": _fmt_date(data.get("date_expiration")),
                 }
@@ -16251,7 +16272,7 @@ async def dashboard_client_kyc(
         actifs = []
         actifs_total = Decimal("0")
 
-    actifs_total_str = _fmt_amount(actifs_total)
+    actifs_total_str = _fmt_amount(actifs_total, decimals=0)
 
     passifs: list[dict] = []
     passifs_total = Decimal("0")
@@ -16289,7 +16310,7 @@ async def dashboard_client_kyc(
                     "type_libelle": _safe_text(data.get("type_libelle")),
                     "description": _safe_text(data.get("description")),
                     "montant": data.get("montant_rest_du"),
-                    "montant_str": _fmt_amount(data.get("montant_rest_du")),
+                    "montant_str": _fmt_amount(data.get("montant_rest_du"), decimals=0),
                     "date_saisie": _fmt_date(data.get("date_saisie")),
                     "date_expiration": _fmt_date(data.get("date_expiration")),
                 }
@@ -16298,7 +16319,7 @@ async def dashboard_client_kyc(
         passifs = []
         passifs_total = Decimal("0")
 
-    passifs_total_str = _fmt_amount(passifs_total)
+    passifs_total_str = _fmt_amount(passifs_total, decimals=0)
 
     revenus: list[dict] = []
     revenus_total = Decimal("0")
@@ -17902,27 +17923,43 @@ async def dashboard_client_kyc(
             .filter(Affaire.date_cle.is_(None))
             .scalar()
         ) or 0
-        affaire_ids = [
-            rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()
-        ]
-        if affaire_ids:
-            nb_supports_references = (
-                db.query(func.count(func.distinct(HistoriqueSupport.id_support)))
-                .filter(HistoriqueSupport.id_source.in_(affaire_ids))
-                .filter(
-                    or_(
-                        HistoriqueSupport.valo > 0,
-                        HistoriqueSupport.nbuc > 0,
-                    )
-                )
+        # Supports référencés : ne compter que sur le dernier snapshot connu
+        # (sinon on cumule tout l'historique et le chiffre explose).
+        latest_active_affaire_id = None
+        try:
+            latest_active_affaire_id = (
+                db.query(Affaire.id)
+                .filter(Affaire.id_personne == client_id)
+                .filter(Affaire.date_cle.is_(None))
+                # MariaDB doesn't support "NULLS LAST": use boolean first.
+                .order_by(Affaire.date_debut.is_(None), Affaire.date_debut.desc(), Affaire.id.desc())
+                .limit(1)
                 .scalar()
-            ) or 0
-            if not nb_supports_references:
+            )
+        except Exception:
+            latest_active_affaire_id = None
+
+        if latest_active_affaire_id:
+            last_dt = (
+                db.query(func.max(HistoriqueSupport.date))
+                .filter(HistoriqueSupport.id_source == latest_active_affaire_id)
+                .scalar()
+            )
+            if last_dt:
                 nb_supports_references = (
                     db.query(func.count(func.distinct(HistoriqueSupport.id_support)))
-                    .filter(HistoriqueSupport.id_source.in_(affaire_ids))
+                    .filter(HistoriqueSupport.id_source == latest_active_affaire_id)
+                    .filter(HistoriqueSupport.date == last_dt)
+                    .filter(or_(HistoriqueSupport.valo > 0, HistoriqueSupport.nbuc > 0))
                     .scalar()
                 ) or 0
+                if not nb_supports_references:
+                    nb_supports_references = (
+                        db.query(func.count(func.distinct(HistoriqueSupport.id_support)))
+                        .filter(HistoriqueSupport.id_source == latest_active_affaire_id)
+                        .filter(HistoriqueSupport.date == last_dt)
+                        .scalar()
+                    ) or 0
     except Exception:
         nb_contrats_actifs = 0
         nb_supports_references = 0
@@ -18970,12 +19007,43 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
             entry["link_label"] = "Voir les affaires"
             dashboard_groups_affaires.append(entry)
 
+    rh_entries = fetch_rh_list(db)
+    rh_options: list[dict[str, str | int]] = []
+    for rh in rh_entries or []:
+        try:
+            rid_raw = rh.get("id")
+            rid = int(rid_raw)
+        except Exception:
+            continue
+        label_parts = [p for p in [(rh.get("prenom") or "").strip(), (rh.get("nom") or "").strip()] if p]
+        label = " ".join(label_parts) if label_parts else ((rh.get("mail") or "").strip() or f"RH #{rid}")
+        rh_options.append({"id": rid, "label": label})
+    rh_options.sort(key=lambda x: str(x["label"] or "").lower())
+
+    task_types: list[dict[str, str]] = []
+    categories: list[str] = []
+    try:
+        for t in list_types(db) or []:
+            task_types.append(
+                {
+                    "label": getattr(t, "libelle", None) or "tâche",
+                    "categorie": (getattr(t, "categorie", None) or "tache").lower(),
+                }
+            )
+        categories = sorted({t["categorie"] for t in task_types if t.get("categorie")})
+    except Exception:
+        task_types = [{"label": "tâche", "categorie": "tache"}]
+        categories = ["tache"]
+
     return templates.TemplateResponse(
         "dashboard_groupes.html",
         {
             "request": request,
             "dashboard_groups_personnes": dashboard_groups_personnes,
             "dashboard_groups_affaires": dashboard_groups_affaires,
+            "responsables": rh_options,
+            "grouped_task_types": task_types,
+            "grouped_task_categories": categories,
         },
     )
 
@@ -21597,16 +21665,29 @@ def _compute_sri_scenarios(sm: dict | None, rhp_years: float | None = None) -> d
     periods_per_year = 52
     horizons: list[tuple[str, int]] = []
     if rhp_years is not None:
+        def _round_years_nearest(x: float) -> int:
+            # Arrondi "au plus proche" (0.5 -> 1) pour l'affichage.
+            # Utilisé uniquement pour le libellé (N reste basé sur la valeur réelle).
+            try:
+                xf = float(x)
+                if not math.isfinite(xf) or xf <= 0:
+                    return 0
+                return max(1, int(math.floor(xf + 0.5)))
+            except Exception:
+                return 0
+
         try:
             rhp_val = float(rhp_years)
         except Exception:
             rhp_val = None
         if rhp_val and rhp_val > 0:
             half = rhp_val / 2.0
+            half_disp = _round_years_nearest(half)
+            rhp_disp = _round_years_nearest(rhp_val)
             horizons = [
                 ("1 an", int(max(1, round(1 * periods_per_year)))),
-                (f"Demi-vie ({half:g} ans)", int(max(1, round(half * periods_per_year)))),
-                (f"Vie ({rhp_val:g} ans)", int(max(1, round(rhp_val * periods_per_year)))),
+                (f"Demi-vie ({half_disp} ans)", int(max(1, round(half * periods_per_year)))),
+                (f"Vie ({rhp_disp} ans)", int(max(1, round(rhp_val * periods_per_year)))),
             ]
     if not horizons:
         horizons = [
@@ -28393,6 +28474,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "statut_reclamation_label": getattr(r, 'statut_reclamation_libelle', None),
         })
 
+    client_tasks_pending_count = 0
+    try:
+        client_tasks_pending_count = int(len(client_events_open))
+    except Exception:
+        client_tasks_pending_count = 0
+
     # KYC: Actifs du client
     try:
         from sqlalchemy import text as _text
@@ -29311,6 +29398,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "msgs_reg_count": msgs_reg_count,
             "msgs_nonreg_count": msgs_nonreg_count,
             "client_events_open": client_events_open,
+            "client_tasks_pending_count": client_tasks_pending_count,
             "rh_list": rh_list,
             # KYC Actifs
             "kyc_actifs": kyc_actifs,
@@ -29725,6 +29813,32 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     obs_by_risque = [{"risque": r, "nb": int(nb)} for r, nb in obs_by_risque]
+
+    rh_entries = fetch_rh_list(db)
+    rh_options: list[dict[str, str | int]] = []
+    for rh in rh_entries or []:
+        try:
+            rid_raw = rh.get("id")
+            rid = int(rid_raw)
+        except Exception:
+            continue
+        label_parts = [p for p in [(rh.get("prenom") or "").strip(), (rh.get("nom") or "").strip()] if p]
+        label = " ".join(label_parts) if label_parts else ((rh.get("mail") or "").strip() or f"RH #{rid}")
+        rh_options.append({"id": rid, "label": label})
+    rh_options.sort(key=lambda x: str(x["label"] or "").lower())
+
+    task_types = []
+    categories = []
+    try:
+        for t in list_types(db) or []:
+            task_types.append({
+                "label": getattr(t, "libelle", None) or "tâche",
+                "categorie": (getattr(t, "categorie", None) or "tache").lower(),
+            })
+        categories = sorted({t["categorie"] for t in task_types if t.get("categorie")})
+    except Exception:
+        task_types = [{"label": "tâche", "categorie": "tache"}]
+        categories = ["tache"]
     return templates.TemplateResponse(
         "dashboard_documents.html",
         {
@@ -29733,6 +29847,9 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
             "documents": documents,
             "obs_by_niveau": obs_by_niveau,
             "obs_by_risque": obs_by_risque,
+            "responsables": rh_options,
+            "grouped_task_types": task_types,
+            "grouped_task_categories": categories,
         }
     )
 # List allocation dates for a given name (distinct)

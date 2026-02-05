@@ -254,6 +254,7 @@
     state.taskTypes = opts && opts.taskTypes || [];
     state.responsables = opts && opts.responsables || [];
     state.filtersSummary = opts && opts.filtersSummary || "Filtres appliqués";
+    const defaultComment = (opts && opts.defaultComment !== undefined && opts.defaultComment !== null) ? String(opts.defaultComment) : "";
     if (titleEl) titleEl.textContent = opts && opts.title ? opts.title : "Créer des tâches groupées";
     if (scopeEl) scopeEl.textContent = state.scope === "affaires" ? "Affaires filtrées" : "Clients filtrés";
     if (filtersEl) filtersEl.textContent = state.filtersSummary || "—";
@@ -286,7 +287,7 @@
       };
     }
     fillSelect(selectResp, (state.responsables || []).map(function(r){ return { value: r.id, label: r.label }; }), "Choisir…");
-    if (inputComment) inputComment.value = "";
+    if (inputComment) inputComment.value = defaultComment || "";
     if (inputDeadline) inputDeadline.value = "";
     if (selectPriority) selectPriority.value = "";
     if (inputNotify) inputNotify.checked = false;
