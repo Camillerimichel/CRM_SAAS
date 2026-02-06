@@ -678,39 +678,42 @@
                       <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.choix_contrat.percent }}%</span>
                     {% endif %}
                   </a>
-                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('lcbft'); }catch(e){}; return false;">
-                    <i class="fa-solid fa-shield-halved"></i>LCBFT
-                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.lcbft %}
-                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
-                    {% endif %}
-                  </a>
-                  {% set _kyc_overall = (kyc_status.overall if (kyc_status is defined and kyc_status and kyc_status.overall) else None) %}
-                  {% set _kyc_complete = (_kyc_overall.complete if _kyc_overall and (_kyc_overall.complete is not none) else False) %}
-                  <a href="javascript:void(0)" {% if not _kyc_complete %}style="opacity:0.55; pointer-events:none;" aria-disabled="true"{% endif %} onclick="try{ window.openClientCompteRenduEntretien && window.openClientCompteRenduEntretien(); }catch(e){}; return false;">
-                    <i class="fa-solid fa-file-pdf"></i>Compte rendu d'entretien
-                    {% if _kyc_overall %}
-                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _kyc_overall.percent }}%</span>
-                    {% endif %}
-                  </a>
-                </div>
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientConformiteKyc && window.openClientConformiteKyc('lcbft'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-shield-halved"></i>FATCA - LCBFT
+	                    {% if kyc_status is defined and kyc_status.sections and kyc_status.sections.lcbft %}
+	                      <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
+	                    {% endif %}
+	                  </a>
+	                </div>
 
-                <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteEditionsTree && window.toggleSidebarConformiteEditionsTree(); }catch(e){}; return false;">
-                  <i class="fa-solid fa-file-pdf"></i>Editions
-                </a>
-                <div class="sidebar-subtree" id="sidebarConformiteEditionsTree" aria-label="Sous-menu éditions">
-                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('der'); }catch(e){}; return false;">
-                    <i class="fa-solid fa-file-signature"></i>DER
-                  </a>
-                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('mission'); }catch(e){}; return false;">
-                    <i class="fa-solid fa-file-contract"></i>Lettre de mission
-                  </a>
-                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('adequation'); }catch(e){}; return false;">
-                    <i class="fa-solid fa-file-circle-check"></i>Adéquation
-                  </a>
-                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('synthese'); }catch(e){}; return false;">
-                    <i class="fa-solid fa-file-lines"></i>Synthèse
-                  </a>
-                </div>
+	                <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteEditionsTree && window.toggleSidebarConformiteEditionsTree(); }catch(e){}; return false;">
+	                  <i class="fa-solid fa-file-pdf"></i>Editions
+	                </a>
+	                <div class="sidebar-subtree" id="sidebarConformiteEditionsTree" aria-label="Sous-menu éditions">
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('der'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-signature"></i>DER
+	                  </a>
+	                  {% set _kyc_overall = (kyc_status.overall if (kyc_status is defined and kyc_status and kyc_status.overall) else None) %}
+	                  {% set _kyc_complete = (_kyc_overall.complete if _kyc_overall and (_kyc_overall.complete is not none) else False) %}
+	                  <a href="javascript:void(0)" {% if not _kyc_complete %}style="opacity:0.75;"{% endif %} onclick="try{ window.openClientCompteRenduEntretien && window.openClientCompteRenduEntretien(); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-pdf"></i>Compte rendu d'entretien
+	                  </a>
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('mission'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-contract"></i>Lettre de mission
+	                  </a>
+		                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('adequation'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-circle-check"></i>Adéquation
+	                  </a>
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('fatca'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-shield"></i>FATCA / EAI
+	                  </a>
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('tracfin'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-circle-exclamation"></i>Tracfin
+	                  </a>
+	                  <a href="javascript:void(0)" onclick="try{ window.openClientEditionDoc && window.openClientEditionDoc('synthese'); }catch(e){}; return false;">
+	                    <i class="fa-solid fa-file-lines"></i>Synthèse
+	                  </a>
+	                </div>
               </div>
               <a href="javascript:void(0)" onclick="try{ window.toggleSidebarInvestTree && window.toggleSidebarInvestTree(); }catch(e){}; return false;">
                 <i class="fa-solid fa-chart-line"></i>Investissements
@@ -1728,9 +1731,9 @@
         window.toggleSidebarConformiteTree = function(){
           var opened = toggleTree('sidebarConformiteTree');
           if (opened){
-            // Default to showing the first level so it's one click to reach items.
+            // Default to showing the first level only (keep submenus folded).
             var kyc = document.getElementById('sidebarConformiteKycTree');
-            if (kyc) kyc.style.display = 'block';
+            if (kyc) kyc.style.display = 'none';
             var ed = document.getElementById('sidebarConformiteEditionsTree');
             if (ed) ed.style.display = 'none';
           }
@@ -1753,15 +1756,16 @@
           }catch(e){}
         };
 
-        window.openClientCompteRenduEntretien = function(){
-          try{
-            if (typeof CLIENT_ID === 'undefined' || !CLIENT_ID) return;
-            var url = '/dashboard/clients/kyc/' + encodeURIComponent(CLIENT_ID) + '/rapport?style=conformite&pdf=1';
-            try{ if (window.appendMarkers) url = window.appendMarkers(url); } catch(e){}
-            if (window.generateKycReportPdf){
-              window.generateKycReportPdf(); // if exists in the future
-              return;
-            }
+	        window.openClientCompteRenduEntretien = function(){
+	          try{
+	            if (typeof CLIENT_ID === 'undefined' || !CLIENT_ID) return;
+	            // Ouvre un viewer PDF (inline) dans un nouvel onglet: le navigateur permet ensuite "Enregistrer / Télécharger".
+	            var url = '/dashboard/clients/kyc/' + encodeURIComponent(CLIENT_ID) + '/rapport?style=conformite&pdf=1&inline=1';
+	            try{ if (window.appendMarkers) url = window.appendMarkers(url); } catch(e){}
+	            if (window.generateKycReportPdf){
+	              window.generateKycReportPdf(); // if exists in the future
+	              return;
+	            }
             var a = document.createElement('a');
             a.href = url;
             a.target = '_blank';
@@ -1773,15 +1777,17 @@
           }catch(e){}
         };
 
-        window.openClientEditionDoc = function(kind){
-          try{
-            if (kind === 'der' && window.generateDerPdf){ window.generateDerPdf(); return; }
-            if (kind === 'mission' && window.generateMissionPdf){ window.generateMissionPdf(); return; }
-            if (kind === 'adequation' && window.generateAdequationPdf){ window.generateAdequationPdf(); return; }
-            if (kind === 'synthese' && window.generateClientSynthese){ window.generateClientSynthese(); return; }
-          }catch(e){}
-        };
-      })();
+	        window.openClientEditionDoc = function(kind){
+	          try{
+	            if (kind === 'der' && window.generateDerPdf){ window.generateDerPdf(); return; }
+	            if (kind === 'mission' && window.generateMissionPdf){ window.generateMissionPdf(); return; }
+	            if (kind === 'adequation' && window.generateAdequationPdf){ window.generateAdequationPdf(); return; }
+	            if (kind === 'fatca' && window.generateFatcaPdf){ window.generateFatcaPdf(); return; }
+	            if (kind === 'tracfin' && window.generateTracfinPdf){ window.generateTracfinPdf(); return; }
+	            if (kind === 'synthese' && window.generateClientSynthese){ window.generateClientSynthese(); return; }
+	          }catch(e){}
+	        };
+	      })();
 
       // Client detail: Graphiques tree + deep-link to an internal panel in #graphsSection
       ;(function(){

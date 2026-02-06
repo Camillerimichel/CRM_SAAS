@@ -1865,20 +1865,22 @@ function generateClientSynthese(){
           </div>
         </div>
         <div>
-          <h4 style="margin:0 0 8px 0; text-align:center;">Éditions</h4>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
-            {% set _obj_total = _kyc.objectifs_total if _kyc and (_kyc.objectifs_total is not none) else lm_total_invest %}
-            {% set _mission_enabled = (_obj_total or 0) > 0 %}
-            {% set _docs_enabled = _overall.complete if _overall else False %}
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();" {% if not _mission_enabled %}disabled title="Un montant global d'objectifs doit être saisi dans la fiche KYC."{% endif %}><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
-            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-            <button type="button" class="kyc-main-btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="generateClientSynthese()" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}>
-              <span class="pdf-pill-icon">PDF</span>
-              <span>Edition de synthèse</span>
-            </button>
-          </div>
-        </div>
+	          <h4 style="margin:0 0 8px 0; text-align:center;">Éditions</h4>
+	          <div style="display:flex; flex-direction:column; gap:8px;">
+	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
+	            {% set _obj_total = _kyc.objectifs_total if _kyc and (_kyc.objectifs_total is not none) else lm_total_invest %}
+	            {% set _mission_enabled = (_obj_total or 0) > 0 %}
+	            {% set _docs_enabled = _overall.complete if _overall else False %}
+	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();" {% if not _mission_enabled %}disabled title="Un montant global d'objectifs doit être saisi dans la fiche KYC."{% endif %}><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
+		            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateFatcaPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-shield"></i>Autocertification FATCA / EAI</button>
+	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateTracfinPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-exclamation"></i>Fiche Tracfin</button>
+		            <button type="button" class="kyc-main-btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="generateClientSynthese()" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}>
+		              <span class="pdf-pill-icon">PDF</span>
+		              <span>Edition de synthèse</span>
+		            </button>
+	          </div>
+	        </div>
       </div>
     </div>
     </div>
@@ -5577,10 +5579,115 @@ function openClientMsgs(kind){
           window.hideGlobalLoader();
         }
       }
-    }
-    window.generateAdequationPdf = generateAdequationPdf;
-    // removed: mission2, tempo
-  </script>
+	    }
+		    window.generateAdequationPdf = generateAdequationPdf;
+		    function generateFatcaPdf(options){
+		      try{
+		        var opts = {};
+		        if(options){
+		          opts = typeof options === 'object' ? options : {};
+		        }
+		        var clientId = opts.clientId || CLIENT_ID;
+		        if(!clientId){
+		          alert('Client introuvable.');
+		          return;
+		        }
+		        if (typeof window.showGlobalLoader === 'function'){
+		          window.showGlobalLoader('Génération du PDF…');
+		        }
+		        var urlInline = '/dashboard/clients/' + encodeURIComponent(clientId) + '/fatca/pdf?inline=1';
+		        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/fatca/pdf';
+		        urlInline = appendMarkers(urlInline);
+		        urlDl = appendMarkers(urlDl);
+		        openPdfViewer({ title: 'FATCA / EAI', inlineUrl: urlInline, downloadUrl: urlDl });
+		        var clearLoader = function(){
+		          if (typeof window.hideGlobalLoader === 'function'){
+		            window.hideGlobalLoader();
+		          }
+		          window.removeEventListener('focus', clearLoader);
+		        };
+		        window.addEventListener('focus', clearLoader);
+		        setTimeout(clearLoader, 4000);
+		      }catch(err){
+		        console.warn('FATCA PDF generation failed', err);
+		        if (typeof window.hideGlobalLoader === 'function'){
+		          window.hideGlobalLoader();
+		        }
+		      }
+		    }
+		    window.generateFatcaPdf = generateFatcaPdf;
+		    function generateTracfinPdf(options){
+		      try{
+		        var opts = {};
+		        if(options){
+		          opts = typeof options === 'object' ? options : {};
+		        }
+		        var clientId = opts.clientId || CLIENT_ID;
+		        if(!clientId){
+		          alert('Client introuvable.');
+		          return;
+		        }
+		        if (typeof window.showGlobalLoader === 'function'){
+		          window.showGlobalLoader('Génération du PDF…');
+		        }
+		        var urlInline = '/dashboard/clients/' + encodeURIComponent(clientId) + '/tracfin/pdf?inline=1';
+		        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/tracfin/pdf';
+		        urlInline = appendMarkers(urlInline);
+		        urlDl = appendMarkers(urlDl);
+		        openPdfViewer({ title: 'Tracfin', inlineUrl: urlInline, downloadUrl: urlDl });
+		        var clearLoader = function(){
+		          if (typeof window.hideGlobalLoader === 'function'){
+		            window.hideGlobalLoader();
+		          }
+		          window.removeEventListener('focus', clearLoader);
+		        };
+		        window.addEventListener('focus', clearLoader);
+		        setTimeout(clearLoader, 4000);
+		      }catch(err){
+		        console.warn('Tracfin PDF generation failed', err);
+		        if (typeof window.hideGlobalLoader === 'function'){
+		          window.hideGlobalLoader();
+		        }
+		      }
+		    }
+		    window.generateTracfinPdf = generateTracfinPdf;
+		    function generateKycReportPdf(options){
+		      try{
+		        var opts = {};
+		        if(options){
+		          opts = typeof options === 'object' ? options : {};
+	        }
+	        var clientId = opts.clientId || CLIENT_ID;
+	        if(!clientId){
+	          alert('Client introuvable.');
+	          return;
+	        }
+	        if (typeof window.showGlobalLoader === 'function'){
+	          window.showGlobalLoader('Génération du PDF…');
+	        }
+	        var urlInline = '/dashboard/clients/kyc/' + encodeURIComponent(clientId) + '/rapport?style=conformite&pdf=1&inline=1';
+	        var urlDl = '/dashboard/clients/kyc/' + encodeURIComponent(clientId) + '/rapport?style=conformite&pdf=1';
+	        urlInline = appendMarkers(urlInline);
+	        urlDl = appendMarkers(urlDl);
+	        openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl });
+	        var clearLoader = function(){
+	          if (typeof window.hideGlobalLoader === 'function'){
+	            window.hideGlobalLoader();
+	          }
+	          window.removeEventListener('focus', clearLoader);
+	        };
+	        window.addEventListener('focus', clearLoader);
+	        setTimeout(clearLoader, 4000);
+	      }catch(err){
+	        console.warn('KYC report PDF generation failed', err);
+	        if (typeof window.hideGlobalLoader === 'function'){
+	          window.hideGlobalLoader();
+	        }
+	      }
+	    }
+	    window.generateKycReportPdf = generateKycReportPdf;
+	    // removed: mission2, tempo
+	  </script>
 <script>
   // Inject today date in Lettre d’adéquation
   (function(){ try{ var el=document.getElementById('laDate'); if(el){ var d=new Date(); var s=d.toLocaleDateString(); el.textContent=s; } }catch(e){} })();

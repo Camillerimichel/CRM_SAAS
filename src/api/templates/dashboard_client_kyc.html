@@ -23,6 +23,20 @@
     {{ error }}
   </div>
 {% else %}
+  {% macro date_only(v) -%}
+    {%- if v -%}
+      {%- set s = v|string -%}
+      {{- s.split('T')[0].split(' ')[0] -}}
+    {%- else -%}
+      —
+    {%- endif -%}
+  {%- endmacro %}
+  {% macro date_only_value(v) -%}
+    {%- if v -%}
+      {%- set s = v|string -%}
+      {{- s.split('T')[0].split(' ')[0] -}}
+    {%- endif -%}
+  {%- endmacro %}
   <style>
   .card { background:#fff; border-radius:12px; padding:14px; box-shadow:0 4px 16px rgba(0,0,0,0.08); margin-bottom:14px; }
   .muted { color:#666; }
@@ -198,32 +212,25 @@
           <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.choix_contrat.percent }}%</span>
         {% endif %}
       </button>
-      <button type="button" class="kyc-main-btn" id="openLcbftBtn">
-        <i class="fa-solid fa-shield-halved"></i>
-        LCBFT
-        {% if kyc_status and kyc_status.sections and kyc_status.sections.lcbft %}
-          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
-        {% endif %}
-      </button>
-      {% set _overall = kyc_status.overall if kyc_status and kyc_status.overall else None %}
-      {# Align gating with displayed overall %: LCBFT is excluded from overall completion by design. #}
-      {% set _all_complete = (_overall.complete if _overall and (_overall.complete is not none) else False) %}
-      <a
-        class="kyc-main-btn{% if not _all_complete %} kyc-main-btn-disabled{% endif %}"
-        {% if _all_complete %}
-          href="/dashboard/clients/kyc/{{ client_id }}/rapport?style=conformite&pdf=1"
-        {% else %}
-          href="javascript:void(0)"
-          aria-disabled="true"
-        {% endif %}
-        download="rapport_kyc_{{ client_id }}.pdf"
-      >
-        <i class="fa-solid fa-download"></i>
-        Compte rendu d'entretien
-        {% if _overall %}
-          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ _overall.percent }}%</span>
-        {% endif %}
-      </a>
+	      <button type="button" class="kyc-main-btn" id="openLcbftBtn">
+	        <i class="fa-solid fa-shield-halved"></i>
+	        FATCA - LCBFT
+	        {% if kyc_status and kyc_status.sections and kyc_status.sections.lcbft %}
+	          <span class="badge" style="margin-left:6px; background:#e2e8f0; color:#111827;">{{ kyc_status.sections.lcbft.percent }}%</span>
+	        {% endif %}
+	      </button>
+	      {% set _overall = kyc_status.overall if kyc_status and kyc_status.overall else None %}
+	      {# Align gating with displayed overall %: LCBFT is excluded from overall completion by design. #}
+	      {% set _all_complete = (_overall.complete if _overall and (_overall.complete is not none) else False) %}
+	      <a
+	        class="kyc-main-btn"
+	        href="javascript:void(0)"
+	        onclick="try{ window.openCompteRenduEntretienPdf && window.openCompteRenduEntretienPdf({{ client_id }}); }catch(e){}; return false;"
+	        {% if not _all_complete %}style="opacity:0.75;"{% endif %}
+	      >
+	        <i class="fa-solid fa-download"></i>
+	        Compte rendu d'entretien
+	      </a>
       
     </div>
     {% if kyc_contrat_selected_id %}
@@ -243,7 +250,47 @@
 
   
 
-  <!-- Modals Conformité supprimées -->
+	  <!-- Modals Conformité supprimées -->
+
+	  <script>
+	    // Compte rendu d'entretien (PDF) : même stratégie que DER (viewer PDF si disponible, sinon nouvel onglet)
+	    ;(function(){
+	      function openInNewTab(url){
+	        try{
+	          var a = document.createElement('a');
+	          a.href = url;
+	          a.target = '_blank';
+	          a.rel = 'noopener';
+	          a.style.display = 'none';
+	          document.body.appendChild(a);
+	          a.click();
+	          setTimeout(function(){ try{ document.body.removeChild(a); }catch(e){} }, 1000);
+	        }catch(e){
+	          try{ window.open(url, '_blank', 'noopener'); }catch(_e){}
+	        }
+	      }
+	      window.openCompteRenduEntretienPdf = function(clientId){
+	        try{
+	          var cid = clientId;
+	          if (!cid && typeof CLIENT_ID !== 'undefined') cid = CLIENT_ID;
+	          if (!cid) return;
+	          var urlInline = '/dashboard/clients/kyc/' + encodeURIComponent(String(cid)) + '/rapport?style=conformite&pdf=1&inline=1';
+	          var urlDl = '/dashboard/clients/kyc/' + encodeURIComponent(String(cid)) + '/rapport?style=conformite&pdf=1';
+
+	          // Si on est dans la fiche client (iframe embed), utiliser le viewer PDF du parent (comme DER)
+	          try{
+	            if (window.parent && window.parent !== window && typeof window.parent.openPdfViewer === 'function'){
+	              window.parent.openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl });
+	              return;
+	            }
+	          }catch(e){}
+
+	          // Fallback : viewer PDF du navigateur dans un nouvel onglet
+	          openInNewTab(urlInline);
+	        }catch(e){}
+	      };
+	    })();
+	  </script>
 
 
   <div class="kyc-etat-container" id="etatContainer">
@@ -370,9 +417,7 @@
                     <td>{{ adresse.ville or '—' }}</td>
                     <td>{{ adresse.pays or '—' }}</td>
                     <td>
-                      {% set debut = adresse.date_saisie or '—' %}
-                      {% set fin = adresse.date_expiration or '—' %}
-                      {{ debut }} → {{ fin }}
+                      {{ date_only(adresse.date_saisie) }} → {{ date_only(adresse.date_expiration) }}
                     </td>
                     <td class="actions">
                       <button type="button" class="btn-icon" title="Voir / modifier"
@@ -383,8 +428,8 @@
                         data-code-postal="{{ (adresse.code_postal or '')|e }}"
                         data-ville="{{ (adresse.ville or '')|e }}"
                         data-pays="{{ (adresse.pays or '')|e }}"
-                        data-date-saisie="{{ adresse.date_saisie or '' }}"
-                        data-date-expiration="{{ adresse.date_expiration or '' }}"
+                        data-date-saisie="{{ date_only_value(adresse.date_saisie) }}"
+                        data-date-expiration="{{ date_only_value(adresse.date_expiration) }}"
                         onclick="openAdresseModal('edit', this)">
                         <i class="fa-solid fa-eye"></i>
                       </button>
@@ -435,9 +480,7 @@
                     <td>{{ sit.convention_libelle or '—' }}</td>
                     <td class="number">{{ sit.nb_enfants }}</td>
                     <td>
-                      {% set debut = sit.date_saisie or '—' %}
-                      {% set fin = sit.date_expiration or '—' %}
-                      {{ debut }} → {{ fin }}
+                      {{ date_only(sit.date_saisie) }} → {{ date_only(sit.date_expiration) }}
                     </td>
                     <td class="actions">
                       <button type="button" class="btn-icon" title="Voir / modifier"
@@ -445,8 +488,8 @@
                         data-situation-id="{{ sit.situation_id }}"
                         data-convention-id="{{ sit.convention_id if sit.convention_id is not none else '' }}"
                         data-nb-enfants="{{ sit.nb_enfants }}"
-                        data-date-saisie="{{ sit.date_saisie or '' }}"
-                        data-date-expiration="{{ sit.date_expiration or '' }}"
+                        data-date-saisie="{{ date_only_value(sit.date_saisie) }}"
+                        data-date-expiration="{{ date_only_value(sit.date_expiration) }}"
                         onclick="openMatrimonialModal('edit', this)">
                         <i class="fa-solid fa-eye"></i>
                       </button>
@@ -501,9 +544,7 @@
                     <td>{{ prof.employeur or '—' }}</td>
                     <td class="number">{{ prof.anciennete_annees }}</td>
                     <td>
-                      {% set debut = prof.date_saisie or '—' %}
-                      {% set fin = prof.date_expiration or '—' %}
-                      {{ debut }} → {{ fin }}
+                      {{ date_only(prof.date_saisie) }} → {{ date_only(prof.date_expiration) }}
                     </td>
                     <td class="actions">
                       <button type="button" class="btn-icon" title="Voir / modifier"
@@ -513,8 +554,8 @@
                         data-employeur="{{ (prof.employeur or '')|e }}"
                         data-anciennete="{{ prof.anciennete_annees if prof.anciennete_annees is not none else '' }}"
                         data-statut-id="{{ prof.statut_id if prof.statut_id is not none else '' }}"
-                        data-date-saisie="{{ prof.date_saisie or '' }}"
-                        data-date-expiration="{{ prof.date_expiration or '' }}"
+                        data-date-saisie="{{ date_only_value(prof.date_saisie) }}"
+                        data-date-expiration="{{ date_only_value(prof.date_expiration) }}"
                         onclick="openProfessionnelModal('edit', this)">
                         <i class="fa-solid fa-eye"></i>
                       </button>
@@ -606,24 +647,24 @@
               </tr>
             </thead>
             <tbody>
-              {% for a in kyc_actifs %}
-                <tr>
-                  <td>{{ a.type_libelle }}</td>
-                  <td>{{ a.description or '—' }}</td>
-                  <td>{{ a.date_saisie or '—' }}</td>
-                  <td>{{ a.date_expiration or '—' }}</td>
-                  <td class="number">{{ a.valeur_str }}</td>
-                  <td class="actions">
-                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
-                      data-id="{{ a.id }}"
-                      data-type="{{ a.type_actif_id }}"
-                      data-description="{{ (a.description or '')|e }}"
-                      data-valeur="{{ a.valeur if a.valeur is not none else '' }}"
-                      data-date-saisie="{{ a.date_saisie or '' }}"
-                      data-date-expiration="{{ a.date_expiration or '' }}"
-                      onclick="openActifModal('edit', this)">
-                      <i class="fa-solid fa-eye"></i>
-                    </button>
+	              {% for a in kyc_actifs %}
+	                <tr>
+	                  <td>{{ a.type_libelle }}</td>
+	                  <td>{{ a.description or '—' }}</td>
+	                  <td>{{ date_only(a.date_saisie) }}</td>
+	                  <td>{{ date_only(a.date_expiration) }}</td>
+	                  <td class="number">{{ a.valeur_str }}</td>
+	                  <td class="actions">
+	                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+	                      data-id="{{ a.id }}"
+	                      data-type="{{ a.type_actif_id }}"
+	                      data-description="{{ (a.description or '')|e }}"
+	                      data-valeur="{{ a.valeur if a.valeur is not none else '' }}"
+	                      data-date-saisie="{{ date_only_value(a.date_saisie) }}"
+	                      data-date-expiration="{{ date_only_value(a.date_expiration) }}"
+	                      onclick="openActifModal('edit', this)">
+	                      <i class="fa-solid fa-eye"></i>
+	                    </button>
                     <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ a.id }}" onclick="deleteActif(this)">
                       <i class="fa-solid fa-trash"></i>
                     </button>
@@ -671,24 +712,24 @@
               </tr>
             </thead>
             <tbody>
-              {% for p in kyc_passifs %}
-                <tr>
-                  <td>{{ p.type_libelle }}</td>
-                  <td>{{ p.description or '—' }}</td>
-                  <td>{{ p.date_saisie or '—' }}</td>
-                  <td>{{ p.date_expiration or '—' }}</td>
-                  <td class="number">{{ p.montant_str }}</td>
-                  <td class="actions">
-                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
-                      data-id="{{ p.id }}"
-                      data-type="{{ p.type_passif_id }}"
-                      data-description="{{ (p.description or '')|e }}"
-                      data-montant="{{ p.montant if p.montant is not none else '' }}"
-                      data-date-saisie="{{ p.date_saisie or '' }}"
-                      data-date-expiration="{{ p.date_expiration or '' }}"
-                      onclick="openPassifModal('edit', this)">
-                      <i class="fa-solid fa-eye"></i>
-                    </button>
+	              {% for p in kyc_passifs %}
+	                <tr>
+	                  <td>{{ p.type_libelle }}</td>
+	                  <td>{{ p.description or '—' }}</td>
+	                  <td>{{ date_only(p.date_saisie) }}</td>
+	                  <td>{{ date_only(p.date_expiration) }}</td>
+	                  <td class="number">{{ p.montant_str }}</td>
+	                  <td class="actions">
+	                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+	                      data-id="{{ p.id }}"
+	                      data-type="{{ p.type_passif_id }}"
+	                      data-description="{{ (p.description or '')|e }}"
+	                      data-montant="{{ p.montant if p.montant is not none else '' }}"
+	                      data-date-saisie="{{ date_only_value(p.date_saisie) }}"
+	                      data-date-expiration="{{ date_only_value(p.date_expiration) }}"
+	                      onclick="openPassifModal('edit', this)">
+	                      <i class="fa-solid fa-eye"></i>
+	                    </button>
                     <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ p.id }}" onclick="deletePassif(this)">
                       <i class="fa-solid fa-trash"></i>
                     </button>
@@ -735,22 +776,22 @@
               </tr>
             </thead>
             <tbody>
-              {% for r in kyc_revenus %}
-                <tr>
-                  <td>{{ r.type_libelle }}</td>
-                  <td>{{ r.date_saisie or '—' }}</td>
-                  <td>{{ r.date_expiration or '—' }}</td>
-                  <td class="number">{{ r.montant_str }}</td>
-                  <td class="actions">
-                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
-                      data-id="{{ r.id }}"
-                      data-type="{{ r.type_revenu_id }}"
-                      data-montant="{{ r.montant if r.montant is not none else '' }}"
-                      data-date-saisie="{{ r.date_saisie or '' }}"
-                      data-date-expiration="{{ r.date_expiration or '' }}"
-                      onclick="openRevenuModal('edit', this)">
-                      <i class="fa-solid fa-eye"></i>
-                    </button>
+	              {% for r in kyc_revenus %}
+	                <tr>
+	                  <td>{{ r.type_libelle }}</td>
+	                  <td>{{ date_only(r.date_saisie) }}</td>
+	                  <td>{{ date_only(r.date_expiration) }}</td>
+	                  <td class="number">{{ r.montant_str }}</td>
+	                  <td class="actions">
+	                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+	                      data-id="{{ r.id }}"
+	                      data-type="{{ r.type_revenu_id }}"
+	                      data-montant="{{ r.montant if r.montant is not none else '' }}"
+	                      data-date-saisie="{{ date_only_value(r.date_saisie) }}"
+	                      data-date-expiration="{{ date_only_value(r.date_expiration) }}"
+	                      onclick="openRevenuModal('edit', this)">
+	                      <i class="fa-solid fa-eye"></i>
+	                    </button>
                     <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ r.id }}" onclick="deleteRevenu(this)">
                       <i class="fa-solid fa-trash"></i>
                     </button>
@@ -797,22 +838,22 @@
               </tr>
             </thead>
             <tbody>
-              {% for c in kyc_charges %}
-                <tr>
-                  <td>{{ c.type_libelle }}</td>
-                  <td>{{ c.date_saisie or '—' }}</td>
-                  <td>{{ c.date_expiration or '—' }}</td>
-                  <td class="number">{{ c.montant_str }}</td>
-                  <td class="actions">
-                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
-                      data-id="{{ c.id }}"
-                      data-type="{{ c.type_charge_id }}"
-                      data-montant="{{ c.montant if c.montant is not none else '' }}"
-                      data-date-saisie="{{ c.date_saisie or '' }}"
-                      data-date-expiration="{{ c.date_expiration or '' }}"
-                      onclick="openChargeModal('edit', this)">
-                      <i class="fa-solid fa-eye"></i>
-                    </button>
+	              {% for c in kyc_charges %}
+	                <tr>
+	                  <td>{{ c.type_libelle }}</td>
+	                  <td>{{ date_only(c.date_saisie) }}</td>
+	                  <td>{{ date_only(c.date_expiration) }}</td>
+	                  <td class="number">{{ c.montant_str }}</td>
+	                  <td class="actions">
+	                    <button type="button" class="btn-icon" title="Voir / modifier" data-mode="edit"
+	                      data-id="{{ c.id }}"
+	                      data-type="{{ c.type_charge_id }}"
+	                      data-montant="{{ c.montant if c.montant is not none else '' }}"
+	                      data-date-saisie="{{ date_only_value(c.date_saisie) }}"
+	                      data-date-expiration="{{ date_only_value(c.date_expiration) }}"
+	                      onclick="openChargeModal('edit', this)">
+	                      <i class="fa-solid fa-eye"></i>
+	                    </button>
                     <button type="button" class="btn-icon danger" title="Supprimer" data-id="{{ c.id }}" onclick="deleteCharge(this)">
                       <i class="fa-solid fa-trash"></i>
                     </button>
@@ -1085,7 +1126,7 @@
                 <select id="riskSnapshotSelect" style="height:28px; width:50%; min-width:180px;">
                   {% for s in risque_snapshots %}
                     <option value="{{ s.id }}" {% if risque_selected_id and s.id == risque_selected_id %}selected{% endif %}>
-                      {{ s.date_saisie }}{% if s.date_expiration %} → {{ s.date_expiration }}{% endif %}
+                      {{ date_only(s.date_saisie) }}{% if s.date_expiration %} → {{ date_only(s.date_expiration) }}{% endif %}
                     </option>
                   {% endfor %}
                 </select>
@@ -1762,16 +1803,19 @@
           })();
         </script>
         <script>
-          // Calcul auto du % patrimoine à partir du montant et du total des actifs
-          (function(){
-            const montantInput = document.getElementById('lcbftMontant');
-            const pctInput = document.getElementById('lcbftPatrimoinePct');
-            const actifsInput = document.getElementById('patrimoineNetValue');
-            if (!montantInput || !pctInput || !actifsInput) return;
-            function parseAmount(v){
-              if (v == null) return 0;
-              return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
-            }
+	          // Calcul auto du % patrimoine à partir du montant et du total des actifs
+	          (function(){
+	            const montantInput = document.getElementById('lcbftMontant');
+	            const pctInput = document.getElementById('lcbftPatrimoinePct');
+	            const warnEl = document.getElementById('lcbftPatrimoinePctWarn');
+	            const patrimoineTotalInput = document.getElementById('lcbftPatrimoineTotalValue');
+	            const netInput = document.getElementById('patrimoineNetValue');
+	            const actifsInput = (patrimoineTotalInput && String(patrimoineTotalInput.value || '').trim() !== '') ? patrimoineTotalInput : netInput;
+	            if (!montantInput || !pctInput || !actifsInput) return;
+	            function parseAmount(v){
+	              if (v == null) return 0;
+	              return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+	            }
             function formatPct(x){
               if (!isFinite(x)) return '';
               return x.toFixed(2);
@@ -1782,15 +1826,20 @@
               const g = d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
               return (i < 0 ? '-' : '') + g;
             }
-            function recompute(){
-              const totalActifs = parseAmount(actifsInput.value);
-              const m = parseAmount(montantInput.value);
-              let pct = '';
-              if (totalActifs > 0 && m >= 0){
-                pct = formatPct((m / totalActifs) * 100.0);
-                pctInput.value = pct;
-              }
-            }
+	            function recompute(){
+	              const totalActifs = parseAmount(actifsInput.value);
+	              const m = parseAmount(montantInput.value);
+	              let pct = '';
+	              if (totalActifs > 0 && m >= 0){
+	                const pctNum = (m / totalActifs) * 100.0;
+	                pct = formatPct(pctNum);
+	                pctInput.value = pct;
+	                const isOverHalf = isFinite(pctNum) && pctNum > 50.0;
+	                if (warnEl) warnEl.style.display = isOverHalf ? 'inline' : 'none';
+	                pctInput.style.borderColor = isOverHalf ? '#ef4444' : '';
+	                pctInput.style.background = isOverHalf ? '#fff1f2' : '';
+	              }
+	            }
             // Recompute while typing, and when user finishes (blur/change/Enter)
             montantInput.addEventListener('input', recompute);
             montantInput.addEventListener('change', recompute);
@@ -1825,32 +1874,122 @@
             updateSoc();
           })();
         </script>
-          <script>
-          (function(){
-            const form = document.getElementById('lcbftForm');
-            if (!form) return;
-            function fieldValue(name){
-              const checkbox = form.querySelector('input[type="checkbox"][name="'+name+'"]');
-              if (checkbox) return checkbox.checked ? '1' : '0';
-              const input = form.querySelector('input[name="'+name+'"]');
-              if (input) return String(input.value || '').trim();
+	          <script>
+		          (function(){
+		            function initLcbftUi(){
+		              const form = document.getElementById('lcbftForm');
+		              if (!form) return false;
+		
+		              function bindTrancheGroups(){
+		                const groups = Array.from(form.querySelectorAll('.lcbft-tranche-group[data-input-id]'));
+		                groups.forEach(function(group){
+		                  const alreadyBound = (group.dataset && group.dataset.trancheBound === '1');
+		                  const inputId = group.getAttribute('data-input-id');
+		                  const input = inputId ? document.getElementById(inputId) : null;
+		                  const buttons = Array.from(group.querySelectorAll('button.btn-choice[data-id]'));
+		                  if (!buttons.length) return;
+		
+		                  function setActive(id){
+		                    const strId = (id === null || id === undefined) ? '' : String(id);
+		                    if (input) input.value = strId;
+		                    buttons.forEach(function(btn){
+		                      const isActive = String(btn.getAttribute('data-id') || '') === strId && strId !== '';
+		                      btn.classList.toggle('btn-choice-active', isActive);
+		                      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+		                    });
+		                  }
+		
+		                  // Init from hidden input (server-provided), else from existing class
+		                  let initial = (input && input.value) ? String(input.value) : '';
+		                  if (!initial){
+		                    const existing = buttons.find(b => b.classList.contains('btn-choice-active'));
+		                    initial = existing ? String(existing.getAttribute('data-id') || '') : '';
+		                  }
+		                  if (initial) setActive(initial);
+		
+		                  if (!alreadyBound){
+		                    buttons.forEach(function(btn){
+		                      btn.addEventListener('click', function(ev){
+		                        ev.preventDefault();
+		                        ev.stopPropagation();
+		                        setActive(btn.getAttribute('data-id') || '');
+		                      });
+		                    });
+		                    if (group.dataset) group.dataset.trancheBound = '1';
+		                  }
+		                });
+		              }
+
+		              function autoSelectRaisonVigilance(){
+		                const group = form.querySelector('.btn-multi-group[data-name="raison_vigilance_ids"]');
+		                if (!group) return;
+		                const montantEl = document.getElementById('lcbftMontant');
+		                const patrEl = document.getElementById('lcbftPatrimoineTotalValue') || document.getElementById('patrimoineNetValue');
+		                if (!montantEl || !patrEl) return;
+
+		                function parseAmount(v){
+		                  if (v == null) return 0;
+		                  return parseFloat(String(v).replace(/[^0-9.\-]/g,'').replace(',', '.')) || 0;
+		                }
+		                const invest = parseAmount(montantEl.value);
+		                const patrimoine = parseAmount(patrEl.value);
+
+		                const buttons = Array.from(group.querySelectorAll('button.btn-choice[data-id]'));
+		                if (!buttons.length) return;
+
+		                function isSelected(btn){
+		                  return btn.classList.contains('btn-choice-active') || btn.getAttribute('data-active') === '1' || btn.getAttribute('aria-pressed') === 'true';
+		                }
+		                function findBtnByIdOrText(idStr, textMatchers){
+		                  const byId = buttons.find(b => String(b.getAttribute('data-id') || '') === String(idStr));
+		                  if (byId) return byId;
+		                  return buttons.find(function(b){
+		                    const t = String(b.textContent || '').toLowerCase();
+		                    return textMatchers.every(m => m(t));
+		                  });
+		                }
+
+		                // Montant > 100 k€
+		                if (isFinite(invest) && invest > 100000){
+		                  const btn100 = findBtnByIdOrText('1', [
+		                    t => t.includes('montant'),
+		                    t => t.includes('100'),
+		                  ]);
+		                  if (btn100 && !isSelected(btn100)) btn100.click();
+		                }
+
+		                // Montant investi > 50% du patrimoine
+		                if (isFinite(invest) && isFinite(patrimoine) && patrimoine > 0 && (invest / patrimoine) > 0.5){
+		                  const btn50 = findBtnByIdOrText('2', [
+		                    t => (t.includes('50') && t.includes('%')) || (t.includes('patrimoine') && t.includes('50')),
+		                  ]);
+		                  if (btn50 && !isSelected(btn50)) btn50.click();
+		                }
+		              }
+		
+		              function fieldValue(name){
+	              const checkbox = form.querySelector('input[type="checkbox"][name="'+name+'"]');
+	              if (checkbox) return checkbox.checked ? '1' : '0';
+	              const input = form.querySelector('input[name="'+name+'"]');
+	              if (input) return String(input.value || '').trim();
               const select = form.querySelector('select[name="'+name+'"]');
               if (select) return String(select.value || '').trim();
               return '';
             }
         // Met à jour la visibilité du bloc Risque de cartographie
-        window.updateRiskList = function(){
-          const get = fieldValue;
-          const keys = ['has_existing_contracts','ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'];
-          const hasRisk = keys.some((key)=> get(key) === '1');
-          const riskBlock = document.getElementById('riskCartographieBlock');
-          const status = document.getElementById('lcbftRiskStatus');
-          const summary = document.getElementById('cartographieSummary');
-          const details = document.getElementById('cartographieDetails');
-          const mapElems = {
-            'has_existing_contracts': 'cartoVal_has_existing_contracts',
-            'ppe_self': 'cartoVal_ppe_self',
-            'ppe_family': 'cartoVal_ppe_family',
+	        window.updateRiskList = function(){
+	          const get = fieldValue;
+	          const keys = ['has_existing_contracts','ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'];
+	          const hasRisk = keys.some((key)=> get(key) === '1');
+	          const riskBlock = document.getElementById('riskCartographieBlock');
+	          const status = document.getElementById('lcbftRiskStatus');
+	          const summary = document.getElementById('cartographieSummary');
+	          const details = document.getElementById('cartographieDetails');
+	          const vigilanceMsg = document.getElementById('lcbftVigilanceMessage');
+	          const mapElems = {
+	            'has_existing_contracts': 'cartoVal_has_existing_contracts',
+	            'ppe_self': 'cartoVal_ppe_self',
+	            'ppe_family': 'cartoVal_ppe_family',
             'flag_1a': 'cartoVal_flag_1a',
             'flag_1b': 'cartoVal_flag_1b',
             'flag_1c': 'cartoVal_flag_1c',
@@ -1859,29 +1998,48 @@
             'flag_2b': 'cartoVal_flag_2b',
             'flag_3a': 'cartoVal_flag_3a',
           };
-          Object.entries(mapElems).forEach(([field, elId])=>{
-            const el = document.getElementById(elId);
-            if (el){ el.textContent = get(field) === '1' ? 'Oui' : 'Non'; }
-          });
-          let computedRisk = 1;
-          const isTrue = (key) => get(key) === '1';
-          if (['flag_1a','flag_1c','flag_1d','flag_2b','flag_3a'].some(isTrue)){
+	          Object.entries(mapElems).forEach(([field, elId])=>{
+	            const el = document.getElementById(elId);
+	            if (el){ el.textContent = get(field) === '1' ? 'Oui' : 'Non'; }
+	            const row = document.getElementById('cartoItem_' + field);
+	            if (row){ row.classList.toggle('is-yes', get(field) === '1'); }
+	          });
+	          let computedRisk = 1;
+	          const isTrue = (key) => get(key) === '1';
+	          if (['flag_1a','flag_1c','flag_1d','flag_2b','flag_3a'].some(isTrue)){
             computedRisk = 4;
           } else if (isTrue('flag_2a')){
             computedRisk = 3;
           } else if (isTrue('flag_1b') || isTrue('ppe_self') || isTrue('ppe_family')){
             computedRisk = 2;
           }
-          const riskLevelEl = document.getElementById('lcbftComputedRisk');
-          if (riskLevelEl){
-            riskLevelEl.textContent = String(computedRisk);
-            const colors = {1:'#16a34a', 2:'#f97316', 3:'#dc2626', 4:'#7f1d1d'};
-            riskLevelEl.style.color = colors[computedRisk] || '';
-          }
-          if (hasRisk){
-            if (status){
-              status.textContent = 'Risque détecté';
-              status.style.color = '#b91c1c';
+	          const riskLevelEl = document.getElementById('lcbftComputedRisk');
+	          if (riskLevelEl){
+	            riskLevelEl.textContent = String(computedRisk);
+	            const colors = {1:'#16a34a', 2:'#f97316', 3:'#dc2626', 4:'#7f1d1d'};
+	            riskLevelEl.style.color = colors[computedRisk] || '';
+	          }
+	          if (vigilanceMsg){
+	            const colors = {1:'#16a34a', 2:'#f97316', 3:'#dc2626', 4:'#7f1d1d'};
+	            const c = colors[computedRisk] || '#dc2626';
+	            vigilanceMsg.style.borderColor = c;
+	            vigilanceMsg.style.color = c;
+	            if (computedRisk === 1){
+	              vigilanceMsg.textContent = "Vigilance attenuée\nArticle L.561-9 du code monétaire et financier - Vous devez prévenir votre correspondant TRACFIN pour qu'il établisse, éventuellement, un signalement";
+	            } else if (computedRisk === 2){
+	              vigilanceMsg.textContent = "Viligance normale\nArticles L.561-5, L.561-6 et R.561-1 et suivants du Code monétaire et financier - Vous devez attendre que le clients vous remette les documents ou explications demandées pour pré-contrôle";
+	            } else if (computedRisk === 3){
+	              vigilanceMsg.textContent = "Viligance renforcée\n\nArticles L. 561-10-1 et L. 561-10-2 du Code monétaire et financier - Vous devez obtenir les documents ou renseignements demandés avant de présenter le dossier";
+	            } else if (computedRisk === 4){
+	              vigilanceMsg.textContent = "Vigilance complémentaire\n\nArticles L.561-10 et R.561-20 du Code monétaire et financier - Vous devez prévenir votre correspondant TRACFIN pour qu'il établisse, éventuellement, un signalement";
+	            } else {
+	              vigilanceMsg.textContent = '';
+	            }
+	          }
+	          if (hasRisk){
+	            if (status){
+	              status.textContent = 'Risque détecté';
+	              status.style.color = '#b91c1c';
             }
             if (riskBlock) riskBlock.style.display = '';
             if (summary){ summary.textContent = 'Risque de cartographie'; summary.style.color = '#b91c1c'; }
@@ -1966,11 +2124,23 @@
               const exBlock = document.getElementById('lcbftExistingBlock');
               if (exBlock){ exBlock.classList.toggle('step-hidden', !(hasExisting==='1')); }
             }
-            syncBlocks();
-            ['ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'].forEach(bindRiskCheckbox);
-            try{ window.updateRiskList(); }catch(e){}
-          })();
-        </script>
+			              syncBlocks();
+			              ['ppe_self','ppe_family','flag_1a','flag_1b','flag_1c','flag_1d','flag_2a','flag_2b','flag_3a'].forEach(bindRiskCheckbox);
+			              bindTrancheGroups();
+			              try{ autoSelectRaisonVigilance(); }catch(e){}
+			              try{ window.updateRiskList(); }catch(e){}
+			              return true;
+			            }
+		
+		            if (!initLcbftUi()){
+		              if (document.readyState === 'loading'){
+		                document.addEventListener('DOMContentLoaded', function(){ initLcbftUi(); }, { once: true });
+		              } else {
+		                setTimeout(function(){ initLcbftUi(); }, 0);
+		              }
+		            }
+		          })();
+		        </script>
       </div>
     </div>
   </div>
@@ -2173,13 +2343,13 @@
     </div>
   </div>
 
-  <!-- LCB-FT / TRACFIN -->
-  <div class="kyc-container" id="lcbftContainer">
-    <div class="accordion card">
-      <button class="accordion-toggle collapsed" data-target="lcbftPanel">
-        <span><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>LCB-FT / TRACFIN / FATCA</span>
-        <span class="chevron">▾</span>
-      </button>
+	  <!-- FATCA / LCBFT -->
+	  <div class="kyc-container" id="lcbftContainer">
+	    <div class="accordion card">
+	      <button class="accordion-toggle collapsed" data-target="lcbftPanel">
+	        <span><i class="fa-solid fa-shield-halved" style="margin-right:8px;"></i>FATCA - LCBFT</span>
+	        <span class="chevron">▾</span>
+	      </button>
       <div class="accordion-panel" id="lcbftPanel">
         {% if lcbft_success %}
           <div class="badge success">{{ lcbft_success }}</div>
@@ -2189,19 +2359,59 @@
         <style>
           .lcbft-checkbox-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
           .lcbft-checkbox { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:#f8fafc; cursor:pointer; font-size:0.85rem; }
-          .lcbft-checkbox input { margin:0; }
-          .lcbft-checkbox input:checked + span { font-weight:600; color:var(--primary); }
-          .lcbft-risk-tag { display:none; font-size:0.85rem; color:#b91c1c; margin-left:8px; }
+	          .lcbft-checkbox input { margin:0; }
+	          .lcbft-checkbox input:checked + span { font-weight:600; color:var(--primary); }
+	          .lcbft-risk-tag { display:none; font-size:0.85rem; color:#b91c1c; margin-left:8px; }
+	          /* Masquer le petit bloc "Risque de cartographie" (conserver la logique/DOM) */
+	          #riskCartographieBlock { display:none !important; }
+	          /* Cartographie (raison de vigilance) : labels FR only, oui en gras */
+	          .carto-list { margin:0 0 10px 16px; padding:0; list-style:disc; }
+	          .carto-item { color:#9ca3af; font-weight:400; }
+	          .carto-item.is-yes { color:#111827; font-weight:700; }
+	          .lcbft-vigilance-message { white-space:pre-line; padding:10px 12px; border-radius:10px; background:#fff; border:1px solid #fee2e2; }
+	          /* Tranches revenus / patrimoine : toujours visibles + sélection très lisible */
+	          .lcbft-tranche-group{
+	            display:flex;
+	            gap:8px;
+            width:100%;
+            flex-wrap:wrap;
+            justify-content:flex-start;
+            align-items:stretch;
+          }
+          .lcbft-tranche-group .btn-choice{
+            flex: 1 1 140px;
+            min-width: 140px;
+            height: 36px;
+            min-height: 36px;
+            padding: 8px 10px;
+            text-transform:none;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #111827;
+            font-weight: 700;
+          }
+          .lcbft-tranche-group .btn-choice:hover{ background:#eef2ff; }
+          .lcbft-tranche-group .btn-choice.btn-choice-active{
+            background:#16a34a;
+            border-color:#16a34a;
+            color:#ffffff;
+            box-shadow: 0 0 0 2px rgba(22,163,74,0.25);
+          }
+          .lcbft-tranche-group .btn-choice:focus-visible{
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+          }
         </style>
         <form method="post" id="lcbftForm" style="display:flex; flex-direction:column; gap:12px;">
           <input type="hidden" name="form_action" value="lcbft_save" />
           <input type="hidden" id="patrimoineNetValue" value="{{ patrimoine_net_value if patrimoine_net_value is not none else '' }}" />
+          <input type="hidden" id="lcbftPatrimoineTotalValue" value="{{ lcbft_patrimoine_total if lcbft_patrimoine_total is not none else '' }}" />
           <div class="risk-grid">
-            <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">1</span>FATCA</h5>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Nom du produit</label>
+	            <div class="risk-block">
+	              <h5>FATCA</h5>
+	              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+	                <div class="field" style="min-width:0;">
+	                  <label>Nom du produit</label>
                   <select name="fatca_contrat_id" id="fatcaContractSelect" style="width:100%; height:36px; min-height:36px;">
                     <option value="">Sélectionner…</option>
                     {% for c in fatca_contracts %}
@@ -2212,25 +2422,49 @@
                 <div class="field" style="min-width:0;">
                   <label>Compagnie d’assurance</label>
                   <input type="text" id="fatcaSociete" name="fatca_societe" value="{{ fatca_saved.societe_nom if fatca_saved else '' }}" />
-                </div>
-              </div>
-              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
-                <div class="field" style="min-width:0;">
-                  <label>Date de l’opération</label>
-                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>Pays de résidence fiscale</label>
-                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence else fatca_client_country) }}" />
-                </div>
-                <div class="field" style="min-width:0;">
-                  <label>NIF</label>
-                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
-                </div>
-              </div>
-            </div>
-            <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">2</span>Cartographie client</h5>
+	                </div>
+	              </div>
+	              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:end;">
+	                <div class="field" style="min-width:0;">
+	                  <label>Souscripteur — Êtes-vous "US-Person" au sens de la réglementation fiscale américaine ?</label>
+	                  <div class="btn-group" data-name="fatca_us_person_souscripteur">
+	                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+	                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
+	                  </div>
+	                  <input type="hidden" name="fatca_us_person_souscripteur" value="{{ (fatca_saved.get('us_person_souscripteur') if fatca_saved else '') or '' }}" />
+	                </div>
+	                <div class="field" style="min-width:0;">
+	                  <label>Bénéficiaire — Êtes-vous "US-Person" au sens de la réglementation fiscale américaine ?</label>
+	                  <div class="btn-group" data-name="fatca_us_person_beneficiaire">
+	                    <button type="button" class="btn btn-choice" data-value="1">Oui</button>
+	                    <button type="button" class="btn btn-choice" data-value="0">Non</button>
+	                  </div>
+	                  <input type="hidden" name="fatca_us_person_beneficiaire" value="{{ (fatca_saved.get('us_person_beneficiaire') if fatca_saved else '') or '' }}" />
+	                </div>
+	              </div>
+	              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+	                <div class="field" style="min-width:0;">
+	                  <label>Date de l’opération</label>
+	                  <input type="date" name="fatca_date_operation" value="{{ (fatca_saved.date_operation if fatca_saved and fatca_saved.date_operation else fatca_today) }}" readonly />
+	                </div>
+	                <div class="field" style="min-width:0;">
+	                  <label>Résidence fiscale du souscripteur</label>
+	                  <input type="text" name="fatca_pays_residence" value="{{ (fatca_saved.pays_residence if fatca_saved and fatca_saved.pays_residence is not none and fatca_saved.pays_residence|string != '' else fatca_client_country) }}" />
+	                </div>
+	                <div class="field" style="min-width:0;">
+	                  <label>NIF</label>
+	                  <input type="text" name="fatca_nif" value="{{ (fatca_saved.nif if fatca_saved and fatca_saved.nif else fatca_client_nif) }}" />
+	                </div>
+	              </div>
+	              <div class="row two-cols" style="display:grid; grid-template-columns: 1fr; gap:12px;">
+	                <div class="field" style="min-width:0;">
+	                  <label>Résidence fiscale du bénéficiaire</label>
+	                  <input type="text" name="fatca_pays_residence_beneficiaire" value="{{ (fatca_saved.get('pays_residence_beneficiaire') if fatca_saved else '') or '' }}" />
+	                </div>
+	              </div>
+	            </div>
+	            <div class="risk-block">
+	              <h5>Cartographie client</h5>
               <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 2fr; gap:12px;">
                 <div class="field" style="min-width:0;">
                   <label>Depuis quand connaissez-vous le client</label>
@@ -2261,7 +2495,7 @@
               </div>
             </div>
             <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">3</span>PPE</h5>
+	              <h5>PPE</h5>
               <div class="muted-small" style="margin-bottom:6px;">Reportez-vous au détail des fonctions PPE ci-après (chef d’État, parlement, haute juridiction, cour des comptes, banque centrale, ambassadeur, officiers supérieurs, entreprise publique, organisation internationale…).</div>
               <div class="muted-small" style="font-style:italic; margin-bottom:6px;">Je travaille ici</div>
               <div class="field">
@@ -2316,7 +2550,7 @@
           </div>
           <div class="risk-grid">
             <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">4</span>Comportement du client</h5>
+	              <h5>Comportement du client</h5>
               <div class="field">
                 <div class="lcbft-checkbox-row">
                   <label class="lcbft-checkbox">
@@ -2379,7 +2613,7 @@
               </div>
             </div>
             <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Opération souhaitée</h5>
+	              <h5>Opération souhaitée</h5>
               <div class="field">
                 <div class="lcbft-checkbox-row">
                   <label class="lcbft-checkbox">
@@ -2412,7 +2646,7 @@
               </div>
             </div>
             <div class="risk-block">
-              <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">9</span>Modalités de paiement</h5>
+	              <h5>Modalités de paiement</h5>
               <div class="field">
                 <div class="lcbft-checkbox-row">
                   <label class="lcbft-checkbox">
@@ -2432,14 +2666,14 @@
         </div>
         <div class="risk-grid">
           <div class="risk-block" id="riskCartographieBlock" style="display:none;">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">6</span>Risque de cartographie</h5>
+	            <h5>Risque de cartographie</h5>
             <div id="lcbftRiskStatus" class="muted-small" style="font-weight:600; color:#16a34a;">Aucun risque détecté</div>
           </div>
         </div>
         <div class="risk-grid">
           <div class="risk-block">
             {% set _prof = (kyc_situations_professionnelles|first) if kyc_situations_professionnelles else None %}
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">10</span>Profession</h5>
+	            <h5>Profession</h5>
             <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:end;">
               <div class="field" style="min-width:0;">
                 <label>Activité</label>
@@ -2467,56 +2701,124 @@
               </div>
               <div class="field" style="min-width:0;">
                 <label>Période</label>
-                <input type="text" value="{% if _prof %}{{ _prof.date_saisie or '—' }} → {{ _prof.date_expiration or '—' }}{% else %}{% endif %}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
+	                <input type="text" value="{% if _prof %}{{ date_only(_prof.date_saisie) }} → {{ date_only(_prof.date_expiration) }}{% else %}{% endif %}" readonly style="height:36px; min-height:36px; background:#f8fafc;" />
               </div>
             </div>
           </div>
-          <div class="risk-block">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">11</span>Tranche de revenu</h5>
-            {% if lcbft_revenue_total is not none %}
-              {% set total_label = '{:,.0f}'.format(lcbft_revenue_total).replace(',', ' ') %}
-              <div class="muted-small" style="margin-bottom:6px;">Montant annuel total : <strong>{{ total_label }} €</strong></div>
-              {% if lcbft_revenue_tranches %}
-              <div class="btn-group" style="display:flex; gap:8px; width:100%; flex-wrap:nowrap; justify-content:space-between;">
-                {% for tr in lcbft_revenue_tranches %}
-                  {% set min_val = tr.min_effective %}
-                  {% set max_val = tr.max_effective %}
-                  {% set meets_min = (lcbft_revenue_total is not none) and (min_val is none or lcbft_revenue_total >= min_val) %}
-                  {% set meets_max = (lcbft_revenue_total is not none) and (max_val is none or lcbft_revenue_total <= max_val) %}
-                  {% set is_active = meets_min and meets_max %}
-                  <button type="button" class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}" style="pointer-events:none; display:flex; justify-content:center; align-items:center; width:20%; min-width:20%; text-align:center; font-size:0.85rem;{% if not is_active %} opacity:.65;{% endif %}">
-                    <span style="font-weight:600;">{{ tr.lib }}</span>
-                  </button>
-                {% endfor %}
-              </div>
-              {% else %}
-              <div class="muted-small">Aucune tranche de revenu référencée.</div>
-              {% endif %}
+	          <div class="risk-block">
+	            <h5>Tranche de revenu</h5>
+	            {% if lcbft_revenue_total is not none %}
+	              {% set total_label = '{:,.0f}'.format(lcbft_revenue_total).replace(',', ' ') %}
+	              <div class="muted-small" style="margin-bottom:6px;">Montant annuel total : <strong>{{ total_label }} €</strong></div>
+	              {% set rev_tranche_value = lcbft_revenue_tranche_id if lcbft_revenue_tranche_id is not none else '' %}
+	              {% if (not lcbft_revenue_tranches) and (rev_tranche_value == '') %}
+	                {% if lcbft_revenue_total < 20000 %}
+	                  {% set rev_tranche_value = '1' %}
+	                {% elif lcbft_revenue_total < 50000 %}
+	                  {% set rev_tranche_value = '2' %}
+	                {% elif lcbft_revenue_total < 100000 %}
+	                  {% set rev_tranche_value = '3' %}
+	                {% elif lcbft_revenue_total < 150000 %}
+	                  {% set rev_tranche_value = '4' %}
+	                {% else %}
+	                  {% set rev_tranche_value = '5' %}
+	                {% endif %}
+	              {% endif %}
+	              <input type="hidden" id="lcbftRevenueTrancheId" name="lcbft_revenue_tranche_id" value="{{ rev_tranche_value }}" />
+	              {% if lcbft_revenue_tranches %}
+	              <div class="btn-group lcbft-tranche-group" data-input-id="lcbftRevenueTrancheId">
+	                {% for tr in lcbft_revenue_tranches %}
+	                  {% set is_active = tr.active if (tr.active is defined) else false %}
+	                  <button type="button"
+	                          class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}"
+	                          data-id="{{ tr.id }}"
+	                          aria-pressed="{% if is_active %}true{% else %}false{% endif %}"
+	                          style="cursor:pointer; display:flex; justify-content:center; align-items:center; text-align:center; font-size:0.85rem;">
+	                    <span>{{ tr.lib }}</span>
+	                  </button>
+	                {% endfor %}
+	              </div>
+		              {% if (request.query_params.get('debug_tranches') or '') == '1' %}
+		                <div class="muted-small" style="margin-top:6px;">
+		                  <div><code>revenus_total={{ lcbft_revenue_total }}</code></div>
+		                  {% for tr in lcbft_revenue_tranches %}
+		                    <div><code>id={{ tr.id }} active={{ tr.active }} min={{ tr.min_effective }} max={{ tr.max_effective }} lib="{{ tr.lib }}"</code></div>
+		                  {% endfor %}
+		                </div>
+		              {% endif %}
+	              {% else %}
+	              <div class="btn-group lcbft-tranche-group" data-input-id="lcbftRevenueTrancheId">
+	                {% for tid, label in [('1','<20 k €'),('2','20–50 k €'),('3','50–100 k €'),('4','100–150 k €'),('5','>150 k €')] %}
+	                  {% set is_active = (rev_tranche_value|string) == (tid|string) %}
+	                  <button type="button"
+	                          class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}"
+	                          data-id="{{ tid }}"
+	                          aria-pressed="{% if is_active %}true{% else %}false{% endif %}"
+	                          style="cursor:pointer; display:flex; justify-content:center; align-items:center; text-align:center; font-size:0.85rem;">
+	                    <span>{{ label }}</span>
+	                  </button>
+	                {% endfor %}
+	              </div>
+	              {% endif %}
             {% else %}
               <div class="muted-small">Revenus annuels non renseignés.</div>
             {% endif %}
           </div>
-          <div class="risk-block">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">12</span>Tranche de patrimoine</h5>
-            {% if lcbft_patrimoine_total is not none %}
-              {% set patr_label = '{:,.0f}'.format(lcbft_patrimoine_total).replace(',', ' ') %}
-              <div class="muted-small" style="margin-bottom:6px;">Patrimoine total : <strong>{{ patr_label }} €</strong></div>
-              {% if lcbft_patrimoine_tranches %}
-              <div class="btn-group" style="display:flex; gap:8px; width:100%; flex-wrap:nowrap; justify-content:space-between;">
-                {% for tr in lcbft_patrimoine_tranches %}
-                  {% set min_val = tr.min_effective %}
-                  {% set max_val = tr.max_effective %}
-                  {% set meets_min = (lcbft_patrimoine_total is not none) and (min_val is none or lcbft_patrimoine_total >= min_val) %}
-                  {% set meets_max = (lcbft_patrimoine_total is not none) and (max_val is none or lcbft_patrimoine_total <= max_val) %}
-                  {% set is_active = meets_min and meets_max %}
-                  <button type="button" class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}" style="pointer-events:none; display:flex; justify-content:center; align-items:center; width:20%; min-width:20%; text-align:center; font-size:0.85rem;{% if not is_active %} opacity:.65;{% endif %}">
-                    <span style="font-weight:600;">{{ tr.lib }}</span>
-                  </button>
-                {% endfor %}
-              </div>
-              {% else %}
-              <div class="muted-small">Aucune tranche de patrimoine référencée.</div>
-              {% endif %}
+	          <div class="risk-block">
+	            <h5>Tranche de patrimoine</h5>
+	            {% if lcbft_patrimoine_total is not none %}
+	              {% set patr_label = '{:,.0f}'.format(lcbft_patrimoine_total).replace(',', ' ') %}
+	              <div class="muted-small" style="margin-bottom:6px;">Patrimoine total : <strong>{{ patr_label }} €</strong></div>
+	              {% set patr_tranche_value = lcbft_patrimoine_tranche_id if lcbft_patrimoine_tranche_id is not none else '' %}
+	              {% if (not lcbft_patrimoine_tranches) and (patr_tranche_value == '') %}
+	                {% if lcbft_patrimoine_total < 50000 %}
+	                  {% set patr_tranche_value = '1' %}
+	                {% elif lcbft_patrimoine_total < 100000 %}
+	                  {% set patr_tranche_value = '2' %}
+	                {% elif lcbft_patrimoine_total < 200000 %}
+	                  {% set patr_tranche_value = '3' %}
+	                {% elif lcbft_patrimoine_total < 500000 %}
+	                  {% set patr_tranche_value = '4' %}
+	                {% else %}
+	                  {% set patr_tranche_value = '5' %}
+	                {% endif %}
+	              {% endif %}
+	              <input type="hidden" id="lcbftPatrimoineTrancheId" name="lcbft_patrimoine_tranche_id" value="{{ patr_tranche_value }}" />
+	              {% if lcbft_patrimoine_tranches %}
+	              <div class="btn-group lcbft-tranche-group" data-input-id="lcbftPatrimoineTrancheId">
+	                {% for tr in lcbft_patrimoine_tranches %}
+	                  {% set is_active = tr.active if (tr.active is defined) else false %}
+	                  <button type="button"
+	                          class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}"
+	                          data-id="{{ tr.id }}"
+	                          aria-pressed="{% if is_active %}true{% else %}false{% endif %}"
+	                          style="cursor:pointer; display:flex; justify-content:center; align-items:center; text-align:center; font-size:0.85rem;">
+	                    <span>{{ tr.lib }}</span>
+	                  </button>
+	                {% endfor %}
+	              </div>
+		              {% if (request.query_params.get('debug_tranches') or '') == '1' %}
+		                <div class="muted-small" style="margin-top:6px;">
+		                  <div><code>patrimoine_total={{ lcbft_patrimoine_total }}</code></div>
+		                  {% for tr in lcbft_patrimoine_tranches %}
+		                    <div><code>id={{ tr.id }} active={{ tr.active }} min={{ tr.min_effective }} max={{ tr.max_effective }} lib="{{ tr.lib }}"</code></div>
+		                  {% endfor %}
+		                </div>
+		              {% endif %}
+	              {% else %}
+	              <div class="btn-group lcbft-tranche-group" data-input-id="lcbftPatrimoineTrancheId">
+	                {% for tid, label in [('1','<50 k €'),('2','50–100 k €'),('3','100–200 k €'),('4','200–500 k €'),('5','>500 k €')] %}
+	                  {% set is_active = (patr_tranche_value|string) == (tid|string) %}
+	                  <button type="button"
+	                          class="btn btn-choice{% if is_active %} btn-choice-active{% endif %}"
+	                          data-id="{{ tid }}"
+	                          aria-pressed="{% if is_active %}true{% else %}false{% endif %}"
+	                          style="cursor:pointer; display:flex; justify-content:center; align-items:center; text-align:center; font-size:0.85rem;">
+	                    <span>{{ label }}</span>
+	                  </button>
+	                {% endfor %}
+	              </div>
+	              {% endif %}
             {% else %}
               <div class="muted-small">Patrimoine non renseigné.</div>
             {% endif %}
@@ -2524,15 +2826,15 @@
         </div>
         <div class="risk-grid">
           <div class="risk-block">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">5</span>Objet de l’opération</h5>
+	            <h5>Objet de l’opération</h5>
             <div class="btn-group" data-name="operation_objet"><button type="button" class="btn btn-choice" data-value="Souscription">Souscription</button><button type="button" class="btn btn-choice" data-value="Rachat">Rachat</button><button type="button" class="btn btn-choice" data-value="Versement">Versement complémentaire</button><button type="button" class="btn btn-choice" data-value="Avance">Avance / remboursement</button><button type="button" class="btn btn-choice" data-value="Garantie">Mise en garantie</button><button type="button" class="btn btn-choice" data-value="Autre">Autre</button></div><input type="hidden" name="operation_objet" value="{{ lcbft_current.operation_objet if lcbft_current else '' }}"/></div>
             <div class="row two-cols" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
               <div class="field" style="min-width:0;">
                 <label>Montant total à investir (€)</label>
                 <input type="text" id="lcbftMontant" value="{{ '{:,.0f}'.format((lcbft_invest_total or 0.0)|float).replace(',', ' ') }}" readonly style="width:40%; height:36px; min-height:36px; background:#f8fafc;"/>
               </div>
-              <div class="field step-hidden" style="min-width:0;">
-                <label>% patrimoine</label>
+              <div class="field" style="min-width:0;">
+                <label>% patrimoine <span id="lcbftPatrimoinePctWarn" style="display:none; margin-left:6px; color:#b91c1c; font-weight:700;">> 50%</span></label>
                 <input type="text" id="lcbftPatrimoinePct" name="patrimoine_pct" value="{{ lcbft_current.patrimoine_pct if lcbft_current and lcbft_current.patrimoine_pct is not none else '' }}" style="width:100%; height:36px; min-height:36px; text-align:right;" readonly/>
               </div>
             </div>
@@ -2560,8 +2862,8 @@
                 <tbody>
                   {% for o in lcbft_objectifs %}
                   <tr>
-                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.date_saisie or '—' }}</td>
-                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.date_expiration or '—' }}</td>
+	                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ date_only(o.date_saisie) }}</td>
+	                    <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ date_only(o.date_expiration) }}</td>
                     <td style="padding:6px 8px; border-bottom:1px solid #eef2ff;">{{ o.horizon_investissement or '—' }}</td>
                     <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; color:#4b5563;">{{ o.commentaire or '—' }}</td>
                     <td style="padding:6px 8px; border-bottom:1px solid #eef2ff; text-align:right;">{{ '{:,.0f}'.format((o.montant or 0)|float).replace(',', ' ') }}</td>
@@ -2575,7 +2877,7 @@
             {% endif %}
           </div>
           <div class="risk-block">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">13</span>Raison de la vigilance</h5>
+	            <h5>Raison de la vigilance</h5>
             {% set carto_fields = [
               ('has_existing_contracts', 'Contrats similaires déjà souscrits ?'),
               ('ppe_self', 'PPE — Client PPE'),
@@ -2595,17 +2897,21 @@
               {% if value == '1' %}
                 {% set ns.has_risk = true %}
               {% endif %}
-              {% set ns.items = ns.items + [(field, label, value)] %}
-            {% endfor %}
-            {% set has_cart_risk = ns.has_risk %}
-            <div class="muted-small" style="margin-bottom:4px;">Niveau de risque calculé : <strong id="lcbftComputedRisk">{{ lcbft_current.computed_risk_level if lcbft_current else '-' }}</strong></div>
-            <div class="muted-small" id="cartographieSummary" style="margin-bottom:8px; font-weight:600;{% if has_cart_risk %} color:#b91c1c;{% else %} color:#16a34a;{% endif %}">{% if has_cart_risk %}Risque de cartographie{% else %}Pas de risque de cartographie{% endif %}</div>
-            <ul class="muted-small" style="margin:0 0 10px 16px; padding:0; list-style:disc; display:{% if has_cart_risk %}block{% else %}none{% endif %};" id="cartographieDetails">
-              {% for item in ns.items %}
-                {% set fld = item[0] %}{% set label = item[1] %}{% set val = item[2] %}
-                <li><code>{{ fld }}</code> — {{ label }} : <strong id="cartoVal_{{ fld }}">{% if val == '1' %}Oui{% else %}Non{% endif %}</strong></li>
-              {% endfor %}
-            </ul>
+	            {% set ns.items = ns.items + [(field, label, value)] %}
+	            {% endfor %}
+	            {% set has_cart_risk = ns.has_risk %}
+	            <div class="muted-small" style="margin-bottom:4px;">Niveau de risque calculé : <strong id="lcbftComputedRisk">{{ lcbft_current.computed_risk_level if lcbft_current else '-' }}</strong></div>
+	            <div id="lcbftVigilanceMessage" class="lcbft-vigilance-message muted-small" style="margin:8px 0; color:#dc2626; border-left:4px solid #dc2626;"></div>
+	            <div class="muted-small" id="cartographieSummary" style="margin-bottom:8px; font-weight:600;{% if has_cart_risk %} color:#b91c1c;{% else %} color:#16a34a;{% endif %}">{% if has_cart_risk %}Risque de cartographie{% else %}Pas de risque de cartographie{% endif %}</div>
+	            <ul class="muted-small carto-list" style="display:{% if has_cart_risk %}block{% else %}none{% endif %};" id="cartographieDetails">
+	              {% for item in ns.items %}
+	                {% set fld = item[0] %}{% set label = item[1] %}{% set val = item[2] %}
+	                <li id="cartoItem_{{ fld }}" class="carto-item{% if val == '1' %} is-yes{% endif %}">
+	                  {{ label }}
+	                  <span id="cartoVal_{{ fld }}" style="display:none;">{% if val == '1' %}Oui{% else %}Non{% endif %}</span>
+	                </li>
+	              {% endfor %}
+	            </ul>
             {% if lcbft_raison_options %}
             <div class="btn-multi-group" data-name="raison_vigilance_ids" style="display:flex; gap:8px; width:100%; flex-wrap:wrap;">
               {% for opt in lcbft_raison_options %}
@@ -2628,7 +2934,7 @@
             {% endif %}
           </div>
           <div class="risk-block">
-            <h5><span class="badge" style="margin-right:6px; background:#e2e8f0; color:#111827;">8</span>Justificatifs</h5>
+	            <h5>Justificatifs</h5>
             <div class="field"><label>Origine des fonds / Opération</label><textarea name="just_fonds" rows="3">{{ lcbft_current.just_fonds if lcbft_current else '' }}</textarea></div>
             <div class="field"><label>Destination des fonds</label><textarea name="just_destination" rows="2">{{ lcbft_current.just_destination if lcbft_current else '' }}</textarea></div>
             <div class="field"><label>Finalité</label><textarea name="just_finalite" rows="2">{{ lcbft_current.just_finalite if lcbft_current else '' }}</textarea></div>
