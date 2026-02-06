@@ -8,7 +8,7 @@ import math
 from time import perf_counter, time
 from uuid import uuid4
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Any
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
@@ -45,6 +45,11 @@ from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _r
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
+from src.services.fatca_eai_autocertification_pdf import build_fatca_eai_autocertification_pdf_bytes
+from src.services.tracfin_complementary_pdf import (
+    build_tracfin_complementary_pdf_bytes,
+    default_tracfin_background_path,
+)
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
@@ -5528,6 +5533,922 @@ async def dashboard_client_adequation_pdf(
     )
 
 
+def _normalize_yes_no_01(raw: object) -> bool | None:
+    if raw in (None, ""):
+        return None
+    s = str(raw).strip().lower()
+    if s in ("1", "true", "yes", "oui", "y"):
+        return True
+    if s in ("0", "false", "no", "non", "n"):
+        return False
+    return None
+
+
+def _normalize_civilite(raw: object) -> str:
+    if raw in (None, ""):
+        return ""
+    s = str(raw).strip()
+    sl = s.lower()
+    if sl in ("m", "mr", "monsieur"):
+        return "M."
+    if sl in ("mme", "madame"):
+        return "Mme"
+    if sl in ("mlle", "mademoiselle"):
+        return "Mlle"
+    return s
+
+
+def _fmt_date_fr_any(raw: object) -> str:
+    d = _parse_date_safe(raw)
+    if d:
+        return d.strftime("%d/%m/%Y")
+    if raw in (None, ""):
+        return ""
+    s = str(raw).strip()
+    if re.match(r"^\\d{2}/\\d{2}/\\d{4}$", s):
+        return s
+    if re.match(r"^\\d{4}-\\d{2}-\\d{2}$", s):
+        try:
+            return _date.fromisoformat(s).strftime("%d/%m/%Y")
+        except Exception:
+            return s
+    return s
+
+
+@router.get("/clients/{client_id}/fatca/pdf")
+async def dashboard_client_fatca_pdf(
+    client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    _require_client_read(request, db, client_id)
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    # Etat civil (dernier)
+    etat = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT civilite, date_naissance, lieu_naissance, nationalite
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        etat = dict(row._mapping) if row else None
+    except Exception:
+        etat = None
+
+    # Adresse KYC la plus récente
+    addr = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT rue, complement, code_postal, ville, pays
+                FROM KYC_Client_Adresse
+                WHERE client_id = :cid
+                ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        addr = dict(row._mapping) if row else None
+    except Exception:
+        addr = None
+
+    # FATCA saved for latest LCBFT questionnaire
+    fatca_saved: dict[str, Any] | None = None
+    try:
+        qid = db.execute(
+            text(
+                """
+                SELECT id
+                FROM LCBFT_questionnaire
+                WHERE client_id = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).scalar()
+        if qid:
+            row = db.execute(
+                text("SELECT * FROM LCBFT_fatca WHERE questionnaire_id = :q"),
+                {"q": qid},
+            ).fetchone()
+            fatca_saved = dict(row._mapping) if row else None
+    except Exception:
+        fatca_saved = None
+
+    produit_nom = ""
+    compagnie_assurance = ""
+    date_operation = ""
+    pays_residence = ""
+    nif = ""
+    us_person_souscripteur: bool | None = None
+    us_person_beneficiaire: bool | None = None
+    pays_residence_beneficiaire = ""
+
+    if fatca_saved:
+        date_operation = _fmt_date_fr_any(fatca_saved.get("date_operation"))
+        pays_residence = str(fatca_saved.get("pays_residence") or "").strip()
+        nif = str(fatca_saved.get("nif") or "").strip()
+        pays_residence_beneficiaire = str(fatca_saved.get("pays_residence_beneficiaire") or "").strip()
+        us_person_souscripteur = _normalize_yes_no_01(fatca_saved.get("us_person_souscripteur"))
+        us_person_beneficiaire = _normalize_yes_no_01(fatca_saved.get("us_person_beneficiaire"))
+
+        contrat_id = fatca_saved.get("contrat_id")
+        if contrat_id not in (None, ""):
+            try:
+                row = db.execute(
+                    text(
+                        """
+                        SELECT g.nom_contrat, COALESCE(s.nom, '') AS societe_nom
+                        FROM mariadb_affaires_generique g
+                        LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                        WHERE g.id = :gid
+                        """
+                    ),
+                    {"gid": contrat_id},
+                ).fetchone()
+                if row:
+                    produit_nom = str(row[0] or "").strip()
+                    compagnie_assurance = str(row[1] or "").strip()
+            except Exception:
+                produit_nom = ""
+                compagnie_assurance = ""
+
+        if not compagnie_assurance:
+            compagnie_assurance = str(fatca_saved.get("societe_nom") or "").strip()
+
+    # Fallback residence & NIF from client table if missing
+    if not pays_residence or not nif:
+        try:
+            crow = db.execute(text("SELECT * FROM mariadb_clients WHERE id = :cid"), {"cid": client_id}).fetchone()
+            if crow:
+                m = crow._mapping
+                lower_map = {(k.lower() if isinstance(k, str) else k): v for k, v in m.items()}
+                if not pays_residence:
+                    for key in ("adresse_pays", "pays_fiscal", "residence_fiscale", "pays"):
+                        if key in lower_map and lower_map.get(key):
+                            pays_residence = str(lower_map.get(key) or "").strip()
+                            break
+                if not nif:
+                    for key in ("nif", "num_fiscal", "numero_fiscal", "tin"):
+                        if key in lower_map and lower_map.get(key):
+                            nif = str(lower_map.get(key) or "").strip()
+                            break
+        except Exception:
+            pass
+
+    # Fallback residence country from address if still missing
+    if not pays_residence and addr:
+        pays_residence = str(addr.get("pays") or "").strip()
+
+    # Interlocuteur commercial (RH)
+    interlocuteur = ""
+    try:
+        rh_id = getattr(client, "commercial_id", None)
+        if rh_id:
+            row = db.execute(
+                text("SELECT prenom, nom FROM administration_RH WHERE id = :rid LIMIT 1"),
+                {"rid": rh_id},
+            ).fetchone()
+            if row:
+                interlocuteur = " ".join([p for p in [str(row[0] or "").strip(), str(row[1] or "").strip()] if p]).strip()
+    except Exception:
+        interlocuteur = ""
+
+    # Souscripteur: identité + adresse
+    civilite = _normalize_civilite((etat or {}).get("civilite"))
+    date_naissance = _fmt_date_fr_any((etat or {}).get("date_naissance"))
+    ville_naissance = str((etat or {}).get("lieu_naissance") or "").strip()
+
+    adr_rue = ""
+    adr_cp_ville = ""
+    adr_pays = ""
+    if addr:
+        rue = str(addr.get("rue") or "").strip()
+        complement = str(addr.get("complement") or "").strip()
+        cp = str(addr.get("code_postal") or "").strip()
+        ville = str(addr.get("ville") or "").strip()
+        adr_pays = str(addr.get("pays") or "").strip()
+        adr_rue = " ".join([p for p in [rue, complement] if p]).strip()
+        adr_cp_ville = " ".join([p for p in [cp, ville] if p]).strip()
+
+    # Résidence fiscale: oui/non si on peut comparer (adresse pays vs pays résidence)
+    res_oui = False
+    res_non = False
+    res_pays_diff = ""
+    if pays_residence and adr_pays:
+        if adr_pays.strip().lower() == pays_residence.strip().lower():
+            res_oui, res_non = True, False
+        else:
+            res_oui, res_non = False, True
+            res_pays_diff = pays_residence
+    elif pays_residence:
+        res_pays_diff = pays_residence
+
+    # EAI: résident fiscal en France
+    is_fr = None
+    if pays_residence:
+        is_fr = pays_residence.strip().lower() == "france"
+
+    eai_res_oui = bool(is_fr) if is_fr is not None else False
+    eai_res_non = (not bool(is_fr)) if is_fr is not None else False
+
+    def tri_state_boxes(v: bool | None) -> tuple[bool, bool]:
+        if v is True:
+            return True, False
+        if v is False:
+            return False, True
+        return False, False
+
+    fatca_s_oui, fatca_s_non = tri_state_boxes(us_person_souscripteur)
+    fatca_b_oui, fatca_b_non = tri_state_boxes(us_person_beneficiaire)
+
+    data: dict[str, Any] = {
+        "interlocuteur_commercial": interlocuteur,
+        "produit_nom": produit_nom,
+        "compagnie_assurance": compagnie_assurance,
+        "date_operation": date_operation,
+        "operation_souscription": True,
+        "operation_autre": False,
+
+        "souscripteur1_civilite": civilite,
+        "souscripteur1_nom": (getattr(client, "nom", "") or "").strip(),
+        "souscripteur1_nom_jeune_fille": "",
+        "souscripteur1_prenom_usage": (getattr(client, "prenom", "") or "").strip(),
+        "souscripteur1_prenom_etat_civil": (getattr(client, "prenom", "") or "").strip(),
+        "souscripteur1_date_naissance": date_naissance,
+        "souscripteur1_ville_naissance": ville_naissance,
+        "souscripteur1_pays_naissance": "",
+        "souscripteur1_code_postal_naissance": "",
+        "souscripteur1_adresse_rue": adr_rue,
+        "souscripteur1_adresse_cp_ville": adr_cp_ville,
+        "souscripteur1_adresse_pays": adr_pays,
+        "souscripteur1_est_residence_fiscale_oui": res_oui,
+        "souscripteur1_est_residence_fiscale_non": res_non,
+        "souscripteur1_residence_fiscale_si_differente": "",
+        "souscripteur1_residence_fiscale_pays": res_pays_diff,
+
+        # Autre souscripteur (si inconnu -> vide)
+        "autre_souscripteur_civilite": "",
+        "autre_souscripteur_nom": "",
+        "autre_souscripteur_nom_jeune_fille": "",
+        "autre_souscripteur_prenom_usage": "",
+        "autre_souscripteur_prenom_etat_civil": "",
+        "autre_souscripteur_date_naissance": "",
+        "autre_souscripteur_ville_naissance": "",
+        "autre_souscripteur_pays_naissance": "",
+        "autre_souscripteur_code_postal_naissance": "",
+        "autre_souscripteur_adresse_rue": "",
+        "autre_souscripteur_adresse_cp_ville": "",
+        "autre_souscripteur_adresse_pays": "",
+        "autre_souscripteur_est_residence_fiscale_oui": False,
+        "autre_souscripteur_est_residence_fiscale_non": False,
+        "autre_souscripteur_residence_fiscale_si_differente": "",
+        "autre_souscripteur_residence_fiscale_pays": "",
+
+        # Personne morale (non renseigné par défaut)
+        "personne_morale_raison_sociale": "",
+        "personne_morale_forme_juridique": "",
+        "personne_morale_siret": "",
+        "personne_morale_ape": "",
+        "personne_morale_represente_par": "",
+        "personne_morale_agissant_en_qualite_de": "",
+
+        # Beneficiaire (infos limitées dans Conformité: on renseigne au moins les checks FATCA/EAI)
+        "beneficiaire_civilite": "",
+        "beneficiaire_nom": "",
+        "beneficiaire_nom_jeune_fille": "",
+        "beneficiaire_prenom_usage": "",
+        "beneficiaire_prenom_etat_civil": "",
+        "beneficiaire_date_naissance": "",
+        "beneficiaire_ville_naissance": "",
+        "beneficiaire_pays_naissance": "",
+        "beneficiaire_code_postal_naissance": "",
+
+        # EAI
+        "eai_souscripteur_resident_france_oui": eai_res_oui,
+        "eai_souscripteur_resident_france_non": eai_res_non,
+        "eai_souscripteur_pays": pays_residence,
+        "eai_souscripteur_nif": nif,
+        "eai_autre_souscripteur_resident_france_oui": False,
+        "eai_autre_souscripteur_resident_france_non": False,
+        "eai_autre_souscripteur_pays": "",
+        "eai_autre_souscripteur_nif": "",
+
+        # FATCA
+        "fatca_souscripteur_us_person_oui": fatca_s_oui,
+        "fatca_souscripteur_us_person_non": fatca_s_non,
+        "fatca_beneficiaire_us_person_oui": fatca_b_oui,
+        "fatca_beneficiaire_us_person_non": fatca_b_non,
+        "fatca_autre_souscripteur_us_person_oui": False,
+        "fatca_autre_souscripteur_us_person_non": False,
+    }
+
+    # If only beneficiary residence is known, reuse it as a hint in EAI "Autre souscripteur" line is not correct;
+    # keep it blank. The value is kept here for potential future fields.
+    _ = pays_residence_beneficiaire
+
+    pdf_bytes = build_fatca_eai_autocertification_pdf_bytes(data)
+    filename = f"fatca_eai_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
+    )
+
+
+def _pick_radio_value(value: str | None) -> str:
+    if not value:
+        return ""
+    v = str(value).strip().lower()
+    v = re.sub(r"[^a-z0-9_]+", "_", v)
+    return f"/{v}" if v else ""
+
+
+@router.get("/clients/{client_id}/tracfin/pdf")
+async def dashboard_client_tracfin_pdf(
+    client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    _require_client_read(request, db, client_id)
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    # Etat civil (dernier)
+    etat = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT civilite, date_naissance, lieu_naissance, nationalite
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        etat = dict(row._mapping) if row else None
+    except Exception:
+        etat = None
+
+    # Adresse KYC la plus récente
+    addr = None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT rue, complement, code_postal, ville, pays
+                FROM KYC_Client_Adresse
+                WHERE client_id = :cid
+                ORDER BY (date_saisie IS NULL), date_saisie DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        addr = dict(row._mapping) if row else None
+    except Exception:
+        addr = None
+
+    # LCBFT questionnaire (dernier)
+    lcbft: dict[str, Any] | None = None
+    try:
+        row = db.execute(
+            text("SELECT * FROM LCBFT_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
+            {"r": str(client_id)},
+        ).fetchone()
+        lcbft = dict(row._mapping) if row else None
+    except Exception:
+        lcbft = None
+
+    # FATCA saved (pour retrouver contrat/compagnie si sélectionné)
+    fatca_saved: dict[str, Any] | None = None
+    try:
+        if lcbft and lcbft.get("id"):
+            row = db.execute(
+                text("SELECT * FROM LCBFT_fatca WHERE questionnaire_id = :q"),
+                {"q": lcbft.get("id")},
+            ).fetchone()
+            fatca_saved = dict(row._mapping) if row else None
+    except Exception:
+        fatca_saved = None
+
+    # Produit / Compagnie
+    produit_nom = ""
+    compagnie = ""
+    if fatca_saved and fatca_saved.get("contrat_id") not in (None, ""):
+        try:
+            row = db.execute(
+                text(
+                    """
+                    SELECT g.nom_contrat, COALESCE(s.nom, '') AS societe_nom
+                    FROM mariadb_affaires_generique g
+                    LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                    WHERE g.id = :gid
+                    """
+                ),
+                {"gid": fatca_saved.get("contrat_id")},
+            ).fetchone()
+            if row:
+                produit_nom = str(row[0] or "").strip()
+                compagnie = str(row[1] or "").strip()
+        except Exception:
+            pass
+    if not compagnie and fatca_saved:
+        compagnie = str(fatca_saved.get("societe_nom") or "").strip()
+
+    # Interlocuteur commercial (RH)
+    interlocuteur = ""
+    try:
+        rh_id = getattr(client, "commercial_id", None)
+        if rh_id:
+            row = db.execute(
+                text("SELECT prenom, nom FROM administration_RH WHERE id = :rid LIMIT 1"),
+                {"rid": rh_id},
+            ).fetchone()
+            if row:
+                interlocuteur = " ".join([p for p in [str(row[0] or "").strip(), str(row[1] or "").strip()] if p]).strip()
+    except Exception:
+        interlocuteur = ""
+
+    # Société (cabinet) — depuis DER_courtier si disponible
+    societe = ""
+    try:
+        row = db.execute(text("SELECT * FROM DER_courtier ORDER BY id LIMIT 1")).fetchone()
+        if row:
+            m = row._mapping
+            for key in ("societe", "raison_sociale", "denomination", "nom", "cabinet", "nom_cabinet"):
+                if key in m and m.get(key):
+                    societe = str(m.get(key) or "").strip()
+                    break
+    except Exception:
+        societe = ""
+
+    # Birth info
+    date_naissance = _fmt_date_fr_any((etat or {}).get("date_naissance"))
+    commune_naissance = str((etat or {}).get("lieu_naissance") or "").strip()
+    pays_naissance = str((etat or {}).get("nationalite") or "").strip()
+    departement = ""
+    low_commune = commune_naissance.lower()
+    if "paris" in low_commune:
+        departement = "75"
+    elif "lyon" in low_commune:
+        departement = "69"
+    elif "marseille" in low_commune:
+        departement = "13"
+
+    # Address formatting
+    adr_num = ""
+    adr_rue = ""
+    adr_cp = ""
+    adr_ville = ""
+    adr_pays = ""
+    if addr:
+        rue = str(addr.get("rue") or "").strip()
+        complement = str(addr.get("complement") or "").strip()
+        adr_rue = " ".join([p for p in [rue, complement] if p]).strip()
+        adr_cp = str(addr.get("code_postal") or "").strip()
+        adr_ville = str(addr.get("ville") or "").strip()
+        adr_pays = str(addr.get("pays") or "").strip()
+
+        # Try to parse "N°" from rue if starts with digits
+        m = re.match(r"^\\s*(\\d+[a-zA-Z]?)\\s+(.*)$", adr_rue)
+        if m:
+            adr_num = m.group(1)
+            adr_rue = m.group(2).strip()
+
+    courriel = (getattr(client, "email", "") or "").strip()
+
+    # Profession
+    profession_precise = ""
+    secteur_value = ""
+    if lcbft:
+        profession_precise = str(lcbft.get("prof_profession") or "").strip()
+        # Secteur: priorité au secteur choisi (ref_profession_secteur)
+        secteur_id = lcbft.get("prof_secteur_id")
+        if secteur_id not in (None, "", 0, "0"):
+            try:
+                row = db.execute(
+                    text("SELECT libelle FROM ref_profession_secteur WHERE id = :i"),
+                    {"i": int(secteur_id)},
+                ).fetchone()
+                secteur_label = str(row[0] or "").strip().lower() if row else ""
+                if "agric" in secteur_label:
+                    secteur_value = "agriculteur"
+                elif "artisan" in secteur_label:
+                    secteur_value = "artisan"
+                elif "artist" in secteur_label:
+                    secteur_value = "artiste"
+                elif "cadre" in secteur_label:
+                    secteur_value = "cadre"
+                elif "commerc" in secteur_label:
+                    secteur_value = "commercant"
+                elif "entreprise" in secteur_label or "chef" in secteur_label:
+                    secteur_value = "chef_entreprise"
+                elif "ouvrier" in secteur_label:
+                    secteur_value = "ouvrier"
+                elif "employ" in secteur_label:
+                    secteur_value = "employe"
+                elif "retrait" in secteur_label:
+                    secteur_value = "retraite"
+                elif "interm" in secteur_label:
+                    secteur_value = "profession_intermediaire"
+                elif "liber" in secteur_label:
+                    secteur_value = "profession_liberale"
+                elif "professeur" in secteur_label:
+                    secteur_value = "professeur"
+                elif "scient" in secteur_label:
+                    secteur_value = "scientifique"
+                elif "sans" in secteur_label:
+                    secteur_value = "sans_activite"
+            except Exception:
+                pass
+        # Prefer statut label from ref
+        statut_id = lcbft.get("prof_statut_professionnel_id")
+        statut_label = ""
+        if statut_id not in (None, ""):
+            try:
+                row = db.execute(
+                    text("SELECT libelle FROM ref_statut_professionnel WHERE id = :i"),
+                    {"i": int(statut_id)},
+                ).fetchone()
+                if row and row[0]:
+                    statut_label = str(row[0]).strip()
+            except Exception:
+                statut_label = ""
+        if not secteur_value:
+            blob = f"{statut_label} {profession_precise}".lower()
+            if "retrait" in blob:
+                secteur_value = "retraite"
+            elif "cadre" in blob:
+                secteur_value = "cadre"
+            elif "employ" in blob:
+                secteur_value = "employe"
+            elif "ouvrier" in blob:
+                secteur_value = "ouvrier"
+            elif "commerc" in blob:
+                secteur_value = "commercant"
+            elif "artisan" in blob:
+                secteur_value = "artisan"
+            elif "agric" in blob:
+                secteur_value = "agriculteur"
+            elif "professeur" in blob:
+                secteur_value = "professeur"
+            elif "scient" in blob:
+                secteur_value = "scientifique"
+            elif "liber" in blob:
+                secteur_value = "profession_liberale"
+
+    if not profession_precise:
+        try:
+            row = db.execute(
+                text(
+                    """
+                    SELECT p.profession, st.libelle AS statut_libelle
+                    FROM KYC_Client_Situation_Professionnelle p
+                    LEFT JOIN ref_statut_professionnel st ON st.id = p.statut_id
+                    WHERE p.client_id = :cid
+                    ORDER BY (p.date_saisie IS NULL), p.date_saisie DESC, p.id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id},
+            ).fetchone()
+            if row:
+                prof = str(row[0] or "").strip()
+                statut = str(row[1] or "").strip()
+                profession_precise = statut or prof
+                blob = f"{statut} {prof}".lower()
+                if not secteur_value and "retrait" in blob:
+                    secteur_value = "retraite"
+        except Exception:
+            pass
+
+    # Revenue / patrimoine totals => fixed tranches from the TRACFIN form
+    revenue_total = None
+    patrimoine_total = None
+    try:
+        v = db.execute(
+            text("SELECT SUM(montant_annuel) FROM KYC_Client_Revenus WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        revenue_total = float(v) if v not in (None, "") else None
+    except Exception:
+        revenue_total = None
+    try:
+        v = db.execute(
+            text("SELECT SUM(valeur) FROM KYC_Client_Actif WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        patrimoine_total = float(v) if v not in (None, "") else None
+    except Exception:
+        patrimoine_total = None
+
+    rev_tranche = ""
+    if revenue_total is not None:
+        if revenue_total <= 50_000:
+            rev_tranche = "rev_0_50k"
+        elif revenue_total <= 80_000:
+            rev_tranche = "rev_50_80k"
+        elif revenue_total <= 120_000:
+            rev_tranche = "rev_80_120k"
+        elif revenue_total <= 160_000:
+            rev_tranche = "rev_120_160k"
+        elif revenue_total <= 300_000:
+            rev_tranche = "rev_160_300k"
+        else:
+            rev_tranche = "rev_300k_plus"
+
+    patr_tranche = ""
+    if patrimoine_total is not None:
+        if patrimoine_total < 150_000:
+            patr_tranche = "patr_lt_150k"
+        elif patrimoine_total < 750_000:
+            patr_tranche = "patr_150_750k"
+        elif patrimoine_total < 1_500_000:
+            patr_tranche = "patr_750_1_5m"
+        elif patrimoine_total < 5_000_000:
+            patr_tranche = "patr_1_5_5m"
+        elif patrimoine_total < 15_000_000:
+            patr_tranche = "patr_5_15m"
+        else:
+            patr_tranche = "patr_15m_plus"
+
+    # Patrimoine: total passifs + net + ventilation actifs (types)
+    passifs_total = None
+    try:
+        v = db.execute(
+            text("SELECT SUM(montant_rest_du) FROM KYC_Client_Passif WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        passifs_total = float(v) if v not in (None, "") else None
+    except Exception:
+        passifs_total = None
+
+    patrimoine_net = None
+    try:
+        if patrimoine_total is not None:
+            patrimoine_net = float(patrimoine_total) - float(passifs_total or 0.0)
+    except Exception:
+        patrimoine_net = None
+
+    patrimoine_breakdown: list[dict[str, Any]] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT COALESCE(t.libelle, 'Non renseigné') AS label, SUM(a.valeur) AS amount
+                FROM KYC_Client_Actif a
+                LEFT JOIN ref_type_actif t ON t.id = a.type_actif_id
+                WHERE a.client_id = :cid
+                GROUP BY COALESCE(t.libelle, 'Non renseigné')
+                ORDER BY SUM(a.valeur) DESC
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        for r in rows or []:
+            try:
+                lbl = str(r[0] or "").strip()
+                amt = float(r[1] or 0.0)
+            except Exception:
+                continue
+            patrimoine_breakdown.append({"label": lbl, "amount": amt, "amount_str": "{:,.0f} €".format(amt).replace(",", " ")})
+    except Exception:
+        patrimoine_breakdown = []
+
+    # Normalisation patrimoine (labels fixes attendus par l'édition PDF)
+    biens_professionnels = 0.0
+    contrats_assurances = 0.0
+    immobilier = 0.0
+    comptes = 0.0
+    valeurs_mobilieres = 0.0
+    autres = 0.0
+    for row in patrimoine_breakdown:
+        try:
+            lbl = str(row.get("label") or "").strip().lower()
+            amt = float(row.get("amount") or 0.0)
+        except Exception:
+            continue
+        if not lbl:
+            autres += amt
+            continue
+        if "assur" in lbl or "contrat" in lbl or "vie" in lbl:
+            contrats_assurances += amt
+        elif "immob" in lbl or "résidence" in lbl or "residence" in lbl:
+            immobilier += amt
+        elif "profession" in lbl or "pro" in lbl or "entreprise" in lbl:
+            biens_professionnels += amt
+        elif "compte" in lbl or "livret" in lbl or "cash" in lbl or "liquid" in lbl or "trésor" in lbl or "tresor" in lbl:
+            comptes += amt
+        elif "titre" in lbl or "action" in lbl or "oblig" in lbl or "sicav" in lbl or "opc" in lbl or "fonds" in lbl:
+            valeurs_mobilieres += amt
+        else:
+            autres += amt
+
+    def _amt_str(v: float) -> str:
+        try:
+            if abs(float(v)) < 0.0001:
+                return ""
+            return "{:,.0f} €".format(float(v)).replace(",", " ")
+        except Exception:
+            return ""
+
+    # PPE: from LCBFT questionnaire
+    ppe_self = _normalize_yes_no_01((lcbft or {}).get("ppe_self"))
+    ppe_family = _normalize_yes_no_01((lcbft or {}).get("ppe_family"))
+    ppe_fonction = str((lcbft or {}).get("ppe_self_fonction") or "").strip()
+    ppe_pays = str((lcbft or {}).get("ppe_self_pays") or "").strip()
+    ppe_detail = " / ".join([p for p in [ppe_fonction, ppe_pays] if p]).strip()
+
+    ppe_family_fonction = str((lcbft or {}).get("ppe_family_fonction") or "").strip()
+    ppe_family_pays = str((lcbft or {}).get("ppe_family_pays") or "").strip()
+    ppe_family_detail = " / ".join([p for p in [ppe_family_fonction, ppe_family_pays] if p]).strip()
+
+    # Opération: montant total objectifs KYC + % patrimoine
+    invest_total = None
+    try:
+        inv = db.execute(
+            text("SELECT COALESCE(SUM(montant),0) FROM KYC_Client_Objectifs WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar()
+        invest_total = float(inv or 0.0)
+    except Exception:
+        invest_total = None
+    invest_total_str = "{:,.0f} €".format(float(invest_total or 0.0)).replace(",", " ") if invest_total is not None else ""
+
+    invest_pct = None
+    try:
+        raw_pct = (lcbft or {}).get("patrimoine_pct")
+        if raw_pct not in (None, ""):
+            invest_pct = float(raw_pct)
+    except Exception:
+        invest_pct = None
+    if invest_pct is None:
+        try:
+            if invest_total is not None and patrimoine_total not in (None, 0):
+                invest_pct = float(invest_total) / float(patrimoine_total) * 100.0
+        except Exception:
+            invest_pct = None
+    invest_pct_str = "{:,.1f} %".format(float(invest_pct)).replace(",", " ").replace(".", ",") if invest_pct is not None else ""
+
+    # Objet opération (sélection simple depuis LCBFT_questionnaire.operation_objet)
+    operation_objets_selected: list[str] = []
+    try:
+        op = str((lcbft or {}).get("operation_objet") or "").strip().lower()
+        if op == "souscription":
+            operation_objets_selected = ["souscription"]
+        elif op == "versement":
+            operation_objets_selected = ["versement"]
+        elif op == "rachat":
+            operation_objets_selected = ["rachat"]
+        elif op == "avance":
+            operation_objets_selected = ["avances", "remboursement"]
+        elif op == "garantie":
+            operation_objets_selected = ["garantie"]
+        elif op == "autre":
+            operation_objets_selected = ["autre"]
+    except Exception:
+        operation_objets_selected = []
+
+    # Raison vigilance (options sélectionnées)
+    raison_vigilance_labels: list[str] = []
+    try:
+        qid = (lcbft or {}).get("id")
+        if qid not in (None, ""):
+            rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT rr.lib
+                    FROM LCBFT_operation op
+                    JOIN LCBFT_operation_raison_vigilance rv ON rv.operation_id = op.id
+                    JOIN LCBFT_ref_raison_vigilance rr ON rr.id = rv.raison_id
+                    WHERE op.questionnaire_id = :qid
+                    ORDER BY rr.lib
+                    """
+                ),
+                {"qid": int(qid)},
+            ).fetchall()
+            raison_vigilance_labels = [str(r[0] or "").strip() for r in rows or [] if str(r[0] or "").strip()]
+    except Exception:
+        raison_vigilance_labels = []
+
+    # Cartographie (mêmes libellés que la modale LCBFT)
+    try:
+        carto_fields = [
+            ("has_existing_contracts", "Contrats similaires déjà souscrits ?"),
+            ("ppe_self", "PPE — Client PPE"),
+            ("ppe_family", "PPE — Un membre de la famille est PPE ?"),
+            ("flag_1a", "Comportement client — 1.a"),
+            ("flag_1b", "Comportement client — 1.b"),
+            ("flag_1c", "Comportement client — 1.c"),
+            ("flag_1d", "Comportement client — 1.d"),
+            ("flag_2a", "Opération souhaitée — 2.a"),
+            ("flag_2b", "Opération souhaitée — 2.b"),
+            ("flag_3a", "Modalités de paiement — 3.a"),
+        ]
+        carto_yes = []
+        for fld, lbl in carto_fields:
+            raw = (lcbft or {}).get(fld)
+            val = str(raw or "0").strip()
+            if val in {"1", "true", "on", "oui", "yes"}:
+                carto_yes.append(lbl)
+        computed_level = str((lcbft or {}).get("computed_risk_level") or "").strip()
+        if computed_level:
+            raison_vigilance_labels = [f"Niveau de risque calculé : {computed_level}"] + [f"Cartographie : {x}" for x in carto_yes] + raison_vigilance_labels
+        elif carto_yes:
+            raison_vigilance_labels = [f"Cartographie : {x}" for x in carto_yes] + raison_vigilance_labels
+    except Exception:
+        pass
+
+    # Justificatifs (textareas)
+    just_fonds = str((lcbft or {}).get("just_fonds") or "").strip()
+    just_destination = str((lcbft or {}).get("just_destination") or "").strip()
+    just_finalite = str((lcbft or {}).get("just_finalite") or "").strip()
+    just_produits = str((lcbft or {}).get("just_produits") or "").strip()
+
+    data: dict[str, Any] = {
+        "interlocuteur_commercial": interlocuteur,
+        "societe": societe,
+
+        "client_nom": (getattr(client, "nom", "") or "").strip(),
+        "client_prenom": (getattr(client, "prenom", "") or "").strip(),
+        "date_naissance": date_naissance,
+        "lieu_naissance_cp": departement,
+        "lieu_naissance_ville": commune_naissance,
+        "lieu_naissance_pays": pays_naissance,
+
+        "nom_contrat": produit_nom,
+
+        "adresse_numero": adr_num,
+        "adresse_rue": adr_rue,
+        "adresse_code_postal": adr_cp,
+        "adresse_ville": adr_ville,
+        "adresse_pays": adr_pays,
+        "courriel": courriel,
+
+        "profession_precise": profession_precise,
+        "secteur_activite": secteur_value,
+        "tranche_revenus": rev_tranche,
+        "tranche_patrimoine": patr_tranche,
+
+        "ppe_self": "oui" if ppe_self is True else ("non" if ppe_self is False else ""),
+        "ppe_self_details": ppe_detail,
+        "ppe_family": "oui" if ppe_family is True else ("non" if ppe_family is False else ""),
+        "ppe_family_details": ppe_family_detail,
+
+        "patrimoine_total_str": "{:,.0f} €".format(float(patrimoine_total)).replace(",", " ") if patrimoine_total is not None else "",
+        "patrimoine_net_str": "{:,.0f} €".format(float(patrimoine_net)).replace(",", " ") if patrimoine_net is not None else "",
+        "patrimoine_breakdown": patrimoine_breakdown,
+        "patrimoine_biens_professionnels_str": _amt_str(biens_professionnels),
+        "patrimoine_contrats_assurances_str": _amt_str(contrats_assurances),
+        "patrimoine_immobilier_str": _amt_str(immobilier),
+        "patrimoine_comptes_str": _amt_str(comptes),
+        "patrimoine_valeurs_mobilieres_str": _amt_str(valeurs_mobilieres),
+        "patrimoine_autres_str": _amt_str(autres),
+
+        "invest_total_str": invest_total_str,
+        "invest_pct_str": invest_pct_str,
+        "operation_objets_selected": operation_objets_selected,
+        "raison_vigilance_labels": raison_vigilance_labels,
+        "just_fonds": just_fonds,
+        "just_destination": just_destination,
+        "just_finalite": just_finalite,
+        "just_produits": just_produits,
+
+        "fait_a": adr_ville,
+        "date_signature": _date.today().strftime("%d/%m/%Y"),
+    }
+
+    pdf_bytes = build_tracfin_complementary_pdf_bytes(data, background_path=None)
+    filename = f"tracfin_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
+    )
+
+
 # ---------------- KYC Report (HTML/PDF) ----------------
 @router.get("/clients/kyc/{client_id}/rapport")
 async def dashboard_client_kyc_report(
@@ -6630,6 +7551,9 @@ async def dashboard_client_kyc_report(
         ctx['auto_print'] = True
     html = templates.get_template(template_name).render(ctx)
     if int(pdf or 0) == 1:
+        cd = (request.query_params.get("inline") or "").lower().strip()
+        cd_type = "inline" if cd in ("1", "true", "yes") else "attachment"
+        cd_header = {"Content-Disposition": f"{cd_type}; filename=rapport_kyc_{client_id}.pdf"}
         # Par défaut on privilégie WeasyPrint pour un PDF identique à l'HTML
         prefer_weasy = (engine or 'weasy').lower() == 'weasy'
         prefer_reportlab = (engine or '').lower() == 'reportlab'
@@ -6821,7 +7745,7 @@ async def dashboard_client_kyc_report(
                 pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
                 return StreamingResponse(
                     iter([pdf_bytes]), media_type="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+                    headers=cd_header,
                 )
             except Exception as _exc_wp:
                 logger.debug("WeasyPrint export failed (preferred): %s", _exc_wp, exc_info=True)
@@ -6984,7 +7908,7 @@ async def dashboard_client_kyc_report(
                 buf.close()
                 return StreamingResponse(
                     iter([pdf_bytes]), media_type="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+                    headers=cd_header,
                 )
             except Exception as _exc_rl:
                 logger.debug("ReportLab export failed: %s", _exc_rl, exc_info=True)
@@ -6994,7 +7918,7 @@ async def dashboard_client_kyc_report(
             pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
             return StreamingResponse(
                 iter([pdf_bytes]), media_type="application/pdf",
-                headers={"Content-Disposition": f"attachment; filename=rapport_kyc_{client_id}.pdf"},
+                headers=cd_header,
             )
         except Exception as _exc_wp:
             logger.debug("WeasyPrint export failed (final): %s", _exc_wp, exc_info=True)
@@ -16033,7 +16957,10 @@ async def dashboard_client_kyc(
                         # Read form values
                         fatca_contrat_id = _i("fatca_contrat_id")
                         fatca_pays_residence = (form.get("fatca_pays_residence") or None)
+                        fatca_pays_residence_beneficiaire = (form.get("fatca_pays_residence_beneficiaire") or None)
                         fatca_nif = (form.get("fatca_nif") or None)
+                        fatca_us_person_souscripteur = (form.get("fatca_us_person_souscripteur") or None)
+                        fatca_us_person_beneficiaire = (form.get("fatca_us_person_beneficiaire") or None)
                         fatca_date_operation = (form.get("fatca_date_operation") or None)
                         # Resolve societe_nom from DB if possible
                         societe_nom = (form.get("fatca_societe") or None)
@@ -16068,11 +16995,24 @@ async def dashboard_client_kyc(
                                   societe_nom TEXT NULL,
                                   date_operation TEXT NULL,
                                   pays_residence TEXT NULL,
+                                  pays_residence_beneficiaire TEXT NULL,
+                                  us_person_souscripteur TEXT NULL,
+                                  us_person_beneficiaire TEXT NULL,
                                   nif TEXT NULL
                                 )
                                 """
                             )
                         )
+                        # Backward-compatible migrations (SQLite): add missing columns if needed
+                        for stmt in (
+                            "ALTER TABLE LCBFT_fatca ADD COLUMN pays_residence_beneficiaire TEXT NULL",
+                            "ALTER TABLE LCBFT_fatca ADD COLUMN us_person_souscripteur TEXT NULL",
+                            "ALTER TABLE LCBFT_fatca ADD COLUMN us_person_beneficiaire TEXT NULL",
+                        ):
+                            try:
+                                db.execute(_text(stmt))
+                            except Exception:
+                                pass
                         # Upsert-fatca for this questionnaire
                         fatca_params = {
                             "qid": qid,
@@ -16080,6 +17020,9 @@ async def dashboard_client_kyc(
                             "societe_nom": societe_nom,
                             "date_operation": fatca_date_operation,
                             "pays_residence": fatca_pays_residence,
+                            "pays_residence_beneficiaire": fatca_pays_residence_beneficiaire,
+                            "us_person_souscripteur": fatca_us_person_souscripteur,
+                            "us_person_beneficiaire": fatca_us_person_beneficiaire,
                             "nif": fatca_nif,
                         }
                         res = db.execute(
@@ -16090,20 +17033,29 @@ async def dashboard_client_kyc(
                                     societe_nom=:societe_nom,
                                     date_operation=:date_operation,
                                     pays_residence=:pays_residence,
+                                    pays_residence_beneficiaire=:pays_residence_beneficiaire,
+                                    us_person_souscripteur=:us_person_souscripteur,
+                                    us_person_beneficiaire=:us_person_beneficiaire,
                                     nif=:nif
                                 WHERE questionnaire_id=:qid
                                 """
                             ),
                             fatca_params,
                         )
-                        if (getattr(res, 'rowcount', None) or 0) == 0:
+                        if (getattr(res, "rowcount", None) or 0) == 0:
                             db.execute(
                                 _text(
                                     """
                                     INSERT INTO LCBFT_fatca (
-                                      questionnaire_id, contrat_id, societe_nom, date_operation, pays_residence, nif
+                                      questionnaire_id, contrat_id, societe_nom, date_operation,
+                                      pays_residence, pays_residence_beneficiaire,
+                                      us_person_souscripteur, us_person_beneficiaire,
+                                      nif
                                     ) VALUES (
-                                      :qid, :contrat_id, :societe_nom, :date_operation, :pays_residence, :nif
+                                      :qid, :contrat_id, :societe_nom, :date_operation,
+                                      :pays_residence, :pays_residence_beneficiaire,
+                                      :us_person_souscripteur, :us_person_beneficiaire,
+                                      :nif
                                     )
                                     """
                                 ),
@@ -17209,31 +18161,217 @@ async def dashboard_client_kyc(
             lcbft_revenue_total = float(total_row)
     except Exception:
         lcbft_revenue_total = None
+
+    def _parse_threshold_eur(val):
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            try:
+                return float(val)
+            except Exception:
+                return None
+        try:
+            # Decimal / numpy types
+            if not isinstance(val, str):
+                return float(val)
+        except Exception:
+            pass
+        try:
+            s = str(val).strip().lower()
+            if not s:
+                return None
+            s = s.replace("\u00a0", " ")
+            s = (
+                s.replace("€", "")
+                .replace("euros", "")
+                .replace("euro", "")
+                .replace("eur", "")
+            )
+            m = re.search(r"([-+]?\d[\d\s.,]*)(?:\s*([km]))?\b", s)
+            if not m:
+                return None
+            raw_num = (m.group(1) or "").strip()
+            suffix = (m.group(2) or "").strip()
+            mult = 1.0
+            if suffix == "k":
+                mult = 1000.0
+            elif suffix == "m":
+                mult = 1000000.0
+            raw_num = raw_num.replace("\u00a0", "").replace(" ", "")
+            if not raw_num:
+                return None
+            # Treat a single separator followed by 3 digits as a thousands separator (ex: 20.000 or 20,000).
+            if "." in raw_num and "," not in raw_num:
+                parts = raw_num.split(".")
+                if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 3:
+                    raw_num = "".join(parts)
+            if "," in raw_num and "." not in raw_num:
+                parts = raw_num.split(",")
+                if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 3:
+                    raw_num = "".join(parts)
+            # Normalize separators: keep only the last decimal separator.
+            if "," in raw_num and "." in raw_num:
+                if raw_num.rfind(",") > raw_num.rfind("."):
+                    raw_num = raw_num.replace(".", "").replace(",", ".")
+                else:
+                    raw_num = raw_num.replace(",", "")
+            else:
+                if raw_num.count(".") > 1:
+                    raw_num = raw_num.replace(".", "")
+                if raw_num.count(",") > 1:
+                    raw_num = raw_num.replace(",", "")
+                raw_num = raw_num.replace(",", ".")
+            raw_num = re.sub(r"[^0-9.+-]", "", raw_num)
+            if raw_num in ("", "+", "-", "."):
+                return None
+            return float(raw_num) * mult
+        except Exception:
+            return None
+
+    def _range_from_label(label: str | None):
+        s = (label or "").strip().lower().replace("\u00a0", " ")
+        if not s:
+            return (None, None)
+        # Common "no value" labels
+        if any(x in s for x in ("non renseign", "n/a", "na", "aucun")):
+            return (None, None)
+
+        # Extract up to 2 numbers (with optional k/m suffix)
+        parts = re.findall(r"(\d[\d\s.,]*)(?:\s*([km]))?\b", s)
+        if not parts:
+            return (None, None)
+        vals: list[float] = []
+        suffixes: list[str] = []
+        for num, suf in parts[:2]:
+            v = _parse_threshold_eur((num or "") + (suf or ""))
+            if v is not None:
+                vals.append(v)
+                suffixes.append((suf or "").strip().lower())
+        if not vals:
+            return (None, None)
+
+        if len(vals) == 1:
+            v0 = vals[0]
+            if any(x in s for x in ("<", "moins", "inf", "infer", "jusqu", "max")):
+                return (None, v0)
+            if any(x in s for x in (">", "plus", "sup", "super", "a partir", "à partir", "+")):
+                return (v0, None)
+            return (None, None)
+
+        # Heuristic: if only the 2nd number has a suffix (k/m), apply it to 1st if it looks like a "same unit" range.
+        if suffixes and len(suffixes) >= 2 and suffixes[0] == "" and suffixes[1] in ("k", "m"):
+            if vals[0] < 1000:
+                vals[0] = vals[0] * (1000.0 if suffixes[1] == "k" else 1000000.0)
+
+        lo, hi = sorted(vals[:2])
+        return (lo, hi)
     try:
         tranche_rows = db.execute(
             text("SELECT id, lib, min_eur, max_eur FROM LCBFT_ref_tranche_revenu ORDER BY COALESCE(min_eur, 0) ASC")
         ).fetchall()
+
         converted_tranches: list[dict] = []
         for row in tranche_rows:
             data = dict(row._mapping)
             raw_min = data.get("min_eur")
             raw_max = data.get("max_eur")
-            min_eff = float(raw_min) if raw_min is not None else None
-            max_eff = float(raw_max) if raw_max is not None else None
+            try:
+                if "id" in data and data["id"] is not None:
+                    data["id"] = int(data["id"])
+            except Exception:
+                pass
+            min_eff = _parse_threshold_eur(raw_min)
+            max_eff = _parse_threshold_eur(raw_max)
+            lib_raw = str(data.get("lib") or "")
+            lib = lib_raw.lower()
+            lib_min, lib_max = _range_from_label(lib_raw)
+            if min_eff is None and lib_min is not None:
+                min_eff = lib_min
+            if max_eff is None and lib_max is not None:
+                max_eff = lib_max
             data["min_effective"] = min_eff
             data["max_effective"] = max_eff
+            data["active"] = False
             converted_tranches.append(data)
         lcbft_revenue_tranches = converted_tranches
-        if lcbft_revenue_total is not None:
-            total_val = lcbft_revenue_total
-            for tr in lcbft_revenue_tranches:
-                min_eff = tr.get("min_effective")
-                max_eff = tr.get("max_effective")
-                meets_min = (min_eff is None) or (total_val >= min_eff)
-                meets_max = (max_eff is None) or (total_val <= max_eff)
-                if meets_min and meets_max:
-                    lcbft_revenue_tranche_id = tr.get("id")
-                    break
+        if lcbft_revenue_total is not None and lcbft_revenue_tranches:
+            total_val = float(lcbft_revenue_total)
+
+            def _pick_best(tranches: list[dict], total: float) -> int | None:
+                matches: list[tuple[tuple[float, float], int, int]] = []
+                for idx, tr in enumerate(tranches):
+                    min_eff = tr.get("min_effective")
+                    max_eff = tr.get("max_effective")
+                    if min_eff is None and max_eff is None:
+                        continue
+                    if min_eff is not None and total < float(min_eff):
+                        continue
+                    if max_eff is not None and total > float(max_eff):
+                        continue
+                    key_min = float(min_eff) if min_eff is not None else float("-inf")
+                    key_max = float(max_eff) if max_eff is not None else float("inf")
+                    try:
+                        tid = int(tr.get("id")) if tr.get("id") is not None else -1
+                    except Exception:
+                        tid = -1
+                    matches.append(((key_min, -key_max), tid, idx))
+                if matches:
+                    matches.sort(reverse=True)
+                    return matches[0][1] if matches[0][1] != -1 else None
+
+                # If nothing matches, try scaling bounds (common data issue: stored in k€).
+                bounds: list[float] = []
+                for tr in tranches:
+                    for k in ("min_effective", "max_effective"):
+                        v = tr.get(k)
+                        if v is not None:
+                            try:
+                                bounds.append(float(v))
+                            except Exception:
+                                pass
+                if bounds and total >= 10000:
+                    max_bound = max(bounds)
+                    if max_bound <= 1000:
+                        for tr in tranches:
+                            for k in ("min_effective", "max_effective"):
+                                v = tr.get(k)
+                                if v is not None:
+                                    try:
+                                        tr[k] = float(v) * 1000.0
+                                    except Exception:
+                                        pass
+                        return _pick_best(tranches, total)
+
+                # Last resort: closest tranche (so at least one is highlighted).
+                best: tuple[float, float, int, int] | None = None  # (dist, -min, id, idx)
+                for idx, tr in enumerate(tranches):
+                    min_eff = tr.get("min_effective")
+                    max_eff = tr.get("max_effective")
+                    if min_eff is None and max_eff is None:
+                        continue
+                    dist = 0.0
+                    if min_eff is not None and total < float(min_eff):
+                        dist = float(min_eff) - total
+                    elif max_eff is not None and total > float(max_eff):
+                        dist = total - float(max_eff)
+                    key_min = float(min_eff) if min_eff is not None else float("-inf")
+                    try:
+                        tid = int(tr.get("id")) if tr.get("id") is not None else -1
+                    except Exception:
+                        tid = -1
+                    cand = (dist, -key_min, tid, idx)
+                    if best is None or cand < best:
+                        best = cand
+                return best[2] if best and best[2] != -1 else None
+
+            best_id = _pick_best(lcbft_revenue_tranches, total_val)
+            lcbft_revenue_tranche_id = best_id
+            if best_id is not None:
+                for tr in lcbft_revenue_tranches:
+                    try:
+                        tr["active"] = int(tr.get("id")) == int(best_id)
+                    except Exception:
+                        tr["active"] = False
     except Exception:
         lcbft_revenue_tranches = []
     try:
@@ -17249,27 +18387,107 @@ async def dashboard_client_kyc(
         patrimoine_tr_rows = db.execute(
             text("SELECT id, lib, min_eur, max_eur FROM LCBFT_ref_tranche_patrimoine ORDER BY COALESCE(min_eur, 0) ASC")
         ).fetchall()
+
         converted_patr_tranches: list[dict] = []
         for row in patrimoine_tr_rows:
             data = dict(row._mapping)
             raw_min = data.get("min_eur")
             raw_max = data.get("max_eur")
-            min_eff = float(raw_min) if raw_min is not None else None
-            max_eff = float(raw_max) if raw_max is not None else None
+            try:
+                if "id" in data and data["id"] is not None:
+                    data["id"] = int(data["id"])
+            except Exception:
+                pass
+            min_eff = _parse_threshold_eur(raw_min)
+            max_eff = _parse_threshold_eur(raw_max)
+            lib_raw = str(data.get("lib") or "")
+            lib = lib_raw.lower()
+            lib_min, lib_max = _range_from_label(lib_raw)
+            if min_eff is None and lib_min is not None:
+                min_eff = lib_min
+            if max_eff is None and lib_max is not None:
+                max_eff = lib_max
             data["min_effective"] = min_eff
             data["max_effective"] = max_eff
+            data["active"] = False
             converted_patr_tranches.append(data)
         lcbft_patrimoine_tranches = converted_patr_tranches
-        if lcbft_patrimoine_total is not None:
-            total_val = lcbft_patrimoine_total
-            for tr in lcbft_patrimoine_tranches:
-                min_eff = tr.get("min_effective")
-                max_eff = tr.get("max_effective")
-                meets_min = (min_eff is None) or (total_val >= min_eff)
-                meets_max = (max_eff is None) or (total_val <= max_eff)
-                if meets_min and meets_max:
-                    lcbft_patrimoine_tranche_id = tr.get("id")
-                    break
+        if lcbft_patrimoine_total is not None and lcbft_patrimoine_tranches:
+            total_val = float(lcbft_patrimoine_total)
+
+            def _pick_best(tranches: list[dict], total: float) -> int | None:
+                matches: list[tuple[tuple[float, float], int, int]] = []
+                for idx, tr in enumerate(tranches):
+                    min_eff = tr.get("min_effective")
+                    max_eff = tr.get("max_effective")
+                    if min_eff is None and max_eff is None:
+                        continue
+                    if min_eff is not None and total < float(min_eff):
+                        continue
+                    if max_eff is not None and total > float(max_eff):
+                        continue
+                    key_min = float(min_eff) if min_eff is not None else float("-inf")
+                    key_max = float(max_eff) if max_eff is not None else float("inf")
+                    try:
+                        tid = int(tr.get("id")) if tr.get("id") is not None else -1
+                    except Exception:
+                        tid = -1
+                    matches.append(((key_min, -key_max), tid, idx))
+                if matches:
+                    matches.sort(reverse=True)
+                    return matches[0][1] if matches[0][1] != -1 else None
+
+                bounds: list[float] = []
+                for tr in tranches:
+                    for k in ("min_effective", "max_effective"):
+                        v = tr.get(k)
+                        if v is not None:
+                            try:
+                                bounds.append(float(v))
+                            except Exception:
+                                pass
+                if bounds and total >= 10000:
+                    max_bound = max(bounds)
+                    if max_bound <= 1000:
+                        for tr in tranches:
+                            for k in ("min_effective", "max_effective"):
+                                v = tr.get(k)
+                                if v is not None:
+                                    try:
+                                        tr[k] = float(v) * 1000.0
+                                    except Exception:
+                                        pass
+                        return _pick_best(tranches, total)
+
+                best: tuple[float, float, int, int] | None = None
+                for idx, tr in enumerate(tranches):
+                    min_eff = tr.get("min_effective")
+                    max_eff = tr.get("max_effective")
+                    if min_eff is None and max_eff is None:
+                        continue
+                    dist = 0.0
+                    if min_eff is not None and total < float(min_eff):
+                        dist = float(min_eff) - total
+                    elif max_eff is not None and total > float(max_eff):
+                        dist = total - float(max_eff)
+                    key_min = float(min_eff) if min_eff is not None else float("-inf")
+                    try:
+                        tid = int(tr.get("id")) if tr.get("id") is not None else -1
+                    except Exception:
+                        tid = -1
+                    cand = (dist, -key_min, tid, idx)
+                    if best is None or cand < best:
+                        best = cand
+                return best[2] if best and best[2] != -1 else None
+
+            best_id = _pick_best(lcbft_patrimoine_tranches, total_val)
+            lcbft_patrimoine_tranche_id = best_id
+            if best_id is not None:
+                for tr in lcbft_patrimoine_tranches:
+                    try:
+                        tr["active"] = int(tr.get("id")) == int(best_id)
+                    except Exception:
+                        tr["active"] = False
     except Exception:
         lcbft_patrimoine_tranches = []
     try:
@@ -17297,11 +18515,35 @@ async def dashboard_client_kyc(
     except Exception:
         invest_total = None
     patrimoine_total = lcbft_patrimoine_total if isinstance(lcbft_patrimoine_total, (int, float)) else None
-    # Montant > 100k (raison id 1) => toujours inclus, lecture seule
+    montant_100k_reason_id: int | None = None
+    over_50pct_patrimoine_reason_id: int | None = None
+    for opt in lcbft_raison_options:
+        try:
+            rid = int(opt.get("id")) if opt.get("id") is not None else None
+        except Exception:
+            rid = None
+        if rid is None:
+            continue
+        lib = str(opt.get("lib") or "").strip().lower()
+        if not lib:
+            continue
+        if montant_100k_reason_id is None and ("montant" in lib and "100" in lib):
+            montant_100k_reason_id = rid
+        if over_50pct_patrimoine_reason_id is None and (
+            ("50" in lib and "%" in lib) or ("patrimoine" in lib and "50" in lib)
+        ):
+            over_50pct_patrimoine_reason_id = rid
+
+    # Montant > 100 k€ => toujours inclus, lecture seule
     if invest_total is not None and invest_total > 100000:
-        lcbft_raison_forced_ids.add(1)
-    if invest_total is not None and patrimoine_total not in (None, 0) and invest_total > float(patrimoine_total):
-        lcbft_raison_forced_ids.add(2)
+        rid = montant_100k_reason_id or 1
+        lcbft_raison_forced_ids.add(rid)
+        lcbft_raison_disabled_ids.add(rid)
+    # Montant investi > 50% du patrimoine => toujours inclus, lecture seule
+    if invest_total is not None and patrimoine_total not in (None, 0) and invest_total > (0.5 * float(patrimoine_total)):
+        rid = over_50pct_patrimoine_reason_id or 2
+        lcbft_raison_forced_ids.add(rid)
+        lcbft_raison_disabled_ids.add(rid)
     for rid in lcbft_raison_forced_ids:
         if rid not in lcbft_raison_selected_ids:
             lcbft_raison_selected_ids.append(rid)
@@ -17862,7 +19104,7 @@ async def dashboard_client_kyc(
         if lcbft_current and lcbft_current.get("id"):
             qid = lcbft_current.get("id")
             row = db.execute(
-                text("SELECT contrat_id, societe_nom, date_operation, pays_residence, nif FROM LCBFT_fatca WHERE questionnaire_id = :q"),
+                text("SELECT * FROM LCBFT_fatca WHERE questionnaire_id = :q"),
                 {"q": qid},
             ).fetchone()
             if row:
