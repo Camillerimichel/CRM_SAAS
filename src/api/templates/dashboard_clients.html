@@ -45,11 +45,45 @@
 	    #clientsTable thead tr:first-child th.sorted-asc .sort-arrow::before { content: "▲"; }
 	    #clientsTable thead tr:first-child th.sorted-desc .sort-arrow::before { content: "▼"; }
 	    thead input, thead select { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; box-sizing:border-box; }
-	    tbody td {
-	        padding: 4px 6px;
-	        line-height: 1.1;
-        white-space: nowrap;
-    }
+		    tbody td {
+		        padding: 4px 6px;
+		        line-height: 1.1;
+	        white-space: nowrap;
+	    }
+			    /* Compacter les colonnes Perf/Vol + SRRI */
+			    #clientsTable th:nth-child(5),
+			    #clientsTable td:nth-child(5){
+			      width: 36px !important;
+			      max-width: 36px !important;
+				      padding-left: 1px;
+				      padding-right: 1px;
+			    }
+				    #clientsTable thead th:nth-child(5) select{
+				      padding: 2px 1px;
+				      font-size: 12px;
+				    }
+				    #client-srri-filter{
+				      width: 36px;
+				      min-width: 36px;
+				      max-width: 36px;
+				    }
+		    /* Offre financière: éviter l'explosion de la mise en page */
+		    #clientsTable th:nth-child(4),
+		    #clientsTable td:nth-child(4){
+		      overflow: hidden;
+		      text-overflow: ellipsis;
+		    }
+		    #clientsTable th:nth-child(7),
+		    #clientsTable td:nth-child(7),
+		    #clientsTable th:nth-child(8),
+		    #clientsTable td:nth-child(8){
+		      padding-left: 3px;
+		      padding-right: 3px;
+		    }
+		    #clientsTable thead th:nth-child(7) input,
+		    #clientsTable thead th:nth-child(8) input{
+		      padding: 3px 4px;
+		    }
 	    .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; }
 	    .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
 	    .btn-danger:hover { background:#dc2626; }
@@ -109,74 +143,95 @@
         <button class="btn btn-primary" type="button" id="btnGroupedTasksClients" style="font-size:18px;">Créer des tâches groupées</button>
       </div>
     </div>
-    <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
-      {% if group_filter_label %}
-        <div class="badge-filter">
-          Groupe : {{ group_filter_label }}
-          {% if tb_markers_visible %}
-            <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
-          {% else %}
-            <a class="x" href="/dashboard/clients">×</a>
-          {% endif %}
-        </div>
-      {% endif %}
-    </div>
+	    <div id="cf_active_badges" class="badge-row" data-tb-marker="TB_205">
+	      {% if group_filter_label %}
+	        <div class="badge-filter">
+	          Groupe : {{ group_filter_label }}
+	          {% if tb_markers_visible %}
+	            <a class="x" href="/dashboard/clients?{{ tb_markers_param }}">×</a>
+	          {% else %}
+	            <a class="x" href="/dashboard/clients">×</a>
+	          {% endif %}
+	        </div>
+	      {% endif %}
 
-	    <div class="table-container">
-	      <table id="clientsTable" class="display nowrap" style="width:100%">
-	        <thead>
-	          <tr>
-	            <th data-sort="nom">Nom<span class="sort-arrow"></span></th>
-	            <th data-sort="prenom">Prénom<span class="sort-arrow"></span></th>
-	            <th data-sort="responsable">Responsable<span class="sort-arrow"></span></th>
-	            <th data-sort="srri">SRRI<span class="sort-arrow"></span></th>
-	            <th data-sort="valo">Valorisation<span class="sort-arrow"></span></th>
-	            <th data-sort="perf">Perf 52 sem. (%)<span class="sort-arrow"></span></th>
-	            <th data-sort="vol">Volatilité (%)<span class="sort-arrow"></span></th>
-	          </tr>
-	          <tr>
-	            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..." value="{{ filters.nom or '' }}"></th>
-	            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..." value="{{ filters.prenom or '' }}"></th>
-	            <th>
-	              <select id="client-resp-filter">
-	                <option value=""></option>
-	                {% for r in responsables or [] %}
-	                  {% set _rid = r.id %}
-	                  {% set _rlabel = ((r.prenom or '') ~ ' ' ~ (r.nom or '')).strip() %}
-	                  <option value="{{ _rid }}" {% if filters.resp_id and (filters.resp_id|string) == (_rid|string) %}selected{% endif %}>{{ _rlabel or ('Resp #' ~ _rid) }}</option>
+	    </div>
+
+		    <div class="table-container">
+		      <table id="clientsTable" class="display nowrap" style="width:100%">
+		        <colgroup>
+		          <col style="width:200px;">
+		          <col style="width:150px;">
+		          <col style="width:170px;">
+			          <col style="width:220px;">
+			          <col style="width:36px;">
+			          <col style="width:140px;">
+			          <col style="width:95px;">
+			          <col style="width:95px;">
+		        </colgroup>
+		        <thead>
+			          <tr>
+			            <th>Nom</th>
+			            <th>Prénom</th>
+				            <th>Responsable</th>
+				            <th>Offre financière</th>
+				            <th style="width:36px; max-width:36px;">SRRI</th>
+				            <th>Valorisation</th>
+				            <th>Perf 52s</th>
+				            <th>Vol. 52s</th>
+				          </tr>
+		          <tr>
+			            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..."></th>
+			            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..."></th>
+		            <th>
+		              <select id="client-resp-filter">
+		                <option value=""></option>
+		                {% for r in responsables or [] %}
+		                  {% set _rid = r.id %}
+		                  {% set _txt = (r.label or '') or ('Resp #' ~ _rid) %}
+			                  <option value="{{ _txt }}">{{ _txt }}</option>
+			                {% endfor %}
+			              </select>
+		            </th>
+		            <th>
+		              <select id="client-alloc-filter">
+		                <option value=""></option>
+		                {% for a in allocation_options or [] %}
+			                  <option value="{{ a }}">{{ a }}</option>
+		                {% endfor %}
+		              </select>
+		            </th>
+		            <th>
+		              <select id="client-srri-filter">
+		                <option value=""></option>
+		                {% for s in srri_options %}
+			                  <option value="{{ s }}">{{ s }}</option>
 	                {% endfor %}
 	              </select>
 	            </th>
-	            <th>
-	              <select id="client-srri-filter">
-	                <option value=""></option>
-	                {% for s in srri_options %}
-	                  <option value="{{ s }}" {% if filters.srri_calc and (filters.srri_calc|string) == (s|string) %}selected{% endif %}>{{ s }}</option>
-	                {% endfor %}
-	              </select>
-	            </th>
-	            <th><input type="text" id="client-valo-filter" placeholder="Ex: >100k, 100k-500k" value="{{ filters.valo or '' }}"></th>
-	            <th><input type="text" id="client-perf-filter" placeholder="Ex: >5, 3-7" value="{{ filters.perf or '' }}"></th>
-	            <th><input type="text" id="client-vol-filter" placeholder="Ex: <10, 2-6" value="{{ filters.vol or '' }}"></th>
-	          </tr>
+		            <th><input type="text" id="client-valo-filter" placeholder="Ex: >100k, 100k-500k"></th>
+		            <th><input type="text" id="client-perf-filter" placeholder="Ex: >5, 3-7"></th>
+		            <th><input type="text" id="client-vol-filter" placeholder="Ex: <10, 2-6"></th>
+		          </tr>
 	        </thead>
         <tbody>
           {% for c in clients %}
-          <tr data-client-id="{{ c.id }}">
-            <td>
-              <a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
-                {{ c.nom }}
-              </a>
-            </td>
-            <td>{{ c.prenom }}</td>
-            <td>{{ c.responsable or '—' }}</td>
-            <td style="text-align:center;">
-              {{ c.srri_hist if c.srri_hist is not none else '' }}
-            </td>
-            <td data-valo="{{ c.total_valo if c.total_valo is not none else '' }}" style="text-align:right;">{{ c.total_valo_str }}</td>
-            <td data-perf="{{ c.perf_52_sem if c.perf_52_sem is not none else '' }}" style="text-align:right;">{{ c.perf_52_sem_str }}</td>
-            <td data-vol="{{ c.volatilite if c.volatilite is not none else '' }}" style="text-align:right;">{{ c.volatilite_str }}</td>
-          </tr>
+	          <tr data-client-id="{{ c.id }}">
+	            <td>
+	              <a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
+	                {{ c.nom }}
+	              </a>
+	            </td>
+	            <td>{{ c.prenom }}</td>
+	            <td>{{ c.responsable or '—' }}</td>
+	            <td title="{{ c.allocation_nom or '' }}">{{ c.allocation_nom or '—' }}</td>
+	            <td style="text-align:center;">
+	              {{ c.srri_hist if c.srri_hist is not none else '' }}
+	            </td>
+	            <td data-valo="{{ c.total_valo if c.total_valo is not none else '' }}" style="text-align:right;">{{ c.total_valo_str }}</td>
+	            <td data-perf="{{ c.perf_52_sem if c.perf_52_sem is not none else '' }}" style="text-align:right;">{{ c.perf_52_sem_str }}</td>
+	            <td data-vol="{{ c.volatilite if c.volatilite is not none else '' }}" style="text-align:right;">{{ c.volatilite_str }}</td>
+	          </tr>
           {% endfor %}
 	        </tbody>
 	      </table>
@@ -197,18 +252,12 @@
 		      </div>
 		    </div>
 
-    {% set cur_page = page|default(1) %}
-    {% set max_pages = total_pages|default(1) %}
-    {% set total_cli = total_clients|default(0) %}
-    {% set total_cli_filtered = total_clients_filtered|default(total_cli) %}
-    <div class="pagination-container">
-      <div id="clients-results-info">Page {{ cur_page }}/{{ max_pages }} — {{ total_cli_filtered }} clients affichés ({{ total_cli }} au total)</div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button class="btn" type="button" onclick="changeClientPage(-1)" {% if cur_page <= 1 %}disabled{% endif %}>Précédent</button>
-        <button class="btn" type="button" onclick="changeClientPage(1)" {% if cur_page >= max_pages %}disabled{% endif %}>Suivant</button>
-        <button class="btn btn-danger" onclick="clearClientFilters()">🗑️ Effacer</button>
-      </div>
-    </div>
+	    <div class="pagination-container">
+	      <div id="clients-results-info">{{ (clients|length) if clients is defined else '' }} clients</div>
+	      <div style="display:flex; gap:8px; align-items:center;">
+	        <button class="btn btn-danger" type="button" onclick="clearClientFilters()">🗑️ Effacer</button>
+	      </div>
+	    </div>
   </div>
 </div>
 
@@ -223,72 +272,38 @@
 
 <script>
 $(document).ready(function () {
-	    const groupedTasksCfgClients = {
-	        scope: 'clients',
-	        taskTypes: {{ grouped_task_types | tojson }},
-	        responsables: {{ responsables | tojson }},
-	        hasServerFilter: {{ 'true' if (total_clients_filtered|default(0)) < (total_clients|default(0)) else 'false' }},
-	        groupFilterActive: {{ 'true' if group_filter_label else 'false' }},
-	        groupLabel: {{ group_filter_label | tojson if group_filter_label else 'null' }}
-	    };
+		    const groupedTasksCfgClients = {
+		        scope: 'clients',
+		        taskTypes: {{ grouped_task_types | tojson }},
+		        responsables: {{ responsables | tojson }},
+		        hasServerFilter: false,
+		        groupFilterActive: {{ 'true' if group_filter_label else 'false' }},
+		        groupLabel: {{ group_filter_label | tojson if group_filter_label else 'null' }}
+		    };
     const actionsBar = document.getElementById('clientsGroupActions');
     const btnGrouped = document.getElementById('btnGroupedTasksClients');
-	    var table = $('#clientsTable').DataTable({
-	        dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
-	        paging: false,
-	        info: false,
-	        ordering: false,
-	        order: [],
-	        columnDefs: [
-	          { targets: 0, width: '200px' },
-	          { targets: 1, width: '160px' },
-	          { targets: 2, width: '180px' },
-          { targets: 3, width: '110px', className: 'dt-center' },
-          { targets: 4, width: '140px' },
-          { targets: 5, width: '120px' },
-          { targets: 6, width: '120px' }
-        ]
-	    });
-
-	    // Tri (côté serveur) : clic sur l'entête
-	    function applySortIndicators(){
-	      try {
-	        var params = new URLSearchParams(window.location.search);
-	        var by = (params.get('sort_by') || 'valo').toLowerCase();
-	        var dir = (params.get('sort_dir') || 'desc').toLowerCase();
-	        document.querySelectorAll('#clientsTable thead tr:first-child th[data-sort]').forEach(function(th){
-	          var key = (th.getAttribute('data-sort') || '').toLowerCase();
-	          th.classList.toggle('sorted-asc', key === by && dir === 'asc');
-	          th.classList.toggle('sorted-desc', key === by && dir === 'desc');
-	        });
-	      } catch(e){}
-	    }
-	    function setSort(sortKey){
-	      try {
-	        var params = new URLSearchParams(window.location.search);
-	        var curBy = (params.get('sort_by') || 'valo').toLowerCase();
-	        var curDir = (params.get('sort_dir') || 'desc').toLowerCase();
-	        var nextDir = 'desc';
-	        if (String(sortKey).toLowerCase() === curBy){
-	          nextDir = (curDir === 'asc') ? 'desc' : 'asc';
-	        } else {
-	          // par défaut asc sur colonnes texte, desc sur numériques
-	          nextDir = (['valo','perf','vol','srri'].indexOf(String(sortKey).toLowerCase()) !== -1) ? 'desc' : 'asc';
-	        }
-	        params.set('sort_by', String(sortKey));
-	        params.set('sort_dir', nextDir);
-	        params.delete('page');
-	        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
-	        window.location.search = params.toString();
-	      } catch(e){}
-	    }
-	    document.querySelectorAll('#clientsTable thead tr:first-child th[data-sort]').forEach(function(th){
-	      th.addEventListener('click', function(){
-	        var key = th.getAttribute('data-sort');
-	        if (key) setSort(key);
-	      });
-	    });
-	    applySortIndicators();
+			    var table = $('#clientsTable').DataTable({
+			        // Tout le tri/filtrage/pagination est en front (DataTables)
+			        dom: 'rtip',
+			        paging: true,
+			        pageLength: 50,
+			        lengthChange: false,
+			        info: true,
+			        autoWidth: false,
+			        ordering: true,
+			        order: [[0, 'asc']],
+			        fixedHeader: true,
+			        columnDefs: [
+			          { targets: 0, width: '200px' },
+			          { targets: 1, width: '150px' },
+				          { targets: 2, width: '170px' },
+				          { targets: 3, width: '220px' },
+				          { targets: 4, width: '36px', className: 'dt-center' },
+				          { targets: 5, width: '140px' },
+				          { targets: 6, width: '95px' },
+				          { targets: 7, width: '95px' }
+				        ]
+			    });
 
 	    // --- Sélection multi-clients (mémoire session par onglet) ---
 	    const STORAGE_KEY = 'crm_selected_client_ids_v1';
@@ -498,84 +513,155 @@ $(document).ready(function () {
       });
     }
 
-	    // Filtres (côté serveur) : applique à la liste entière, pas seulement la page courante.
-	    var _reloadTimer = null;
-	    function _setParam(params, key, value){
-	      var v = String(value || '').trim();
-	      if (v) params.set(key, v); else params.delete(key);
-	    }
-	    function _reloadWithFilters(immediate){
-	      if (_reloadTimer){ clearTimeout(_reloadTimer); _reloadTimer = null; }
-	      var doReload = function(){
-	        try {
-	          var current = new URLSearchParams(window.location.search);
-	          var next = new URLSearchParams(window.location.search);
-	          _setParam(next, 'nom', $('#client-nom-filter').val());
-	          _setParam(next, 'prenom', $('#client-prenom-filter').val());
-	          _setParam(next, 'resp_id', $('#client-resp-filter').val());
-	          _setParam(next, 'srri_calc', $('#client-srri-filter').val());
-	          _setParam(next, 'valo', $('#client-valo-filter').val());
-	          _setParam(next, 'perf', $('#client-perf-filter').val());
-	          _setParam(next, 'vol', $('#client-vol-filter').val());
-	          next.delete('page');
-	          if (next.toString() === current.toString()) return;
-	          if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
-	          window.location.search = next.toString();
-	        } catch(e){}
-	      };
-	      if (immediate){
-	        doReload();
-	      } else {
-	        _reloadTimer = setTimeout(doReload, 450);
-	      }
-	    }
-	    function _bindServerFilterInput(selector){
-	      var el = document.querySelector(selector);
-	      if (!el) return;
-	      el.addEventListener('keydown', function(ev){
-	        if (ev && ev.key === 'Enter'){
-	          ev.preventDefault();
-	          _reloadWithFilters(true);
-	        }
-	      });
-	      el.addEventListener('input', function(){ _reloadWithFilters(false); });
-	      el.addEventListener('change', function(){ _reloadWithFilters(true); });
-	    }
-	    _bindServerFilterInput('#client-nom-filter');
-	    _bindServerFilterInput('#client-prenom-filter');
-	    // selects: reload on change only (no debounce)
-	    var respSel = document.getElementById('client-resp-filter');
-	    if (respSel){ respSel.addEventListener('change', function(){ _reloadWithFilters(true); }); }
-	    var srriSel = document.getElementById('client-srri-filter');
-	    if (srriSel){ srriSel.addEventListener('change', function(){ _reloadWithFilters(true); }); }
-	    _bindServerFilterInput('#client-valo-filter');
-	    _bindServerFilterInput('#client-perf-filter');
-	    _bindServerFilterInput('#client-vol-filter');
+		    // Filtres (front) : DataTables
+		    function _escapeRegex(s){
+		      return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		    }
+		    function _setExactColumnFilter(colIdx, value){
+		      var v = String(value || '').trim();
+		      if (!v){
+		        table.column(colIdx).search('', false, false);
+		      } else {
+		        table.column(colIdx).search('^' + _escapeRegex(v) + '$', true, false);
+		      }
+		      table.draw();
+		    }
 
-    function gatherFiltersSummary(){
-      var parts = [];
-      var vNom = $('#client-nom-filter').val();
-      var vPrenom = $('#client-prenom-filter').val();
-      var vResp = $('#client-resp-filter').val();
-      var vSrri = $('#client-srri-filter').val();
-      var vValo = $('#client-valo-filter').val();
-      var vPerf = $('#client-perf-filter').val();
-      var vVol = $('#client-vol-filter').val();
-      if (vNom) parts.push('Nom: ' + vNom);
-      if (vPrenom) parts.push('Prénom: ' + vPrenom);
-      if (vResp) parts.push('Resp: ' + vResp);
-      if (vSrri) parts.push('SRRI: ' + vSrri);
-      if (vValo) parts.push('Valo: ' + vValo);
-      if (vPerf) parts.push('Perf: ' + vPerf);
-      if (vVol) parts.push('Vol: ' + vVol);
-      if (groupedTasksCfgClients.groupFilterActive) parts.push('Groupe filtré');
-      if (groupedTasksCfgClients.hasServerFilter && !parts.length) parts.push('Filtre serveur');
-      return parts.join(' · ');
-    }
+		    // Filtre texte (Nom/Prénom)
+		    $('#client-nom-filter').on('input', function(){ table.column(0).search(this.value || '').draw(); });
+		    $('#client-prenom-filter').on('input', function(){ table.column(1).search(this.value || '').draw(); });
 
-    function hasActiveFiltersLocal(){
-      return ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].some(function(sel){ return $(sel).val(); });
-    }
+		    // Filtres selects (exact match)
+			    $('#client-resp-filter').on('change', function(){ _setExactColumnFilter(2, this.value || ''); });
+			    $('#client-alloc-filter').on('change', function(){ _setExactColumnFilter(3, this.value || ''); });
+			    $('#client-srri-filter').on('change', function(){ _setExactColumnFilter(4, this.value || ''); });
+
+			    // Initialiser le filtre "Offre financière" depuis l'URL, ex:
+			    // /dashboard/clients?alloc=Offre+financière+dynamique
+			    (function(){
+			      try {
+			        var params = new URLSearchParams(window.location.search || '');
+			        var alloc = (params.get('alloc') || '').trim();
+			        if (alloc){
+			          $('#client-alloc-filter').val(alloc);
+			          _setExactColumnFilter(3, alloc);
+			        }
+			      } catch(e){}
+			    })();
+
+			    // Filtres numériques (valo/perf/vol) sur data-attributes
+			    function _numToken(raw){
+			      if (raw == null) return null;
+			      var s = String(raw).trim().toLowerCase().replace(/\s+/g, '').replace(',', '.');
+		      var m = s.match(/^([-+]?\d*\.?\d+)([km])?$/);
+		      if (!m) return null;
+		      var n = parseFloat(m[1]);
+		      if (!isFinite(n)) return null;
+		      var suf = m[2] || '';
+		      if (suf === 'k') n *= 1000;
+		      if (suf === 'm') n *= 1000000;
+		      return n;
+		    }
+		    function _parseNumExpr(exprRaw){
+		      var expr = String(exprRaw || '').trim().replace('%','');
+		      if (!expr) return null;
+		      // a-b
+		      var mRange = expr.match(/^\s*([^-]+)\s*-\s*([^-]+)\s*$/);
+		      if (mRange){
+		        var a = _numToken(mRange[1]);
+		        var b = _numToken(mRange[2]);
+		        if (a == null || b == null) return null;
+		        return { kind:'range', lo: Math.min(a,b), hi: Math.max(a,b) };
+		      }
+		      // comparisons (supports multiple, ex: >5 <10)
+		      var parts = [];
+		      var re = /(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)/ig;
+		      var mm;
+		      while ((mm = re.exec(expr)) !== null){
+		        var op = mm[1];
+		        var val = _numToken(mm[2] + (mm[3] || ''));
+		        if (val == null) continue;
+		        parts.push({ op: op, val: val });
+		      }
+		      if (parts.length) return { kind:'ops', parts: parts };
+		      // single number
+		      var single = _numToken(expr);
+		      if (single == null) return null;
+		      return { kind:'eq', val: single };
+		    }
+		    function _matchNumExpr(expr, value){
+		      if (expr == null) return true;
+		      if (value == null || !isFinite(value)) return false;
+		      if (expr.kind === 'range') return value >= expr.lo && value <= expr.hi;
+		      if (expr.kind === 'eq') return value === expr.val;
+		      if (expr.kind === 'ops'){
+		        for (var i=0;i<expr.parts.length;i++){
+		          var p = expr.parts[i];
+		          if (p.op === '>' && !(value > p.val)) return false;
+		          if (p.op === '>=' && !(value >= p.val)) return false;
+		          if (p.op === '<' && !(value < p.val)) return false;
+		          if (p.op === '<=' && !(value <= p.val)) return false;
+		          if ((p.op === '=' || p.op === '==') && !(value === p.val)) return false;
+		          if (p.op === '!=' && !(value !== p.val)) return false;
+		        }
+		        return true;
+		      }
+		      return true;
+		    }
+		    function _rowNum(tr, attr){
+		      try {
+		        var td = tr ? tr.querySelector('td[' + attr + ']') : null;
+		        if (!td) return null;
+		        var raw = td.getAttribute(attr);
+		        if (raw == null || raw === '') return null;
+		        var n = parseFloat(String(raw));
+		        return isFinite(n) ? n : null;
+		      } catch(e){ return null; }
+		    }
+		    $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
+		      try {
+		        if (!settings || !settings.nTable || settings.nTable.id !== 'clientsTable') return true;
+		        var tr = settings.aoData && settings.aoData[dataIndex] ? settings.aoData[dataIndex].nTr : null;
+		        var exprValo = _parseNumExpr($('#client-valo-filter').val());
+		        var exprPerf = _parseNumExpr($('#client-perf-filter').val());
+		        var exprVol = _parseNumExpr($('#client-vol-filter').val());
+		        if (exprValo && !_matchNumExpr(exprValo, _rowNum(tr, 'data-valo'))) return false;
+		        if (exprPerf && !_matchNumExpr(exprPerf, _rowNum(tr, 'data-perf'))) return false;
+		        if (exprVol && !_matchNumExpr(exprVol, _rowNum(tr, 'data-vol'))) return false;
+		        return true;
+		      } catch(e){
+		        return true;
+		      }
+		    });
+		    $('#client-valo-filter').on('input', function(){ table.draw(); });
+		    $('#client-perf-filter').on('input', function(){ table.draw(); });
+		    $('#client-vol-filter').on('input', function(){ table.draw(); });
+
+	    function gatherFiltersSummary(){
+	      var parts = [];
+	      var vNom = $('#client-nom-filter').val();
+	      var vPrenom = $('#client-prenom-filter').val();
+	      var vResp = $('#client-resp-filter').val();
+	      var vAlloc = $('#client-alloc-filter').val();
+	      var vSrri = $('#client-srri-filter').val();
+	      var vValo = $('#client-valo-filter').val();
+	      var vPerf = $('#client-perf-filter').val();
+	      var vVol = $('#client-vol-filter').val();
+	      if (vNom) parts.push('Nom: ' + vNom);
+	      if (vPrenom) parts.push('Prénom: ' + vPrenom);
+	      if (vResp) parts.push('Resp: ' + vResp);
+	      if (vAlloc) parts.push('Offre: ' + vAlloc);
+	      if (vSrri) parts.push('SRRI: ' + vSrri);
+	      if (vValo) parts.push('Valo: ' + vValo);
+	      if (vPerf) parts.push('Perf: ' + vPerf);
+	      if (vVol) parts.push('Vol: ' + vVol);
+	      if (groupedTasksCfgClients.groupFilterActive) parts.push('Groupe filtré');
+	      return parts.join(' · ');
+	    }
+
+	    function hasActiveFiltersLocal(){
+	      return ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].some(function(sel){ return $(sel).val(); });
+	    }
 
     function updateGroupedButtonVisibility(){
       var hasDtFilter = false;
@@ -583,19 +669,19 @@ $(document).ready(function () {
         var filtered = table.rows({ search: 'applied' }).count();
         var total = table.rows({ search: 'none' }).count();
         hasDtFilter = filtered < total;
-      } catch(e){}
-      var active = hasActiveFiltersLocal() || hasDtFilter || groupedTasksCfgClients.hasServerFilter || groupedTasksCfgClients.groupFilterActive;
-      if (actionsBar) actionsBar.style.display = active ? 'flex' : 'none';
-      if (actionsBar) actionsBar.style.alignItems = 'center';
-    }
-	    // Plus de filtrage DataTable (page courante) : on filtre via SQL (liste entière).
+	      } catch(e){}
+	      var active = hasActiveFiltersLocal() || hasDtFilter || groupedTasksCfgClients.groupFilterActive;
+	      if (actionsBar) actionsBar.style.display = active ? 'flex' : 'none';
+	      if (actionsBar) actionsBar.style.alignItems = 'center';
+	    }
+		    // Mise à jour de l'UI (bouton tâches groupées) quand les filtres DataTables changent.
 
-    ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
-      var el = document.querySelector(sel);
-      if (!el) return;
-      el.addEventListener('input', updateGroupedButtonVisibility);
-      el.addEventListener('change', updateGroupedButtonVisibility);
-    });
+	    ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
+	      var el = document.querySelector(sel);
+	      if (!el) return;
+	      el.addEventListener('input', updateGroupedButtonVisibility);
+	      el.addEventListener('change', updateGroupedButtonVisibility);
+	    });
     table.on('draw', updateGroupedButtonVisibility);
     updateGroupedButtonVisibility();
 
@@ -653,24 +739,21 @@ $(document).ready(function () {
 	      });
 	    }
 
-	    window.clearClientFilters = function(){
-	      try {
-	        var params = new URLSearchParams(window.location.search);
-	        ['nom','prenom','resp_id','srri_calc','valo','perf','vol','page'].forEach(function(k){ params.delete(k); });
-	        if (typeof window.showGlobalLoader === 'function'){ window.showGlobalLoader('Chargement des clients…'); }
-	        window.location.search = params.toString();
-	      } catch(e){}
-	    };
-
-    // Pagination côté serveur (préserve les autres paramètres)
-    window.changeClientPage = function(delta){
-      var current = {{ cur_page }};
-      var target = current + delta;
-      if (target < 1 || target > {{ max_pages }}) return;
-      var params = new URLSearchParams(window.location.search);
-      params.set('page', target);
-      window.location.search = params.toString();
-    };
+		    window.clearClientFilters = function(){
+		      try {
+		        $('#client-nom-filter').val('');
+		        $('#client-prenom-filter').val('');
+		        $('#client-resp-filter').val('');
+		        $('#client-alloc-filter').val('');
+		        $('#client-srri-filter').val('');
+		        $('#client-valo-filter').val('');
+		        $('#client-perf-filter').val('');
+		        $('#client-vol-filter').val('');
+		        table.search('');
+		        table.columns().search('');
+		        table.draw();
+		      } catch(e){}
+		    };
 });
 </script>
 {% endblock %}
