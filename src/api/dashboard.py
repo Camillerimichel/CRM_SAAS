@@ -19483,8 +19483,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     )
     srri_chart = [{"srri": s.SRRI, "nb": s.nb} for s in srri_data]
 
-    # Utilise le service pour la liste des clients enrichie et calcule l'icône de risque (comme Affaires)
-    rows = get_clients(db)
     if group_filter_param:
         try:
             gid = int(group_filter_param)
@@ -19512,8 +19510,6 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
                     group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
         except Exception:
             group_filter_ids = set()
-    if group_filter_ids is not None:
-        rows = [r for r in rows if getattr(r, "id", None) in group_filter_ids]
 
     # Référentiel RH pour associer le commercial (responsable)
     rh_entries = fetch_rh_list(db)
@@ -19554,88 +19550,13 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             return "hands-praying" # identique → 🙏
         return "snowflake"         # inférieur → ❄️
 
-    # Helpers pour parsing des filtres numériques (valeurs et pourcentages)
-    def _num_token(raw: str | None) -> float | None:
-        if raw is None:
-            return None
-        s = str(raw).strip().lower().replace(" ", "").replace(",", ".")
-        m = func_re_num.match(s)  # type: ignore[name-defined]
-        if not m:
-            return None
-        n = float(m.group(1))
-        suf = m.group(2) or ""
-        if suf == "k":
-            n *= 1_000
-        elif suf == "m":
-            n *= 1_000_000
-        return n
-
     def _as_float(raw):
         try:
             return float(raw)
         except Exception:
             return None
 
-    func_re_num = re.compile(r"^([-+]?\d*\.?\d+)([km])?$")
-
-    def build_sql_range(expr: str | None, column):
-        """Parse a simple numeric expression into SQLAlchemy filters."""
-        if not expr:
-            return []
-        expr = expr.replace("%", "").strip()
-        # Range a-b
-        range_match = re.match(r"^\s*([^\-]+)\s*-\s*([^\-]+)\s*$", expr)
-        if range_match:
-            a = _num_token(range_match.group(1))
-            b = _num_token(range_match.group(2))
-            if a is not None and b is not None:
-                lo, hi = (a, b) if a <= b else (b, a)
-                return [column >= lo, column <= hi]
-        filters = []
-        for op, num, suf in re.findall(r"(<=|>=|==|=|!=|<|>)\s*([-+]?\d*[\.,]?\d+)\s*([km]?)", expr, flags=re.I):
-            n = _num_token(num + suf)
-            if n is None:
-                continue
-            if op == ">":
-                filters.append(column > n)
-            elif op == ">=":
-                filters.append(column >= n)
-            elif op == "<":
-                filters.append(column < n)
-            elif op == "<=":
-                filters.append(column <= n)
-            elif op in ("=", "=="):
-                filters.append(column == n)
-            elif op == "!=":
-                filters.append(column != n)
-        if filters:
-            return filters
-        single = _num_token(expr)
-        if single is not None:
-            return [column == single]
-        return []
-
-    # Params filtres
-    params = request.query_params
-    q_nom = params.get("nom", "").strip()
-    q_prenom = params.get("prenom", "").strip()
-    q_resp = params.get("resp_id", "").strip()
-    q_srri_calc = params.get("srri_calc", "").strip()
-    q_valo = params.get("valo", "").strip()
-    q_perf = params.get("perf", "").strip()
-    q_vol = params.get("vol", "").strip()
-    sort_by = (params.get("sort_by") or "").strip().lower()
-    sort_dir = (params.get("sort_dir") or "").strip().lower()
-    if sort_dir not in ("asc", "desc"):
-        sort_dir = "desc"
-    # Pagination côté serveur
-    page_size = 50
-    try:
-        page = int(params.get("page") or 1)
-    except Exception:
-        page = 1
-    if page < 1:
-        page = 1
+    # Tri/filtrage/pagination gérés en front (DataTables).
 
     def fmt_money(val):
         try:
@@ -19651,7 +19572,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             return ""
         return f"{n*100:.2f} %"
 
-    # Requête clients avec filtres SQL (limite/pagination)
+    # Requête clients (full list). Tri/filtrage/pagination UI gérés en front (DataTables).
     subquery = (
         db.query(
             HistoriquePersonne.id.label("client_id"),
@@ -19673,15 +19594,15 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             HistoriquePersonne.perf_sicav_52.label("perf_52_sem"),
             HistoriquePersonne.volat.label("volatilite"),
         )
-        .join(subquery, subquery.c.client_id == Client.id)
-        .join(
+        .outerjoin(subquery, subquery.c.client_id == Client.id)
+        .outerjoin(
             HistoriquePersonne,
-            (HistoriquePersonne.id == subquery.c.client_id)
+            (HistoriquePersonne.id == Client.id)
             & (HistoriquePersonne.date == subquery.c.last_date),
         )
     )
 
-    # Filtres SQL
+    # Filtres SQL (seulement contexte groupe/risque). Les filtres UI sont gérés en front.
     if group_filter_ids is not None:
         if group_filter_ids:
             base_query = base_query.filter(Client.id.in_(group_filter_ids))
@@ -19700,47 +19621,10 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         elif risk_filter == "below":
             # En-dessous du risque = SRRI historique inférieur au SRRI cible client
             base_query = base_query.filter(HistoriquePersonne.SRRI < Client.SRRI)
-    if q_nom:
-        base_query = base_query.filter(Client.nom.ilike(f"%{q_nom}%"))
-    if q_prenom:
-        base_query = base_query.filter(Client.prenom.ilike(f"%{q_prenom}%"))
-    if q_resp:
-        try:
-            resp_id = int(q_resp)
-            base_query = base_query.filter(Client.commercial_id == resp_id)
-        except Exception:
-            pass
-    if q_srri_calc:
-        try:
-            srri_val = int(q_srri_calc)
-            base_query = base_query.filter(HistoriquePersonne.SRRI == srri_val)
-        except Exception:
-            pass
-    for cond in build_sql_range(q_valo, HistoriquePersonne.valo):
-        base_query = base_query.filter(cond)
-    for cond in build_sql_range(q_perf, HistoriquePersonne.perf_sicav_52):
-        base_query = base_query.filter(cond)
-    for cond in build_sql_range(q_vol, HistoriquePersonne.volat):
-        base_query = base_query.filter(cond)
+    # (pas d'autres filtres serveur)
 
-    total_filtered = base_query.count()
-
-    sort_map = {
-        "nom": Client.nom,
-        "prenom": Client.prenom,
-        "responsable": Client.commercial_id,
-        "srri": HistoriquePersonne.SRRI,
-        "valo": HistoriquePersonne.valo,
-        "perf": HistoriquePersonne.perf_sicav_52,
-        "vol": HistoriquePersonne.volat,
-    }
-    sort_col = sort_map.get(sort_by) or HistoriquePersonne.valo
-    sort_expr = sort_col.asc() if sort_dir == "asc" else sort_col.desc()
-    # stable secondary sort
-    base_query = base_query.order_by(sort_expr, Client.nom.asc(), Client.prenom.asc(), Client.id.asc())
-    offset = (page - 1) * page_size
-    rows = base_query.offset(offset).limit(page_size).all()
-    total_pages = max(1, (total_filtered + page_size - 1) // page_size)
+    base_query = base_query.order_by(Client.nom.asc(), Client.prenom.asc(), Client.id.asc())
+    rows = base_query.all()
 
     clients = []
     for r in rows:
@@ -19772,6 +19656,135 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "responsable": responsable_label,
         })
 
+    # Offre financière retenue: on reprend la même source "simple" que la fiche client
+    # quand elle affiche une offre même sans KYC: mariadb_clients.allocation_id.
+    #
+    # Important: pas de filtrage côté back; on ne fait que renseigner la valeur affichée.
+    try:
+        client_ids = [int(c.get("id")) for c in clients if c.get("id") is not None]
+    except Exception:
+        client_ids = []
+    alloc_id_by_client: dict[int, int] = {}
+    alloc_name_by_id: dict[int, str] = {}
+    alloc_risque_name_by_id: dict[int, str] = {}
+    if client_ids:
+        try:
+            params_map0 = {f"cid{i}": int(cid) for i, cid in enumerate(client_ids)}
+            in_clause0 = ", ".join([f":cid{i}" for i in range(len(client_ids))])
+            rows_cli_alloc = db.execute(
+                text(
+                    f"""
+                    SELECT id, allocation_id
+                    FROM mariadb_clients
+                    WHERE id IN ({in_clause0})
+                    """
+                ),
+                params_map0,
+            ).fetchall()
+            alloc_ids: set[int] = set()
+            for r0 in rows_cli_alloc or []:
+                try:
+                    m0 = r0._mapping if hasattr(r0, "_mapping") else None
+                    cid0 = int(m0.get("id") if m0 else r0[0])
+                    aid0 = m0.get("allocation_id") if m0 else r0[1]
+                    if aid0 is None:
+                        continue
+                    aid0i = int(aid0)
+                    alloc_id_by_client[cid0] = aid0i
+                    alloc_ids.add(aid0i)
+                except Exception:
+                    continue
+
+            # 1) allocations.id -> allocations.nom (dernier snapshot par id)
+            if alloc_ids:
+                alloc_ids_sorted = sorted(alloc_ids)
+                params_a = {f"aid{i}": int(aid) for i, aid in enumerate(alloc_ids_sorted)}
+                in_a = ", ".join([f":aid{i}" for i in range(len(alloc_ids_sorted))])
+                rows_alloc_names = db.execute(
+                    text(
+                        f"""
+                        WITH last_alloc AS (
+                          SELECT id, MAX(date) AS max_date
+                          FROM allocations
+                          WHERE id IN ({in_a})
+                          GROUP BY id
+                        )
+                        SELECT a.id, a.nom
+                        FROM allocations a
+                        JOIN last_alloc la
+                          ON la.id = a.id AND la.max_date = a.date
+                        """
+                    ),
+                    params_a,
+                ).fetchall()
+                for ra in rows_alloc_names or []:
+                    try:
+                        ma = ra._mapping if hasattr(ra, "_mapping") else None
+                        aid = int(ma.get("id") if ma else ra[0])
+                        nm = (ma.get("nom") if ma else ra[1]) or ""
+                        nm = str(nm).strip()
+                        if nm:
+                            alloc_name_by_id[aid] = nm
+                    except Exception:
+                        continue
+
+                # 2) fallback: allocation_id peut être un allocation_risque.id -> allocation_risque.allocation_name
+                missing = sorted([aid for aid in alloc_ids_sorted if aid not in alloc_name_by_id])
+                if missing:
+                    params_m = {f"mid{i}": int(aid) for i, aid in enumerate(missing)}
+                    in_m = ", ".join([f":mid{i}" for i in range(len(missing))])
+                    rows_ar = db.execute(
+                        text(
+                            f"""
+                            SELECT id, allocation_name
+                            FROM allocation_risque
+                            WHERE id IN ({in_m})
+                            """
+                        ),
+                        params_m,
+                    ).fetchall()
+                    for rr in rows_ar or []:
+                        try:
+                            mm = rr._mapping if hasattr(rr, "_mapping") else None
+                            aid = int(mm.get("id") if mm else rr[0])
+                            nm = (mm.get("allocation_name") if mm else rr[1]) or ""
+                            nm = str(nm).strip()
+                            if nm:
+                                alloc_risque_name_by_id[aid] = nm
+                        except Exception:
+                            continue
+        except Exception:
+            alloc_id_by_client = {}
+            alloc_name_by_id = {}
+            alloc_risque_name_by_id = {}
+
+    for c in clients:
+        try:
+            cid = int(c.get("id"))
+        except Exception:
+            continue
+        aid = alloc_id_by_client.get(cid)
+        nm = None
+        if aid is not None:
+            nm = alloc_name_by_id.get(aid) or alloc_risque_name_by_id.get(aid)
+        c["allocation_nom"] = nm
+
+    # Options de filtre "Offre financière" (issues de la liste affichée, pas de SQL séparé)
+    allocation_options: list[str] = []
+    try:
+        seen = set()
+        for c in clients:
+            nm = (c.get("allocation_nom") or "").strip()
+            if not nm:
+                continue
+            if "offre" not in nm.lower():
+                continue
+            if nm not in seen:
+                seen.add(nm)
+        allocation_options = sorted(seen, key=lambda x: x.lower())
+    except Exception:
+        allocation_options = []
+
     # Options de filtrage SRRI calculé (srri_hist) à partir du jeu paginé
     srri_options = sorted({c["srri_hist"] for c in clients if c["srri_hist"] is not None})
 
@@ -19802,21 +19815,11 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "total_clients": total_clients,
-            "total_clients_filtered": total_filtered,
+            "total_clients_filtered": len(clients),
             "srri_chart": srri_chart,
             "clients": clients,
-            "page": page,
-            "total_pages": total_pages,
-            "filters": {
-                "nom": q_nom,
-                "prenom": q_prenom,
-                "resp_id": q_resp,
-                "srri_calc": q_srri_calc,
-                "valo": q_valo,
-                "perf": q_perf,
-                "vol": q_vol,
-            },
             "srri_options": srri_options,
+            "allocation_options": allocation_options,
             # Analyse financière supprimée pour accélérer le chargement
             "finance_supports": [],
             "finance_total_valo": 0,
