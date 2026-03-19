@@ -8168,15 +8168,41 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     except Exception:
         supports = []
 
+    admin_societes_gestion: list[dict] = []
+    try:
+        admin_societes_gestion = rows_to_dicts(
+            db.execute(
+                _text(
+                    """
+                    SELECT id, nom, nature, actif
+                    FROM mariadb_societe_gestion
+                    WHERE COALESCE(actif, 1) = 1
+                    ORDER BY nom
+                    """
+                )
+            ).fetchall()
+        )
+    except Exception:
+        admin_societes_gestion = []
+
     admin_rh: list[dict] = []
     try:
         admin_rh = rows_to_dicts(
             db.execute(
                 _text(
                     """
-                    SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire
-                    FROM administration_RH
-                    ORDER BY nom, prenom
+                    SELECT rh.id,
+                           rh.nom,
+                           rh.prenom,
+                           rh.telephone,
+                           rh.mail,
+                           rh.niveau_poste,
+                           rh.commentaire,
+                           rh.societe_gestion_id,
+                           sg.nom AS societe_gestion_nom
+                    FROM administration_RH rh
+                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                    ORDER BY rh.nom, rh.prenom
                     """
                 )
             ).fetchall()
@@ -9138,6 +9164,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
             "admin_intervenants": admin_intervenants,
             "groupes_details": groupes_details,
             "admin_rh": admin_rh,
+            "admin_societes_gestion": admin_societes_gestion,
             "portfolio_total_clients": total_clients,
             "portfolio_total_affaires": total_affaires,
             "portfolio_total_valo": total_valo,
@@ -12716,7 +12743,8 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "admin_types": [],
                 "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
-                "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
+                "admin_rh": rows_to_dicts(db.execute(_text("SELECT rh.id, rh.nom, rh.prenom, rh.telephone, rh.mail, rh.niveau_poste, rh.commentaire, rh.societe_gestion_id, sg.nom AS societe_gestion_nom FROM administration_RH rh LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id ORDER BY rh.nom, rh.prenom")).fetchall()) if db else [],
+                "admin_societes_gestion": rows_to_dicts(db.execute(_text("SELECT id, nom, nature, actif FROM mariadb_societe_gestion WHERE COALESCE(actif, 1) = 1 ORDER BY nom")).fetchall()) if db else [],
                 # Contexte courtier avec erreur
                 "courtier": None,
                 "form_courtier": params,
@@ -12796,7 +12824,8 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "admin_types": [],
                 "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
-                "admin_rh": rows_to_dicts(db.execute(_text("SELECT id, nom, prenom, telephone, mail, niveau_poste, commentaire FROM administration_RH ORDER BY nom, prenom")).fetchall()) if db else [],
+                "admin_rh": rows_to_dicts(db.execute(_text("SELECT rh.id, rh.nom, rh.prenom, rh.telephone, rh.mail, rh.niveau_poste, rh.commentaire, rh.societe_gestion_id, sg.nom AS societe_gestion_nom FROM administration_RH rh LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id ORDER BY rh.nom, rh.prenom")).fetchall()) if db else [],
+                "admin_societes_gestion": rows_to_dicts(db.execute(_text("SELECT id, nom, nature, actif FROM mariadb_societe_gestion WHERE COALESCE(actif, 1) = 1 ORDER BY nom")).fetchall()) if db else [],
                 "courtier": None,
                 "form_courtier": params,
                 "form_errors": errors,
@@ -12887,6 +12916,49 @@ def _group_error_redirect(message: str) -> RedirectResponse:
         url=f"/dashboard/parametres?open=administration_groupes&error=1&errmsg={quote(message)}",
         status_code=303,
     )
+
+
+_ADMIN_RH_ALLOWED_LEVELS = {
+    "dirigeant",
+    "directeur_commercial",
+    "responsable_service",
+    "commercial",
+    "back_office",
+}
+
+
+def _admin_rh_redirect(request: Request, *, error: str | None = None) -> RedirectResponse:
+    target_open = request.query_params.get("open") or "administration_rh"
+    url = f"/dashboard/parametres?open={target_open}"
+    if error:
+        url += f"&error=1&errmsg={quote(error)}"
+    else:
+        url += "&saved=1"
+    return RedirectResponse(url=url, status_code=303)
+
+
+def _normalize_admin_rh_level(value: str | None) -> str | None:
+    if value is None:
+        return None
+    level = str(value).strip()
+    if not level:
+        return None
+    if level not in _ADMIN_RH_ALLOWED_LEVELS:
+        return None
+    return level
+
+
+def _resolve_admin_rh_societe_id(db: Session, value: str | None) -> int | None:
+    societe_id = _as_int(value)
+    if societe_id is None:
+        return None
+    row = db.execute(
+        text("SELECT id FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
+        {"sid": societe_id},
+    ).fetchone()
+    if not row:
+        raise ValueError("Société de gestion invalide.")
+    return societe_id
 
 
 # ---- Group tasks (logs + run/simulate) ----
@@ -13232,6 +13304,171 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
         db.rollback()
         logger.error(f"delete_administration_group failed: {e}")
         return _group_error_redirect(f"Suppression impossible : {e}")
+
+
+# ---- Administration : Ressources humaines ----
+@router.post("/parametres/administration/rh", response_class=HTMLResponse)
+async def create_administration_rh(request: Request, db: Session = Depends(get_db)):
+    _, scope = _require_admin_or_write(request, db)
+    form = await request.form()
+    nom = (form.get("nom") or "").strip()
+    prenom = (form.get("prenom") or "").strip()
+    telephone = (form.get("telephone") or "").strip() or None
+    mail = (form.get("mail") or "").strip() or None
+    niveau_poste = _normalize_admin_rh_level(form.get("niveau_poste"))
+    commentaire = (form.get("commentaire") or "").strip() or None
+    societe_raw = form.get("societe_gestion_id")
+
+    if not nom:
+        return _admin_rh_redirect(request, error="Le nom est requis.")
+    if not prenom:
+        return _admin_rh_redirect(request, error="Le prénom est requis.")
+    if niveau_poste is None:
+        return _admin_rh_redirect(request, error="Le niveau de poste est obligatoire.")
+    try:
+        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw)
+    except ValueError as exc:
+        return _admin_rh_redirect(request, error=str(exc))
+    if societe_gestion_id is None and scope not in (None, "", 0):
+        societe_gestion_id = None
+
+    try:
+        row = db.execute(text("SELECT COALESCE(MAX(id), 0) AS max_id FROM administration_RH")).fetchone()
+        next_id = int((row._mapping.get("max_id") if hasattr(row, "_mapping") else row[0]) or 0) + 1
+        db.execute(
+            text(
+                """
+                INSERT INTO administration_RH (
+                    id, nom, prenom, telephone, mail, niveau_poste, commentaire, superadmin, societe_gestion_id
+                )
+                VALUES (
+                    :id, :nom, :prenom, :telephone, :mail, :niveau_poste, :commentaire, 0, :societe_gestion_id
+                )
+                """
+            ),
+            {
+                "id": next_id,
+                "nom": nom,
+                "prenom": prenom,
+                "telephone": telephone,
+                "mail": mail,
+                "niveau_poste": niveau_poste,
+                "commentaire": commentaire,
+                "societe_gestion_id": societe_gestion_id,
+            },
+        )
+        db.commit()
+        return _admin_rh_redirect(request)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"create_administration_rh failed: {e}")
+        return _admin_rh_redirect(request, error=f"Création impossible : {e}")
+
+
+@router.post("/parametres/administration/rh/{rh_id}", response_class=HTMLResponse)
+async def update_administration_rh(rh_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
+    form = await request.form()
+    nom = (form.get("nom") or "").strip()
+    prenom = (form.get("prenom") or "").strip()
+    telephone = (form.get("telephone") or "").strip() or None
+    mail = (form.get("mail") or "").strip() or None
+    niveau_poste = _normalize_admin_rh_level(form.get("niveau_poste"))
+    commentaire = (form.get("commentaire") or "").strip() or None
+    societe_raw = form.get("societe_gestion_id")
+
+    if not nom:
+        return _admin_rh_redirect(request, error="Le nom est requis.")
+    if not prenom:
+        return _admin_rh_redirect(request, error="Le prénom est requis.")
+    if niveau_poste is None:
+        return _admin_rh_redirect(request, error="Le niveau de poste est obligatoire.")
+    try:
+        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw)
+    except ValueError as exc:
+        return _admin_rh_redirect(request, error=str(exc))
+
+    try:
+        row = db.execute(
+            text("SELECT id FROM administration_RH WHERE id = :rid LIMIT 1"),
+            {"rid": rh_id},
+        ).fetchone()
+        if not row:
+            return _admin_rh_redirect(request, error="Profil RH introuvable.")
+        db.execute(
+            text(
+                """
+                UPDATE administration_RH
+                SET nom = :nom,
+                    prenom = :prenom,
+                    telephone = :telephone,
+                    mail = :mail,
+                    niveau_poste = :niveau_poste,
+                    commentaire = :commentaire,
+                    societe_gestion_id = :societe_gestion_id
+                WHERE id = :rid
+                """
+            ),
+            {
+                "rid": rh_id,
+                "nom": nom,
+                "prenom": prenom,
+                "telephone": telephone,
+                "mail": mail,
+                "niveau_poste": niveau_poste,
+                "commentaire": commentaire,
+                "societe_gestion_id": societe_gestion_id,
+            },
+        )
+        db.commit()
+        return _admin_rh_redirect(request)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update_administration_rh failed: {e}")
+        return _admin_rh_redirect(request, error=f"Mise à jour impossible : {e}")
+
+
+@router.post("/parametres/administration/rh/{rh_id}/delete", response_class=HTMLResponse)
+async def delete_administration_rh(rh_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
+    try:
+        row = db.execute(
+            text("SELECT id FROM administration_RH WHERE id = :rid LIMIT 1"),
+            {"rid": rh_id},
+        ).fetchone()
+        if not row:
+            return _admin_rh_redirect(request, error="Profil RH introuvable.")
+
+        auth_rows = db.execute(
+            text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid"),
+            {"rid": rh_id},
+        ).fetchall()
+        auth_user_ids = [
+            int(r._mapping.get("id") if hasattr(r, "_mapping") else r[0])
+            for r in (auth_rows or [])
+            if (r._mapping.get("id") if hasattr(r, "_mapping") else r[0]) is not None
+        ]
+        if auth_user_ids:
+            db.execute(
+                text("DELETE FROM auth_user_roles WHERE user_type = 'staff' AND user_id IN :uids").bindparams(
+                    bindparam("uids", expanding=True)
+                ),
+                {"uids": tuple(auth_user_ids)},
+            )
+            db.execute(
+                text("DELETE FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid"),
+                {"rid": rh_id},
+            )
+        db.execute(
+            text("DELETE FROM administration_RH WHERE id = :rid"),
+            {"rid": rh_id},
+        )
+        db.commit()
+        return _admin_rh_redirect(request)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"delete_administration_rh failed: {e}")
+        return _admin_rh_redirect(request, error=f"Suppression impossible : {e}")
 
 
 # ---- Contrats génériques ----

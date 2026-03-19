@@ -2598,11 +2598,12 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
           <table>
             <thead>
               <tr>
-                <th style="width: 16%;">Nom</th>
-                <th style="width: 16%;">Prénom</th>
-                <th style="width: 12%;">Téléphone</th>
-                <th style="width: 22%;">E-mail</th>
-                <th style="width: 14%;">Niveau de poste</th>
+                <th style="width: 12%;">Nom</th>
+                <th style="width: 12%;">Prénom</th>
+                <th style="width: 11%;">Téléphone</th>
+                <th style="width: 18%;">E-mail</th>
+                <th style="width: 15%;">Société de gestion</th>
+                <th style="width: 12%;">Niveau de poste</th>
                 <th style="width: 20%;">Commentaire</th>
                 <th class="center" style="width: 120px;">Actions</th>
               </tr>
@@ -2614,6 +2615,14 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
                 <td><input form="admin-rh-{{ p.id }}" type="text" name="prenom" value="{{ p.prenom }}" required /></td>
                 <td><input form="admin-rh-{{ p.id }}" type="tel" name="telephone" value="{{ p.telephone or '' }}" placeholder="Ex: +33 6 12 34 56 78" inputmode="tel" pattern="^[+0-9()\.\s-]{6,}$" /></td>
                 <td><input form="admin-rh-{{ p.id }}" type="email" name="mail" value="{{ p.mail or '' }}" placeholder="exemple@domaine.fr" inputmode="email" /></td>
+                <td>
+                  <select form="admin-rh-{{ p.id }}" name="societe_gestion_id">
+                    <option value="">—</option>
+                    {% for sg in admin_societes_gestion %}
+                      <option value="{{ sg.id }}" {% if p.societe_gestion_id is not none and (sg.id|int) == (p.societe_gestion_id|int) %}selected{% endif %}>{{ sg.nom }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
                 <td>
                   <select form="admin-rh-{{ p.id }}" name="niveau_poste" required>
                     {% set _np = (p.niveau_poste or '') %}
@@ -2640,7 +2649,7 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="7" class="muted center">Aucun profil RH enregistré.</td></tr>
+              <tr><td colspan="8" class="muted center">Aucun profil RH enregistré.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -2666,6 +2675,15 @@ Semaines {{ rem_page_start }} à {{ rem_page_end }} sur {{ rem_rows_count }}.
                   <div class="field" style="min-width:280px;">
                     <label>E-mail</label>
                     <input type="email" name="mail" placeholder="nom.prenom@domaine.fr" inputmode="email" />
+                  </div>
+                  <div class="field" style="min-width:240px;">
+                    <label>Société de gestion</label>
+                    <select name="societe_gestion_id">
+                      <option value="">—</option>
+                      {% for sg in admin_societes_gestion %}
+                        <option value="{{ sg.id }}">{{ sg.nom }}</option>
+                      {% endfor %}
+                    </select>
                   </div>
                   <div class="field">
                     <label>Niveau de poste</label>
