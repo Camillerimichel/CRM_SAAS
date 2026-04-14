@@ -72,6 +72,16 @@
   <a class="btn btn-secondary" href="#cron-jobs">Automatisation (cron)</a>
   <a class="btn btn-secondary" href="#suivi-logs">Suivi des traitements</a>
 </div>
+{% if saved_flag %}
+  <div class="card" style="margin-bottom:1rem; border:1px solid #bbf7d0; background:#f0fdf4; color:#166534;">
+    Opération enregistrée.
+  </div>
+{% endif %}
+{% if error_flag %}
+  <div class="card" style="margin-bottom:1rem; border:1px solid #fecaca; background:#fef2f2; color:#991b1b;">
+    {{ saved_error_msg or 'Une erreur est survenue.' }}
+  </div>
+{% endif %}
 {% if superadmin_user %}
 <div class="card" style="margin-bottom:1rem; border:1px solid #dbeafe; background:linear-gradient(135deg,#f8fbff 0%,#eef4ff 100%); box-shadow:0 10px 30px rgba(37,99,235,0.08);">
   <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
@@ -339,6 +349,59 @@
   <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
     <h3 style="margin:0; flex:1; text-align:center;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
   </div>
+  <div style="margin-bottom:12px; padding:12px; border:1px solid #e5e7eb; border-radius:12px; background:#f9fafb;">
+    <div style="font-weight:600; margin-bottom:10px;">Créer une société de gestion</div>
+    <form method="post" action="/dashboard/superadmin/societes-gestion#utilisateurs" style="display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Nom</span>
+        <input class="form-control" type="text" name="nom" required>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Nature</span>
+        <input class="form-control" type="text" name="nature" value="courtier">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Niveau</span>
+        <select class="form-control" name="organisation_level">
+          {% for level in organisation_level_choices %}
+            <option value="{{ level.value }}">{{ level.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Parent</span>
+        <select class="form-control" name="parent_societe_id">
+          <option value="">Aucun</option>
+          {% for sg in societe_management_choices %}
+            <option value="{{ sg.id }}">{{ sg.nom }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Contact</span>
+        <input class="form-control" type="text" name="contact">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Téléphone</span>
+        <input class="form-control" type="text" name="telephone">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Courriel</span>
+        <input class="form-control" type="email" name="email">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; grid-column:1 / -1;">
+        <span>Adresse</span>
+        <textarea class="form-control" name="adresse" rows="2"></textarea>
+      </label>
+      <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="actif" value="1" checked>
+        <span>Actif</span>
+      </label>
+      <div style="display:flex; align-items:end;">
+        <button type="submit" class="btn btn-primary">Créer</button>
+      </div>
+    </form>
+  </div>
   <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
     <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
@@ -352,19 +415,30 @@
         <thead>
           <tr style="text-align:left; border-bottom:1px solid var(--border);">
             <th style="padding:6px 4px;">Nom</th>
+            <th style="padding:6px 4px;">Niveau</th>
+            <th style="padding:6px 4px;">Parent</th>
             <th style="padding:6px 4px;">Contact</th>
             <th style="padding:6px 4px;">Téléphone</th>
             <th style="padding:6px 4px;">Courriel</th>
+            <th style="padding:6px 4px; text-align:center;">Clients</th>
+            <th style="padding:6px 4px; text-align:center;">Affaires</th>
             <th style="padding:6px 4px; text-align:center;">Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for s in societes_gestion %}
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:6px 4px;">{{ s.nom }}</td>
+            <td style="padding:6px 4px;">
+              <div style="font-weight:600;">{{ s.nom }}</div>
+              <div class="muted" style="font-size:0.85rem;">{{ s.nature or '—' }}</div>
+            </td>
+            <td style="padding:6px 4px;">{{ organisation_level_labels.get(s.organisation_level, s.organisation_level or '—') }}</td>
+            <td style="padding:6px 4px;">{{ s.parent_societe_nom or '—' }}</td>
             <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
             <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
             <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
+            <td style="padding:6px 4px; text-align:center;">{{ s.clients_actifs if s.clients_actifs is not none else 0 }}</td>
+            <td style="padding:6px 4px; text-align:center;">{{ s.affaires_actives if s.affaires_actives is not none else 0 }}</td>
             <td style="padding:6px 4px; text-align:center;">
               <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
                 <i class="fa-regular fa-pen-to-square"></i>
@@ -480,12 +554,13 @@
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
       <div>
         <h3 style="margin:0;">{{ selected_societe.nom }}</h3>
-        <p class="muted" style="margin:4px 0 0 0;">{{ selected_societe.nature|capitalize if selected_societe.nature else '—' }}</p>
+        <p class="muted" style="margin:4px 0 0 0;">{{ selected_societe.nature|capitalize if selected_societe.nature else '—' }} • {{ organisation_level_labels.get(selected_societe.organisation_level, selected_societe.organisation_level or '—') }}</p>
       </div>
       <a class="btn btn-secondary" href="/dashboard/superadmin">Fermer</a>
     </div>
     <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:14px;">
       {% set soc_info = [
+        ('Parent', selected_societe.parent_societe_nom or '—'),
         ('Contact', selected_societe.contact or '—'),
         ('Téléphone', selected_societe.telephone or '—'),
         ('Courriel', selected_societe.email or '—'),
@@ -500,6 +575,61 @@
         </div>
       {% endfor %}
     </div>
+    <form method="post" action="/dashboard/superadmin/societes-gestion/{{ selected_societe.id }}#utilisateurs" style="margin-top:14px; display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Nom</span>
+        <input class="form-control" type="text" name="nom" value="{{ selected_societe.nom or '' }}" required>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Nature</span>
+        <input class="form-control" type="text" name="nature" value="{{ selected_societe.nature or '' }}">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Niveau</span>
+        <select class="form-control" name="organisation_level">
+          {% for level in organisation_level_choices %}
+            <option value="{{ level.value }}" {% if level.value == selected_societe.organisation_level %}selected{% endif %}>{{ level.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Parent</span>
+        <select class="form-control" name="parent_societe_id">
+          <option value="">Aucun</option>
+          {% for sg in societe_management_choices %}
+            {% if (sg.id|int) != (selected_societe.id|int) and (sg.id|int) not in selected_societe_descendants %}
+              <option value="{{ sg.id }}" {% if selected_societe.parent_societe_id is not none and (sg.id|int) == (selected_societe.parent_societe_id|int) %}selected{% endif %}>{{ sg.nom }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Contact</span>
+        <input class="form-control" type="text" name="contact" value="{{ selected_societe.contact or '' }}">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Téléphone</span>
+        <input class="form-control" type="text" name="telephone" value="{{ selected_societe.telephone or '' }}">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span>Courriel</span>
+        <input class="form-control" type="email" name="email" value="{{ selected_societe.email or '' }}">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; grid-column:1 / -1;">
+        <span>Adresse</span>
+        <textarea class="form-control" name="adresse" rows="2">{{ selected_societe.adresse or '' }}</textarea>
+      </label>
+      <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="actif" value="1" {% if selected_societe.actif is none or selected_societe.actif %}checked{% endif %}>
+        <span>Actif</span>
+      </label>
+      <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+    <form method="post" action="/dashboard/superadmin/societes-gestion/{{ selected_societe.id }}/delete#utilisateurs" style="margin-top:10px;" onsubmit="return confirm('Supprimer cette société de gestion ?');">
+      <button type="submit" class="btn btn-secondary" style="background:#fee2e2; color:#991b1b;">Supprimer la société</button>
+    </form>
   </div>
 
   <div class="card" style="margin-bottom:1rem;">
