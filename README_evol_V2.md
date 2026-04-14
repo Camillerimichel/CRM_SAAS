@@ -198,3 +198,94 @@ Les prochaines etapes de travail sont :
 3. refondre le calcul du scope de visibilite
 4. adapter les dashboards et KPI
 5. ajouter les tests de droits et de consolidation
+
+## Etat de livraison V2
+
+La V2 a maintenant un premier socle fonctionnel livre dans le depot.
+
+### Ce qui est en place
+
+- migration de schema pour ajouter `organisation_level` et `parent_societe_id`
+- table de fermeture `mariadb_societe_hierarchy`
+- modeles SQLAlchemy alignes sur la hierarchie
+- extension du RBAC pour gerer les descendants
+- filtre ORM multi-societes a partir d'un scope descendant
+- middleware enrichi avec le niveau organisationnel courant
+- administration de la hierarchie depuis `superadmin`
+- vues d'accueil adaptees au niveau actif
+- listes `clients` et `affaires` enrichies avec la `societe source` en vue reseau
+- page dediee de `pilotage reseau`
+- drill-down depuis le pilotage vers les listes filtrees
+
+### Ecrans V2 deja adaptes
+
+- `superadmin`
+- `dashboard` / accueil
+- `clients`
+- `affaires`
+- `taches`
+- `parametres`
+
+### Logique metier actuellement livree
+
+- `co_courtier`
+  - vue portefeuille et operationnelle
+- `master_courtier`
+  - vue reseau avec detail et societe source
+- `delegation_regionale`
+  - vue pilotage allegee + page dediee de pilotage reseau
+- `superadministrateur`
+  - role global transverse
+
+### Fichiers structurants de la V2
+
+- `migrations/20260414_societe_hierarchy_v2.sql`
+- `src/models/societe_gestion.py`
+- `src/models/societe_hierarchy.py`
+- `src/security/rbac.py`
+- `src/api/utils/societe_context.py`
+- `src/api/main.py`
+- `src/api/dashboard.py`
+- `src/api/templates/dashboard_superadmin.html`
+- `src/api/templates/dashboard.html`
+- `src/api/templates/dashboard_clients.html`
+- `src/api/templates/dashboard_affaires.html`
+- `src/api/templates/dashboard_pilotage.html`
+
+## Validation realisee
+
+### Verification technique effectuee ici
+
+- compilation Python via `python3 -m py_compile` sur les fichiers modifies
+- verification des diffs et des commits intermediaires
+- test unitaire cible sur le scope V2 dans `tests/test_rbac_v2_scope.py`
+
+### Limites de validation dans cet environnement
+
+- `pytest` n'est pas disponible dans l'environnement shell utilise ici
+- l'application complete n'a pas ete lancee avec sa base et ses dependances runtime
+- les parcours navigateur n'ont pas ete verifies en execution reelle ici
+
+## Reste a faire
+
+Les points suivants restent a traiter pour une cloture V2 plus complete :
+
+- ajouter une campagne de tests d'integration et de non regression
+- verifier tous les ecrans secondaires qui reposent encore sur des requetes SQL directes
+- enrichir la page `pilotage reseau` avec des comparatifs temporels si besoin
+- eventuellement restreindre encore davantage le niveau `delegation_regionale` au detail client selon arbitrage metier
+- documenter les scenarios de migration / backfill en environnement de recette et production
+
+## Conclusion
+
+La V2 n'est plus seulement cadree : elle dispose maintenant d'un socle livre, navigable et pousse sur le depot.
+
+Le produit supporte deja :
+
+- une hierarchie metier explicite
+- des droits descendants
+- une administration de la hierarchie
+- des vues adaptees par niveau
+- un pilotage reseau avec descente vers le detail
+
+La suite releve maintenant surtout de la stabilisation, de la recette et des arbitrages metier de finition.
