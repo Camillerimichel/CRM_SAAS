@@ -58,6 +58,46 @@
     font-weight: 700;
     font-size: 0.9rem;
   }
+  .org-summary-grid {
+    max-width: 1100px;
+    margin: 0 auto 14px auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .org-summary-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  }
+  .org-summary-label {
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .org-summary-value {
+    margin-top: 6px;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .org-summary-note {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+  body[data-org-level="delegation_regionale"] #groupsToggle,
+  body[data-org-level="delegation_regionale"] #groupsSection,
+  body[data-org-level="delegation_regionale"] #clienteleToggle,
+  body[data-org-level="delegation_regionale"] #clienteleSection,
+  body[data-org-level="delegation_regionale"] #contractsToggle,
+  body[data-org-level="delegation_regionale"] #contractsSection {
+    display: none !important;
+  }
   /* Rapprocher la zone de travail du bandeau d'onglets */
   .container { margin-top: 0; padding-top: 0; }
   #dashboardLoadingOverlay {
@@ -326,6 +366,31 @@
   <div class="org-banner-kpis">
     <div class="org-banner-pill"><i class="fa-solid fa-diagram-project"></i> {{ 'Vue réseau' if dashboard_org_ui.is_network_view else 'Vue portefeuille' }}</div>
     <div class="org-banner-pill"><i class="fa-solid fa-chart-column"></i> {{ 'Pilotage KPI' if dashboard_org_ui.is_kpi_view else 'Suivi clients et affaires' }}</div>
+  </div>
+</div>
+{% set summary_client_label = 'Clients consolidés' if dashboard_org_ui.is_network_view else 'Clients actifs' %}
+{% set summary_affaire_label = 'Affaires consolidées' if dashboard_org_ui.is_network_view else 'Affaires actives' %}
+{% set summary_reclam_label = 'Réclamations réseau' if dashboard_org_ui.is_network_view else 'Réclamations' %}
+<div class="org-summary-grid">
+  <div class="org-summary-card">
+    <div class="org-summary-label">{{ summary_client_label }}</div>
+    <div class="org-summary-value">{{ total_clients or 0 }}</div>
+    <div class="org-summary-note">{{ dashboard_org_ui.scope_label }}</div>
+  </div>
+  <div class="org-summary-card">
+    <div class="org-summary-label">{{ summary_affaire_label }}</div>
+    <div class="org-summary-value">{{ total_affaires or 0 }}</div>
+    <div class="org-summary-note">Portefeuille visible</div>
+  </div>
+  <div class="org-summary-card">
+    <div class="org-summary-label">Valorisation</div>
+    <div class="org-summary-value">{{ '{:,.0f}'.format(total_valo or 0).replace(',', ' ') }} €</div>
+    <div class="org-summary-note">{{ 'KPI consolidé' if dashboard_org_ui.is_network_view else 'Vue opérationnelle' }}</div>
+  </div>
+  <div class="org-summary-card">
+    <div class="org-summary-label">{{ summary_reclam_label }}</div>
+    <div class="org-summary-value">{{ reclam_stats.total if reclam_stats and reclam_stats.total is not none else 0 }}</div>
+    <div class="org-summary-note">{{ 'Suivi régional' if dashboard_org_ui.is_kpi_view else 'Suivi courant' }}</div>
   </div>
 </div>
 {% endif %}
