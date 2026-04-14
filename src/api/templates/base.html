@@ -564,6 +564,7 @@
 	            {% set _is_directeur = _role_hint == 'directeur_commercial' %}
 	            {% set _is_responsable_bo = _role_hint in ['responsable_service', 'responsable_back_office'] %}
 	            {% set _is_commercial = _role_hint == 'commercial' %}
+              {% set _is_network_view = request.state.societe_gestion_level in ['master_courtier', 'delegation_regionale'] %}
 	            {% if _is_affaire_detail_page %}
 	            <div id="sidebarNavAffaire" data-menu="affaire">
 	              <div class="sidebar-section-title">Affaire</div>
@@ -859,6 +860,9 @@
                 <a href="/dashboard/clients" class="{% if path.startswith('/dashboard/clients') %}active{% endif %}"><i class="fa-solid fa-users"></i>Clients</a>
                 <a href="/dashboard/affaires" class="{% if path.startswith('/dashboard/affaires') %}active{% endif %}"><i class="fa-solid fa-briefcase"></i>Affaires</a>
                 <a href="/dashboard/groupes" class="{% if path.startswith('/dashboard/groupes') %}active{% endif %}"><i class="fa-solid fa-layer-group"></i>Groupes</a>
+                {% if _is_network_view %}
+                <a href="/dashboard/pilotage" class="{% if path.startswith('/dashboard/pilotage') %}active{% endif %}"><i class="fa-solid fa-chart-line"></i>Pilotage réseau</a>
+                {% endif %}
               </div>
               {% endif %}
               {% if not _is_client %}
