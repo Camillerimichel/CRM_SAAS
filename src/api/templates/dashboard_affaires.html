@@ -225,6 +225,12 @@
           <a class="x" href="/dashboard/affaires">×</a>
         </div>
       {% endif %}
+      {% if source_societe_label %}
+        <div class="badge-filter">
+          Société source : {{ source_societe_label }}
+          <a class="x" href="/dashboard/affaires">×</a>
+        </div>
+      {% endif %}
     </div>
 
     <!-- Accordéon: Risque rapide -->
