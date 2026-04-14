@@ -20211,6 +20211,9 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
     group_filter_param = request.query_params.get("group_id")
     group_filter_ids: set[int] | None = None
     group_filter_label: str | None = None
+    source_societe_param = request.query_params.get("societe_source_id")
+    source_societe_id: int | None = None
+    source_societe_label: str | None = None
     risk_filter = (request.query_params.get("risk") or "").lower().strip()
 
     # Données SRRI pour le graphique
@@ -20248,6 +20251,18 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
                     group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
         except Exception:
             group_filter_ids = set()
+    if source_societe_param not in (None, ""):
+        try:
+            source_societe_id = int(source_societe_param)
+            row_src = db.execute(
+                text("SELECT nom FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
+                {"sid": source_societe_id},
+            ).fetchone()
+            if row_src:
+                source_societe_label = row_src._mapping.get("nom") if hasattr(row_src, "_mapping") else row_src[0]
+        except Exception:
+            source_societe_id = None
+            source_societe_label = None
 
     # Référentiel RH pour associer le commercial (responsable)
     rh_entries = fetch_rh_list(db)
@@ -20359,6 +20374,26 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         elif risk_filter == "below":
             # En-dessous du risque = SRRI historique inférieur au SRRI cible client
             base_query = base_query.filter(HistoriquePersonne.SRRI < Client.SRRI)
+    if source_societe_id is not None:
+        try:
+            src_rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT client_id
+                    FROM mariadb_client_societe
+                    WHERE societe_id = :sid
+                      AND date_fin IS NULL
+                    """
+                ),
+                {"sid": source_societe_id},
+            ).fetchall()
+            src_ids = [int(r[0]) for r in src_rows if r and r[0] is not None]
+            if src_ids:
+                base_query = base_query.filter(Client.id.in_(src_ids))
+            else:
+                base_query = base_query.filter(text("0=1"))
+        except Exception:
+            base_query = base_query.filter(text("0=1"))
     # (pas d'autres filtres serveur)
 
     base_query = base_query.order_by(Client.nom.asc(), Client.prenom.asc(), Client.id.asc())
@@ -20582,6 +20617,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "tb_markers_visible": tb_markers_visible,
             "tb_markers_param": "markers=1" if tb_markers_visible else "",
             "group_filter_label": group_filter_label if group_filter_ids is not None else None,
+            "source_societe_label": source_societe_label,
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
@@ -20609,6 +20645,9 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
     group_filter_param = request.query_params.get("group_id")
     group_filter_label: str | None = None
+    source_societe_param = request.query_params.get("societe_source_id")
+    source_societe_id: int | None = None
+    source_societe_label: str | None = None
     risk_filter = (request.query_params.get("risk") or "").lower().strip()
     client_filter = (request.query_params.get("client") or "").strip()
     client_id_param = (request.query_params.get("client_id") or "").strip()
@@ -20705,6 +20744,18 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
                     group_filter_label = meta_map.get("nom") or f"Groupe #{gid}"
         except Exception:
             filter_ids = set()
+    if source_societe_param not in (None, ""):
+        try:
+            source_societe_id = int(source_societe_param)
+            row_src = db.execute(
+                text("SELECT nom FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
+                {"sid": source_societe_id},
+            ).fetchone()
+            if row_src:
+                source_societe_label = row_src._mapping.get("nom") if hasattr(row_src, "_mapping") else row_src[0]
+        except Exception:
+            source_societe_id = None
+            source_societe_label = None
 
     if filter_ids is not None:
         if filter_ids:
@@ -20724,6 +20775,26 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
         elif risk_filter == "below":
             # En-dessous = SRRI déclaré inférieur au SRRI calculé
             affaires_query = affaires_query.filter(Affaire.SRRI < srri_calc_expr)
+    if source_societe_id is not None:
+        try:
+            src_rows = db.execute(
+                text(
+                    """
+                    SELECT DISTINCT affaire_id
+                    FROM mariadb_affaire_societe
+                    WHERE societe_id = :sid
+                      AND date_fin IS NULL
+                    """
+                ),
+                {"sid": source_societe_id},
+            ).fetchall()
+            src_ids = [int(r[0]) for r in src_rows if r and r[0] is not None]
+            if src_ids:
+                affaires_query = affaires_query.filter(Affaire.id.in_(src_ids))
+            else:
+                affaires_query = affaires_query.filter(text("0=1"))
+        except Exception:
+            affaires_query = affaires_query.filter(text("0=1"))
 
     if client_id_param:
         try:
@@ -20966,6 +21037,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "affaires": affaires,
             "srri_compare_counts": compare_counts,
             "group_filter_label": group_filter_label,
+            "source_societe_label": source_societe_label,
             "client_filter": client_filter,
             "filters": {
                 "risk": risk_filter,

@@ -76,6 +76,25 @@
   .pilotage-table td:last-child {
     text-align: right;
   }
+  .pilotage-actions {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .pilotage-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    text-decoration: none;
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
 </style>
 
 <div class="pilotage-hero">
@@ -119,6 +138,7 @@
             <th>Clients</th>
             <th>Affaires</th>
             <th>Utilisateurs</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -129,6 +149,12 @@
               <td>{{ row.clients_total or 0 }}</td>
               <td>{{ row.affaires_total or 0 }}</td>
               <td>{{ row.users_total or 0 }}</td>
+              <td>
+                <div class="pilotage-actions">
+                  <a class="pilotage-link" href="/dashboard/clients?societe_source_id={{ row.id }}">Clients</a>
+                  <a class="pilotage-link" href="/dashboard/affaires?societe_source_id={{ row.id }}">Affaires</a>
+                </div>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
