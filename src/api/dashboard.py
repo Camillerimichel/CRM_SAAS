@@ -88,6 +88,11 @@ logger = logging.getLogger("uvicorn.error")
 
 _HIST_AFFAIRE_ID_COL: str | None = None
 _SUIVI_EVENT_VIEW_ID_COL: str | None = None
+_ORG_LEVEL_LABELS = {
+    "co_courtier": "Co-courtier",
+    "master_courtier": "Master courtier",
+    "delegation_regionale": "Délégation régionale",
+}
 
 
 def _scope_ids_for_access(access, root_societe_id: int | None = None) -> tuple[int, ...]:
@@ -143,6 +148,135 @@ def _load_admin_societes_gestion(db: Session, scope_ids: tuple[int, ...] = tuple
         return rows_to_dicts(rows)
     except Exception:
         return []
+
+
+def _organisation_level_choices() -> list[dict]:
+    return [{"value": key, "label": label} for key, label in _ORG_LEVEL_LABELS.items()]
+
+
+def _normalize_organisation_level(raw_value: Any) -> str:
+    value = (str(raw_value or "")).strip().lower()
+    if value in _ORG_LEVEL_LABELS:
+        return value
+    return "co_courtier"
+
+
+def _validate_societe_gestion_parent(
+    db: Session,
+    *,
+    parent_societe_id: int | None,
+    access_scope_ids: tuple[int, ...],
+    societe_id: int | None = None,
+) -> int | None:
+    if parent_societe_id in (None, 0):
+        return None
+    if access_scope_ids and int(parent_societe_id) not in set(access_scope_ids):
+        raise HTTPException(status_code=400, detail="Société parente hors périmètre autorisé")
+    if societe_id is not None and int(parent_societe_id) == int(societe_id):
+        raise HTTPException(status_code=400, detail="Une société ne peut pas être son propre parent")
+    row = db.execute(
+        text("SELECT id FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
+        {"sid": int(parent_societe_id)},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Société parente introuvable")
+    if societe_id is not None:
+        descendants = set(_descendant_societe_ids(db, societe_id))
+        if int(parent_societe_id) in descendants:
+            raise HTTPException(status_code=400, detail="La société parente créerait une boucle hiérarchique")
+    return int(parent_societe_id)
+
+
+def _rebuild_societe_hierarchy(db: Session) -> None:
+    rows = db.execute(
+        text(
+            """
+            SELECT id, parent_societe_id
+            FROM mariadb_societe_gestion
+            ORDER BY id
+            """
+        )
+    ).fetchall()
+    parent_map: dict[int, int | None] = {}
+    known_ids: set[int] = set()
+    for row in rows or []:
+        m = row._mapping if hasattr(row, "_mapping") else None
+        sid = int(m.get("id") if m else row[0])
+        parent_id = m.get("parent_societe_id") if m else (row[1] if len(row) > 1 else None)
+        parent_map[sid] = int(parent_id) if parent_id is not None else None
+        known_ids.add(sid)
+
+    closure_rows: list[dict[str, int]] = []
+    for sid in sorted(known_ids):
+        closure_rows.append(
+            {
+                "ancestor_societe_id": sid,
+                "descendant_societe_id": sid,
+                "depth": 0,
+            }
+        )
+        seen = {sid}
+        current = parent_map.get(sid)
+        depth = 1
+        while current is not None and current in known_ids and current not in seen:
+            closure_rows.append(
+                {
+                    "ancestor_societe_id": current,
+                    "descendant_societe_id": sid,
+                    "depth": depth,
+                }
+            )
+            seen.add(current)
+            current = parent_map.get(current)
+            depth += 1
+
+    db.execute(text("DELETE FROM mariadb_societe_hierarchy"))
+    if closure_rows:
+        db.execute(
+            text(
+                """
+                INSERT INTO mariadb_societe_hierarchy (
+                    ancestor_societe_id,
+                    descendant_societe_id,
+                    depth
+                ) VALUES (
+                    :ancestor_societe_id,
+                    :descendant_societe_id,
+                    :depth
+                )
+                """
+            ),
+            closure_rows,
+        )
+
+
+def _superadmin_redirect(
+    *,
+    request: Request,
+    anchor: str = "utilisateurs",
+    saved: bool = False,
+    error: str | None = None,
+    extra_params: dict[str, Any] | None = None,
+) -> RedirectResponse:
+    params: dict[str, Any] = {}
+    for key in ("societe_id", "user_id", "q", "page", "uq", "upage", "cq", "cpage", "client_id", "client_account_id"):
+        value = request.query_params.get(key)
+        if value not in (None, ""):
+            params[key] = value
+    if extra_params:
+        for key, value in extra_params.items():
+            if value not in (None, ""):
+                params[key] = value
+    if saved:
+        params["saved"] = 1
+    if error:
+        params["error"] = 1
+        params["errmsg"] = error
+    qs = urlencode(params, doseq=True)
+    url = "/dashboard/superadmin"
+    if qs:
+        url = f"{url}?{qs}"
+    return RedirectResponse(url=f"{url}#{anchor}", status_code=303)
 
 
 def _load_admin_rh_list(db: Session, scope_ids: tuple[int, ...] = tuple()) -> list[dict]:
@@ -23522,6 +23656,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.nature,
                         sg.organisation_level,
                         sg.parent_societe_id,
+                        parent.nom AS parent_societe_nom,
                         sg.contact,
                         sg.telephone,
                         sg.email,
@@ -23550,6 +23685,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             AND afs.date_fin IS NULL
                         ) AS affaires_actives
                     FROM mariadb_societe_gestion sg
+                    LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
                     WHERE sg.id IN :scope_ids
                       AND (:q IS NULL OR sg.nom LIKE :pat)
                     ORDER BY sg.nom
@@ -23579,6 +23715,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.nature,
                         sg.organisation_level,
                         sg.parent_societe_id,
+                        parent.nom AS parent_societe_nom,
                         sg.contact,
                         sg.telephone,
                         sg.email,
@@ -23607,6 +23744,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             AND afs.date_fin IS NULL
                         ) AS affaires_actives
                     FROM mariadb_societe_gestion sg
+                    LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
                     WHERE (:q IS NULL OR sg.nom LIKE :pat)
                     ORDER BY sg.nom
                     LIMIT :lim OFFSET :off
@@ -23628,6 +23766,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         societes_gestion = []
         total_societes = 0
     selected_societe = None
+    selected_societe_descendants: tuple[int, ...] = tuple()
     if selected_societe_id is not None:
         for sg in societes_gestion:
             try:
@@ -23648,6 +23787,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             sg.nature,
                             sg.organisation_level,
                             sg.parent_societe_id,
+                            parent.nom AS parent_societe_nom,
                             sg.contact,
                             sg.telephone,
                             sg.email,
@@ -23676,6 +23816,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                                 AND afs.date_fin IS NULL
                             ) AS affaires_actives
                         FROM mariadb_societe_gestion sg
+                        LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
                         WHERE sg.id = :sid
                         LIMIT 1
                         """
@@ -23686,6 +23827,8 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     selected_societe = dict(row_sel._mapping) if hasattr(row_sel, "_mapping") else dict(row_sel)
             except Exception:
                 selected_societe = None
+        if selected_societe is not None:
+            selected_societe_descendants = _descendant_societe_ids(db, selected_societe_id)
 
     # Gestion des utilisateurs (filtrage/pagination)
     utilisateurs_societes: list[dict] = []
@@ -24095,6 +24238,9 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     # Mot de passe initial renvoyé via querystring après création de compte
     tmp_pwd = request.query_params.get("tmp_pwd")
     tmp_action = request.query_params.get("tmp_action")
+    saved_flag = request.query_params.get("saved")
+    error_flag = request.query_params.get("error")
+    saved_error_msg = request.query_params.get("errmsg") or None
 
     # Logs de suivi (outils de gestion base)
     logs_suivi: list[dict] = []
@@ -24198,6 +24344,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     user_page_count = math.ceil(total_users / user_per_page) if user_per_page else 1
     client_page_count = math.ceil(total_client_accounts / client_per_page) if client_per_page else 1
     log_page_count = math.ceil(total_logs / log_per_page) if log_per_page else 1
+    societe_management_choices = _load_admin_societes_gestion(db, access_scope_ids)
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -24216,11 +24363,18 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "default_scope": default_scope,
             "tmp_pwd": tmp_pwd,
             "tmp_action": tmp_action,
+            "saved_flag": saved_flag,
+            "error_flag": error_flag,
+            "saved_error_msg": saved_error_msg,
             "search_term": search_term,
             "page": page,
             "page_count": page_count,
             "total_societes": total_societes,
             "per_page": per_page,
+            "organisation_level_choices": _organisation_level_choices(),
+            "organisation_level_labels": _ORG_LEVEL_LABELS,
+            "societe_management_choices": societe_management_choices,
+            "selected_societe_descendants": selected_societe_descendants,
             "user_search_term": user_search_term,
             "user_page": user_page,
             "user_page_count": user_page_count,
@@ -24262,6 +24416,201 @@ def _require_superadmin_access(request: Request, db: Session):
     require_permission(access, "administration", "access", societe_id=current_scope)
     require_permission(access, "logs", "view", societe_id=current_scope)
     return access, current_scope
+
+
+@router.post("/superadmin/societes-gestion", response_class=RedirectResponse)
+def dashboard_superadmin_create_societe_gestion(
+    request: Request,
+    nom: str = Form(""),
+    nature: str = Form("courtier"),
+    organisation_level: str = Form("co_courtier"),
+    parent_societe_id: str | None = Form(None),
+    contact: str | None = Form(None),
+    telephone: str | None = Form(None),
+    email: str | None = Form(None),
+    adresse: str | None = Form(None),
+    actif: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        access, current_scope = _require_superadmin_access(request, db)
+        access_scope_ids = _scope_ids_for_access(access, current_scope)
+        nom = (nom or "").strip()
+        nature = (nature or "courtier").strip() or "courtier"
+        if not nom:
+            return _superadmin_redirect(request=request, error="Le nom de la société est obligatoire")
+        normalized_level = _normalize_organisation_level(organisation_level)
+        parent_id = _validate_societe_gestion_parent(
+            db,
+            parent_societe_id=_as_int(parent_societe_id),
+            access_scope_ids=access_scope_ids,
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO mariadb_societe_gestion (
+                    nom,
+                    nature,
+                    organisation_level,
+                    parent_societe_id,
+                    contact,
+                    telephone,
+                    email,
+                    adresse,
+                    actif
+                ) VALUES (
+                    :nom,
+                    :nature,
+                    :organisation_level,
+                    :parent_societe_id,
+                    :contact,
+                    :telephone,
+                    :email,
+                    :adresse,
+                    :actif
+                )
+                """
+            ),
+            {
+                "nom": nom,
+                "nature": nature,
+                "organisation_level": normalized_level,
+                "parent_societe_id": parent_id,
+                "contact": (contact or "").strip() or None,
+                "telephone": (telephone or "").strip() or None,
+                "email": (email or "").strip() or None,
+                "adresse": (adresse or "").strip() or None,
+                "actif": _as_flag(actif, 1),
+            },
+        )
+        _rebuild_societe_hierarchy(db)
+        db.commit()
+        return _superadmin_redirect(request=request, saved=True)
+    except HTTPException as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc.detail))
+    except Exception as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc))
+
+
+@router.post("/superadmin/societes-gestion/{societe_id}", response_class=RedirectResponse)
+def dashboard_superadmin_update_societe_gestion(
+    societe_id: int,
+    request: Request,
+    nom: str = Form(""),
+    nature: str = Form("courtier"),
+    organisation_level: str = Form("co_courtier"),
+    parent_societe_id: str | None = Form(None),
+    contact: str | None = Form(None),
+    telephone: str | None = Form(None),
+    email: str | None = Form(None),
+    adresse: str | None = Form(None),
+    actif: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        access, current_scope = _require_superadmin_access(request, db)
+        access_scope_ids = _scope_ids_for_access(access, current_scope)
+        if access_scope_ids and societe_id not in set(access_scope_ids):
+            raise HTTPException(status_code=403, detail="Société hors périmètre autorisé")
+        row = db.execute(
+            text("SELECT id FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
+            {"sid": societe_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Société introuvable")
+        nom = (nom or "").strip()
+        nature = (nature or "courtier").strip() or "courtier"
+        if not nom:
+            return _superadmin_redirect(
+                request=request,
+                error="Le nom de la société est obligatoire",
+                extra_params={"societe_id": societe_id},
+            )
+        normalized_level = _normalize_organisation_level(organisation_level)
+        parent_id = _validate_societe_gestion_parent(
+            db,
+            parent_societe_id=_as_int(parent_societe_id),
+            access_scope_ids=access_scope_ids,
+            societe_id=societe_id,
+        )
+        db.execute(
+            text(
+                """
+                UPDATE mariadb_societe_gestion
+                SET nom = :nom,
+                    nature = :nature,
+                    organisation_level = :organisation_level,
+                    parent_societe_id = :parent_societe_id,
+                    contact = :contact,
+                    telephone = :telephone,
+                    email = :email,
+                    adresse = :adresse,
+                    actif = :actif
+                WHERE id = :societe_id
+                """
+            ),
+            {
+                "societe_id": societe_id,
+                "nom": nom,
+                "nature": nature,
+                "organisation_level": normalized_level,
+                "parent_societe_id": parent_id,
+                "contact": (contact or "").strip() or None,
+                "telephone": (telephone or "").strip() or None,
+                "email": (email or "").strip() or None,
+                "adresse": (adresse or "").strip() or None,
+                "actif": _as_flag(actif, 1),
+            },
+        )
+        _rebuild_societe_hierarchy(db)
+        db.commit()
+        return _superadmin_redirect(request=request, saved=True, extra_params={"societe_id": societe_id})
+    except HTTPException as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc.detail), extra_params={"societe_id": societe_id})
+    except Exception as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc), extra_params={"societe_id": societe_id})
+
+
+@router.post("/superadmin/societes-gestion/{societe_id}/delete", response_class=RedirectResponse)
+def dashboard_superadmin_delete_societe_gestion(
+    societe_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        access, current_scope = _require_superadmin_access(request, db)
+        access_scope_ids = _scope_ids_for_access(access, current_scope)
+        if access_scope_ids and societe_id not in set(access_scope_ids):
+            raise HTTPException(status_code=403, detail="Société hors périmètre autorisé")
+        children = db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM mariadb_societe_gestion
+                WHERE parent_societe_id = :sid
+                """
+            ),
+            {"sid": societe_id},
+        ).scalar() or 0
+        if children:
+            raise HTTPException(status_code=400, detail="Suppression impossible: des sociétés filles sont encore rattachées")
+        db.execute(
+            text("DELETE FROM mariadb_societe_gestion WHERE id = :sid"),
+            {"sid": societe_id},
+        )
+        _rebuild_societe_hierarchy(db)
+        db.commit()
+        return _superadmin_redirect(request=request, saved=True)
+    except HTTPException as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc.detail), extra_params={"societe_id": societe_id})
+    except Exception as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc), extra_params={"societe_id": societe_id})
 
 
 @router.post("/superadmin/document-controle/type", response_class=RedirectResponse)
