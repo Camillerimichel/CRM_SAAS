@@ -76,6 +76,7 @@ from src.security.rbac import (
     ensure_client_ownership,
     extract_user_context,
     pick_scope,
+    expand_societe_scope,
 )
 from src.security.auth import hash_password
 
@@ -86,6 +87,148 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger("uvicorn.error")
 
 _HIST_AFFAIRE_ID_COL: str | None = None
+_SUIVI_EVENT_VIEW_ID_COL: str | None = None
+
+
+def _scope_ids_for_access(access, root_societe_id: int | None = None) -> tuple[int, ...]:
+    if None in getattr(access, "societes", set()):
+        if root_societe_id is None:
+            return tuple()
+        allowed = getattr(access, "allowed_societes", set()) or set()
+        if root_societe_id in allowed:
+            return (int(root_societe_id),)
+        return (int(root_societe_id),)
+    if root_societe_id is not None:
+        allowed = getattr(access, "allowed_societes", set()) or set()
+        if root_societe_id in allowed:
+            return (int(root_societe_id),)
+        return tuple()
+    return tuple(sorted(int(sid) for sid in (getattr(access, "allowed_societes", set()) or set()) if sid is not None))
+
+
+def _descendant_societe_ids(db: Session, root_societe_id: int | None) -> tuple[int, ...]:
+    if root_societe_id is None:
+        return tuple()
+    expanded = expand_societe_scope(db, {root_societe_id})
+    resolved = tuple(sorted(int(sid) for sid in (expanded or {root_societe_id}) if sid is not None))
+    return resolved
+
+
+def _load_admin_societes_gestion(db: Session, scope_ids: tuple[int, ...] = tuple()) -> list[dict]:
+    try:
+        if scope_ids:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT id, nom, nature, organisation_level, parent_societe_id, actif
+                    FROM mariadb_societe_gestion
+                    WHERE COALESCE(actif, 1) = 1
+                      AND id IN :scope_ids
+                    ORDER BY nom
+                    """
+                ).bindparams(bindparam("scope_ids", expanding=True)),
+                {"scope_ids": scope_ids},
+            ).fetchall()
+        else:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT id, nom, nature, organisation_level, parent_societe_id, actif
+                    FROM mariadb_societe_gestion
+                    WHERE COALESCE(actif, 1) = 1
+                    ORDER BY nom
+                    """
+                )
+            ).fetchall()
+        return rows_to_dicts(rows)
+    except Exception:
+        return []
+
+
+def _load_admin_rh_list(db: Session, scope_ids: tuple[int, ...] = tuple()) -> list[dict]:
+    try:
+        if scope_ids:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT rh.id,
+                           rh.nom,
+                           rh.prenom,
+                           rh.telephone,
+                           rh.mail,
+                           rh.niveau_poste,
+                           rh.commentaire,
+                           rh.societe_gestion_id,
+                           sg.nom AS societe_gestion_nom
+                    FROM administration_RH rh
+                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                    WHERE rh.societe_gestion_id IN :scope_ids
+                    ORDER BY rh.nom, rh.prenom
+                    """
+                ).bindparams(bindparam("scope_ids", expanding=True)),
+                {"scope_ids": scope_ids},
+            ).fetchall()
+        else:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT rh.id,
+                           rh.nom,
+                           rh.prenom,
+                           rh.telephone,
+                           rh.mail,
+                           rh.niveau_poste,
+                           rh.commentaire,
+                           rh.societe_gestion_id,
+                           sg.nom AS societe_gestion_nom
+                    FROM administration_RH rh
+                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
+                    ORDER BY rh.nom, rh.prenom
+                    """
+                )
+            ).fetchall()
+        return rows_to_dicts(rows)
+    except Exception:
+        return []
+
+
+def _suivi_evenement_id_col(db: Session) -> str:
+    global _SUIVI_EVENT_VIEW_ID_COL
+    if _SUIVI_EVENT_VIEW_ID_COL:
+        return _SUIVI_EVENT_VIEW_ID_COL
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT COLUMN_NAME
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'vue_suivi_evenement'
+                """
+            )
+        ).fetchall()
+        cols = {
+            (r.COLUMN_NAME if hasattr(r, "COLUMN_NAME") else (r[0] if r else None))
+            for r in (rows or [])
+        }
+        if "evenement_id" in cols:
+            _SUIVI_EVENT_VIEW_ID_COL = "evenement_id"
+        else:
+            _SUIVI_EVENT_VIEW_ID_COL = "id"
+    except Exception:
+        _SUIVI_EVENT_VIEW_ID_COL = "id"
+    return _SUIVI_EVENT_VIEW_ID_COL
+
+
+def _task_scope_sql(db: Session, scope_ids: tuple[int, ...] = tuple(), view_alias: str = "v") -> tuple[str, dict]:
+    if not scope_ids:
+        return "", {}
+    event_id_col = _suivi_evenement_id_col(db)
+    return (
+        f" JOIN mariadb_evenement e_scope ON e_scope.id = {view_alias}.{event_id_col}"
+        f" AND e_scope.id_societe_gestion IN :scope_ids ",
+        {"scope_ids": scope_ids},
+    )
 
 
 def _hist_affaire_id_col(db: Session):
@@ -597,9 +740,14 @@ def _align_to_friday(value):
     return value + timedelta(days=offset)
 
 
-def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
+def _compute_reclamations_data(db: Session, scope_ids: tuple[int, ...] = tuple()) -> tuple[dict, dict]:
     """Return aggregated reclamation stats and pivot data."""
     try:
+        params: dict[str, object] = {}
+        scope_clause = ""
+        if scope_ids:
+            scope_clause = " AND mariadb_evenement.id_societe_gestion IN :scope_ids "
+            params["scope_ids"] = scope_ids
         reclam_total = db.execute(
             text(
                 """
@@ -609,7 +757,9 @@ def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
                     ON mariadb_type_evenement.id = mariadb_evenement.type_id
                 WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
                 """
-            )
+                + scope_clause
+            ).bindparams(*( [bindparam("scope_ids", expanding=True)] if scope_ids else [] )),
+            params,
         ).scalar() or 0
 
         rows_reclam_status = db.execute(
@@ -626,12 +776,16 @@ def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
                 LEFT OUTER JOIN mariadb_evenement_statut_reclamation
                     ON mariadb_evenement_statut_reclamation.id = mariadb_evenement.statut_reclamation_id
                 WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
+                """
+                + scope_clause
+                + """
                 GROUP BY COALESCE(
                     lower(trim(mariadb_evenement_statut_reclamation.libelle)),
                     lower(trim(mariadb_evenement.statut))
                 )
                 """
-            )
+            ).bindparams(*( [bindparam("scope_ids", expanding=True)] if scope_ids else [] )),
+            params,
         ).fetchall()
 
         rows_reclam_types = db.execute(
@@ -663,6 +817,9 @@ def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
                 LEFT JOIN mariadb_evenement_statut_reclamation
                     ON mariadb_evenement_statut_reclamation.id = mariadb_evenement.statut_reclamation_id
                 WHERE lower(mariadb_type_evenement.categorie) IN ('reclamation', 'réclamation')
+                """
+                + scope_clause
+                + """
                 GROUP BY
                     mariadb_type_evenement.id,
                     mariadb_type_evenement.libelle,
@@ -672,7 +829,8 @@ def _compute_reclamations_data(db: Session) -> tuple[dict, dict]:
                         'Statut non renseigné'
                     )
                 """
-            )
+            ).bindparams(*( [bindparam("scope_ids", expanding=True)] if scope_ids else [] )),
+            params,
         ).fetchall()
 
         reclam_stats = {
@@ -869,43 +1027,49 @@ def _get_veille_context() -> dict:
     }
 
 
-def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
+def _compute_tasks_summary(db: Session, range_days: int = 14, scope_ids: tuple[int, ...] = tuple()) -> dict:
     """Calcule les indicateurs de la section Tâches (vue_suivi_evenement)."""
     from sqlalchemy import text as _text
 
     if range_days not in (7, 14, 30):
         range_days = 14
     start_date = _date.today() - timedelta(days=range_days - 1)
+    view_join, scope_params = _task_scope_sql(db, scope_ids, view_alias="v")
+
+    def _exec(sql: str, params: dict | None = None):
+        stmt = _text(sql)
+        merged = dict(params or {})
+        if scope_ids:
+            stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+            merged.update(scope_params)
+        return db.execute(stmt, merged)
+
     try:
-        tasks_total = db.execute(_text("SELECT COUNT(1) FROM vue_suivi_evenement")).scalar() or 0
+        tasks_total = _exec(f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join}").scalar() or 0
     except Exception:
         tasks_total = 0
 
     try:
-        rows_statut = db.execute(
-            _text(
-                """
+        rows_statut = _exec(
+            f"""
                 SELECT COALESCE(NULLIF(TRIM(LOWER(statut)), ''), '(non défini)') AS s, COUNT(1) AS nb
-                FROM vue_suivi_evenement
+                FROM vue_suivi_evenement v{view_join}
                 GROUP BY s
                 ORDER BY nb DESC
                 """
-            )
         ).fetchall()
         tasks_statut = [{"statut": r[0], "nb": int(r[1] or 0)} for r in rows_statut]
     except Exception:
         tasks_statut = []
 
     try:
-        rows_cat = db.execute(
-            _text(
-                """
+        rows_cat = _exec(
+            f"""
                 SELECT COALESCE(NULLIF(TRIM(LOWER(categorie)), ''), '(non défini)') AS c, COUNT(1) AS nb
-                FROM vue_suivi_evenement
+                FROM vue_suivi_evenement v{view_join}
                 GROUP BY c
                 ORDER BY nb DESC
                 """
-            )
         ).fetchall()
         tasks_categorie = [{"categorie": r[0], "nb": int(r[1] or 0)} for r in rows_cat]
     except Exception:
@@ -913,14 +1077,12 @@ def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
 
     try:
         open_count = (
-            db.execute(
-                _text(
-                    """
+            _exec(
+                    f"""
                     SELECT COUNT(1)
-                    FROM vue_suivi_evenement
+                    FROM vue_suivi_evenement v{view_join}
                     WHERE statut IS NULL OR LOWER(statut) NOT IN ('termine','terminé','cloture','clôturé','annule','annulé')
                     """
-                )
             ).scalar()
             or 0
         )
@@ -928,16 +1090,14 @@ def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
         open_count = 0
 
     try:
-        rows_days = db.execute(
-            _text(
-                """
+        rows_days = _exec(
+            f"""
                 SELECT DATE(date_evenement) AS d, COUNT(1) AS nb
-                FROM vue_suivi_evenement
+                FROM vue_suivi_evenement v{view_join}
                 WHERE date_evenement >= :start_dt
                 GROUP BY d
                 ORDER BY d ASC
-                """
-            ),
+                """,
             {"start_dt": start_date},
         ).fetchall()
         by_day = {str(r[0])[:10]: int(r[1] or 0) for r in rows_days}
@@ -1041,37 +1201,33 @@ def _compute_tasks_summary(db: Session, range_days: int = 14) -> dict:
         tasks_close_dist = []
 
     try:
-        rows_type_rh = db.execute(
-            _text(
-                """
+        rows_type_rh = _exec(
+            f"""
                 SELECT
                     v.rh_id AS rh_id,
                     COALESCE(NULLIF(TRIM(CONCAT_WS(' ', r.prenom, r.nom)), ''), r.mail, 'Sans responsable') AS rh_nom,
                     v.type_evenement AS type,
                     COUNT(*) AS nb
-                FROM vue_suivi_evenement v
+                FROM vue_suivi_evenement v{view_join}
                 LEFT JOIN administration_RH r ON r.id = v.rh_id
                 GROUP BY v.rh_id, rh_nom, v.type_evenement
                 ORDER BY rh_nom, v.type_evenement
                 """
-            )
         ).fetchall()
         tasks_type_by_rh = rows_to_dicts(rows_type_rh)
     except Exception:
         tasks_type_by_rh = []
 
     try:
-        rows_type_total = db.execute(
-            _text(
-                """
+        rows_type_total = _exec(
+            f"""
                 SELECT
                     v.type_evenement AS type,
                     COUNT(*) AS nb
-                FROM vue_suivi_evenement v
+                FROM vue_suivi_evenement v{view_join}
                 GROUP BY v.type_evenement
                 ORDER BY v.type_evenement
                 """
-            )
         ).fetchall()
         tasks_type_total = rows_to_dicts(rows_type_total)
     except Exception:
@@ -1695,9 +1851,17 @@ def dashboard_load_progress(load_id: str = Query(None, alias="load_id")):
     return {"percent": percent, "total": total, "done": done, "ready": ready}
 
 @router.get("/tasks/summary", response_class=JSONResponse)
-def dashboard_tasks_summary(range: int = Query(14), db: Session = Depends(get_db)):
+def dashboard_tasks_summary(request: Request, range: int = Query(14), db: Session = Depends(get_db)):
     """Résumé des tâches (lazy load depuis le dashboard)."""
-    return _compute_tasks_summary(db, range)
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    if user_type == "client":
+        return JSONResponse(status_code=403, content={"detail": "Interdit"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    return _compute_tasks_summary(db, range, scope_ids=_scope_ids_for_access(access, scope))
 
 @router.get("/esg/fields", response_class=JSONResponse)
 def dashboard_esg_fields(db: Session = Depends(get_db)):
@@ -7946,6 +8110,7 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
         return PlainTextResponse("Forbidden", status_code=403)
     access = load_access(db, user_type=user_type, user_id=user_id)
     scope = pick_scope(access, req_scope)
+    param_scope_ids = _scope_ids_for_access(access, scope)
     try:
         require_permission(access, "administration", "access", societe_id=scope)
     except HTTPException:
@@ -8168,47 +8333,8 @@ def dashboard_parametres(request: Request, db: Session = Depends(get_db)):
     except Exception:
         supports = []
 
-    admin_societes_gestion: list[dict] = []
-    try:
-        admin_societes_gestion = rows_to_dicts(
-            db.execute(
-                _text(
-                    """
-                    SELECT id, nom, nature, actif
-                    FROM mariadb_societe_gestion
-                    WHERE COALESCE(actif, 1) = 1
-                    ORDER BY nom
-                    """
-                )
-            ).fetchall()
-        )
-    except Exception:
-        admin_societes_gestion = []
-
-    admin_rh: list[dict] = []
-    try:
-        admin_rh = rows_to_dicts(
-            db.execute(
-                _text(
-                    """
-                    SELECT rh.id,
-                           rh.nom,
-                           rh.prenom,
-                           rh.telephone,
-                           rh.mail,
-                           rh.niveau_poste,
-                           rh.commentaire,
-                           rh.societe_gestion_id,
-                           sg.nom AS societe_gestion_nom
-                    FROM administration_RH rh
-                    LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
-                    ORDER BY rh.nom, rh.prenom
-                    """
-                )
-            ).fetchall()
-        )
-    except Exception:
-        admin_rh = []
+    admin_societes_gestion = _load_admin_societes_gestion(db, param_scope_ids)
+    admin_rh = _load_admin_rh_list(db, param_scope_ids)
 
     admin_types = _load_admin_types_list()
 
@@ -12743,8 +12869,8 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "admin_types": [],
                 "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
-                "admin_rh": rows_to_dicts(db.execute(_text("SELECT rh.id, rh.nom, rh.prenom, rh.telephone, rh.mail, rh.niveau_poste, rh.commentaire, rh.societe_gestion_id, sg.nom AS societe_gestion_nom FROM administration_RH rh LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id ORDER BY rh.nom, rh.prenom")).fetchall()) if db else [],
-                "admin_societes_gestion": rows_to_dicts(db.execute(_text("SELECT id, nom, nature, actif FROM mariadb_societe_gestion WHERE COALESCE(actif, 1) = 1 ORDER BY nom")).fetchall()) if db else [],
+                "admin_rh": _load_admin_rh_list(db, param_scope_ids) if db else [],
+                "admin_societes_gestion": _load_admin_societes_gestion(db, param_scope_ids) if db else [],
                 # Contexte courtier avec erreur
                 "courtier": None,
                 "form_courtier": params,
@@ -12824,8 +12950,8 @@ async def save_der_courtier(request: Request, db: Session = Depends(get_db)):
                 "admin_types": [],
                 "admin_intervenants": [],
                 "groupes_details": _load_groupes_details(db),
-                "admin_rh": rows_to_dicts(db.execute(_text("SELECT rh.id, rh.nom, rh.prenom, rh.telephone, rh.mail, rh.niveau_poste, rh.commentaire, rh.societe_gestion_id, sg.nom AS societe_gestion_nom FROM administration_RH rh LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id ORDER BY rh.nom, rh.prenom")).fetchall()) if db else [],
-                "admin_societes_gestion": rows_to_dicts(db.execute(_text("SELECT id, nom, nature, actif FROM mariadb_societe_gestion WHERE COALESCE(actif, 1) = 1 ORDER BY nom")).fetchall()) if db else [],
+                "admin_rh": _load_admin_rh_list(db, param_scope_ids) if db else [],
+                "admin_societes_gestion": _load_admin_societes_gestion(db, param_scope_ids) if db else [],
                 "courtier": None,
                 "form_courtier": params,
                 "form_errors": errors,
@@ -12948,10 +13074,12 @@ def _normalize_admin_rh_level(value: str | None) -> str | None:
     return level
 
 
-def _resolve_admin_rh_societe_id(db: Session, value: str | None) -> int | None:
+def _resolve_admin_rh_societe_id(db: Session, value: str | None, allowed_scope_ids: tuple[int, ...] = tuple()) -> int | None:
     societe_id = _as_int(value)
     if societe_id is None:
         return None
+    if allowed_scope_ids and societe_id not in allowed_scope_ids:
+        raise ValueError("Société de gestion hors périmètre autorisé.")
     row = db.execute(
         text("SELECT id FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"),
         {"sid": societe_id},
@@ -13309,7 +13437,8 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
 # ---- Administration : Ressources humaines ----
 @router.post("/parametres/administration/rh", response_class=HTMLResponse)
 async def create_administration_rh(request: Request, db: Session = Depends(get_db)):
-    _, scope = _require_admin_or_write(request, db)
+    access, scope = _require_admin_or_write(request, db)
+    allowed_scope_ids = _scope_ids_for_access(access, scope)
     form = await request.form()
     nom = (form.get("nom") or "").strip()
     prenom = (form.get("prenom") or "").strip()
@@ -13326,7 +13455,7 @@ async def create_administration_rh(request: Request, db: Session = Depends(get_d
     if niveau_poste is None:
         return _admin_rh_redirect(request, error="Le niveau de poste est obligatoire.")
     try:
-        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw)
+        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw, allowed_scope_ids)
     except ValueError as exc:
         return _admin_rh_redirect(request, error=str(exc))
     if societe_gestion_id is None and scope not in (None, "", 0):
@@ -13367,7 +13496,8 @@ async def create_administration_rh(request: Request, db: Session = Depends(get_d
 
 @router.post("/parametres/administration/rh/{rh_id}", response_class=HTMLResponse)
 async def update_administration_rh(rh_id: int, request: Request, db: Session = Depends(get_db)):
-    _require_admin_or_write(request, db)
+    access, scope = _require_admin_or_write(request, db)
+    allowed_scope_ids = _scope_ids_for_access(access, scope)
     form = await request.form()
     nom = (form.get("nom") or "").strip()
     prenom = (form.get("prenom") or "").strip()
@@ -13384,7 +13514,7 @@ async def update_administration_rh(rh_id: int, request: Request, db: Session = D
     if niveau_poste is None:
         return _admin_rh_redirect(request, error="Le niveau de poste est obligatoire.")
     try:
-        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw)
+        societe_gestion_id = _resolve_admin_rh_societe_id(db, societe_raw, allowed_scope_ids)
     except ValueError as exc:
         return _admin_rh_redirect(request, error=str(exc))
 
@@ -13835,6 +13965,15 @@ async def delete_contrat_support(row_id: int, request: Request, db: Session = De
 @router.get("/", response_class=HTMLResponse)
 def dashboard_home(request: Request, db: Session = Depends(get_db)):
     t0 = perf_counter()
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    home_scope_ids = _scope_ids_for_access(access, scope)
     # Pas de cache afin d'assurer le chargement des derniers assets/templates
     dashboard_load_id = _init_load_progress()
 
@@ -14568,7 +14707,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         reclam_stats = {"total": 0, "by_status": []}
         reclam_pivot = {"types": [], "statuses": []}
 
-    reclam_stats, reclam_pivot = _compute_reclamations_data(db)
+    reclam_stats, reclam_pivot = _compute_reclamations_data(db, scope_ids=home_scope_ids)
 
     orias_detail = locals().get("orias_detail", None)
 
@@ -23266,6 +23405,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     require_permission(access, "administration", "access", societe_id=current_scope)
     require_permission(access, "logs", "view", societe_id=current_scope)
     is_superadmin = access.has_permission("logs", "view", societe_id=current_scope)
+    access_scope_ids = _scope_ids_for_access(access, current_scope)
 
     # Société sélectionnée (affichage détaillé) + pagination/filtre
     selected_societe_id: int | None = None
@@ -23370,40 +23510,120 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     societes_gestion: list[dict] = []
     total_societes = 0
     try:
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    sg.id,
-                    sg.nom,
-                    sg.nature,
-                    sg.contact,
-                    sg.telephone,
-                    sg.email,
-                    sg.adresse,
-                    sg.actif,
-                    sg.created_at,
-                    sg.updated_at,
-                    (SELECT COUNT(*) FROM mariadb_client_societe cs WHERE cs.societe_id = sg.id AND cs.date_fin IS NULL) AS clients_actifs,
-                    (SELECT COUNT(*) FROM mariadb_affaire_societe afs WHERE afs.societe_id = sg.id AND afs.date_fin IS NULL) AS affaires_actives
-                FROM mariadb_societe_gestion sg
-                WHERE (:q IS NULL OR sg.nom LIKE :pat)
-                ORDER BY sg.nom
-                LIMIT :lim OFFSET :off
-                """
-            ),
-            {"q": search_term, "pat": f"%{search_term}%" if search_term else None, "lim": per_page, "off": offset},
-        ).fetchall()
+        params = {"q": search_term, "pat": f"%{search_term}%" if search_term else None, "lim": per_page, "off": offset}
+        if access_scope_ids:
+            params["scope_ids"] = access_scope_ids
+            rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        sg.id,
+                        sg.nom,
+                        sg.nature,
+                        sg.organisation_level,
+                        sg.parent_societe_id,
+                        sg.contact,
+                        sg.telephone,
+                        sg.email,
+                        sg.adresse,
+                        sg.actif,
+                        sg.created_at,
+                        sg.updated_at,
+                        (
+                            SELECT COUNT(DISTINCT cs.client_id)
+                            FROM mariadb_client_societe cs
+                            WHERE cs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND cs.date_fin IS NULL
+                        ) AS clients_actifs,
+                        (
+                            SELECT COUNT(DISTINCT afs.affaire_id)
+                            FROM mariadb_affaire_societe afs
+                            WHERE afs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND afs.date_fin IS NULL
+                        ) AS affaires_actives
+                    FROM mariadb_societe_gestion sg
+                    WHERE sg.id IN :scope_ids
+                      AND (:q IS NULL OR sg.nom LIKE :pat)
+                    ORDER BY sg.nom
+                    LIMIT :lim OFFSET :off
+                    """
+                ).bindparams(bindparam("scope_ids", expanding=True)),
+                params,
+            ).fetchall()
+            total_societes = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM mariadb_societe_gestion sg
+                    WHERE sg.id IN :scope_ids
+                      AND (:q IS NULL OR sg.nom LIKE :pat)
+                    """
+                ).bindparams(bindparam("scope_ids", expanding=True)),
+                {"scope_ids": access_scope_ids, "q": search_term, "pat": f"%{search_term}%" if search_term else None},
+            ).scalar() or 0
+        else:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        sg.id,
+                        sg.nom,
+                        sg.nature,
+                        sg.organisation_level,
+                        sg.parent_societe_id,
+                        sg.contact,
+                        sg.telephone,
+                        sg.email,
+                        sg.adresse,
+                        sg.actif,
+                        sg.created_at,
+                        sg.updated_at,
+                        (
+                            SELECT COUNT(DISTINCT cs.client_id)
+                            FROM mariadb_client_societe cs
+                            WHERE cs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND cs.date_fin IS NULL
+                        ) AS clients_actifs,
+                        (
+                            SELECT COUNT(DISTINCT afs.affaire_id)
+                            FROM mariadb_affaire_societe afs
+                            WHERE afs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND afs.date_fin IS NULL
+                        ) AS affaires_actives
+                    FROM mariadb_societe_gestion sg
+                    WHERE (:q IS NULL OR sg.nom LIKE :pat)
+                    ORDER BY sg.nom
+                    LIMIT :lim OFFSET :off
+                    """
+                ),
+                params,
+            ).fetchall()
+            total_societes = db.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM mariadb_societe_gestion sg
+                    WHERE (:q IS NULL OR sg.nom LIKE :pat)
+                    """
+                ),
+                {"q": search_term, "pat": f"%{search_term}%" if search_term else None},
+            ).scalar() or 0
         societes_gestion = [dict(r._mapping) for r in rows]
-        total_societes = db.execute(
-            text(
-                """
-                SELECT COUNT(*) FROM mariadb_societe_gestion sg
-                WHERE (:q IS NULL OR sg.nom LIKE :pat)
-                """
-            ),
-            {"q": search_term, "pat": f"%{search_term}%" if search_term else None},
-        ).scalar() or 0
     except Exception:
         societes_gestion = []
         total_societes = 0
@@ -23418,6 +23638,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                 continue
         if selected_societe is None:
             try:
+                params_sel = {"sid": selected_societe_id}
                 row_sel = db.execute(
                     text(
                         """
@@ -23425,6 +23646,8 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             sg.id,
                             sg.nom,
                             sg.nature,
+                            sg.organisation_level,
+                            sg.parent_societe_id,
                             sg.contact,
                             sg.telephone,
                             sg.email,
@@ -23432,14 +23655,32 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             sg.actif,
                             sg.created_at,
                             sg.updated_at,
-                            (SELECT COUNT(*) FROM mariadb_client_societe cs WHERE cs.societe_id = sg.id AND cs.date_fin IS NULL) AS clients_actifs,
-                            (SELECT COUNT(*) FROM mariadb_affaire_societe afs WHERE afs.societe_id = sg.id AND afs.date_fin IS NULL) AS affaires_actives
+                            (
+                                SELECT COUNT(DISTINCT cs.client_id)
+                                FROM mariadb_client_societe cs
+                                WHERE cs.societe_id IN (
+                                    SELECT h.descendant_societe_id
+                                    FROM mariadb_societe_hierarchy h
+                                    WHERE h.ancestor_societe_id = sg.id
+                                )
+                                AND cs.date_fin IS NULL
+                            ) AS clients_actifs,
+                            (
+                                SELECT COUNT(DISTINCT afs.affaire_id)
+                                FROM mariadb_affaire_societe afs
+                                WHERE afs.societe_id IN (
+                                    SELECT h.descendant_societe_id
+                                    FROM mariadb_societe_hierarchy h
+                                    WHERE h.ancestor_societe_id = sg.id
+                                )
+                                AND afs.date_fin IS NULL
+                            ) AS affaires_actives
                         FROM mariadb_societe_gestion sg
                         WHERE sg.id = :sid
                         LIMIT 1
                         """
                     ),
-                    {"sid": selected_societe_id},
+                    params_sel,
                 ).fetchone()
                 if row_sel:
                     selected_societe = dict(row_sel._mapping) if hasattr(row_sel, "_mapping") else dict(row_sel)
@@ -23453,6 +23694,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     total_client_accounts = 0
     selected_client_form: dict | None = None
     if selected_societe_id is not None:
+        selected_scope_ids = _descendant_societe_ids(db, selected_societe_id)
         try:
             rows_users = db.execute(
                 text(
@@ -23468,14 +23710,14 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.nom AS societe_nom
                     FROM administration_RH rh
                     LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
-                    WHERE rh.societe_gestion_id = :sid
+                    WHERE rh.societe_gestion_id IN :scope_ids
                       AND (:uq IS NULL OR rh.nom LIKE :pat OR rh.prenom LIKE :pat OR rh.mail LIKE :pat)
                     ORDER BY rh.superadmin DESC, rh.nom, rh.prenom
                     LIMIT :lim OFFSET :off
                     """
-                ),
+                ).bindparams(bindparam("scope_ids", expanding=True)),
                 {
-                    "sid": selected_societe_id,
+                    "scope_ids": tuple(selected_scope_ids or (-1,)),
                     "uq": user_search_term,
                     "pat": f"%{user_search_term}%" if user_search_term else None,
                     "lim": user_per_page,
@@ -23499,12 +23741,12 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     """
                     SELECT COUNT(*)
                     FROM administration_RH rh
-                    WHERE rh.societe_gestion_id = :sid
+                    WHERE rh.societe_gestion_id IN :scope_ids
                       AND (:uq IS NULL OR rh.nom LIKE :pat OR rh.prenom LIKE :pat OR rh.mail LIKE :pat)
                     """
-                ),
+                ).bindparams(bindparam("scope_ids", expanding=True)),
                 {
-                    "sid": selected_societe_id,
+                    "scope_ids": tuple(selected_scope_ids or (-1,)),
                     "uq": user_search_term,
                     "pat": f"%{user_search_term}%" if user_search_term else None,
                 },
@@ -23532,14 +23774,14 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         ) AS last_seen
                     FROM auth_client_users cu
                     LEFT JOIN mariadb_clients c ON c.id = cu.client_id
-                    WHERE cu.broker_id = :sid
+                    WHERE cu.broker_id IN :scope_ids
                       AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR cu.login LIKE :pat OR c.email LIKE :pat)
                     ORDER BY c.nom IS NULL, c.nom, c.prenom, cu.id DESC
                     LIMIT :lim OFFSET :off
                     """
-                ),
+                ).bindparams(bindparam("scope_ids", expanding=True)),
                 {
-                    "sid": selected_societe_id,
+                    "scope_ids": tuple(selected_scope_ids or (-1,)),
                     "cq": client_search_term,
                     "pat": f"%{client_search_term}%" if client_search_term else None,
                     "lim": client_per_page,
@@ -23573,12 +23815,12 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     SELECT COUNT(*)
                     FROM auth_client_users cu
                     LEFT JOIN mariadb_clients c ON c.id = cu.client_id
-                    WHERE cu.broker_id = :sid
+                    WHERE cu.broker_id IN :scope_ids
                       AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR cu.login LIKE :pat OR c.email LIKE :pat)
                     """
-                ),
+                ).bindparams(bindparam("scope_ids", expanding=True)),
                 {
-                    "sid": selected_societe_id,
+                    "scope_ids": tuple(selected_scope_ids or (-1,)),
                     "cq": client_search_term,
                     "pat": f"%{client_search_term}%" if client_search_term else None,
                 },
@@ -23590,15 +23832,15 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                     SELECT DISTINCT c.id, c.nom, c.prenom, c.email
                     FROM mariadb_clients c
                     JOIN mariadb_client_societe cs ON cs.client_id = c.id
-                    WHERE cs.societe_id = :sid
+                    WHERE cs.societe_id IN :scope_ids
                       AND c.email IS NOT NULL AND TRIM(c.email) <> ''
                       AND c.id NOT IN :existing
                       AND (:cq IS NULL OR c.nom LIKE :pat OR c.prenom LIKE :pat OR c.email LIKE :pat)
                     ORDER BY c.nom, c.prenom, c.id
                     """
-                ).bindparams(bindparam("existing", expanding=True)),
+                ).bindparams(bindparam("scope_ids", expanding=True), bindparam("existing", expanding=True)),
                 {
-                    "sid": selected_societe_id,
+                    "scope_ids": tuple(selected_scope_ids or (-1,)),
                     "existing": tuple(existing_client_ids or {-1}),
                     "cq": client_search_term,
                     "pat": f"%{client_search_term}%" if client_search_term else None,
@@ -23786,6 +24028,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     elif selected_user_id is not None and selected_societe_id is not None:
         # Si l'utilisateur sélectionné n'est pas dans la page courante (pagination), récupérer ses infos minimales
         try:
+            selected_scope_ids = _descendant_societe_ids(db, selected_societe_id)
             r = db.execute(
                 text(
                     """
@@ -23800,11 +24043,11 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.nom AS societe_nom
                     FROM administration_RH rh
                     LEFT JOIN mariadb_societe_gestion sg ON sg.id = rh.societe_gestion_id
-                    WHERE rh.id = :rid AND rh.societe_gestion_id = :sid
+                    WHERE rh.id = :rid AND rh.societe_gestion_id IN :scope_ids
                     LIMIT 1
                     """
-                ),
-                {"rid": selected_user_id, "sid": selected_societe_id},
+                ).bindparams(bindparam("scope_ids", expanding=True)),
+                {"rid": selected_user_id, "scope_ids": tuple(selected_scope_ids or (-1,))},
             ).fetchone()
             if r:
                 m = r._mapping if hasattr(r, "_mapping") else {}
@@ -27096,6 +27339,7 @@ def dashboard_taches(
     access = load_access(db, user_type=user_type, user_id=user_id)
     scope = pick_scope(access, req_scope)
     require_permission(access, "data", "read", societe_id=scope)
+    task_scope_ids = _scope_ids_for_access(access, scope)
     from sqlalchemy import text
     from src.models.evenement import Evenement as EvenementModel
     conds = []
@@ -27132,6 +27376,7 @@ def dashboard_taches(
     if exclude_statut:
         conds.append("(statut IS NULL OR lower(statut) != lower(:exclude_statut))")
         params["exclude_statut"] = exclude_statut
+    view_join, scope_params = _task_scope_sql(db, task_scope_ids, view_alias="v")
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     sql_exists = text(
         """
@@ -27147,8 +27392,11 @@ def dashboard_taches(
     items = []
     if exists:
         try:
-            sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC LIMIT 300"
-            items = db.execute(text(sql), params).fetchall()
+            sql = f"SELECT v.* FROM vue_suivi_evenement v{view_join}{where} ORDER BY v.date_evenement DESC LIMIT 300"
+            stmt = text(sql)
+            if task_scope_ids:
+                stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+            items = db.execute(stmt, params | scope_params).fetchall()
         except Exception as exc:
             logger.exception("vue_suivi_evenement indisponible", exc_info=exc)
             items = []
@@ -27340,48 +27588,53 @@ def dashboard_taches(
     # Badges/compteurs pour quick filters
     def _count(sql_text: str, params_: dict):
         try:
-            return int(db.execute(text(sql_text), params_).scalar() or 0)
+            stmt = text(sql_text)
+            merged = dict(params_)
+            if task_scope_ids:
+                stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+                merged.update(scope_params)
+            return int(db.execute(stmt, merged).scalar() or 0)
         except Exception:
             return 0
 
     today_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE date(date_evenement) = :d",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE date(v.date_evenement) = :d",
         {"d": today_str},
     )
     late_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE date(date_evenement) < :d AND (statut IS NULL OR lower(statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé','annulé','annule'))",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE date(v.date_evenement) < :d AND (v.statut IS NULL OR lower(v.statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé','annulé','annule'))",
         {"d": today_str},
     )
     reclamations_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE categorie = 'reclamation' AND (statut IS NULL OR lower(statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé'))",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE v.categorie = 'reclamation' AND (v.statut IS NULL OR lower(v.statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé'))",
         {},
     )
     reclamations_terminees_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE categorie = 'reclamation' AND lower(statut) IN ('terminé','termine','cloturé','cloture','clôturé')",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE v.categorie = 'reclamation' AND lower(v.statut) IN ('terminé','termine','cloturé','cloture','clôturé')",
         {},
     )
     en_attente_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE lower(statut) = 'en attente'",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE lower(v.statut) = 'en attente'",
         {},
     )
     a_faire_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE lower(statut) IN ('à faire','a faire')",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE lower(v.statut) IN ('à faire','a faire')",
         {},
     )
     en_cours_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE lower(statut) = 'en cours'",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE lower(v.statut) = 'en cours'",
         {},
     )
     termine_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE lower(statut) IN ('terminé','termine')",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE lower(v.statut) IN ('terminé','termine')",
         {},
     )
     annule_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement WHERE lower(statut) IN ('annulé','annule')",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join} WHERE lower(v.statut) IN ('annulé','annule')",
         {},
     )
     total_count = _count(
-        "SELECT COUNT(1) FROM vue_suivi_evenement",
+        f"SELECT COUNT(1) FROM vue_suivi_evenement v{view_join}",
         {},
     )
 
@@ -31384,7 +31637,14 @@ def list_allocation_dates(
         admin_intervenants = []
 
 
-def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie: str | None = None, rh_id: int | None = None, range_days: int | None = None) -> list[dict]:
+def _list_taches_for_calendar(
+    db: Session,
+    statut: str | None = None,
+    categorie: str | None = None,
+    rh_id: int | None = None,
+    range_days: int | None = None,
+    scope_ids: tuple[int, ...] = tuple(),
+) -> list[dict]:
     """Retourne les tâches avec enrichissements (client, affaire, rh) pour calendrier/export."""
     from sqlalchemy import text
     conds: list[str] = []
@@ -31407,10 +31667,14 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
             conds.append("date(date_evenement) BETWEEN :start_date AND :end_date")
             params["start_date"] = start_date.isoformat()
             params["end_date"] = end_date.isoformat()
+    view_join, scope_params = _task_scope_sql(db, scope_ids, view_alias="v")
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
-    sql = f"SELECT * FROM vue_suivi_evenement{where} ORDER BY date_evenement DESC"
+    sql = f"SELECT v.* FROM vue_suivi_evenement v{view_join}{where} ORDER BY v.date_evenement DESC"
     try:
-        rows = db.execute(text(sql), params).fetchall()
+        stmt = text(sql)
+        if scope_ids:
+            stmt = stmt.bindparams(bindparam("scope_ids", expanding=True))
+        rows = db.execute(stmt, params | scope_params).fetchall()
     except Exception as exc:
         logger.exception("Calendrier: vue_suivi_evenement manquante ou inaccessible", exc_info=exc)
         return []
@@ -31511,14 +31775,35 @@ def _list_taches_for_calendar(db: Session, statut: str | None = None, categorie:
 
 
 @router.get("/api/taches", response_class=JSONResponse)
-def api_taches(db: Session = Depends(get_db), statut: str | None = None, categorie: str | None = None, rh_id: int | None = None):
+def api_taches(
+    request: Request,
+    db: Session = Depends(get_db),
+    statut: str | None = None,
+    categorie: str | None = None,
+    rh_id: int | None = None,
+):
     """Retourne les tâches (vue_suivi_evenement) au format JSON pour le calendrier."""
-    items = _list_taches_for_calendar(db, statut=statut, categorie=categorie, rh_id=rh_id)
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    if user_type == "client":
+        return JSONResponse(status_code=403, content={"detail": "Interdit"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    items = _list_taches_for_calendar(
+        db,
+        statut=statut,
+        categorie=categorie,
+        rh_id=rh_id,
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
     return {"items": items}
 
 
 @router.get("/api/taches.ics", response_class=PlainTextResponse)
 def api_taches_ics(
+    request: Request,
     db: Session = Depends(get_db),
     statut: str | None = None,
     categorie: str | None = None,
@@ -31526,7 +31811,22 @@ def api_taches_ics(
     range_days: int | None = Query(90, ge=1, le=365*3, description="Nombre de jours autour d'aujourd'hui"),
 ):
     """Export ICS des tâches visibles dans le calendrier."""
-    items = _list_taches_for_calendar(db, statut=statut, categorie=categorie, rh_id=rh_id, range_days=range_days)
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    items = _list_taches_for_calendar(
+        db,
+        statut=statut,
+        categorie=categorie,
+        rh_id=rh_id,
+        range_days=range_days,
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
     def _ics_escape(val: str | None) -> str:
         if val is None:
             return ""

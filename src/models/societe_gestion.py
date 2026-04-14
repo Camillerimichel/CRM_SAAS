@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, func
 from src.database import Base
 
 
@@ -8,6 +8,8 @@ class SocieteGestion(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     nom = Column(String, nullable=False)
     nature = Column(String, nullable=False)  # courtier / wealth management / banque privée / courtier CIF / co-courtier
+    organisation_level = Column(String, nullable=False, default="co_courtier")
+    parent_societe_id = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)
     siret = Column(String, nullable=True)
     rcs = Column(String, nullable=True)
     contact = Column(String, nullable=True)

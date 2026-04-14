@@ -21,8 +21,10 @@ class Access:
     broker_id: Optional[int] = None
     role_ids: Set[int] = field(default_factory=set)
     permissions: Set[Permission] = field(default_factory=set)
-    # None => périmètre global, sinon id de la société
+    # None => périmètre global, sinon id de la société explicitement affectée
     societes: Set[int | None] = field(default_factory=set)
+    # Ensemble de sociétés accessibles après expansion hiérarchique
+    allowed_societes: Set[int] = field(default_factory=set)
 
     def has_permission(self, feature: str, action: str, societe_id: Optional[int] = None) -> bool:
         if (feature, action) not in self.permissions:
@@ -30,8 +32,55 @@ class Access:
         # Portée globale => OK
         if None in self.societes:
             return True
+        if societe_id is None:
+            return False
         # Sinon, l'utilisateur doit être rattaché à la société courante
-        return societe_id in self.societes
+        return societe_id in (self.allowed_societes or {sid for sid in self.societes if sid is not None})
+
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name
+                """
+            ),
+            {"table_name": table_name},
+        ).fetchone()
+        if not row:
+            return False
+        return bool(row[0] if not hasattr(row, "_mapping") else next(iter(row._mapping.values())))
+    except Exception:
+        return False
+
+
+def expand_societe_scope(db: Session, direct_scopes: Set[int | None]) -> Set[int]:
+    scoped_ids = {sid for sid in direct_scopes if sid is not None}
+    if not scoped_ids:
+        return set()
+    if not _table_exists(db, "mariadb_societe_hierarchy"):
+        return set(scoped_ids)
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT descendant_societe_id
+                FROM mariadb_societe_hierarchy
+                WHERE ancestor_societe_id IN :scope_ids
+                """
+            ).bindparams(bindparam("scope_ids", expanding=True)),
+            {"scope_ids": tuple(scoped_ids)},
+        ).fetchall()
+        expanded = {
+            int(r.descendant_societe_id) if hasattr(r, "descendant_societe_id") else int(r[0])
+            for r in (rows or [])
+        }
+        return expanded or set(scoped_ids)
+    except Exception:
+        return set(scoped_ids)
 
 
 def load_access(db: Session, user_type: str, user_id: int) -> Access:
@@ -95,6 +144,7 @@ def load_access(db: Session, user_type: str, user_id: int) -> Access:
     scopes = {r.societe_id if r.societe_id is not None else None for r in roles_rows} if roles_rows else set()
 
     if not role_ids:
+        resolved_scopes = scopes or ({broker_id} if broker_id is not None else set())
         return Access(
             user_type=user_type,
             user_id=user_id,
@@ -102,7 +152,8 @@ def load_access(db: Session, user_type: str, user_id: int) -> Access:
             broker_id=broker_id,
             role_ids=set(),
             permissions=set(),
-            societes=scopes or ({broker_id} if broker_id is not None else set()),
+            societes=resolved_scopes,
+            allowed_societes=expand_societe_scope(db, resolved_scopes),
         )
 
     perm_rows = db.execute(
@@ -118,6 +169,8 @@ def load_access(db: Session, user_type: str, user_id: int) -> Access:
     ).fetchall()
     perms: Set[Permission] = {(str(p.feature), str(p.action)) for p in perm_rows} if perm_rows else set()
 
+    resolved_scopes = scopes or ({broker_id} if broker_id is not None else {None})
+
     return Access(
         user_type=user_type,
         user_id=user_id,
@@ -125,7 +178,8 @@ def load_access(db: Session, user_type: str, user_id: int) -> Access:
         broker_id=broker_id,
         role_ids=role_ids,
         permissions=perms,
-        societes=scopes or ({broker_id} if broker_id is not None else {None}),
+        societes=resolved_scopes,
+        allowed_societes=expand_societe_scope(db, resolved_scopes),
     )
 
 
@@ -184,12 +238,18 @@ def extract_user_context(request: Request) -> tuple[str, Optional[int], Optional
 
 def pick_scope(access: Access, requested_societe_id: Optional[int]) -> Optional[int]:
     """Sélectionne une portée société cohérente avec les rôles de l'utilisateur."""
-    if requested_societe_id is not None:
+    if None in access.societes:
         return requested_societe_id
+    if requested_societe_id is not None:
+        allowed = access.allowed_societes or {sid for sid in access.societes if sid is not None}
+        if requested_societe_id in allowed:
+            return requested_societe_id
+        raise HTTPException(status_code=403, detail="Accès refusé (hors périmètre société)")
     if not access.societes:
         return None
     # Si une seule portée, on la prend par défaut
-    if len(access.societes) == 1:
-        return next(iter(access.societes))
+    scoped_ids = {sid for sid in access.societes if sid is not None}
+    if len(scoped_ids) == 1:
+        return next(iter(scoped_ids))
     # Sinon pas de scope déterminé (exigera un scope explicite)
     return None

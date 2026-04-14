@@ -10,7 +10,14 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from src.database import get_db, SessionLocal
-from src.security.rbac import load_access, require_permission, extract_user_context, pick_scope, ensure_client_ownership
+from src.security.rbac import (
+    load_access,
+    require_permission,
+    extract_user_context,
+    pick_scope,
+    ensure_client_ownership,
+    expand_societe_scope,
+)
 from fastapi import Query
 from datetime import date, datetime
 from pathlib import Path
@@ -719,7 +726,17 @@ async def auth_cookie_middleware(request: Request, call_next):
     if societe_ctx:
         societe_id = societe_ctx.get("societe_id")
         if societe_id is not None:
-            societe_token = set_current_societe(societe_id)
+            allowed_societe_ids: tuple[int, ...] = tuple()
+            db_tmp = None
+            try:
+                db_tmp = SessionLocal()
+                allowed_societe_ids = tuple(sorted(expand_societe_scope(db_tmp, {societe_id}) or {societe_id}))
+            except Exception:
+                allowed_societe_ids = (societe_id,)
+            finally:
+                if db_tmp:
+                    db_tmp.close()
+            societe_token = set_current_societe(societe_id, allowed_societe_ids=allowed_societe_ids)
             request.state.societe_token = societe_token
             societe_nom = None
             db_tmp = None
