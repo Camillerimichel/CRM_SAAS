@@ -93,6 +93,11 @@ _ORG_LEVEL_LABELS = {
     "master_courtier": "Master courtier",
     "delegation_regionale": "Délégation régionale",
 }
+_ORG_LEVEL_DESCRIPTIONS = {
+    "co_courtier": "Vue opérationnelle sur vos clients et leurs dossiers.",
+    "master_courtier": "Vue réseau sur vos co-courtiers et leur portefeuille consolidé.",
+    "delegation_regionale": "Vue pilotage sur les KPI consolidés de vos masters courtiers.",
+}
 
 
 def _scope_ids_for_access(access, root_societe_id: int | None = None) -> tuple[int, ...]:
@@ -159,6 +164,31 @@ def _normalize_organisation_level(raw_value: Any) -> str:
     if value in _ORG_LEVEL_LABELS:
         return value
     return "co_courtier"
+
+
+def _organisation_level_label(raw_value: Any) -> str:
+    return _ORG_LEVEL_LABELS.get(_normalize_organisation_level(raw_value), "Co-courtier")
+
+
+def _build_org_ui_context(
+    *,
+    societe_name: str | None,
+    organisation_level: Any,
+    scope_ids: tuple[int, ...] = tuple(),
+) -> dict[str, Any]:
+    level = _normalize_organisation_level(organisation_level)
+    scope_count = len(scope_ids or tuple())
+    scope_noun = "entité visible" if scope_count <= 1 else "entités visibles"
+    return {
+        "societe_name": societe_name,
+        "organisation_level": level,
+        "organisation_level_label": _organisation_level_label(level),
+        "description": _ORG_LEVEL_DESCRIPTIONS.get(level, _ORG_LEVEL_DESCRIPTIONS["co_courtier"]),
+        "scope_count": scope_count,
+        "scope_label": f"{scope_count} {scope_noun}" if scope_count else "Périmètre global",
+        "is_network_view": level in {"master_courtier", "delegation_regionale"},
+        "is_kpi_view": level == "delegation_regionale",
+    }
 
 
 def _validate_societe_gestion_parent(
@@ -14108,6 +14138,11 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     scope = pick_scope(access, req_scope)
     require_permission(access, "data", "read", societe_id=scope)
     home_scope_ids = _scope_ids_for_access(access, scope)
+    dashboard_org_ui = _build_org_ui_context(
+        societe_name=getattr(request.state, "societe_gestion_nom", None),
+        organisation_level=getattr(request.state, "societe_gestion_level", None),
+        scope_ids=home_scope_ids,
+    )
     # Pas de cache afin d'assurer le chargement des derniers assets/templates
     dashboard_load_id = _init_load_progress()
 
@@ -15192,6 +15227,7 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "evt_categories": evt_categories if 'evt_categories' in locals() else [],
         "evt_statuts": evt_statuts if 'evt_statuts' in locals() else [],
         "dashboard_load_id": dashboard_load_id,
+        "dashboard_org_ui": dashboard_org_ui,
     }
     total_time = perf_counter() - t0
     logger.info("dashboard_home: total context built in %.3fs", total_time)

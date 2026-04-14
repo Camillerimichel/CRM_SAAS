@@ -722,6 +722,9 @@ async def auth_cookie_middleware(request: Request, call_next):
             }
     societe_token = None
     request.state.societe_gestion_nom = None
+    request.state.societe_gestion_level = None
+    request.state.societe_gestion_level_label = None
+    request.state.societe_scope_size = None
     societe_ctx = getattr(request.state, "user_ctx", None)
     if societe_ctx:
         societe_id = societe_ctx.get("societe_id")
@@ -739,21 +742,43 @@ async def auth_cookie_middleware(request: Request, call_next):
             societe_token = set_current_societe(societe_id, allowed_societe_ids=allowed_societe_ids)
             request.state.societe_token = societe_token
             societe_nom = None
+            societe_level = None
             db_tmp = None
             try:
                 db_tmp = SessionLocal()
-                row = db_tmp.execute(text("SELECT nom FROM mariadb_societe_gestion WHERE id = :sid LIMIT 1"), {"sid": societe_id}).fetchone()
+                row = db_tmp.execute(
+                    text(
+                        """
+                        SELECT nom, organisation_level
+                        FROM mariadb_societe_gestion
+                        WHERE id = :sid
+                        LIMIT 1
+                        """
+                    ),
+                    {"sid": societe_id},
+                ).fetchone()
                 if row:
                     if hasattr(row, "_mapping"):
                         societe_nom = row._mapping.get("nom")
+                        societe_level = row._mapping.get("organisation_level")
                     else:
                         societe_nom = row[0]
+                        societe_level = row[1] if len(row) > 1 else None
             except Exception:
                 societe_nom = None
+                societe_level = None
             finally:
                 if db_tmp:
                     db_tmp.close()
             request.state.societe_gestion_nom = societe_nom
+            request.state.societe_gestion_level = societe_level
+            request.state.societe_scope_size = len(allowed_societe_ids or tuple())
+            level_labels = {
+                "co_courtier": "Co-courtier",
+                "master_courtier": "Master courtier",
+                "delegation_regionale": "Délégation régionale",
+            }
+            request.state.societe_gestion_level_label = level_labels.get(societe_level, None)
     response = await call_next(request)
     token_ctx = getattr(request.state, "societe_token", None)
     if token_ctx:

@@ -1003,6 +1003,12 @@
             {% if request.state.societe_gestion_nom %}
               <div class="muted">Société = {{ request.state.societe_gestion_nom }}</div>
             {% endif %}
+            {% if request.state.societe_gestion_level_label %}
+              <div class="muted">Niveau = {{ request.state.societe_gestion_level_label }}</div>
+            {% endif %}
+            {% if request.state.societe_scope_size %}
+              <div class="muted">Périmètre = {{ request.state.societe_scope_size }} entité{% if request.state.societe_scope_size > 1 %}s{% endif %}</div>
+            {% endif %}
           </div>
           <form method="post" action="/logout" class="sidebar-logout">
             <button type="submit"><i class="fa-solid fa-right-from-bracket"></i> Déconnexion</button>

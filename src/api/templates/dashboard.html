@@ -4,6 +4,13 @@
 {% block header_title %}
 <span class="header-title-text"><i class="fa-solid fa-house" style="margin-right:8px;"></i>Tableau de bord</span>
 {% endblock %}
+{% block header_subtitle %}
+{% if dashboard_org_ui %}
+<div class="muted" style="font-size:0.95rem;">
+  {{ dashboard_org_ui.organisation_level_label }}{% if dashboard_org_ui.societe_name %} • {{ dashboard_org_ui.societe_name }}{% endif %} • {{ dashboard_org_ui.scope_label }}
+</div>
+{% endif %}
+{% endblock %}
 
 {% block content %}
 
@@ -24,6 +31,33 @@
 <!-- KPIs -->
 <style>
   .header-title-text { display: inline-flex; align-items: center; gap: 8px; }
+  .org-banner {
+    max-width: 1100px;
+    margin: 0 auto 14px auto;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid #dbeafe;
+    background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.08);
+  }
+  .org-banner-kpis {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .org-banner-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid #dbeafe;
+    color: #1e3a8a;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
   /* Rapprocher la zone de travail du bandeau d'onglets */
   .container { margin-top: 0; padding-top: 0; }
   #dashboardLoadingOverlay {
@@ -279,6 +313,22 @@
   }
   .dash-card-body { padding: 12px 14px; }
 </style>
+{% if dashboard_org_ui %}
+<div class="org-banner">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+    <div>
+      <div style="font-size:0.78rem; letter-spacing:0.08em; text-transform:uppercase; color:#1d4ed8; font-weight:800;">Vue active</div>
+      <h2 style="margin-top:4px;">{{ dashboard_org_ui.organisation_level_label }}{% if dashboard_org_ui.societe_name %} — {{ dashboard_org_ui.societe_name }}{% endif %}</h2>
+      <div class="muted" style="margin-top:4px;">{{ dashboard_org_ui.description }}</div>
+    </div>
+    <span class="status-pill" style="background:#dbeafe; color:#1d4ed8;">{{ dashboard_org_ui.scope_label }}</span>
+  </div>
+  <div class="org-banner-kpis">
+    <div class="org-banner-pill"><i class="fa-solid fa-diagram-project"></i> {{ 'Vue réseau' if dashboard_org_ui.is_network_view else 'Vue portefeuille' }}</div>
+    <div class="org-banner-pill"><i class="fa-solid fa-chart-column"></i> {{ 'Pilotage KPI' if dashboard_org_ui.is_kpi_view else 'Suivi clients et affaires' }}</div>
+  </div>
+</div>
+{% endif %}
 <!-- Tabs principaux -->
 <div class="dash-tabs" id="dashTabs" style="display:none;">
   <button class="dash-tab" data-key="risks" data-target="risksSection"><i class="fa-solid fa-shield-halved"></i> Risques</button>
