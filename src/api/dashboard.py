@@ -253,6 +253,131 @@ def _load_affaire_source_societes(db: Session, affaire_ids: list[int]) -> dict[i
         return {}
 
 
+def _compute_network_pilotage_data(
+    db: Session,
+    *,
+    root_societe_id: int | None,
+    scope_ids: tuple[int, ...],
+) -> dict[str, Any]:
+    metrics = {
+        "clients_total": 0,
+        "affaires_total": 0,
+        "tasks_open_total": 0,
+        "reclamations_total": 0,
+        "users_total": 0,
+        "child_societes": [],
+    }
+    try:
+        if scope_ids:
+            metrics["clients_total"] = (
+                db.execute(
+                    text(
+                        """
+                        SELECT COUNT(DISTINCT cs.client_id)
+                        FROM mariadb_client_societe cs
+                        WHERE cs.societe_id IN :scope_ids
+                          AND cs.date_fin IS NULL
+                        """
+                    ).bindparams(bindparam("scope_ids", expanding=True)),
+                    {"scope_ids": scope_ids},
+                ).scalar()
+                or 0
+            )
+            metrics["affaires_total"] = (
+                db.execute(
+                    text(
+                        """
+                        SELECT COUNT(DISTINCT afs.affaire_id)
+                        FROM mariadb_affaire_societe afs
+                        WHERE afs.societe_id IN :scope_ids
+                          AND afs.date_fin IS NULL
+                        """
+                    ).bindparams(bindparam("scope_ids", expanding=True)),
+                    {"scope_ids": scope_ids},
+                ).scalar()
+                or 0
+            )
+            metrics["users_total"] = (
+                db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM administration_RH
+                        WHERE societe_gestion_id IN :scope_ids
+                        """
+                    ).bindparams(bindparam("scope_ids", expanding=True)),
+                    {"scope_ids": scope_ids},
+                ).scalar()
+                or 0
+            )
+            view_join, scope_params = _task_scope_sql(db, scope_ids, view_alias="v")
+            merged = dict(scope_params)
+            metrics["tasks_open_total"] = (
+                db.execute(
+                    text(
+                        f"""
+                        SELECT COUNT(1)
+                        FROM vue_suivi_evenement v{view_join}
+                        WHERE v.statut IS NULL
+                           OR lower(v.statut) NOT IN ('terminé','termine','cloturé','cloture','clôturé','annulé','annule')
+                        """
+                    ).bindparams(bindparam("scope_ids", expanding=True)),
+                    merged,
+                ).scalar()
+                or 0
+            )
+            reclam_stats, _ = _compute_reclamations_data(db, scope_ids=scope_ids)
+            metrics["reclamations_total"] = int((reclam_stats or {}).get("total") or 0)
+        if root_societe_id is not None:
+            child_rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        sg.id,
+                        sg.nom,
+                        sg.organisation_level,
+                        (
+                            SELECT COUNT(DISTINCT cs.client_id)
+                            FROM mariadb_client_societe cs
+                            WHERE cs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND cs.date_fin IS NULL
+                        ) AS clients_total,
+                        (
+                            SELECT COUNT(DISTINCT afs.affaire_id)
+                            FROM mariadb_affaire_societe afs
+                            WHERE afs.societe_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                            AND afs.date_fin IS NULL
+                        ) AS affaires_total,
+                        (
+                            SELECT COUNT(*)
+                            FROM administration_RH rh
+                            WHERE rh.societe_gestion_id IN (
+                                SELECT h.descendant_societe_id
+                                FROM mariadb_societe_hierarchy h
+                                WHERE h.ancestor_societe_id = sg.id
+                            )
+                        ) AS users_total
+                    FROM mariadb_societe_gestion sg
+                    WHERE sg.parent_societe_id = :sid
+                    ORDER BY sg.nom
+                    """
+                ),
+                {"sid": root_societe_id},
+            ).fetchall()
+            metrics["child_societes"] = [dict(r._mapping) for r in child_rows or []]
+    except Exception:
+        return metrics
+    return metrics
+
+
 def _validate_societe_gestion_parent(
     db: Session,
     *,
@@ -20938,6 +21063,44 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
+        },
+    )
+
+
+@router.get("/pilotage", response_class=HTMLResponse)
+def dashboard_pilotage(request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    org_ui = _build_org_ui_context(
+        societe_name=getattr(request.state, "societe_gestion_nom", None),
+        organisation_level=getattr(request.state, "societe_gestion_level", None),
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
+    if not org_ui.get("is_network_view"):
+        return RedirectResponse(url="/dashboard", status_code=303)
+    root_societe_id = None
+    try:
+        root_societe_id = getattr(request.state, "user_ctx", {}).get("societe_id")
+    except Exception:
+        root_societe_id = None
+    pilotage_data = _compute_network_pilotage_data(
+        db,
+        root_societe_id=root_societe_id,
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
+    return templates.TemplateResponse(
+        "dashboard_pilotage.html",
+        {
+            "request": request,
+            "dashboard_org_ui": org_ui,
+            "organisation_level_labels": _ORG_LEVEL_LABELS,
+            "pilotage_data": pilotage_data,
         },
     )
 
