@@ -543,7 +543,7 @@
 </head>
 {% set _role_hint = (request.headers.get('X-User-Role') or request.headers.get('X-User-Type') or request.cookies.get('user_role') or request.cookies.get('user_type') or request.query_params.get('role') or 'staff') | lower %}
 {% set _is_embed = ((request.query_params.get('embed') or '') | lower) in ['1','true','yes'] %}
-<body data-user-role="{{ _role_hint }}"{% if _is_embed %} class="embed-mode"{% endif %}>
+<body data-user-role="{{ _role_hint }}"{% if request.state.societe_gestion_level %} data-org-level="{{ request.state.societe_gestion_level }}"{% endif %}{% if _is_embed %} class="embed-mode"{% endif %}>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navigation principale">
         <div class="sidebar-brand">
