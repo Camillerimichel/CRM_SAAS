@@ -2,6 +2,13 @@
 
 {% block title %}Clients{% endblock %}
 {% block header_title %}<i class="fa-solid fa-users" style="margin-right:8px;"></i>Clients{% endblock %}
+{% block header_subtitle %}
+{% if dashboard_org_ui %}
+<div class="muted" style="font-size:0.95rem;">
+  {{ dashboard_org_ui.organisation_level_label }}{% if dashboard_org_ui.societe_name %} • {{ dashboard_org_ui.societe_name }}{% endif %} • {{ dashboard_org_ui.scope_label }}
+</div>
+{% endif %}
+{% endblock %}
 
 {% block content %}
 <style>
@@ -23,6 +30,13 @@
         justify-content: space-between;
         gap: 12px;
         margin-bottom: 0.5rem;
+    }
+    .network-banner {
+        margin-bottom: 0.9rem;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid #dbeafe;
+        background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
     }
     .table-container {
         margin-top: 0.75rem;
@@ -134,9 +148,15 @@
 
 {% set tb_markers_param = tb_markers_param or '' %}
 {% set tb_markers_visible = tb_markers_visible or false %}
+{% set network_view = dashboard_org_ui and dashboard_org_ui.is_network_view %}
 
 <div class="tb-page{% if tb_markers_visible %} tb-markers-enabled{% endif %}" data-tb-marker="TB_201">
   <div class="main-container" data-tb-marker="TB_202">
+    {% if network_view %}
+      <div class="network-banner">
+        <strong>Lecture réseau.</strong> La colonne `Société source` permet d’identifier le co-courtier ou la société d’origine de chaque client visible dans votre périmètre.
+      </div>
+    {% endif %}
     <div class="clients-header-row">
       <h2 data-tb-marker="TB_203">Liste des clients</h2>
       <div class="toolbar" id="clientsGroupActions" style="display:none; margin-bottom:0;">
@@ -163,6 +183,7 @@
 		          <col style="width:200px;">
 		          <col style="width:150px;">
 		          <col style="width:170px;">
+              {% if network_view %}<col style="width:210px;">{% endif %}
 			          <col style="width:220px;">
 			          <col style="width:36px;">
 			          <col style="width:140px;">
@@ -174,13 +195,14 @@
 			            <th>Nom</th>
 			            <th>Prénom</th>
 				            <th>Responsable</th>
+                    {% if network_view %}<th>Société source</th>{% endif %}
 				            <th>Offre financière</th>
 				            <th style="width:36px; max-width:36px;">SRRI</th>
 				            <th>Valorisation</th>
 				            <th>Perf 52s</th>
 				            <th>Vol. 52s</th>
 				          </tr>
-		          <tr>
+			          <tr>
 			            <th><input type="text" id="client-nom-filter" placeholder="Filtrer..."></th>
 			            <th><input type="text" id="client-prenom-filter" placeholder="Filtrer..."></th>
 		            <th>
@@ -193,6 +215,9 @@
 			                {% endfor %}
 			              </select>
 		            </th>
+                {% if network_view %}
+                <th><input type="text" id="client-source-filter" placeholder="Filtrer..."></th>
+                {% endif %}
 		            <th>
 		              <select id="client-alloc-filter">
 		                <option value=""></option>
@@ -224,6 +249,7 @@
 	            </td>
 	            <td>{{ c.prenom }}</td>
 	            <td>{{ c.responsable or '—' }}</td>
+              {% if network_view %}<td title="{{ c.source_societe or '' }}">{{ c.source_societe or '—' }}</td>{% endif %}
 	            <td title="{{ c.allocation_nom or '' }}">{{ c.allocation_nom or '—' }}</td>
 	            <td style="text-align:center;">
 	              {{ c.srri_hist if c.srri_hist is not none else '' }}
@@ -272,6 +298,13 @@
 
 <script>
 $(document).ready(function () {
+        const clientHasSourceColumn = {{ 'true' if network_view else 'false' }};
+        const clientSourceCol = clientHasSourceColumn ? 3 : null;
+        const clientAllocCol = clientHasSourceColumn ? 4 : 3;
+        const clientSrriCol = clientHasSourceColumn ? 5 : 4;
+        const clientValoCol = clientHasSourceColumn ? 6 : 5;
+        const clientPerfCol = clientHasSourceColumn ? 7 : 6;
+        const clientVolCol = clientHasSourceColumn ? 8 : 7;
 		    const groupedTasksCfgClients = {
 		        scope: 'clients',
 		        taskTypes: {{ grouped_task_types | tojson }},
@@ -297,11 +330,12 @@ $(document).ready(function () {
 			          { targets: 0, width: '200px' },
 			          { targets: 1, width: '150px' },
 				          { targets: 2, width: '170px' },
-				          { targets: 3, width: '220px' },
-				          { targets: 4, width: '36px', className: 'dt-center' },
-				          { targets: 5, width: '140px' },
-				          { targets: 6, width: '95px' },
-				          { targets: 7, width: '95px' }
+                  ...(clientHasSourceColumn ? [{ targets: 3, width: '210px' }] : []),
+				          { targets: clientAllocCol, width: '220px' },
+				          { targets: clientSrriCol, width: '36px', className: 'dt-center' },
+				          { targets: clientValoCol, width: '140px' },
+				          { targets: clientPerfCol, width: '95px' },
+				          { targets: clientVolCol, width: '95px' }
 				        ]
 			    });
 
@@ -533,8 +567,11 @@ $(document).ready(function () {
 
 		    // Filtres selects (exact match)
 			    $('#client-resp-filter').on('change', function(){ _setExactColumnFilter(2, this.value || ''); });
-			    $('#client-alloc-filter').on('change', function(){ _setExactColumnFilter(3, this.value || ''); });
-			    $('#client-srri-filter').on('change', function(){ _setExactColumnFilter(4, this.value || ''); });
+          if (clientHasSourceColumn){
+            $('#client-source-filter').on('input', function(){ table.column(clientSourceCol).search(this.value || '').draw(); });
+          }
+			    $('#client-alloc-filter').on('change', function(){ _setExactColumnFilter(clientAllocCol, this.value || ''); });
+			    $('#client-srri-filter').on('change', function(){ _setExactColumnFilter(clientSrriCol, this.value || ''); });
 
 			    // Initialiser le filtre "Offre financière" depuis l'URL, ex:
 			    // /dashboard/clients?alloc=Offre+financière+dynamique
@@ -544,7 +581,7 @@ $(document).ready(function () {
 			        var alloc = (params.get('alloc') || '').trim();
 			        if (alloc){
 			          $('#client-alloc-filter').val(alloc);
-			          _setExactColumnFilter(3, alloc);
+			          _setExactColumnFilter(clientAllocCol, alloc);
 			        }
 			      } catch(e){}
 			    })();
@@ -642,6 +679,7 @@ $(document).ready(function () {
 	      var vNom = $('#client-nom-filter').val();
 	      var vPrenom = $('#client-prenom-filter').val();
 	      var vResp = $('#client-resp-filter').val();
+        var vSource = $('#client-source-filter').val();
 	      var vAlloc = $('#client-alloc-filter').val();
 	      var vSrri = $('#client-srri-filter').val();
 	      var vValo = $('#client-valo-filter').val();
@@ -650,6 +688,7 @@ $(document).ready(function () {
 	      if (vNom) parts.push('Nom: ' + vNom);
 	      if (vPrenom) parts.push('Prénom: ' + vPrenom);
 	      if (vResp) parts.push('Resp: ' + vResp);
+        if (vSource) parts.push('Source: ' + vSource);
 	      if (vAlloc) parts.push('Offre: ' + vAlloc);
 	      if (vSrri) parts.push('SRRI: ' + vSrri);
 	      if (vValo) parts.push('Valo: ' + vValo);
@@ -660,7 +699,7 @@ $(document).ready(function () {
 	    }
 
 	    function hasActiveFiltersLocal(){
-	      return ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].some(function(sel){ return $(sel).val(); });
+	      return ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-source-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].some(function(sel){ return $(sel).length && $(sel).val(); });
 	    }
 
     function updateGroupedButtonVisibility(){
@@ -676,7 +715,7 @@ $(document).ready(function () {
 	    }
 		    // Mise à jour de l'UI (bouton tâches groupées) quand les filtres DataTables changent.
 
-	    ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
+	    ['#client-nom-filter','#client-prenom-filter','#client-resp-filter','#client-source-filter','#client-alloc-filter','#client-srri-filter','#client-valo-filter','#client-perf-filter','#client-vol-filter'].forEach(function(sel){
 	      var el = document.querySelector(sel);
 	      if (!el) return;
 	      el.addEventListener('input', updateGroupedButtonVisibility);
@@ -744,6 +783,7 @@ $(document).ready(function () {
 		        $('#client-nom-filter').val('');
 		        $('#client-prenom-filter').val('');
 		        $('#client-resp-filter').val('');
+            $('#client-source-filter').val('');
 		        $('#client-alloc-filter').val('');
 		        $('#client-srri-filter').val('');
 		        $('#client-valo-filter').val('');

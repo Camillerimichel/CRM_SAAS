@@ -2,8 +2,16 @@
 
 {% block title %}Affaires{% endblock %}
 {% block header_title %}<i class="fa-solid fa-briefcase" style="margin-right:8px;"></i>Affaires{% endblock %}
+{% block header_subtitle %}
+{% if dashboard_org_ui %}
+<div class="muted" style="font-size:0.95rem;">
+  {{ dashboard_org_ui.organisation_level_label }}{% if dashboard_org_ui.societe_name %} • {{ dashboard_org_ui.societe_name }}{% endif %} • {{ dashboard_org_ui.scope_label }}
+</div>
+{% endif %}
+{% endblock %}
 
 {% block content %}
+{% set network_view = dashboard_org_ui and dashboard_org_ui.is_network_view %}
 <style>
     .main-container {
         background: white;
@@ -20,6 +28,13 @@
         margin-bottom: 1.2rem;
         text-align: center;
         box-shadow: var(--shadow-sm);
+    }
+    .network-banner {
+        margin-bottom: 0.9rem;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid #dbeafe;
+        background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
     }
     .top-row {
         display: flex;
@@ -197,6 +212,11 @@
 	</style>
 
 <div class="main-container">
+    {% if network_view %}
+      <div class="network-banner">
+        <strong>Lecture réseau.</strong> La colonne `Société source` permet de remonter l’entité d’origine du contrat dans votre périmètre hiérarchique.
+      </div>
+    {% endif %}
     <!-- Bandeau total retiré -->
     <div class="badge-row">
       {% if group_filter_label %}
@@ -243,6 +263,7 @@
                 <tr>
                     <th data-sort="ref">Contrat / Client<span class="sort-arrow"></span></th>
                     <th data-sort="srri">SRRI<span class="sort-arrow"></span></th>
+                    {% if network_view %}<th>Société source</th>{% endif %}
                     <th data-sort="date_debut">Date début<span class="sort-arrow"></span></th>
                     <th data-sort="valo">Montant<span class="sort-arrow"></span></th>
                     <th>Perf 52 sem. (%)</th>
@@ -259,6 +280,7 @@
                             <option value="above" {% if (filters.risk|default('')) == 'above' %}selected{% endif %}>🔵</option>
                         </select>
                     </th>
+                    {% if network_view %}<th></th>{% endif %}
                     <th><input type="text" id="date-debut-filter" placeholder="AAAA-MM-JJ" value="{{ filters.date_debut|default('') }}"></th>
                     <th><input type="text" id="montant-filter" placeholder="Ex: >100k, 100k-500k" value="{{ filters.valo|default('') }}"></th>
                     <th></th>
@@ -284,6 +306,7 @@
                         {% else %}
                         {% endif %}
                     </td>
+                    {% if network_view %}<td title="{{ a.source_societe or '' }}">{{ a.source_societe or '—' }}</td>{% endif %}
                     <td>{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</td>
                     <td style="text-align:right;">{{ a.last_valo if a.last_valo is not none else '' }}</td>
                     <td style="text-align:right;">{{ a.last_perf if a.last_perf is not none else '' }}</td>
@@ -353,6 +376,11 @@ const actionsBarAff = document.getElementById('affairesGroupActions');
 const btnGroupedAff = document.getElementById('btnGroupedTasksAffaires');
 
 $(document).ready(function () {
+    const affaireHasSourceColumn = {{ 'true' if network_view else 'false' }};
+    const affaireDateCol = affaireHasSourceColumn ? 3 : 2;
+    const affaireValoCol = affaireHasSourceColumn ? 4 : 3;
+    const affairePerfCol = affaireHasSourceColumn ? 5 : 4;
+    const affaireVolCol = affaireHasSourceColumn ? 6 : 5;
     var table = $('#affairesTable').DataTable({
         dom: 'rt', // filtrage/tri uniquement, pagination côté serveur
         paging: false,
@@ -363,14 +391,12 @@ $(document).ready(function () {
           // Réduire Contrat/Client, élargir SRRI et Montant
           { targets: 0, width: '260px' },
           { targets: 1, width: '120px', className: 'dt-center' },
-          { targets: 3, width: '200px' },
-          // Réduire la dernière colonne Vol.
-          { targets: 5, width: '90px' },
-          // Montant (col 3)
-          { targets: 3, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
-          // Perf/Vol (cols 4 et 5) → afficher en % si fourni sous forme fraction
-          { targets: 4, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
-          { targets: 5, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }
+          ...(affaireHasSourceColumn ? [{ targets: 2, width: '180px' }] : []),
+          { targets: affaireValoCol, width: '200px' },
+          { targets: affaireVolCol, width: '90px' },
+          { targets: affaireValoCol, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
+          { targets: affairePerfCol, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
+          { targets: affaireVolCol, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }
         ]
     });
 

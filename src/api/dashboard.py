@@ -191,6 +191,68 @@ def _build_org_ui_context(
     }
 
 
+def _load_client_source_societes(db: Session, client_ids: list[int]) -> dict[int, str]:
+    if not client_ids:
+        return {}
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    cs.client_id,
+                    GROUP_CONCAT(DISTINCT sg.nom) AS societes
+                FROM mariadb_client_societe cs
+                JOIN mariadb_societe_gestion sg ON sg.id = cs.societe_id
+                WHERE cs.client_id IN :client_ids
+                  AND cs.date_fin IS NULL
+                GROUP BY cs.client_id
+                """
+            ).bindparams(bindparam("client_ids", expanding=True)),
+            {"client_ids": tuple(client_ids)},
+        ).fetchall()
+        source_map: dict[int, str] = {}
+        for row in rows or []:
+            m = row._mapping if hasattr(row, "_mapping") else None
+            cid = m.get("client_id") if m else row[0]
+            label = m.get("societes") if m else (row[1] if len(row) > 1 else None)
+            if cid is not None and label:
+                source_map[int(cid)] = str(label)
+        return source_map
+    except Exception:
+        return {}
+
+
+def _load_affaire_source_societes(db: Session, affaire_ids: list[int]) -> dict[int, str]:
+    if not affaire_ids:
+        return {}
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    afs.affaire_id,
+                    GROUP_CONCAT(DISTINCT sg.nom) AS societes
+                FROM mariadb_affaire_societe afs
+                JOIN mariadb_societe_gestion sg ON sg.id = afs.societe_id
+                WHERE afs.affaire_id IN :affaire_ids
+                  AND afs.date_fin IS NULL
+                GROUP BY afs.affaire_id
+                """
+            ).bindparams(bindparam("affaire_ids", expanding=True)),
+            {"affaire_ids": tuple(affaire_ids)},
+        ).fetchall()
+        source_map: dict[int, str] = {}
+        for row in rows or []:
+            m = row._mapping if hasattr(row, "_mapping") else None
+            aid = m.get("affaire_id") if m else row[0]
+            label = m.get("societes") if m else (row[1] if len(row) > 1 else None)
+            if aid is not None and label:
+                source_map[int(aid)] = str(label)
+        return source_map
+    except Exception:
+        return {}
+
+
 def _validate_societe_gestion_parent(
     db: Session,
     *,
@@ -20013,6 +20075,11 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Compte client non rattaché")
     else:
         require_permission(access, "data", "read", societe_id=scope)
+    clients_org_ui = _build_org_ui_context(
+        societe_name=getattr(request.state, "societe_gestion_nom", None),
+        organisation_level=getattr(request.state, "societe_gestion_level", None),
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
 
     tb_markers_visible = request.query_params.get("markers") == "1"
     total_clients = db.query(func.count(Client.id)).scalar() or 0
@@ -20315,6 +20382,17 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             nm = alloc_name_by_id.get(aid) or alloc_risque_name_by_id.get(aid)
         c["allocation_nom"] = nm
 
+    client_source_map = _load_client_source_societes(
+        db,
+        [int(c["id"]) for c in clients if c.get("id") is not None],
+    )
+    for c in clients:
+        try:
+            cid = int(c.get("id"))
+        except Exception:
+            cid = None
+        c["source_societe"] = client_source_map.get(cid, "—") if cid is not None else "—"
+
     # Options de filtre "Offre financière" (issues de la liste affichée, pas de SQL séparé)
     allocation_options: list[str] = []
     try:
@@ -20382,6 +20460,7 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
+            "dashboard_org_ui": clients_org_ui,
         }
     )
 
@@ -20389,6 +20468,19 @@ def dashboard_clients(request: Request, db: Session = Depends(get_db)):
 # ---------------- Affaires ----------------
 @router.get("/affaires", response_class=HTMLResponse)
 def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    require_permission(access, "data", "read", societe_id=scope)
+    affaires_org_ui = _build_org_ui_context(
+        societe_name=getattr(request.state, "societe_gestion_nom", None),
+        organisation_level=getattr(request.state, "societe_gestion_level", None),
+        scope_ids=_scope_ids_for_access(access, scope),
+    )
     total_affaires = db.query(func.count(Affaire.id)).scalar() or 0
     group_filter_param = request.query_params.get("group_id")
     group_filter_label: str | None = None
@@ -20690,6 +20782,16 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "srri_calc": srri_calc,
             "srri_icon": icon,
         })
+    affaire_source_map = _load_affaire_source_societes(
+        db,
+        [int(a["id"]) for a in affaires if a.get("id") is not None],
+    )
+    for a in affaires:
+        try:
+            aid = int(a.get("id"))
+        except Exception:
+            aid = None
+        a["source_societe"] = affaire_source_map.get(aid, "—") if aid is not None else "—"
     # Comptage par comparaison SRRI (contrat vs calculé)
     compare_counts = {"above": 0, "equal": 0, "below": 0}
     for a in affaires:
@@ -20752,6 +20854,7 @@ def dashboard_affaires(request: Request, db: Session = Depends(get_db)):
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
+            "dashboard_org_ui": affaires_org_ui,
         }
     )
 
