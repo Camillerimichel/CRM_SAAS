@@ -856,7 +856,7 @@
           <span>Offre financière retenue</span>
           <span class="kv">
             {% if offre_nom %}
-              <a href="/dashboard/allocations?nom={{ offre_nom | urlencode }}" class="link" title="Voir l'offre dans Offres financières">{{ offre_nom }}</a>
+              <a href="/dashboard/allocations?nom={{ offre_nom | urlencode }}" class="link" title="Voir l'offre dans Offres financières" target="_blank" rel="noopener noreferrer">{{ offre_nom }}</a>
             {% else %}
               —
             {% endif %}
