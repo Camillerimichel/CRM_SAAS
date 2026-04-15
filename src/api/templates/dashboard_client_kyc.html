@@ -88,6 +88,41 @@
   .objective-detail-actions .spacer { flex:1 1 auto; }
   .btn-danger { background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; padding:8px 16px; border-radius:8px; cursor:pointer; }
   .btn-danger:hover { background:#fecaca; }
+  #objectifsTotalInput,
+  #objectifFormMontant,
+  #objectifFormNiveau,
+  #objectifFormHorizon,
+  #objectifFormDateExpiration,
+  #objectifFormDateSaisie {
+    text-align: center;
+  }
+  #objectifFormMontant,
+  #objectifsTotalInput {
+    font-variant-numeric: tabular-nums;
+  }
+  #objectifFormNiveau,
+  #objectifFormHorizon,
+  #objectifFormDateExpiration {
+    text-align-last: center;
+  }
+  #objectifFormDateExpiration {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  #objectifFormDateSaisie {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:36px;
+    font-variant-numeric: tabular-nums;
+  }
+  .objectifs-total-row {
+    align-items:center;
+  }
+  .objectifs-total-row .muted,
+  .objectifs-total-row input {
+    justify-self:stretch;
+  }
 
   /* Le KYC est souvent ouvert dans une modale ~960px : on garde 2 colonnes jusque 860px. */
   @media (max-width: 860px){

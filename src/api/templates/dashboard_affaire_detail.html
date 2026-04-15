@@ -42,7 +42,7 @@
   }
   #supportsTableContract th:nth-child(2), #supportsTableContract td:nth-child(2) { width: 15%; overflow:hidden; text-overflow: ellipsis; }
   #supportsTableContract th:nth-child(3), #supportsTableContract td:nth-child(3) { width: 5%; text-align: center; }
-  /* Numeric columns (Nb UC, VL, PRMP, Valorisation) widths */
+  /* Numeric columns (Nb UC, VL, PRMA, Valorisation) widths */
   #supportsTableContract th:nth-child(4), #supportsTableContract td:nth-child(4) { width: 6%; }
   #supportsTableContract th:nth-child(5), #supportsTableContract td:nth-child(5) { width: 5%; }
   #supportsTableContract th:nth-child(6), #supportsTableContract td:nth-child(6) { width: 5%; }
@@ -51,7 +51,7 @@
   #supportsTableContract th:nth-child(8), #supportsTableContract td:nth-child(8),
   #supportsTableContract th:nth-child(9), #supportsTableContract td:nth-child(9),
   #supportsTableContract th:nth-child(10), #supportsTableContract td:nth-child(10) { width: 3%; text-align: center; padding: 2px; }
-  /* Right-align headers for Nb UC, PRMP, Valorisation */
+  /* Right-align headers for Nb UC, PRMA, Valorisation */
   #supportsTableContract th:nth-child(4), #supportsTableContract th:nth-child(5), #supportsTableContract th:nth-child(6), #supportsTableContract th:nth-child(7) { text-align: right; }
   /* DataTables center alignment helper */
   .dt-center { text-align: center; }
@@ -216,6 +216,29 @@
   #affSupportMovementsTable th, #affSupportMovementsTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
   #affSupportMovementsTable th { background:var(--primary, #475569); color:#fff; text-transform:none; font-size:0.87rem; }
   #affSupportMovementsTable tr:nth-child(even) td { background:#f8fafc; }
+  .aff-support-fee-row { display: table-row; }
+  .aff-fees-hidden .aff-support-fee-row { display: none; }
+  .aff-support-fees-toggle {
+    border:1px solid #cbd5e1;
+    background:#fff;
+    color:#1f2937;
+    border-radius:999px;
+    padding:7px 12px;
+    font-size:0.82rem;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+  }
+  .aff-support-fees-toggle:hover {
+    background:#f8fafc;
+    border-color:#94a3b8;
+  }
+  .aff-support-fees-toggle.active {
+    background:var(--primary);
+    border-color:var(--primary);
+    color:#fff;
+    box-shadow:0 6px 14px rgba(37,99,235,0.2);
+  }
   /* Toggle chevron styles (reuse for inv+graphs) */
   #invToggle, #esgToggle, #avisToggle, #graphsToggle, #affTasksToggle, #riskToggle {
     display:flex;
@@ -827,7 +850,7 @@
     <thead>
       <tr>
         <th>ISIN</th><th>Nom</th><th>SRRI</th>
-        <th>Nb UC</th><th>VL</th><th>PRMP</th><th>Valorisation</th>
+        <th>Nb UC</th><th>VL</th><th>PRMA</th><th>Valorisation</th>
         <th>Env</th><th>Social</th><th>Gouv</th>
       </tr>
     </thead>
@@ -845,7 +868,12 @@
       <td style="text-align:center;">{{ s.srri_support }}</td>
       <td class="right">{{ s.nbuc }}</td>
       <td class="right">{{ s.vl }}</td>
-      <td class="right">{{ s.prmp }}</td>
+      {% set prma_num = s.prmp|float %}
+      {% set vl_num = s.vl|float %}
+      {% set prma_class = 'gain' if prma_num < vl_num else 'loss' %}
+      <td class="right" data-order="{{ prma_num }}" data-search="{{ prma_num }}">
+        <span class="{{ prma_class }}">{{ s.prmp }}</span>
+      </td>
       {% set valo_num = s.valo|float %}
       {% set valo_pct = valo_num / supports_total_valo.val * 100 if supports_total_valo.val else 0 %}
       {% if valo_pct < 0 %}{% set valo_pct = 0 %}{% endif %}
@@ -894,11 +922,14 @@
     {% endif %}
     </tbody>
   </table>
-  <div id="affSupportMovementsModal" class="modal-overlay" onclick="if(event.target===this) closeAffSupportMovementsModal()">
+  <div id="affSupportMovementsModal" class="modal-overlay aff-fees-hidden" onclick="if(event.target===this) closeAffSupportMovementsModal()">
     <div class="modal-card" style="width:820px; max-width:97vw;">
       <div class="modal-header">
         <h3><i class="fa-solid fa-right-left" style="margin-right:8px;"></i><span id="affSupportMovementsLabel">Mouvements du support</span></h3>
-        <button class="modal-close" onclick="closeAffSupportMovementsModal()">✕</button>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="affSupportFeesToggleBtn" class="aff-support-fees-toggle" onclick="toggleAffSupportFees()">Afficher les frais de gestion</button>
+          <button class="modal-close" onclick="closeAffSupportMovementsModal()">✕</button>
+        </div>
       </div>
       <div class="modal-body">
         <table id="affSupportMovementsTable" style="width:100%; border-collapse:collapse;">
@@ -1616,6 +1647,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   function openAffSupportMovementsModal(code, name, contractLabel, movements){
     const modal = document.getElementById('affSupportMovementsModal');
     if (!modal) return;
+    if (!modal.classList.contains('aff-fees-hidden')) modal.classList.add('aff-fees-hidden');
+    updateAffSupportFeesToggle(false);
     const tbody = modal.querySelector('#affSupportMovementsTable tbody');
     const labelEl = document.getElementById('affSupportMovementsLabel');
     if (labelEl){
@@ -1629,6 +1662,10 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       const rows = Array.isArray(movements) ? movements : [];
       rows.forEach(function(mv){
         const tr = document.createElement('tr');
+        const regle = String(mv.regle || '').trim();
+        if (/frais\s+de\s+gestion/i.test(regle)){
+          tr.classList.add('aff-support-fee-row');
+        }
         [
           { value: mv.date || '-' },
           { value: mv.regle || '-' },
@@ -1654,6 +1691,18 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       }
     }
     modal.style.display = 'flex';
+  }
+  function updateAffSupportFeesToggle(visible){
+    const btn = document.getElementById('affSupportFeesToggleBtn');
+    if (!btn) return;
+    btn.textContent = visible ? 'Masquer les frais de gestion' : 'Afficher les frais de gestion';
+    btn.classList.toggle('active', !!visible);
+  }
+  function toggleAffSupportFees(){
+    const modal = document.getElementById('affSupportMovementsModal');
+    if (!modal) return;
+    const visible = modal.classList.toggle('aff-fees-hidden') === false;
+    updateAffSupportFeesToggle(visible);
   }
   function closeAffSupportMovementsModal(){ const modal = document.getElementById('affSupportMovementsModal'); if (modal) modal.style.display = 'none'; }
 
@@ -2616,22 +2665,72 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
           alert('Affaire introuvable.');
           return;
         }
-        if (typeof window.showGlobalLoader === 'function'){
-          window.showGlobalLoader('Génération du PDF…');
-        }
-        const url = '/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/pdf';
-        window.open(url, '_blank', 'noopener');
-        const clearLoader = function(){
-          if (typeof window.hideGlobalLoader === 'function'){
-            window.hideGlobalLoader();
-          }
-          window.removeEventListener('focus', clearLoader);
-        };
-        window.addEventListener('focus', clearLoader);
-        setTimeout(clearLoader, 4000);
+        var urlInline = '/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/pdf?inline=1';
+        var urlDl = '/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/pdf';
+        urlInline = appendMarkers(urlInline);
+        urlDl = appendMarkers(urlDl);
+        openPdfViewer({ title: 'Synthèse', inlineUrl: urlInline, downloadUrl: urlDl });
       }catch(err){
         console.warn('Affaire synthèse PDF generation failed', err);
       }
+    }
+    function __pdfNoCache(url){
+      try{
+        if(!url) return url;
+        var u = new URL(url, window.location.origin);
+        u.searchParams.set('t', String(Date.now()));
+        return u.toString();
+      }catch(e){
+        return url + (String(url).indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+      }
+    }
+    function openPdfViewer(options){
+      try{
+        var m = document.getElementById('pdfViewerModal');
+        var frame = document.getElementById('pdfViewerFrame');
+        var titleEl = document.getElementById('pdfViewerTitle');
+        var openBtn = document.getElementById('pdfViewerOpenBtn');
+        var dlBtn = document.getElementById('pdfViewerDownloadBtn');
+        if (!m || !frame) return;
+        var title = (options && options.title) ? String(options.title) : 'Document';
+        var inlineUrl = (options && options.inlineUrl) ? String(options.inlineUrl) : '';
+        var downloadUrl = (options && options.downloadUrl) ? String(options.downloadUrl) : '';
+
+        if (titleEl){
+          titleEl.innerHTML = '<i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>' + title.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+        }
+        if (openBtn){
+          openBtn.href = inlineUrl || '#';
+          openBtn.style.display = inlineUrl ? '' : 'none';
+        }
+        if (dlBtn){
+          dlBtn.href = downloadUrl || inlineUrl || '#';
+          dlBtn.style.display = (downloadUrl || inlineUrl) ? '' : 'none';
+        }
+
+        try{
+          if (typeof window.showGlobalLoader === 'function'){
+            window.showGlobalLoader('Chargement du PDF…');
+          }
+        }catch(e){}
+
+        frame.onload = function(){
+          try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(e){}
+        };
+        frame.src = __pdfNoCache(inlineUrl || downloadUrl || 'about:blank');
+
+        m.style.display = 'flex';
+      }catch(e){
+        try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
+      }
+    }
+    function closePdfViewer(){
+      try{
+        var m = document.getElementById('pdfViewerModal');
+        var frame = document.getElementById('pdfViewerFrame');
+        if (m) m.style.display = 'none';
+        if (frame) frame.src = 'about:blank';
+      }catch(e){}
     }
     function openAffAdminGroups(){
       const el = document.getElementById('affAdminGroupsModal');
@@ -2717,5 +2816,24 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       }
     </script>
   </div>
+
+<!-- Visualiseur PDF (Synthèse affaire) -->
+<div id="pdfViewerModal" class="modal-overlay" onclick="if(event.target===this) closePdfViewer()">
+  <div class="modal-card" style="width:980px; max-width:98vw; height:92vh; display:flex; flex-direction:column;">
+    <div class="modal-header">
+      <h3 id="pdfViewerTitle" style="display:flex; align-items:center; gap:8px; margin:0;">
+        <i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>Document</span>
+      </h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a id="pdfViewerOpenBtn" class="btn btn-secondary" href="#" target="_blank" rel="noopener">Ouvrir</a>
+        <a id="pdfViewerDownloadBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">Télécharger</a>
+        <button class="modal-close" onclick="closePdfViewer()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" style="padding:0; flex:1 1 auto;">
+      <iframe id="pdfViewerFrame" src="about:blank" style="width:100%; height:100%; border:0;" title="Aperçu PDF"></iframe>
+    </div>
+  </div>
+</div>
 
 {% endblock %}

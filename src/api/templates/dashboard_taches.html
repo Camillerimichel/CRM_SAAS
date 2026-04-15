@@ -458,16 +458,16 @@
       </div>
       <div id="tasksListBody" class="task-section">
     <div id="tasksQuickfilters" class="tasks-quickfilters" style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 1rem;">
-      <a class="btn btn-choice" href="/dashboard/taches"><i class="fa-solid fa-list"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?today=1"><i class="fa-solid fa-sun"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?late=1"><i class="fa-solid fa-triangle-exclamation"></i>En retard <span class="badge">{{ counts.late }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&exclude_statut=terminé"><i class="fa-solid fa-bell"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&statut=termin%C3%A9"><i class="fa-solid fa-circle-check"></i>Réclamations terminées <span class="badge">{{ counts.reclamations_terminees }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire"><i class="fa-regular fa-square"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente"><i class="fa-regular fa-clock"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours"><i class="fa-solid fa-play"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=termin%C3%A9"><i class="fa-solid fa-check"></i>Terminées <span class="badge">{{ counts.termine }}</span></a>
-      <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9"><i class="fa-solid fa-xmark"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?open=list"><i class="fa-solid fa-list"></i>Toutes les tâches <span class="badge">{{ counts.total if counts and counts.total is not none else (items|length) }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?today=1&amp;open=list"><i class="fa-solid fa-sun"></i>Mes tâches du jour <span class="badge">{{ counts.today }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?late=1&amp;open=list"><i class="fa-solid fa-triangle-exclamation"></i>En retard <span class="badge">{{ counts.late }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&amp;exclude_statut=terminé&amp;open=list"><i class="fa-solid fa-bell"></i>Réclamations en cours <span class="badge">{{ counts.reclamations }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?categorie=reclamation&amp;statut=termin%C3%A9&amp;open=list"><i class="fa-solid fa-circle-check"></i>Réclamations terminées <span class="badge">{{ counts.reclamations_terminees }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=%C3%A0%20faire&amp;open=list"><i class="fa-regular fa-square"></i>À faire <span class="badge">{{ counts.a_faire }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20attente&amp;open=list"><i class="fa-regular fa-clock"></i>En attente <span class="badge">{{ counts.en_attente }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=en%20cours&amp;open=list"><i class="fa-solid fa-play"></i>En cours <span class="badge">{{ counts.en_cours }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=termin%C3%A9&amp;open=list"><i class="fa-solid fa-check"></i>Terminées <span class="badge">{{ counts.termine }}</span></a>
+      <a class="btn btn-choice" href="/dashboard/taches?statut=annul%C3%A9&amp;open=list"><i class="fa-solid fa-xmark"></i>Annulées <span class="badge">{{ counts.annule }}</span></a>
     </div>
     <form method="get" action="/dashboard/taches">
       <style>
@@ -1617,6 +1617,15 @@
         if (open && map[open]) {
           setSectionOpen(map[open]);
           // When coming from sidebar submenu, always land at the top of the page.
+          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
+          return;
+        }
+        var hasFilterQuery = ['statut', 'today', 'late', 'categorie', 'exclude_statut', 'rh', 'client', 'affaire', 'search'].some(function(key){
+          var val = params.get(key);
+          return val !== null && String(val).trim() !== '';
+        });
+        if (hasFilterQuery) {
+          setSectionOpen('tasksListCard');
           try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){}
           return;
         }

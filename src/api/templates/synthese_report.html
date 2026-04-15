@@ -55,6 +55,16 @@
     .grid-2 { display:grid; grid-template-columns:repeat(2, minmax(220px,1fr)); gap:12px; }
     .grid-3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:12px; }
     .chart { margin-top:0.6rem; border:1px solid #e2e8f0; border-radius:10px; padding:8px; background:#fafbff; }
+    .valor-dot {
+      display:inline-block;
+      width:8px;
+      height:8px;
+      border-radius:50%;
+      margin-right:6px;
+      vertical-align:middle;
+    }
+    .valor-dot.green { background:#2e7d32; }
+    .valor-dot.red { background:#c62828; }
     .screen-footer { position:fixed; left:18mm; right:18mm; bottom:10mm; text-align:center; font-size:10pt; font-style:italic; color:#64748b; }
     @media print { .screen-footer { display:none; } }
     @media screen { .screen-footer { display:block; } }
@@ -136,15 +146,16 @@
 	    </div>
 	  </div>
 	  <div class="page-break"></div>
-	  <h2 id="section-valorisation-contrats" class="section-title">2. Valorisation du contrat</h2>
+	  <h2 id="section-valorisation-contrats" class="section-title">2. Valorisation du contrat{% if contracts and (contracts|length > 1) %}s{% endif %}</h2>
 	  <p class="muted">Tableau des contrats souscrits et de leur valorisation actuelle.</p>
   {% if contracts %}
   <table class="table table-synthese">
     <thead><tr><th>Contrat</th><th style="text-align:center;">SRRI</th><th style="text-align:right;">Valorisation</th><th style="text-align:right;">Perf 52 sem.</th><th style="text-align:right;">Volatilité</th></tr></thead>
     <tbody>
       {% for c in contracts %}
+        {% set contract_dot_class = 'red' if c.en_moins_value else 'green' %}
         <tr>
-          <td>{{ c.ref or 'N/A' }}</td>
+          <td><span class="valor-dot {{ contract_dot_class }}"></span>{{ c.ref or 'N/A' }}</td>
           <td style="text-align:center;">{{ c.srri or '—' }}</td>
           <td style="text-align:right;">{{ c.valo }} €</td>
           <td style="text-align:right;">{{ c.perf is not none and ('%.2f'|format(c.perf)) ~ ' %' or '—' }}</td>
@@ -171,12 +182,15 @@
     <thead><tr><th>Code ISIN</th><th>Support</th><th>Catégorie</th><th>SRRI</th><th>Valorisation</th></tr></thead>
     <tbody>
       {% for s in supports %}
+        {% set prma_num = s.prma|float %}
+        {% set vl_num = s.vl|float %}
+        {% set dot_class = 'red' if prma_num > vl_num else 'green' %}
         <tr>
           <td>{{ s.code_isin }}</td>
           <td>{{ s.nom }}</td>
           <td>{{ s.cat or '—' }}</td>
           <td style="text-align:center;">{{ s.srri or '—' }}</td>
-          <td>{{ s.valo }} €</td>
+          <td><span class="valor-dot {{ dot_class }}"></span>{{ s.valo }} €</td>
         </tr>
       {% endfor %}
     </tbody>

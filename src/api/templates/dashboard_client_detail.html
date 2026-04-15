@@ -594,6 +594,8 @@
     text-align:right;
     font-variant-numeric: tabular-nums;
   }
+  .support-prma-good { color: #2e7d32; }
+  .support-prma-bad { color: #c62828; }
   .support-item-vl .support-value {
     min-width: 9ch;
     justify-content:flex-end;
@@ -624,6 +626,29 @@
     background:#f8fafc;
     justify-content:center;
     text-align:center;
+  }
+  .support-fee-row { display: table-row; }
+  .fees-hidden .support-fee-row { display: none; }
+  .support-fees-toggle {
+    border:1px solid #cbd5e1;
+    background:#fff;
+    color:#1f2937;
+    border-radius:999px;
+    padding:7px 12px;
+    font-size:0.82rem;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+  }
+  .support-fees-toggle:hover {
+    background:#f8fafc;
+    border-color:#94a3b8;
+  }
+  .support-fees-toggle.active {
+    background:var(--primary);
+    border-color:var(--primary);
+    color:#fff;
+    box-shadow:0 6px 14px rgba(37,99,235,0.2);
   }
   .section-title-blue {
     display:inline-block;
@@ -1993,6 +2018,8 @@ function generateClientSynthese(){
         var totalValo = 0.0;
         var totalPrmpNum = 0.0;
         var totalPrmpDen = 0.0;
+        var totalVlNum = 0.0;
+        var totalVlDen = 0.0;
         // regrouper par contrat et sommer
         var grouped = {};
         rows.forEach(function(r, idx){
@@ -2027,31 +2054,43 @@ function generateClientSynthese(){
             var contrat = normalize(r.contratLabel);
             var contrat_id = r.contrat_id;
             var nb_raw = r.nb || 0;
-            var valo_raw = r.valo || 0;
-            var prmp_raw = (r.prmp_den > 0) ? (r.prmp_num / r.prmp_den) : null;
-            totalParts += nb_raw;
-            totalValo += valo_raw;
-            if (prmp_raw !== null) {
-              totalPrmpNum += prmp_raw * nb_raw;
-              totalPrmpDen += nb_raw;
-            }
-            var nb = nb_raw ? nb_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-            var prmp = (prmp_raw !== null && !isNaN(prmp_raw)) ? prmp_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-            var valo = valo_raw ? valo_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-            [contrat, nb, prmp, valo].forEach(function(val, idx){
-              var td = document.createElement('td');
-              if (idx === 0 && contrat_id){
-                var a = document.createElement('a');
-                a.href = '/dashboard/affaires/' + encodeURIComponent(contrat_id);
-                a.textContent = val || ('#' + contrat_id);
-                a.target = '_blank';
-                td.appendChild(a);
+          var valo_raw = r.valo || 0;
+          var prmp_raw = (r.prmp_den > 0) ? (r.prmp_num / r.prmp_den) : null;
+          var vl_raw = (r.vl_den > 0) ? (r.vl_num / r.vl_den) : null;
+          totalParts += nb_raw;
+          totalValo += valo_raw;
+          if (prmp_raw !== null) {
+            totalPrmpNum += prmp_raw * nb_raw;
+            totalPrmpDen += nb_raw;
+          }
+          if (vl_raw !== null) {
+            totalVlNum += vl_raw * nb_raw;
+            totalVlDen += nb_raw;
+          }
+          var nb = nb_raw ? nb_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          var prma = (prmp_raw !== null && !isNaN(prmp_raw)) ? prmp_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          var valo = valo_raw ? valo_raw.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          [contrat, nb, prma, valo].forEach(function(val, idx){
+            var td = document.createElement('td');
+            if (idx === 0 && contrat_id){
+              var a = document.createElement('a');
+              a.href = '/dashboard/affaires/' + encodeURIComponent(contrat_id);
+              a.textContent = val || ('#' + contrat_id);
+              a.target = '_blank';
+              td.appendChild(a);
+            } else {
+              if (idx === 2){
+                var span = document.createElement('span');
+                span.textContent = val || '-';
+                span.className = (prmp_raw !== null && vl_raw !== null && prmp_raw < vl_raw) ? 'support-prma-good' : 'support-prma-bad';
+                td.appendChild(span);
               } else {
                 td.textContent = val || '-';
               }
-              if (idx >= 1) td.style.textAlign = 'right';
-              tr.appendChild(td);
-            });
+            }
+            if (idx >= 1) td.style.textAlign = 'right';
+            tr.appendChild(td);
+          });
             tbody.appendChild(tr);
           });
           // ligne total
@@ -2066,7 +2105,18 @@ function generateClientSynthese(){
           var tdParts = document.createElement('td');
           tdParts.style.textAlign = 'right';
           tdParts.textContent = totalParts ? totalParts.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
-          var tdPrmp = document.createElement('td'); tdPrmp.style.textAlign = 'right'; tdPrmp.textContent = (totalPrmpDen > 0) ? (totalPrmpNum / totalPrmpDen).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+          var tdPrmp = document.createElement('td');
+          tdPrmp.style.textAlign = 'right';
+          var totalPrma = (totalPrmpDen > 0) ? (totalPrmpNum / totalPrmpDen) : null;
+          var totalVl = (totalVlDen > 0) ? (totalVlNum / totalVlDen) : null;
+          if (totalPrma !== null) {
+            var span = document.createElement('span');
+            span.textContent = totalPrma.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2});
+            span.className = (totalVl !== null && totalPrma < totalVl) ? 'support-prma-good' : 'support-prma-bad';
+            tdPrmp.appendChild(span);
+          } else {
+            tdPrmp.textContent = '-';
+          }
           var tdVl = document.createElement('td'); tdVl.style.textAlign = 'right'; tdVl.textContent = '-';
           [td1, tdValo, tdParts, tdPrmp, tdVl].forEach(function(td){ trTot.appendChild(td); });
           tbody.appendChild(trTot);
@@ -2115,6 +2165,10 @@ function generateClientSynthese(){
     function openConsolidatedSupportContractsModal(isin, name){
       var modal = document.getElementById('consolidatedSupportContractsModal');
       if (!modal) return;
+      if (modal.classList.contains('fees-hidden') === false){
+        modal.classList.add('fees-hidden');
+      }
+      updateSupportFeesToggleLabel(false);
       var isinLink = document.getElementById('supportContractsIsinLink');
       if (isinLink){
         if (isin){
@@ -2130,6 +2184,20 @@ function generateClientSynthese(){
       renderConsolidatedSupportChronologyTable(isin);
       modal.style.display = 'flex';
     }
+
+    function updateSupportFeesToggleLabel(visible){
+      var btn = document.getElementById('toggleSupportFeesBtn');
+      if (!btn) return;
+      btn.textContent = visible ? 'Masquer les frais de gestion' : 'Afficher les frais de gestion';
+      btn.classList.toggle('active', !!visible);
+    }
+
+    window.toggleSupportFeesColumns = function(){
+      var modal = document.getElementById('consolidatedSupportContractsModal');
+      if (!modal) return;
+      var visible = modal.classList.toggle('fees-hidden') === false;
+      updateSupportFeesToggleLabel(visible);
+    };
 
     function renderConsolidatedSupportContractsTable(isin, label){
       var tbody = document.getElementById('supportContractsBody');
@@ -2152,6 +2220,10 @@ function generateClientSynthese(){
             prmp_den: 0,
             vl_num: 0,
             vl_den: 0,
+            fga_num: 0,
+            fga_den: 0,
+            fgc_num: 0,
+            fgc_den: 0,
           };
           groupOrder.push(key);
         }
@@ -2159,6 +2231,8 @@ function generateClientSynthese(){
         var valo = parseFloat(r.valo || 0) || 0;
         var prmp = parseFloat(r.prmp);
         var vl = parseFloat(r.vl);
+        var fga = parseFloat(r.frais_gestion_assureur);
+        var fgc = parseFloat(r.frais_gestion_courtier);
         grouped[key].nb += nbParts;
         grouped[key].valo += valo;
         if (!isNaN(prmp)) {
@@ -2168,6 +2242,14 @@ function generateClientSynthese(){
         if (!isNaN(vl)) {
           grouped[key].vl_num += vl * nbParts;
           grouped[key].vl_den += nbParts;
+        }
+        if (!isNaN(fga)) {
+          grouped[key].fga_num += fga * nbParts;
+          grouped[key].fga_den += nbParts;
+        }
+        if (!isNaN(fgc)) {
+          grouped[key].fgc_num += fgc * nbParts;
+          grouped[key].fgc_den += nbParts;
         }
       });
       var groupedCount = groupOrder.length;
@@ -2271,9 +2353,12 @@ function generateClientSynthese(){
       }
       rows.forEach(function(r){
         var tr = document.createElement('tr');
+        var regleLabel = r.regle || '—';
+        var isFeeRow = /frais\s+de\s+gestion/i.test(String(regleLabel));
+        if (isFeeRow) tr.classList.add('support-fee-row');
         [
           formatDate(r.date),
-          r.regle || '—',
+          regleLabel,
           formatDecimal(r.montant),
           formatDecimal(r.vl),
           formatDecimal(r.nb),
@@ -2316,7 +2401,7 @@ function generateClientSynthese(){
   })();
   </script>
 
-  <div id="consolidatedSupportContractsModal" class="modal-overlay" onclick="if(event.target===this) closeConsolidatedSupportContractsModal()">
+  <div id="consolidatedSupportContractsModal" class="modal-overlay fees-hidden" onclick="if(event.target===this) closeConsolidatedSupportContractsModal()">
     <div class="modal-card" style="max-width:650px; width:95%;">
       <div class="modal-header">
         <h3><i class="fa-solid fa-network-wired" style="margin-right:8px;"></i><span id="supportConsolidatedLabel">Contrats contenant ce support</span></h3>
@@ -2331,7 +2416,7 @@ function generateClientSynthese(){
                 <th style="width:40%;">Contrat</th>
                 <th style="text-align:right;">Valorisation</th>
                 <th style="text-align:right;">Nb parts</th>
-                <th style="text-align:right;">PRMP</th>
+                <th style="text-align:right;">PRMA</th>
                 <th style="text-align:right;">VL</th>
               </tr>
             </thead>
@@ -2339,8 +2424,9 @@ function generateClientSynthese(){
           </table>
         </div>
         <div style="margin-top:1rem;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
             <strong>Chronologie des opérations</strong>
+            <button type="button" id="toggleSupportFeesBtn" class="support-fees-toggle" onclick="toggleSupportFeesColumns()">Afficher les frais de gestion</button>
           </div>
           <div class="table-responsive">
             <table id="supportChronologyTable" class="table table-sm" style="width:100%; font-size:12px; margin-bottom:0;">
