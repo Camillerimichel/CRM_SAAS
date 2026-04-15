@@ -15482,6 +15482,59 @@ async def dashboard_client_kyc(
             return ""
         return str(value)
 
+    def _normalize_esg_text(value) -> str:
+        try:
+            import unicodedata
+
+            text = unicodedata.normalize("NFKD", str(value or ""))
+            text = "".join(ch for ch in text if not unicodedata.combining(ch))
+            return " ".join(text.lower().split())
+        except Exception:
+            return " ".join(str(value or "").lower().split())
+
+    def _load_esg_special_ids() -> dict[str, int | None]:
+        exclusion_none_id: int | None = None
+        indicator_none_id: int | None = None
+        try:
+            rows = db.execute(text("SELECT id, code, label FROM esg_exclusion_option ORDER BY id")).fetchall()
+            for row in rows:
+                m = row._mapping
+                code = _normalize_esg_text(m.get("code"))
+                label = _normalize_esg_text(m.get("label"))
+                if code == "aucune" or label == "aucune exclusion particuliere souhaitee":
+                    try:
+                        exclusion_none_id = int(m.get("id"))
+                    except Exception:
+                        exclusion_none_id = None
+                    break
+        except Exception:
+            exclusion_none_id = None
+        try:
+            rows = db.execute(text("SELECT id, code, label FROM esg_indicator_option ORDER BY id")).fetchall()
+            for row in rows:
+                m = row._mapping
+                code = _normalize_esg_text(m.get("code"))
+                label = _normalize_esg_text(m.get("label"))
+                if code == "aucun" or label == "aucun indicateur particulier souhaite":
+                    try:
+                        indicator_none_id = int(m.get("id"))
+                    except Exception:
+                        indicator_none_id = None
+                    break
+        except Exception:
+            indicator_none_id = None
+        return {
+            "exclusion_none_id": exclusion_none_id,
+            "indicator_none_id": indicator_none_id,
+        }
+
+    def _normalize_esg_selection(selected_ids: list[int], special_id: int | None) -> list[int]:
+        if special_id is None:
+            return selected_ids
+        if special_id in selected_ids:
+            return [special_id]
+        return [oid for oid in selected_ids if oid != special_id]
+
     def _snapshot_synthese():
         """Recompute totals and upsert today's snapshot in KYC_Client_Synthese.
         Update if a row for today's date exists; otherwise insert.
@@ -16767,6 +16820,9 @@ async def dashboard_client_kyc(
 
             excl_ids = _extract_multi_ids("exclusions")
             ind_ids = _extract_multi_ids("indicators")
+            esg_special_ids = _load_esg_special_ids()
+            excl_ids = _normalize_esg_selection(excl_ids, esg_special_ids.get("exclusion_none_id"))
+            ind_ids = _normalize_esg_selection(ind_ids, esg_special_ids.get("indicator_none_id"))
 
             if not all([env_importance, env_ges_reduc, soc_droits_humains, soc_parite, gov_transparence, gov_controle_ethique]):
                 esg_error = "Veuillez renseigner toutes les réponses ESG."
@@ -18386,6 +18442,9 @@ async def dashboard_client_kyc(
         esg_indicator_options = [dict(r._mapping) for r in rows]
     except Exception:
         esg_indicator_options = []
+    esg_special_ids = _load_esg_special_ids()
+    esg_exclusion_none_id = esg_special_ids.get("exclusion_none_id")
+    esg_indicator_none_id = esg_special_ids.get("indicator_none_id")
     try:
         row = db.execute(
             text("SELECT * FROM esg_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
@@ -18410,13 +18469,17 @@ async def dashboard_client_kyc(
                 esg_selected_exclusions = [int(x[0]) for x in ids]
             except Exception:
                 esg_selected_exclusions = []
+            esg_selected_exclusions = _normalize_esg_selection(esg_selected_exclusions, esg_exclusion_none_id)
             try:
                 ids = db.execute(text("SELECT option_id FROM esg_questionnaire_indicator WHERE questionnaire_id = :q"), {"q": qid}).fetchall()
                 esg_selected_indicators = [int(x[0]) for x in ids]
             except Exception:
                 esg_selected_indicators = []
+            esg_selected_indicators = _normalize_esg_selection(esg_selected_indicators, esg_indicator_none_id)
     except Exception:
         esg_current = None
+    esg_exclusion_none_selected = bool(esg_exclusion_none_id is not None and esg_exclusion_none_id in esg_selected_exclusions)
+    esg_indicator_none_selected = bool(esg_indicator_none_id is not None and esg_indicator_none_id in esg_selected_indicators)
 
     # Dates d'affichage ESG: si aucune saisie, proposer date du jour et obsolescence à 2 ans
     from datetime import date as _dt_date2, timedelta as _td2
@@ -20149,8 +20212,13 @@ async def dashboard_client_kyc(
             # ESG
             "esg_exclusion_options": esg_exclusion_options,
             "esg_indicator_options": esg_indicator_options,
+            "esg_exclusion_none_id": esg_exclusion_none_id,
+            "esg_indicator_none_id": esg_indicator_none_id,
             "esg_selected_exclusions": esg_selected_exclusions,
             "esg_selected_indicators": esg_selected_indicators,
+            "esg_exclusion_none_selected": esg_exclusion_none_selected,
+            "esg_indicator_none_selected": esg_indicator_none_selected,
+            "esg_show_top_metrics": not esg_indicator_none_selected,
             "esg_current": esg_current,
             "esg_success": esg_success,
             "esg_error": esg_error,

@@ -59,15 +59,15 @@
   .summary-balance { background:#fff; border-radius:12px; padding:18px; box-shadow:0 2px 10px rgba(0,0,0,0.06); display:flex; flex-direction:column; gap:6px; align-items:center; text-align:center; }
   .summary-balance .label { font-size:0.85rem; color:#555; }
   .summary-balance .amount { font-size:1.05rem; font-weight:700; font-family:var(--font-mono, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace); color: var(--primary); }
-  .objectives-panel { display:grid; grid-template-columns:minmax(260px, 320px) minmax(320px, 1fr); gap:16px; align-items:start; }
-  .objectives-list { background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,0.06); }
+  .objectives-panel { display:grid; grid-template-columns:minmax(260px, 320px) minmax(320px, 1fr); gap:16px; align-items:start; overflow:visible; }
+  .objectives-list { background:#fff; border:1px solid #cbd5e1; border-radius:12px; padding:16px; box-shadow:0 6px 18px rgba(15,23,42,0.08); min-width:0; overflow:visible; }
   .objectives-list h4 { margin:0 0 12px 0; font-size:0.95rem; }
   /* Un bouton par ligne pour les objectifs */
   .objectives-grid { display:flex; flex-direction:column; gap:10px; }
-  .objective-btn { display:inline-flex; align-items:center; justify-content:flex-start; width:100%; padding:10px 14px; border:1px solid var(--primary-200, #c7d2fe); border-radius:10px; background:#fff; color:var(--primary); font-weight:600; font-size:0.9rem; text-align:left; min-height:44px; gap:8px; transition:background .2s ease, color .2s ease, border .2s ease, box-shadow .2s ease; }
+  .objective-btn { display:inline-flex; align-items:center; justify-content:flex-start; width:100%; padding:10px 14px; border:1px solid #93c5fd; border-radius:10px; background:#fff; color:var(--primary); font-weight:600; font-size:0.9rem; text-align:left; min-height:44px; gap:8px; transition:background .2s ease, color .2s ease, border .2s ease, box-shadow .2s ease; }
   .objective-btn span { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; line-height:1.2; }
   .objective-btn:hover { background:var(--primary-50, #eef2ff); border-color:var(--primary); }
-  .objective-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 8px 16px rgba(37, 99, 235, 0.25); }
+  .objective-btn.active { background:var(--primary); color:#fff; border-color:#1d4ed8; box-shadow:0 10px 20px rgba(37, 99, 235, 0.28); }
   .accordion-header-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .objective-add-btn { border:1px solid var(--primary); background:#fff; color:var(--primary); min-width:96px; height:36px; padding:0 16px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 6px rgba(67,56,202,0.15); font-weight:600; font-size:0.9rem; transition:background .2s ease, color .2s ease, opacity .2s ease, box-shadow .2s ease; }
   .objective-add-btn:hover { background:var(--primary); color:#fff; }
@@ -78,7 +78,7 @@
   .objectifs-modal-item { display:flex; align-items:center; gap:8px; padding:6px 0; }
   .objectifs-modal-item input { margin:0; }
   .objectives-empty { text-align:center; color:#94a3b8; font-size:0.85rem; padding:6px 0; }
-  .objective-detail-card { background:#fff; border-radius:12px; padding:18px; box-shadow:0 2px 14px rgba(15,23,42,0.08); display:flex; flex-direction:column; gap:14px; min-height:240px; }
+  .objective-detail-card { background:#fff; border:1px solid #cbd5e1; border-radius:12px; padding:18px; box-shadow:0 6px 18px rgba(15,23,42,0.08); display:flex; flex-direction:column; gap:14px; min-height:240px; min-width:0; overflow:visible; position:relative; }
   .objective-detail-card.empty { justify-content:center; align-items:center; color:#94a3b8; font-size:0.9rem; text-align:center; }
   .objective-detail-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   .objective-detail-title { margin:0; font-size:1.05rem; font-weight:700; color:#1f2b6c; }
@@ -2161,7 +2161,7 @@
         <style>
           /* Boutons de choix ESG (oui / non / indifférent) */
           .esg-choices { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-          .esg-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
+          .esg-block { border:1px solid #cbd5e1; border-radius:10px; padding:12px; background:#fff; box-shadow:0 4px 12px rgba(15,23,42,0.04); }
           .esg-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
           .btn-toggle-group, .btn-multi-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-toggle-group .btn-choice,
@@ -2177,23 +2177,31 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 8px;
+            align-items:stretch;
           }
           .esg-checkbox {
             display: flex;
             align-items: center;
             gap: 8px;
             padding: 6px 10px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
             background: #f8fafc;
             cursor: pointer;
             font-size: 0.85rem;
+            transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
           }
           .esg-checkbox input {
             margin: 0;
           }
           .esg-checkbox input:checked + span {
             font-weight: 600;
+            color: var(--primary);
+          }
+          .esg-checkbox input:disabled + span {
+            color:#94a3b8;
+          }
+          .esg-checkbox input:checked:disabled + span {
             color: var(--primary);
           }
         </style>
@@ -2262,10 +2270,10 @@
             <div class="esg-block">
               <h5>Exclusions</h5>
               {% if esg_exclusion_options %}
-                <div class="esg-checkbox-grid">
+                <div class="esg-checkbox-grid" data-group="exclusions">
                   {% for opt in esg_exclusion_options %}
                     <label class="esg-checkbox">
-                      <input type="checkbox" name="exclusions" value="{{ opt.id }}" {% if esg_selected_exclusions and opt.id in esg_selected_exclusions %}checked{% endif %} />
+                      <input type="checkbox" name="exclusions" value="{{ opt.id }}" {% if esg_selected_exclusions and opt.id in esg_selected_exclusions %}checked{% endif %} {% if esg_exclusion_none_id is not none and opt.id == esg_exclusion_none_id %}data-exclusive="1"{% endif %} />
                       <span>{{ opt.label }}</span>
                     </label>
                   {% endfor %}
@@ -2277,10 +2285,10 @@
             <div class="esg-block">
               <h5>Indicateurs</h5>
               {% if esg_indicator_options %}
-                <div class="esg-checkbox-grid">
+                <div class="esg-checkbox-grid" data-group="indicators">
                   {% for opt in esg_indicator_options %}
                     <label class="esg-checkbox">
-                      <input type="checkbox" name="indicators" value="{{ opt.id }}" {% if esg_selected_indicators and opt.id in esg_selected_indicators %}checked{% endif %} />
+                      <input type="checkbox" name="indicators" value="{{ opt.id }}" {% if esg_selected_indicators and opt.id in esg_selected_indicators %}checked{% endif %} {% if esg_indicator_none_id is not none and opt.id == esg_indicator_none_id %}data-exclusive="1"{% endif %} />
                       <span>{{ opt.label }}</span>
                     </label>
                   {% endfor %}
@@ -2298,7 +2306,7 @@
 
         <div class="card" style="margin-top:12px;">
           <div style="font-weight:600; margin-bottom:8px;">Top 10 des metriques ESG a suivre</div>
-          {% if esg_top_metrics %}
+          {% if esg_show_top_metrics and esg_top_metrics %}
             <ol style="margin:0; padding-left:20px;">
               {% for m in esg_top_metrics %}
                 <li style="margin:4px 0;">
@@ -2311,7 +2319,7 @@
               {% endfor %}
             </ol>
           {% else %}
-            <div class="muted">Aucune priorite ESG calculee pour le moment.</div>
+            <div class="muted">{% if esg_indicator_none_selected %}Aucun indicateur particulier souhaité sélectionné.{% else %}Aucune priorite ESG calculee pour le moment.{% endif %}</div>
           {% endif %}
         </div>
 
@@ -2336,6 +2344,47 @@
               });
             }
             panel.querySelectorAll('.btn-toggle-group').forEach(initGroup);
+
+            function initExclusiveGroup(group){
+              const boxes = Array.from(group.querySelectorAll('input[type="checkbox"]'));
+              if (!boxes.length) return;
+              const special = boxes.find(function(input){ return (input.getAttribute('data-exclusive') || '') === '1'; }) || null;
+              function applyState(){
+                if (!special) return;
+                const specialChecked = !!special.checked;
+                boxes.forEach(function(box){
+                  if (box === special) return;
+                  box.disabled = specialChecked;
+                  if (specialChecked){
+                    box.checked = false;
+                  }
+                });
+              }
+              boxes.forEach(function(box){
+                box.addEventListener('change', function(){
+                  if (!special) return;
+                  if (box === special && box.checked){
+                    boxes.forEach(function(other){
+                      if (other !== special){
+                        other.checked = false;
+                        other.disabled = true;
+                      }
+                    });
+                  } else if (box !== special && box.checked){
+                    special.checked = false;
+                    boxes.forEach(function(other){
+                      if (other !== special){
+                        other.disabled = false;
+                      }
+                    });
+                  }
+                  applyState();
+                });
+              });
+              applyState();
+            }
+
+            panel.querySelectorAll('.esg-checkbox-grid').forEach(initExclusiveGroup);
 
           })();
         </script>
@@ -2982,9 +3031,9 @@
       <div class="accordion-panel" id="objectifsPanel">
         <div class="objectives-panel" data-active-id="{{ active_objectif_id or '' }}">
           <div class="objectives-list">
-            <div class="objectifs-total-row" style="margin:4px 0 8px 0; display:flex; gap:8px; align-items:center;">
-              <label for="objectifsTotalInput" class="muted" style="min-width:220px;">Montant global des objectifs</label>
-              <input type="text" id="objectifsTotalInput" placeholder="" style="width:180px; height:32px;" readonly />
+            <div class="objectifs-total-row" style="margin:4px 0 8px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; width:100%;">
+              <label for="objectifsTotalInput" class="muted" style="min-width:220px; flex:1 1 220px;">Montant global des objectifs</label>
+              <input type="text" id="objectifsTotalInput" placeholder="" style="width:100%; max-width:220px; height:32px; flex:0 0 220px;" readonly />
             </div>
             <h4>Objectifs principaux</h4>
             <div id="objectifsSelected" class="objectives-grid">
