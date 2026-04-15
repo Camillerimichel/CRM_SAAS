@@ -3871,13 +3871,18 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     contracts_total_valo = 0.0
     for row in affaires_rows:
         valo_raw = float(row.last_valo or 0.0)
+        mvt_total_raw = float(mouvements_map.get(getattr(row, "id", None), 0.0) or 0.0)
         contracts_total_valo += valo_raw
         contracts.append({
+            "id": getattr(row, "id", None),
             "ref": row.ref,
             "srri": row.SRRI,
             "valo": _fmt_currency(valo_raw),
+            "valo_raw": valo_raw,
             "perf": _to_pct(row.last_perf),
             "vol": _to_pct(row.last_volat),
+            "mvt_total": mvt_total_raw,
+            "en_moins_value": valo_raw < mvt_total_raw,
         })
     contracts_total_valo_str = _fmt_currency(contracts_total_valo)
     nb_contrats_total = len(affaires_rows)
@@ -3895,6 +3900,8 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
                        s.cat_principale,
                        s.cat_geo,
                        s.SRRI,
+                       AVG(h.prmp) AS prma,
+                       AVG(h.vl) AS vl,
                        SUM(h.valo) AS total_valo
                 FROM mariadb_historique_support_w h
                 JOIN mariadb_support s ON s.id = h.id_support
@@ -3914,6 +3921,8 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     for row in supports_rows:
         m = getattr(row, "_mapping", row)
         valo_raw = float(m.get("total_valo") or 0)
+        prma_raw = float(m.get("prma") or 0)
+        vl_raw = float(m.get("vl") or 0)
         supports_total_valo += valo_raw
         supports.append({
             "code_isin": m.get("code_isin"),
@@ -3922,6 +3931,8 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             "cat_principale": m.get("cat_principale"),
             "cat_geo": m.get("cat_geo"),
             "srri": m.get("SRRI"),
+            "prma": prma_raw,
+            "vl": vl_raw,
             "valo": _fmt_currency(valo_raw),
             "valo_raw": valo_raw,
         })
@@ -5027,12 +5038,42 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
         perf_labels = [str(y) for y in years_sorted]
         perf_chart_svg = _build_svg_bar_chart(perf_labels[:6], ann_perf[:6], "Performance annuelle (%)")
 
+    mouvements_rows = db.execute(
+        text(
+            """
+            SELECT h.id AS id_affaire,
+                   SUM(COALESCE(h.mouvement, 0)) AS total_mvt
+            FROM mariadb_historique_affaire_w h
+            GROUP BY h.id
+            """
+        )
+    ).fetchall()
+    mouvements_map: dict[int, float] = {}
+    for row in mouvements_rows:
+        mapping = row._mapping if hasattr(row, "_mapping") else None
+        rid_raw = mapping.get("id_affaire") if mapping else (row[0] if len(row) > 0 else None)
+        total_raw = mapping.get("total_mvt") if mapping else (row[1] if len(row) > 1 else None)
+        try:
+            rid = int(rid_raw) if rid_raw is not None else None
+        except Exception:
+            rid = None
+        if rid is None:
+            continue
+        try:
+            mouvements_map[rid] = float(total_raw or 0.0)
+        except Exception:
+            mouvements_map[rid] = 0.0
+
     contracts = [{
+        "id": getattr(affaire, "id", None),
         "ref": getattr(affaire, "ref", None),
         "srri": getattr(affaire, "SRRI", None),
         "valo": _fmt_currency(last_valo),
+        "valo_raw": float(last_valo or 0.0),
         "perf": last_perf_pct,
         "vol": last_vol_pct,
+        "mvt_total": float(mouvements_map.get(getattr(affaire, "id", None), 0.0) or 0.0),
+        "en_moins_value": float(last_valo or 0.0) < float(mouvements_map.get(getattr(affaire, "id", None), 0.0) or 0.0),
     }]
     contracts_total_valo = last_valo
     contracts_total_valo_str = _fmt_currency(contracts_total_valo)
@@ -5076,6 +5117,8 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
                        s.cat_principale,
                        s.cat_geo,
                        s.SRRI,
+                       AVG(h.prmp) AS prma,
+                       AVG(h.vl) AS vl,
                        SUM(h.valo) AS total_valo
                 FROM mariadb_historique_support_w h
                 JOIN mariadb_support s ON s.id = h.id_support
@@ -5097,6 +5140,14 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
             valo_raw = float(m.get("total_valo") or 0.0)
         except Exception:
             valo_raw = 0.0
+        try:
+            prma_raw = float(m.get("prma") or 0.0)
+        except Exception:
+            prma_raw = 0.0
+        try:
+            vl_raw = float(m.get("vl") or 0.0)
+        except Exception:
+            vl_raw = 0.0
         supports_total_valo += valo_raw
         supports.append({
             "code_isin": m.get("code_isin"),
@@ -5105,6 +5156,8 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
             "cat_principale": m.get("cat_principale"),
             "cat_geo": m.get("cat_geo"),
             "srri": m.get("SRRI"),
+            "prma": prma_raw,
+            "vl": vl_raw,
             "valo": _fmt_currency(valo_raw),
             "valo_raw": valo_raw,
         })
@@ -5869,7 +5922,12 @@ def dashboard_api_synthese(
 
 
 @router.get("/affaires/{affaire_id}/synthese/pdf")
-def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+def dashboard_affaire_synthese_pdf(
+    affaire_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
     _require_affaire_read(request, db, affaire_id)
     ctx = _build_affaire_synthese_context(db, affaire_id)
     if not ctx:
@@ -5912,10 +5970,11 @@ def dashboard_affaire_synthese_pdf(affaire_id: int, request: Request, db: Sessio
     html = templates.get_template("synthese_report.html").render(ctx_render)
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     filename = f"synthese_affaire_{affaire_id}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'{cd_type}; filename="{filename}"'},
     )
 
 
@@ -30320,6 +30379,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       a.ref AS contrat_ref,
                       h.id_source AS contrat_id,
                       h.id_support,
+                      COALESCE(g.frais_gestion_assureur, 0) AS frais_gestion_assureur,
+                      COALESCE(g.frais_gestion_courtier, 0) AS frais_gestion_courtier,
                       SUM(h.valo) AS valo,
                       SUM(h.nbuc) AS nbuc,
                       AVG(h.prmp) AS prmp,
@@ -30327,9 +30388,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     FROM mariadb_historique_support_w h
                     JOIN mariadb_support s ON s.id = h.id_support
                     JOIN mariadb_affaires a ON a.id = h.id_source
+                    LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
                     WHERE h.id_source IN (SELECT id FROM client_affaires)
                       AND DATE(h.date) = :as_of_date
-                    GROUP BY s.code_isin, a.ref, h.id_source, h.id_support
+                    GROUP BY s.code_isin, a.ref, h.id_source, h.id_support, g.frais_gestion_assureur, g.frais_gestion_courtier
                     ORDER BY a.ref, s.code_isin
                     """
                 ),
@@ -30346,6 +30408,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     "contrat_ref": row.contrat_ref,
                     "contrat_id": row.contrat_id,
                     "support_id": row.id_support,
+                    "frais_gestion_assureur": float(row.frais_gestion_assureur or 0),
+                    "frais_gestion_courtier": float(row.frais_gestion_courtier or 0),
                     "valo": float(row.valo or 0),
                     "nbuc": float(row.nbuc or 0),
                     "prmp": float(row.prmp or 0),
@@ -30369,10 +30433,14 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                               mr.titre AS regle,
                               m.montant_ope,
                               m.vl,
-                              m.nb_uc
+                              m.nb_uc,
+                              COALESCE(g.frais_gestion_assureur, 0) AS frais_gestion_assureur,
+                              COALESCE(g.frais_gestion_courtier, 0) AS frais_gestion_courtier
                             FROM mouvement m
                             LEFT JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
                             JOIN mariadb_support s ON s.id = m.id_support
+                            LEFT JOIN mariadb_affaires a ON a.id = m.id_affaire
+                            LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
                             WHERE m.id_affaire IN (SELECT id FROM client_affaires)
                               AND m.id_support IN :support_ids
                             ORDER BY date_action ASC, m.id ASC
@@ -30398,6 +30466,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                             "montant": float(mapping.get("montant_ope") if mapping else (row[3] if len(row) > 3 else 0) or 0),
                             "vl": float(mapping.get("vl") if mapping else (row[4] if len(row) > 4 else 0) or 0),
                             "nb": float(mapping.get("nb_uc") if mapping else (row[5] if len(row) > 5 else 0) or 0),
+                            "frais_gestion_assureur": float(mapping.get("frais_gestion_assureur") if mapping else (row[6] if len(row) > 6 else 0) or 0),
+                            "frais_gestion_courtier": float(mapping.get("frais_gestion_courtier") if mapping else (row[7] if len(row) > 7 else 0) or 0),
                         })
                 except Exception:
                     pass
