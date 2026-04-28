@@ -1,8 +1,10 @@
 import logging
+import html
 import os
 import base64
 import json
 import re
+import traceback
 import secrets
 import math
 from time import perf_counter, time
@@ -11,7 +13,7 @@ from pathlib import Path
 from typing import Literal, Any
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException, UploadFile, Form
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, bindparam, desc, case, inspect, cast, String, Float
@@ -41,11 +43,18 @@ from src.services.evenements import (
     add_statut_to_evenement,
     create_envoi,
 )
+from src.services.document_client import (
+    create_document_client,
+    ensure_document_base_for_label,
+    ensure_document_client_storage_columns,
+)
 from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
 from src.services.fatca_eai_autocertification_pdf import build_fatca_eai_autocertification_pdf_bytes
+from src.services.modele_render import render_modele as render_modele_util
+from src.services.mailer import send_email_with_attachments
 from src.services.tracfin_complementary_pdf import (
     build_tracfin_complementary_pdf_bytes,
     default_tracfin_background_path,
@@ -53,6 +62,7 @@ from src.services.tracfin_complementary_pdf import (
 from src.schemas.evenement import TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
 from src.schemas.evenement_envoi import EvenementEnvoiCreateSchema
+from src.schemas.document_client import DocumentClientCreateSchema
 from starlette.responses import RedirectResponse
 
 # ---------------- Imports Models ----------------
@@ -62,6 +72,7 @@ from src.models.support import Support
 from src.models.allocation import Allocation
 from src.models.document import Document
 from src.models.document_client import DocumentClient
+from src.models.modele_document import ModeleDocument
 from src.models.historique_personne import HistoriquePersonne
 from src.models.historique_affaire import HistoriqueAffaire
 from src.models.historique_support import HistoriqueSupport
@@ -82,6 +93,13 @@ from src.security.auth import hash_password
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def _require_feature(request: Request, db: Session, feature: str, action: str):
+    """Proxy local vers le helper de src.api.main, pour éviter les imports circulaires au chargement."""
+    from src.api.main import _require_feature as main_require_feature
+
+    return main_require_feature(request, db, feature, action)
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -2297,6 +2315,10 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
 @router.get("/conformite/summary", response_class=JSONResponse)
 def dashboard_conformite_summary(db: Session = Depends(get_db)):
     """Résumé conformité/documents/réclamations pour lazy load."""
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
     return _compute_conformite_summary(db)
 
 
@@ -6013,6 +6035,564 @@ async def dashboard_client_der_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
     )
+
+
+@router.get("/clients/{client_id}/documents/modeles/{modele_id}/pdf")
+async def dashboard_client_modele_pdf(
+    client_id: int,
+    modele_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    _require_client_read(request, db, client_id)
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    modele = db.query(ModeleDocument).filter(ModeleDocument.id == modele_id).first()
+    if not modele:
+        raise HTTPException(status_code=404, detail="Modèle introuvable.")
+
+    rendered = render_modele_util(db, modele_id, {"client_id": client_id})
+    context = {
+        "request": request,
+        "client": client,
+        "modele": modele,
+        "title": rendered.get("objet") or modele.objet or modele.nom or "Document",
+        "objet": rendered.get("objet") or "",
+        "contenu": rendered.get("contenu") or "",
+        "date_generation": datetime.utcnow().strftime("%d/%m/%Y %H:%M"),
+        "date_document": _date.today().strftime("%d/%m/%Y"),
+    }
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    html = templates.get_template("modele_document_client_pdf.html").render(context)
+    pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", (modele.nom or "document").strip()).strip("_") or "document"
+    filename = f"{safe_name}_{client_id}_{_date.today().strftime('%Y%m%d')}.pdf"
+    cd_type = "inline" if inline else "attachment"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
+    )
+
+
+def _slugify_document_filename(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", (value or "").strip())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "document"
+
+
+def _ensure_generated_client_pdf_path(client_id: int, modele_name: str) -> Path:
+    generated_dir = DOCUMENTS_DIR / "generated_clients" / str(client_id)
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return generated_dir / f"{_slugify_document_filename(modele_name)}_{client_id}_{timestamp}.pdf"
+
+
+def _log_document_generation_error(message: str) -> None:
+    try:
+        error_log = PROJECT_ROOT / "logs" / "document_generation_errors.log"
+        error_log.parent.mkdir(parents=True, exist_ok=True)
+        with error_log.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.utcnow().isoformat()}] {message}\n")
+            fh.write(traceback.format_exc())
+            fh.write("\n---\n")
+    except Exception:
+        logger.exception("Impossible d'écrire le journal d'erreur documentaire")
+
+
+def _resolve_document_client_file(
+    stored_path: str | None,
+    stored_filename: str | None,
+    client_id: int | None = None,
+) -> Path | None:
+    """Resolve a stored client PDF path across the legacy path layouts."""
+    raw_values: list[str] = []
+    for value in (stored_path, stored_filename):
+        if value is None:
+            continue
+        text_value = str(value).strip()
+        if text_value:
+            raw_values.append(text_value)
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _add_candidate(path_value: Path) -> None:
+        try:
+            key = str(path_value)
+        except Exception:
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path_value)
+
+    for raw in raw_values:
+        path_value = Path(raw)
+        if path_value.is_absolute():
+            _add_candidate(path_value)
+            continue
+        _add_candidate((DOCUMENTS_DIR / path_value).resolve())
+        _add_candidate((PROJECT_ROOT / path_value).resolve())
+        _add_candidate((DOCUMENTS_DIR / path_value.name).resolve())
+        if client_id is not None:
+            _add_candidate((DOCUMENTS_DIR / "generated_clients" / str(client_id) / path_value.name).resolve())
+            _add_candidate((PROJECT_ROOT / "documents" / "generated_clients" / str(client_id) / path_value.name).resolve())
+        if path_value.parts[:1] == ("documents",):
+            _add_candidate((PROJECT_ROOT / path_value).resolve())
+
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except Exception:
+            continue
+    if client_id is not None and raw_values:
+        generated_dir = DOCUMENTS_DIR / "generated_clients" / str(client_id)
+        try:
+            if generated_dir.exists():
+                for raw in raw_values:
+                    name = Path(raw).name
+                    if not name:
+                        continue
+                    match = generated_dir / name
+                    _add_candidate(match.resolve())
+                    if match.exists():
+                        return match.resolve()
+        except Exception:
+            pass
+    return candidates[0] if candidates else None
+
+
+@router.post("/clients/{client_id}/documents/modeles/{modele_id}/generate")
+async def dashboard_client_modele_generate(
+    client_id: int,
+    modele_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        _require_client_read(request, db, client_id)
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+
+        modele = db.query(ModeleDocument).filter(ModeleDocument.id == modele_id).first()
+        if not modele:
+            raise HTTPException(status_code=404, detail="Modèle introuvable.")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        payload = payload if isinstance(payload, dict) else {}
+        send_mail = bool(payload.get("send_mail"))
+        recipient = (payload.get("recipient") or getattr(client, "email", None) or "").strip()
+        override_contenu = payload.get("contenu_html") or payload.get("contenu")
+        override_objet = payload.get("objet") or payload.get("title")
+
+        rendered = render_modele_util(db, modele_id, {"client_id": client_id})
+        contenu_html = override_contenu if isinstance(override_contenu, str) and override_contenu.strip() else rendered.get("contenu") or ""
+        objet = override_objet if isinstance(override_objet, str) and override_objet.strip() else (rendered.get("objet") or modele.objet or modele.nom or "Document")
+        context = {
+            "request": request,
+            "client": client,
+            "modele": modele,
+            "title": objet,
+            "objet": objet,
+            "contenu": contenu_html,
+            "date_generation": datetime.utcnow().strftime("%d/%m/%Y %H:%M"),
+            "date_document": _date.today().strftime("%d/%m/%Y"),
+        }
+        try:
+            from weasyprint import HTML  # type: ignore
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+        html = templates.get_template("modele_document_client_pdf.html").render(context)
+        pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+        file_path = _ensure_generated_client_pdf_path(client_id, modele.nom or "document")
+        file_path.write_bytes(pdf_bytes)
+
+        ensure_document_client_storage_columns(db)
+        base_doc_id = ensure_document_base_for_label(db, modele.nom or "Document généré", niveau="généré", risque=None)
+        doc_name = f"{modele.nom or 'Document'} - {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip(" -")
+        doc_client_payload = DocumentClientCreateSchema(
+            id_client=client_id,
+            id_document_base=base_doc_id,
+            nom_document=doc_name,
+            date_creation=datetime.utcnow(),
+            date_obsolescence=None,
+            obsolescence="généré",
+            stored_filename=file_path.name,
+            stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+            mime_type="application/pdf",
+            file_size=len(pdf_bytes),
+        )
+        doc_client, err = create_document_client(db, doc_client_payload)
+        if err or not doc_client:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err or "Impossible d'enregistrer le document client")
+
+        doc_client_id = doc_client["id"] if isinstance(doc_client, dict) else getattr(doc_client, "id", None)
+        if not doc_client_id:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Document client créé mais identifiant introuvable.")
+
+        mail_sent = False
+        mail_error = None
+        if send_mail:
+            if not recipient:
+                mail_error = "Aucun destinataire email pour le client."
+            else:
+                subject = rendered.get("objet") or modele.objet or modele.nom or "Document"
+                body = (
+                    f"Bonjour,\n\n"
+                    f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
+                    f"Cordialement,\n"
+                    f"{getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+                )
+                mail_sent, mail_error = send_email_with_attachments(
+                    recipient,
+                    subject,
+                    body,
+                    attachments=[(file_path.name, pdf_bytes, "application/pdf")],
+                )
+                if not mail_sent:
+                    mail_error = mail_error or "Envoi SMTP impossible ou non configuré."
+
+        return {
+            "document_id": doc_client_id,
+            "client_id": client_id,
+            "modele_id": modele_id,
+            "filename": file_path.name,
+            "pdf_url": f"/dashboard/document-client/{doc_client_id}/pdf?inline=1",
+            "download_url": f"/dashboard/document-client/{doc_client_id}/pdf",
+            "mail_sent": mail_sent,
+            "mail_error": mail_error,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        _log_document_generation_error(f"client_id={client_id} modele_id={modele_id}")
+        raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
+
+
+@router.get("/clients/{client_id}/documents/modeles/{modele_id}/preview")
+async def dashboard_client_modele_preview(
+    client_id: int,
+    modele_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _require_client_read(request, db, client_id)
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+
+    modele = db.query(ModeleDocument).filter(ModeleDocument.id == modele_id).first()
+    if not modele:
+        raise HTTPException(status_code=404, detail="Modèle introuvable.")
+
+    rendered = render_modele_util(db, modele_id, {"client_id": client_id})
+    objet = rendered.get("objet") or modele.objet or modele.nom or "Document"
+    contenu = rendered.get("contenu") or ""
+    return {
+        "client_id": client_id,
+        "modele_id": modele_id,
+        "modele_nom": modele.nom,
+        "objet": objet,
+        "contenu_html": contenu,
+    }
+
+
+@router.get("/document-client/{doc_client_id}/pdf")
+def dashboard_document_client_pdf(
+    doc_client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    try:
+        _require_feature(request, db, "data", "read")
+        ensure_document_client_storage_columns(db)
+        doc = db.query(DocumentClient).filter(DocumentClient.id == doc_client_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document client introuvable.")
+        stored_path = getattr(doc, "stored_path", None)
+        stored_filename = getattr(doc, "stored_filename", None)
+        file_path = _resolve_document_client_file(stored_path, stored_filename, getattr(doc, "id_client", None))
+        if file_path is None or not file_path.exists():
+            logger.warning(
+                "Impossible d'ouvrir le document client pdf_id=%s stored_filename=%s stored_path=%s resolved=%s exists=%s",
+                doc_client_id,
+                stored_filename,
+                stored_path,
+                str(file_path) if file_path is not None else None,
+                bool(file_path.exists()) if file_path is not None else False,
+            )
+            raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
+        filename = (stored_filename or file_path.name or "document.pdf").replace('"', "")
+        cd_type = "inline" if inline else "attachment"
+        return FileResponse(
+            str(file_path),
+            media_type=getattr(doc, "mime_type", None) or "application/pdf",
+            filename=filename,
+            content_disposition_type=cd_type,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Impossible d'ouvrir le document client pdf_id=%s", doc_client_id)
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'ouverture du document.")
+
+
+@router.head("/document-client/{doc_client_id}/pdf")
+def dashboard_document_client_pdf_head(
+    doc_client_id: int,
+    request: Request,
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    try:
+        _require_feature(request, db, "data", "read")
+        ensure_document_client_storage_columns(db)
+        doc = db.query(DocumentClient).filter(DocumentClient.id == doc_client_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document client introuvable.")
+        stored_path = getattr(doc, "stored_path", None)
+        stored_filename = getattr(doc, "stored_filename", None)
+        file_path = _resolve_document_client_file(stored_path, stored_filename, getattr(doc, "id_client", None))
+        if file_path is None or not file_path.exists():
+            logger.warning(
+                "Impossible d'ouvrir le document client HEAD pdf_id=%s stored_filename=%s stored_path=%s resolved=%s exists=%s",
+                doc_client_id,
+                stored_filename,
+                stored_path,
+                str(file_path) if file_path is not None else None,
+                bool(file_path.exists()) if file_path is not None else False,
+            )
+            raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
+        filename = (stored_filename or file_path.name or "document.pdf").replace('"', "")
+        cd_type = "inline" if inline else "attachment"
+        headers = {"Content-Disposition": f'{cd_type}; filename="{filename}"'}
+        return Response(status_code=200, media_type=getattr(doc, "mime_type", None) or "application/pdf", headers=headers)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Impossible de vérifier le document client pdf_id=%s", doc_client_id)
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'ouverture du document.")
+
+
+@router.post("/document-client/{doc_client_id}/send")
+async def dashboard_document_client_send(
+    doc_client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        return _send_document_client_mail(request, db, doc_client_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Impossible d'envoyer le document client id=%s", doc_client_id)
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'envoi du document.")
+
+
+@router.post("/document-client/{doc_client_id}/send-page", response_class=HTMLResponse)
+async def dashboard_document_client_send_page(
+    doc_client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        result = _send_document_client_mail(request, db, doc_client_id)
+        return HTMLResponse(
+            content=_render_document_client_send_result(
+                doc_client_id,
+                result,
+                request=request,
+                ok=True,
+                status_code=200,
+            ),
+            status_code=200,
+        )
+    except HTTPException as exc:
+        payload = {"detail": exc.detail}
+        return HTMLResponse(
+            content=_render_document_client_send_result(doc_client_id, payload, request=request, ok=False, status_code=exc.status_code),
+            status_code=exc.status_code,
+        )
+    except Exception:
+        logger.exception("Impossible de rendre la page d'envoi pour document client id=%s", doc_client_id)
+        return HTMLResponse(
+            content=_render_document_client_send_result(
+                doc_client_id,
+                {"detail": "Erreur interne lors de l'envoi du document."},
+                request=request,
+                ok=False,
+                status_code=500,
+            ),
+            status_code=500,
+        )
+
+
+def _send_document_client_mail(request: Request, db: Session, doc_client_id: int) -> dict[str, Any]:
+    _require_feature(request, db, "data", "write")
+    ensure_document_client_storage_columns(db)
+    doc = db.query(DocumentClient).filter(DocumentClient.id == doc_client_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document client introuvable.")
+    client = db.query(Client).filter(Client.id == doc.id_client).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    recipient = (getattr(client, "email", None) or "").strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Aucune adresse email pour ce client.")
+    smtp_configured = bool(
+        (os.getenv("SMTP_HOST") or "").strip()
+        and ((os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME") or "").strip())
+        and ((os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS") or "").strip())
+    )
+    file_path = _resolve_document_client_file(
+        getattr(doc, "stored_path", None),
+        getattr(doc, "stored_filename", None),
+        getattr(doc, "id_client", None),
+    )
+    if file_path is None or not file_path.exists():
+        logger.warning(
+            "document_client_send missing_file doc_id=%s client_id=%s recipient=%s stored_filename=%s stored_path=%s resolved=%s exists=%s",
+            doc_client_id,
+            getattr(doc, "id_client", None),
+            recipient,
+            getattr(doc, "stored_filename", None),
+            getattr(doc, "stored_path", None),
+            str(file_path) if file_path is not None else None,
+            bool(file_path.exists()) if file_path is not None else False,
+        )
+        raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
+    subject = getattr(doc, "nom_document", None) or "Document client"
+    body = (
+        f"Bonjour,\n\n"
+        f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
+        f"Cordialement,\n"
+        f"{getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+    )
+    pdf_bytes = file_path.read_bytes()
+    logger.info(
+        "document_client_send start doc_id=%s client_id=%s recipient=%s subject=%s attachment=%s size=%s smtp_configured=%s",
+        doc_client_id,
+        getattr(doc, "id_client", None),
+        recipient,
+        subject,
+        file_path.name,
+        len(pdf_bytes),
+        smtp_configured,
+    )
+    mail_sent, mail_error = send_email_with_attachments(
+        recipient,
+        subject,
+        body,
+        attachments=[(file_path.name, pdf_bytes, getattr(doc, "mime_type", None) or "application/pdf")],
+    )
+    if not mail_sent:
+        raise HTTPException(status_code=500, detail=mail_error or "Envoi SMTP impossible ou non configuré.")
+    logger.info(
+        "document_client_send success doc_id=%s client_id=%s recipient=%s subject=%s",
+        doc_client_id,
+        getattr(doc, "id_client", None),
+        recipient,
+        subject,
+    )
+    return {
+        "message": "Document envoyé",
+        "document_id": doc_client_id,
+        "recipient": recipient,
+        "subject": subject,
+        "attachment": {
+            "filename": file_path.name,
+            "size": len(pdf_bytes),
+            "mime_type": getattr(doc, "mime_type", None) or "application/pdf",
+        },
+        "smtp_configured": smtp_configured,
+    }
+
+
+def _render_document_client_send_result(
+    doc_client_id: int,
+    payload: dict[str, Any],
+    *,
+    request: Request,
+    ok: bool,
+    status_code: int = 200,
+) -> str:
+    title = "Envoi document client"
+    back_url = html.escape(str(request.headers.get("referer") or f"/dashboard/clients/{getattr(request.state, 'client_id', '') or ''}"))
+    detail = html.escape(str(payload.get("detail") or payload.get("message") or ""))
+    recipient = html.escape(str(payload.get("recipient") or ""))
+    subject = html.escape(str(payload.get("subject") or ""))
+    attachment = payload.get("attachment") or {}
+    attachment_filename = html.escape(str(attachment.get("filename") or ""))
+    attachment_size = html.escape(str(attachment.get("size") or ""))
+    smtp_configured = "oui" if payload.get("smtp_configured") else "non"
+    result_label = "Succès" if ok else "Erreur"
+    lines = []
+    if recipient:
+        lines.append(f"<li><strong>Destinataire :</strong> {recipient}</li>")
+    if subject:
+        lines.append(f"<li><strong>Objet :</strong> {subject}</li>")
+    if attachment_filename:
+        lines.append(f"<li><strong>Pièce jointe :</strong> {attachment_filename} ({attachment_size} octets)</li>")
+    lines.append(f"<li><strong>SMTP configuré :</strong> {smtp_configured}</li>")
+    lines.append(f"<li><strong>Statut :</strong> {result_label}</li>")
+    if detail:
+        lines.append(f"<li><strong>Détail :</strong> {detail}</li>")
+    return f"""
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; background: #f6f8fb; color: #0f172a; }}
+    .wrap {{ max-width: 860px; margin: 40px auto; padding: 0 16px; }}
+    .card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06); }}
+    .ok {{ color: #166534; }}
+    .err {{ color: #991b1b; }}
+    ul {{ margin: 12px 0 0; padding-left: 20px; }}
+    .actions {{ margin-top: 18px; display:flex; gap:10px; flex-wrap:wrap; }}
+    a.btn {{ display:inline-block; padding:10px 14px; border-radius:10px; text-decoration:none; border:1px solid #cbd5e1; color:#0f172a; background:#fff; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="{('ok' if ok else 'err')}">{html.escape(title)}</h1>
+      <p>{'Le document a été envoyé.' if ok else 'L’envoi a échoué.'}</p>
+      <ul>{''.join(lines)}</ul>
+      <div class="actions">
+        <a class="btn" href="{html.escape(back_url)}">Retour au client</a>
+        <a class="btn" href="/dashboard/document-client/{doc_client_id}/pdf?inline=1" target="_blank" rel="noopener">Ouvrir le PDF</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+"""
 
 
 @router.get("/clients/{client_id}/mission/pdf")
@@ -13733,6 +14313,10 @@ async def create_administration_group(request: Request, db: Session = Depends(ge
             **payload,
         )
         db.add(group)
+        db.flush()
+        db.refresh(group)
+        if getattr(group, "id", None) is None:
+            raise HTTPException(status_code=500, detail="Création impossible : identifiant de groupe manquant.")
         db.commit()
         return _group_success_redirect()
     except Exception as e:
@@ -14383,6 +14967,10 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     access = load_access(db, user_type=user_type, user_id=user_id)
     scope = pick_scope(access, req_scope)
     require_permission(access, "data", "read", societe_id=scope)
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
     home_scope_ids = _scope_ids_for_access(access, scope)
     dashboard_org_ui = _build_org_ui_context(
         societe_name=getattr(request.state, "societe_gestion_nom", None),
@@ -15491,7 +16079,10 @@ async def dashboard_client_kyc(
     embed: int = 0,
     db: Session = Depends(get_db),
 ):
-    _require_client_write(request, db, client_id)
+    if request.method == "POST":
+        _require_client_write(request, db, client_id)
+    else:
+        _require_client_read(request, db, client_id)
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         return templates.TemplateResponse(
@@ -24337,6 +24928,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     client_accounts: list[dict] = []
     total_client_accounts = 0
     selected_client_form: dict | None = None
+    missing_client_accounts: list[dict] = []
     if selected_societe_id is not None:
         selected_scope_ids = _descendant_societe_ids(db, selected_societe_id)
         try:
@@ -24508,6 +25100,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         "status": "pending_reset",
                     }
                 )
+            missing_client_accounts = [c for c in client_accounts if not c.get("has_account")]
             # Préparer le formulaire sélectionné (création/édition)
             if selected_client_id or selected_client_account_id:
                 for c in client_accounts:
@@ -24888,6 +25481,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "client_per_page": client_per_page,
             "client_search_term": client_search_term,
             "selected_client_form": selected_client_form,
+            "missing_client_accounts": missing_client_accounts,
             "logs_suivi": logs_suivi,
             "scheduled_jobs": scheduled_jobs,
             "log_types": log_types,
@@ -25447,44 +26041,56 @@ def dashboard_superadmin_create_auth(
     require_permission(access, "administration", "access", societe_id=current_scope)
     require_permission(access, "logs", "view", societe_id=current_scope)
 
-    row_rh = db.execute(
-        text("SELECT id, mail FROM administration_RH WHERE id = :rid LIMIT 1"),
-        {"rid": user_id},
-    ).fetchone()
-    if not row_rh:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    mail = row_rh._mapping.get("mail") if hasattr(row_rh, "_mapping") else (row_rh[1] if len(row_rh) > 1 else None)
-    final_login = (login or mail or "").strip()
-    if not final_login:
-        raise HTTPException(status_code=400, detail="Aucun login fourni")
+    try:
+        row_rh = db.execute(
+            text("SELECT id, mail FROM administration_RH WHERE id = :rid LIMIT 1"),
+            {"rid": user_id},
+        ).fetchone()
+        if not row_rh:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        mail = row_rh._mapping.get("mail") if hasattr(row_rh, "_mapping") else (row_rh[1] if len(row_rh) > 1 else None)
+        final_login = (login or mail or "").strip()
+        if not final_login:
+            raise HTTPException(status_code=400, detail="Aucun login fourni")
 
-    # Vérifier unicité du login
-    exists = db.execute(
-        text("SELECT id FROM auth_users WHERE login = :l LIMIT 1"),
-        {"l": final_login},
-    ).fetchone()
-    if exists:
-        raise HTTPException(status_code=400, detail="Login déjà utilisé")
+        # Vérifier unicité du login
+        exists = db.execute(
+            text("SELECT id FROM auth_users WHERE login = :l LIMIT 1"),
+            {"l": final_login},
+        ).fetchone()
+        if exists:
+            raise HTTPException(status_code=400, detail="Login deja utilise")
 
-    row_auth_existing = db.execute(
-        text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid LIMIT 1"),
-        {"rid": user_id},
-    ).fetchone()
-    if row_auth_existing:
-        raise HTTPException(status_code=400, detail="Compte déjà existant pour cet utilisateur")
+        row_auth_existing = db.execute(
+            text("SELECT id FROM auth_users WHERE user_type = 'staff' AND rh_id = :rid LIMIT 1"),
+            {"rid": user_id},
+        ).fetchone()
+        if row_auth_existing:
+            raise HTTPException(status_code=400, detail="Compte deja existant pour cet utilisateur")
 
-    plain_password = (password or secrets.token_urlsafe(8))[:24]
-    pwd_hash = hash_password(plain_password)
-    db.execute(
-        text(
-            """
-            INSERT INTO auth_users (user_type, login, password_hash, actif, rh_id)
-            VALUES ('staff', :login, :pwd, 1, :rid)
-            """
-        ),
-        {"login": final_login, "pwd": pwd_hash, "rid": user_id},
-    )
-    db.commit()
+        plain_password = (password or secrets.token_urlsafe(8))[:24]
+        pwd_hash = hash_password(plain_password)
+        db.execute(
+            text(
+                """
+                INSERT INTO auth_users (user_type, login, password_hash, actif, rh_id)
+                VALUES ('staff', :login, :pwd, 1, :rid)
+                """
+            ),
+            {"login": final_login, "pwd": pwd_hash, "rid": user_id},
+        )
+        db.commit()
+    except HTTPException as exc:
+        if exc.status_code in (400, 404):
+            target_params = {"societe_id": societe_id, "user_id": user_id, "error": 1, "errmsg": exc.detail}
+            raw_soc = request.query_params.get("societe_id") or societe_id or None
+            if raw_soc not in (None, ""):
+                target_params["societe_id"] = raw_soc
+            qs = urlencode({k: v for k, v in target_params.items() if v not in (None, "")})
+            target_url = "/dashboard/superadmin"
+            target_url = f"{target_url}?{qs}#droits" if qs else f"{target_url}#droits"
+            return RedirectResponse(url=target_url, status_code=303)
+        raise
 
     target_params = {"user_id": user_id, "tmp_pwd": plain_password, "tmp_action": "create"}
     # conserver societe_id pour re-afficher le contexte
@@ -26582,6 +27188,12 @@ def dashboard_superadmin_client_auth(
 
     plain_password: str | None = None
     try:
+        client_exists = db.execute(
+            text("SELECT id FROM mariadb_clients WHERE id = :cid LIMIT 1"),
+            {"cid": client_id},
+        ).scalar()
+        if client_exists is None:
+            raise HTTPException(status_code=404, detail="Client introuvable")
         if client_account_id:
             # Mise à jour
             existing = db.execute(
@@ -26596,7 +27208,7 @@ def dashboard_superadmin_client_auth(
                 {"bid": broker_id_effective, "l": final_login, "id": client_account_id},
             ).fetchone()
             if dup:
-                raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
+                raise HTTPException(status_code=400, detail="Login deja utilise pour ce courtier")
             params = {"id": client_account_id, "login": final_login, "status": status}
             if password:
                 plain_password = password[:24]
@@ -26622,6 +27234,10 @@ def dashboard_superadmin_client_auth(
                     ),
                     params,
                 )
+            db.execute(
+                text("UPDATE mariadb_clients SET email = :email WHERE id = :cid"),
+                {"email": final_login, "cid": client_id},
+            )
             db.commit()
             account_id = client_account_id
         else:
@@ -26631,7 +27247,7 @@ def dashboard_superadmin_client_auth(
                 {"bid": broker_id_effective, "l": final_login},
             ).fetchone()
             if dup:
-                raise HTTPException(status_code=400, detail="Login déjà utilisé pour ce courtier")
+                raise HTTPException(status_code=400, detail="Login deja utilise pour ce courtier")
             plain_password = (password or secrets.token_urlsafe(8))[:24]
             pwd_hash = hash_password(plain_password)
             db.execute(
@@ -26644,6 +27260,10 @@ def dashboard_superadmin_client_auth(
                 {"cid": client_id, "bid": broker_id_effective, "login": final_login, "pwd": pwd_hash, "status": status},
             )
             account_id = db.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+            db.execute(
+                text("UPDATE mariadb_clients SET email = :email WHERE id = :cid"),
+                {"email": final_login, "cid": client_id},
+            )
             # Rôle client par défaut
             try:
                 db.execute(
@@ -26658,7 +27278,20 @@ def dashboard_superadmin_client_auth(
             except Exception:
                 pass
             db.commit()
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code in (400, 404):
+            error_params = {
+                "societe_id": societe_id,
+                "client_id": client_id,
+                "error": 1,
+                "errmsg": exc.detail,
+            }
+            if client_account_id:
+                error_params["client_account_id"] = client_account_id
+            qs = urlencode({k: v for k, v in error_params.items() if v not in (None, "")})
+            target_url = "/dashboard/superadmin"
+            target_url = f"{target_url}?{qs}#client-auth" if qs else f"{target_url}#client-auth"
+            return RedirectResponse(url=target_url, status_code=303)
         raise
     except Exception:
         db.rollback()
@@ -29674,6 +30307,10 @@ def _compute_kyc_completion_status(db: Session, client_id: int) -> dict:
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
     _require_client_read(request, db, client_id)
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
 
     tb_markers_visible = request.query_params.get("markers") == "1"
     # Ensure DER context variables always exist to avoid NameError in templates
@@ -30854,10 +31491,35 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "date_creation": d.date_creation,
             "date_obsolescence": d.date_obsolescence,
             "obsolescence": d.obsolescence,
+            "stored_filename": getattr(d, "stored_filename", None),
+            "stored_path": getattr(d, "stored_path", None),
+            "download_url": f"/dashboard/document-client/{d.id}/pdf" if getattr(d, "stored_path", None) else None,
             "base_name": base_name,
         }
         for d, base_name in rows
+        if d is not None and d.id is not None
     ]
+
+    modeles_documentaires: list[dict[str, Any]] = []
+    try:
+        rows = (
+            db.query(ModeleDocument)
+            .filter(func.coalesce(ModeleDocument.actif, 1) == 1)
+            .order_by(ModeleDocument.canal.asc(), ModeleDocument.nom.asc(), ModeleDocument.id.asc())
+            .all()
+        )
+        modeles_documentaires = [
+            {
+                "id": m.id,
+                "nom": m.nom,
+                "canal": m.canal,
+                "objet": m.objet,
+                "actif": m.actif,
+            }
+            for m in rows
+        ]
+    except Exception:
+        modeles_documentaires = []
 
     # Séries d'allocations (SICAV) par nom pour graphique de détail client
     alloc_series: dict[str, list[dict]] = {}
@@ -31893,6 +32555,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "last_row": last_row,
             "report_logo_png": report_logo_png,
             "documents_client": documents_client,
+            "modeles_documentaires": modeles_documentaires,
             # séries pour graphiques
             "labels": chart_labels,
             "serie_valo": chart_valo,
@@ -32344,6 +33007,10 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
     access = load_access(db, user_type=user_type, user_id=user_id)
     scope = pick_scope(access, req_scope)
     require_permission(access, "data", "read", societe_id=scope)
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
 
     # Documents liés aux clients avec metadata de type
     rows = (
@@ -32447,6 +33114,135 @@ def dashboard_documents(request: Request, db: Session = Depends(get_db)):
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
         }
+    )
+
+
+@router.get("/bibliotheque-documents", response_class=HTMLResponse)
+def dashboard_bibliotheque_documents(request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
+
+    def _fmt_dt(value):
+        if not value:
+            return ""
+        try:
+            return value.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            try:
+                return value.strftime("%d/%m/%Y")
+            except Exception:
+                return str(value)
+
+    def _strip_html(value: str | None) -> str:
+        text = re.sub(r"<[^>]+>", " ", value or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    modeles = []
+    try:
+        rows = db.query(ModeleDocument).order_by(ModeleDocument.id.asc()).all()
+        for m in rows or []:
+            canal = (m.canal or "").strip().lower()
+            is_pdf = any(token in canal for token in ("pdf", "doc", "courrier"))
+            content_text = _strip_html(m.contenu)
+            modeles.append({
+                "id": m.id,
+                "nom": m.nom or "",
+                "canal": canal or "",
+                "objet": m.objet or "",
+                "contenu": m.contenu or "",
+                "contenu_excerpt": (content_text[:180] if content_text else "Contenu à compléter"),
+                "actif": int(m.actif or 0),
+                "type_label": "PDF dynamique" if is_pdf else "Mail",
+            })
+    except Exception as exc:
+        logger.error(f"load document models failed: {exc}")
+
+    docs_base = []
+    try:
+        rows = db.query(Document).order_by(Document.id_document_base.asc()).all()
+        for d in rows or []:
+            docs_base.append({
+                "id": d.id_document_base,
+                "nom": d.documents or "",
+                "niveau": d.niveau or "",
+                "risque": d.risque or "",
+                "obsolescence_annees": d.obsolescence_annees,
+                "is_pdf_dynamic": True,
+            })
+    except Exception as exc:
+        logger.error(f"load base documents failed: {exc}")
+
+    docs_client = []
+    try:
+        rows = (
+            db.query(
+                DocumentClient.id.label("id"),
+                DocumentClient.id_client.label("id_client"),
+                Client.nom.label("client_nom"),
+                Client.prenom.label("client_prenom"),
+                DocumentClient.nom_client.label("nom_client"),
+                DocumentClient.id_document_base.label("id_document_base"),
+                Document.documents.label("base_nom"),
+                DocumentClient.nom_document.label("nom_document"),
+                DocumentClient.date_creation.label("date_creation"),
+                DocumentClient.date_obsolescence.label("date_obsolescence"),
+                DocumentClient.obsolescence.label("obsolescence"),
+            )
+            .outerjoin(Client, Client.id == DocumentClient.id_client)
+            .outerjoin(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .order_by(DocumentClient.id.desc())
+            .limit(200)
+            .all()
+        )
+        for d in rows or []:
+            client_label_parts = [p for p in [
+                (d.client_prenom or "").strip(),
+                (d.client_nom or "").strip(),
+            ] if p]
+            client_label = " ".join(client_label_parts) if client_label_parts else (d.nom_client or "")
+            docs_client.append({
+                "id": d.id,
+                "client_id": d.id_client,
+                "client_label": client_label,
+                "id_document_base": d.id_document_base,
+                "nom_document": d.nom_document or d.base_nom or "",
+                "date_creation": _fmt_dt(d.date_creation),
+                "date_obsolescence": _fmt_dt(d.date_obsolescence),
+                "obsolescence": d.obsolescence or "",
+                "is_attachable": True,
+            })
+    except Exception as exc:
+        logger.error(f"load client documents failed: {exc}")
+
+    counts = {
+        "modeles_total": len(modeles),
+        "modeles_pdf": sum(1 for m in modeles if m.get("canal") == "pdf"),
+        "modeles_mail": sum(1 for m in modeles if m.get("canal") != "pdf"),
+        "documents_base": len(docs_base),
+        "documents_clients": len(docs_client),
+        "documents_attachables": len([d for d in docs_client if d.get("is_attachable")]),
+    }
+
+    return templates.TemplateResponse(
+        "bibliotheque_documents.html",
+        {
+            "request": request,
+            "counts": counts,
+            "modeles": modeles,
+            "documents_base": docs_base,
+            "documents_clients": docs_client,
+        },
     )
 # List allocation dates for a given name (distinct)
 @router.get("/allocations/dates", response_class=JSONResponse)

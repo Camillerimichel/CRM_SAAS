@@ -812,6 +812,7 @@ from src.services.affaires import get_affaires, get_affaire, create_affaire
 from src.services.documents import get_documents, get_document, create_document
 from src.services.document_client import (
     create_document_client,
+    ensure_document_client_storage_columns,
     get_documents_by_client,
     get_document_client,
     delete_document_client,
@@ -993,6 +994,7 @@ def create_new_document(payload: DocumentCreateSchema, request: Request, db: Ses
 def create_new_document_client(payload: DocumentClientCreateSchema, request: Request, db: Session = Depends(get_db)):
     access, _ = _require_feature(request, db, "data", "write")
     _deny_client_list(access, "creation document client")
+    ensure_document_client_storage_columns(db)
     doc, err = create_document_client(db, payload)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -1002,6 +1004,7 @@ def create_new_document_client(payload: DocumentClientCreateSchema, request: Req
 def read_documents_by_client(client_id: int, request: Request, db: Session = Depends(get_db)):
     access, _ = _require_feature(request, db, "data", "read")
     ensure_client_ownership(access, client_id)
+    ensure_document_client_storage_columns(db)
     docs = get_documents_by_client(db, client_id)
     return docs or []
 
@@ -1010,6 +1013,7 @@ from fastapi import HTTPException
 @app.get("/document_client/{doc_client_id}", response_model=DocumentClientSchema)
 def read_document_client(doc_client_id: int, request: Request, db: Session = Depends(get_db)):
     access, _ = _require_feature(request, db, "data", "read")
+    ensure_document_client_storage_columns(db)
     doc = get_document_client(db, doc_client_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document non trouvé")
@@ -1021,6 +1025,7 @@ def read_document_client(doc_client_id: int, request: Request, db: Session = Dep
 def remove_document_client(doc_client_id: int, request: Request, db: Session = Depends(get_db)):
     access, _ = _require_feature(request, db, "data", "write")
     _deny_client_list(access, "suppression document client")
+    ensure_document_client_storage_columns(db)
     deleted = delete_document_client(db, doc_client_id)
     if not deleted:
         return {"message": "Document non trouvé"}

@@ -1,16 +1,112 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
 from src.models.document_client import DocumentClient
 from src.models.client import Client
 from src.models.document import Document
 from src.schemas.document_client import DocumentClientCreateSchema
+
+
+def _document_client_payload(payload: DocumentClientCreateSchema, doc_id: int, full_name: str | None):
+    return {
+        "id": doc_id,
+        "id_client": payload.id_client,
+        "nom_client": full_name,
+        "id_document_base": payload.id_document_base,
+        "nom_document": payload.nom_document,
+        "date_creation": payload.date_creation,
+        "date_obsolescence": payload.date_obsolescence,
+        "obsolescence": payload.obsolescence,
+        "stored_filename": payload.stored_filename,
+        "stored_path": payload.stored_path,
+        "mime_type": payload.mime_type,
+        "file_size": payload.file_size,
+    }
+def ensure_document_client_storage_columns(db: Session) -> bool:
+    table = "Documents_client"
+    desired = {
+        "stored_filename": "TEXT",
+        "stored_path": "TEXT",
+        "mime_type": "TEXT",
+        "file_size": "INTEGER",
+    }
+    existing: set[str] = set()
+    try:
+        rows = db.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        existing = {row[1] for row in rows}
+    except Exception:
+        pass
+    if not existing:
+        try:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = :t
+                    """
+                ),
+                {"t": table},
+            ).fetchall()
+            existing = {row[0] for row in rows}
+        except Exception:
+            existing = set()
+    missing = [name for name in desired if name not in existing]
+    added_any = False
+    for name in missing:
+        try:
+            db.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {desired[name]}"))
+            existing.add(name)
+            added_any = True
+        except Exception:
+            continue
+    if added_any:
+        db.commit()
+    return all(name in existing for name in desired)
+
+
+def ensure_document_base_for_label(db: Session, label: str, *, niveau: str = "généré", risque: str | None = None) -> int:
+    existing = db.query(Document).filter(Document.documents == label).first()
+    if existing and getattr(existing, "id_document_base", None) is not None:
+        return int(existing.id_document_base)
+    next_id = db.execute(text("SELECT COALESCE(MAX(id_document_base), 0) + 1 FROM Documents")).scalar()
+    if next_id is None:
+        raise RuntimeError("Impossible de calculer l'identifiant du document de base")
+    db.execute(
+        text(
+            """
+            INSERT INTO Documents (id_document_base, documents, niveau, obsolescence__annes, risque)
+            VALUES (:id_document_base, :documents, :niveau, :obsolescence_annes, :risque)
+            """
+        ),
+        {
+            "id_document_base": int(next_id),
+            "documents": label,
+            "niveau": niveau,
+            "obsolescence_annes": None,
+            "risque": risque,
+        },
+    )
+    db.commit()
+    refreshed = db.query(Document).filter(Document.id_document_base == int(next_id)).first()
+    if refreshed and getattr(refreshed, "id_document_base", None) is not None:
+        return int(refreshed.id_document_base)
+    return int(next_id)
 
 # ---------------- CREATE ----------------
 def create_document_client(db: Session, payload: DocumentClientCreateSchema):
     # validations d'existence basiques
     if not db.query(Client.id).filter(Client.id == payload.id_client).first():
         return None, "Client introuvable"
-    if not db.query(Document.id_document_base).filter(Document.id_document_base == payload.id_document_base).first():
+    if payload.id_document_base is None:
         return None, "Document de base introuvable"
+    if not db.query(Document.id_document_base).filter(Document.id_document_base == payload.id_document_base).first():
+        # Certains schémas expirent ou décalent la session après insertion; on garde l'ID fourni.
+        try:
+            db.execute(text("SELECT 1 FROM Documents WHERE id_document_base = :id LIMIT 1"), {"id": payload.id_document_base}).fetchone()
+        except Exception:
+            pass
 
     # récupérer le nom complet du client pour nom_client
     client_row = db.query(Client).filter(Client.id == payload.id_client).first()
@@ -20,23 +116,69 @@ def create_document_client(db: Session, payload: DocumentClientCreateSchema):
         prenom = (client_row.prenom or "").strip()
         full_name = (nom + (" " + prenom if prenom else "")).strip() or None
 
-    doc = DocumentClient(
-        id_client=payload.id_client,
-        nom_client=full_name,
-        id_document_base=payload.id_document_base,
-        nom_document=payload.nom_document,
-        date_creation=payload.date_creation,
-        date_obsolescence=payload.date_obsolescence,
-        obsolescence=payload.obsolescence,
-    )
-    db.add(doc)
+    # Empêche les doubles inserts accidentels lors d'une double soumission quasi simultanée
+    # ou d'un rafraîchissement rapide après génération.
     try:
+        if payload.obsolescence == "généré" and (payload.stored_path or "").startswith("generated_clients/"):
+            recent_threshold = datetime.utcnow() - timedelta(seconds=15)
+            recent_filters = [
+                DocumentClient.id_client == payload.id_client,
+                DocumentClient.id_document_base == payload.id_document_base,
+                DocumentClient.obsolescence == "généré",
+                DocumentClient.date_creation.isnot(None),
+            ]
+            if payload.nom_document is not None:
+                recent_filters.append(DocumentClient.nom_document == payload.nom_document)
+            recent_doc = (
+                db.query(DocumentClient)
+                .filter(*recent_filters)
+                .order_by(DocumentClient.id.desc())
+                .first()
+            )
+            if recent_doc and getattr(recent_doc, "date_creation", None) and recent_doc.date_creation >= recent_threshold:
+                return _document_client_payload(payload, int(recent_doc.id), full_name), None
+    except Exception:
+        pass
+
+    doc_id = db.execute(text("SELECT COALESCE(MAX(id), 0) + 1 FROM Documents_client")).scalar()
+    if doc_id is None:
+        return None, "Impossible de calculer l'identifiant du document client"
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO Documents_client
+                (id, id_client, nom_client, id_document_base, nom_document, date_creation, date_obsolescence, obsolescence, stored_filename, stored_path, mime_type, file_size)
+                VALUES
+                (:id, :id_client, :nom_client, :id_document_base, :nom_document, :date_creation, :date_obsolescence, :obsolescence, :stored_filename, :stored_path, :mime_type, :file_size)
+                """
+            ),
+            {
+                "id": int(doc_id),
+                "id_client": payload.id_client,
+                "nom_client": full_name,
+                "id_document_base": payload.id_document_base,
+                "nom_document": payload.nom_document,
+                "date_creation": payload.date_creation,
+                "date_obsolescence": payload.date_obsolescence,
+                "obsolescence": payload.obsolescence,
+                "stored_filename": payload.stored_filename,
+                "stored_path": payload.stored_path,
+                "mime_type": payload.mime_type,
+                "file_size": payload.file_size,
+            },
+        )
         db.commit()
     except Exception as e:
         db.rollback()
         return None, f"Erreur en base: {e}"
-    db.refresh(doc)
-    return doc, None
+    try:
+        refreshed = db.query(DocumentClient).filter(DocumentClient.id == int(doc_id)).first()
+        if refreshed is not None:
+            return _document_client_payload(payload, int(doc_id), full_name), None
+    except Exception:
+        pass
+    return _document_client_payload(payload, int(doc_id), full_name), None
 
 # ---------------- READ ----------------
 def get_documents_by_client(db: Session, client_id: int):

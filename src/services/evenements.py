@@ -15,6 +15,7 @@ from src.models.evenement_intervenant import EvenementIntervenant
 from src.models.evenement_lien import EvenementLien
 from src.models.evenement_envoi import EvenementEnvoi
 from src.models.modele_document import ModeleDocument
+from src.services.modele_render import render_modele as render_modele_util
 
 from src.schemas.evenement import EvenementCreateSchema, EvenementUpdateSchema, TacheCreateSchema
 from src.schemas.evenement_statut import EvenementStatutCreateSchema
@@ -376,7 +377,7 @@ def create_envoi(db: Session, evenement_id: int, payload: EvenementEnvoiCreateSc
         tpl = db.query(ModeleDocument).filter(ModeleDocument.id == payload.modele_id).first()
         if not tpl:
             return "modele_not_found"
-        rendered = render_modele_from_obj(tpl, payload.placeholders or {})
+        rendered = render_modele_util(db, tpl.id, payload.placeholders or {})
         contenu = contenu or rendered.get("contenu")
         objet = objet or rendered.get("objet")
 

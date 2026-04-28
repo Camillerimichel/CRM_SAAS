@@ -19,7 +19,16 @@ def list_group_details(db: Session, type_groupe: Optional[Literal['client','affa
     if actifs_only:
         # Consider any non-zero/truthy as active to be robust across legacy imports
         q = q.filter((AdministrationGroupeDetail.actif.is_(None)) | (AdministrationGroupeDetail.actif != 0))
-    return q.order_by(AdministrationGroupeDetail.nom.asc()).all()
+    rows = q.order_by(AdministrationGroupeDetail.nom.asc()).all()
+    # Some legacy/manual inserts can leave rows without a usable identifier.
+    # Do not fail the whole selector because of a single broken group.
+    return [
+        row
+        for row in rows
+        if getattr(row, "id", None) is not None
+        and getattr(row, "nom", None)
+        and getattr(row, "responsable_id", None) is not None
+    ]
 
 
 def list_memberships_for_client(db: Session, client_id: int):
