@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, DateTime
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime, Text
 from src.database import Base
 
 class DocumentClient(Base):
@@ -17,4 +17,8 @@ class DocumentClient(Base):
     date_creation = Column("date_creation", DateTime, nullable=True)
     date_obsolescence = Column("date_obsolescence", DateTime, nullable=True)
     obsolescence = Column("obsolescence", String, nullable=True)
+    stored_filename = Column("stored_filename", String, nullable=True)
+    stored_path = Column("stored_path", Text, nullable=True)
+    mime_type = Column("mime_type", String, nullable=True)
+    file_size = Column("file_size", Integer, nullable=True)
     id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)

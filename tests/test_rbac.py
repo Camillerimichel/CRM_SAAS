@@ -60,6 +60,7 @@ def _headers(user_id=None, user_type="staff", societe_id=None):
         "/dashboard/affaires/1",
         "/dashboard/allocations",
         "/dashboard/documents",
+        "/dashboard/bibliotheque-documents",
         "/dashboard/parametres",
         "/dashboard/taches",
     ],
@@ -70,7 +71,7 @@ def test_requires_auth(path):
 
 
 def test_client_cannot_access_supports_offres_params():
-    for path in ["/dashboard/allocations", "/dashboard/documents", "/dashboard/parametres"]:
+    for path in ["/dashboard/allocations", "/dashboard/documents", "/dashboard/bibliotheque-documents", "/dashboard/parametres"]:
         r = client.get(path, headers=_headers(user_id=1, user_type="client"))
         assert r.status_code in (401, 403, 500)
 
@@ -87,6 +88,11 @@ def test_staff_requires_permissions_for_offres():
 
 def test_staff_requires_permissions_for_documents():
     r = client.get("/dashboard/documents", headers=_headers(user_id=1, user_type="staff"))
+    assert r.status_code in (401, 403, 500)
+
+
+def test_staff_requires_permissions_for_document_library():
+    r = client.get("/dashboard/bibliotheque-documents", headers=_headers(user_id=1, user_type="staff"))
     assert r.status_code in (401, 403, 500)
 
 

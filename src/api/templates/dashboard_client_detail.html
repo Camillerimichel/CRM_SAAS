@@ -770,7 +770,6 @@
     <div class="muted" style="font-size:12px; margin-top:4px;">Les mails envoyés depuis ici ne sont pas stockés dans vos tâches.</div>
   </div>
 </div>
-
 {% set cl_markers_param = tb_markers_param if tb_markers_param is defined else '' %}
 {% set cl_markers_suffix = ('&' + cl_markers_param) if cl_markers_param else '' %}
 {% set cl_markers_prefix = ('?' + cl_markers_param) if cl_markers_param else '' %}
@@ -813,7 +812,7 @@
       </h3>
     </div>
     <div id="synthPanel" class="accordion-panel" style="display:block; padding:1rem 1.25rem; border-top:1px solid var(--border);">
-    <div style="display:none; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
         <button type="button" class="btn client-hide" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openClientMsgs('nonreg')" title="Messages en cours">
           <i class="fa-solid fa-triangle-exclamation"></i><span>{{ msgs_nonreg_count }}</span>
@@ -835,6 +834,11 @@
       <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="generateClientSynthese()" title="Edition de synthèse (PDF)">
         <span class="pdf-pill-icon">PDF</span>
       </button>
+      {% if modeles_documentaires %}
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="openModelePdfModal()" title="Générer un PDF depuis un modèle">
+        <i class="fa-solid fa-file-pdf"></i><span>Docs PDF</span>
+      </button>
+      {% endif %}
     </div>
     <div class="grid" data-tb-marker="CL_02">
       <div class="card" data-tb-marker="CL_03">
@@ -1519,6 +1523,7 @@ function generateClientSynthese(){
   window.addEventListener('focus', clearLoader);
   setTimeout(clearLoader, 4000);
 }
+
     async function loadClientGroups(){
       const notice = document.getElementById('clientGroupsNotice');
       if (notice) { notice.style.display = 'none'; notice.textContent = ''; }
@@ -1624,17 +1629,66 @@ function generateClientSynthese(){
         <i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>Document</span>
       </h3>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <a id="pdfViewerOpenBtn" class="btn btn-secondary" href="#" target="_blank" rel="noopener">Ouvrir</a>
-        <a id="pdfViewerDownloadBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">Télécharger</a>
+        <button type="button" id="pdfViewerOpenBtn" class="btn btn-secondary" style="display:none;" onclick="openPdfViewerExternal()">Ouvrir</button>
+        <button type="button" id="pdfViewerDownloadBtn" class="btn btn-primary" style="display:none;" onclick="downloadPdfViewerFile()">Télécharger</button>
         <button class="modal-close" onclick="closePdfViewer()">✕</button>
       </div>
     </div>
-    <div class="modal-body" style="padding:0; flex:1 1 auto;">
+    <div class="modal-body" style="padding:0; flex:1 1 auto; display:flex; flex-direction:column;">
+      <div id="pdfViewerStatus" style="display:none; padding:10px 12px; border-bottom:1px solid #e7e7e7; font-size:13px; line-height:1.4; color:#444;"></div>
+      <details id="pdfViewerDiag" style="display:none; border-bottom:1px solid #e7e7e7; background:#fafafa;">
+        <summary style="cursor:pointer; padding:10px 12px; font-size:12px; color:#334155;">Diagnostics</summary>
+        <div id="pdfViewerLog" style="padding:0 12px 10px; font-size:12px; line-height:1.45; color:#334155; white-space:pre-wrap;"></div>
+      </details>
       <iframe id="pdfViewerFrame" src="about:blank" style="width:100%; height:100%; border:0;" title="Aperçu PDF"></iframe>
     </div>
   </div>
 </div>
 
+{% if modeles_documentaires %}
+<!-- Modale dédiée: Génération document PDF -->
+<div id="modelePdfModal" class="modal-overlay" onclick="if(event.target===this) closeModelePdfModal()">
+  <div class="modal-card" style="width:920px; max-width:98vw; height:90vh; display:flex; flex-direction:column;">
+    <div class="modal-header">
+      <h3 style="display:flex; align-items:center; gap:8px; margin:0;">
+        <i class="fa-solid fa-file-pdf"></i><span>Documents PDF</span>
+      </h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary" onclick="closeModelePdfModal()">Fermer</button>
+        <button type="button" class="btn btn-secondary" onclick="loadSelectedModeleDoc()">Afficher</button>
+      </div>
+    </div>
+    <div class="modal-body" style="display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0;">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <select id="modeleDocumentSelect" style="min-width:320px; max-width:100%; padding:.45rem .6rem;">
+          <option value="">Choisir un modèle…</option>
+          {% for m in modeles_documentaires %}
+            <option value="{{ m.id }}">{{ m.nom }}</option>
+          {% endfor %}
+        </select>
+        <div id="modelePdfStatus" class="muted" style="font-size:12px;">Choisis un modèle puis clique sur Afficher.</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label for="modelePdfObjet" style="font-size:12px; color:var(--muted);">Objet</label>
+        <input id="modelePdfObjet" type="text" placeholder="Objet du document" style="flex:1 1 320px; min-width:240px; padding:.45rem .6rem;" />
+      </div>
+      <div id="modelePdfPreviewShell" style="flex:1 1 auto; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:12px; background:#f7f9fc; padding:16px;">
+        <div id="modelePdfEmpty" class="muted" style="padding:24px; text-align:center;">Sélectionnez un modèle puis cliquez sur Afficher.</div>
+        <div id="modelePdfDocument" contenteditable="true" spellcheck="true" style="display:none; outline:none; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; min-height:100%; box-shadow:0 1px 2px rgba(15,23,42,.04);"></div>
+      </div>
+    </div>
+    <div class="modal-header" style="border-top:1px solid var(--border);">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span id="modelePdfSaveState" class="muted" style="font-size:12px;">Aucune modification chargée.</span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button type="button" id="modelePdfSaveBtn" class="btn btn-secondary" onclick="saveModelePdf(false)" disabled>Enregistrer</button>
+        <button type="button" id="modelePdfSaveSendBtn" class="btn btn-primary" onclick="saveModelePdf(true)" disabled>Enregistrer et envoyer</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Modale dédiée: Lettre de Mission -->
 <div class="modal-overlay" id="confMissionDetailModal" onclick="if(event.target===this) this.style.display='none'">
@@ -2995,7 +3049,14 @@ function generateClientSynthese(){
   <!-- (section Graphiques fusionnée ci-dessus) -->
 
   <div id="docsSection" class="card" data-tb-marker="CL_17" style="display:none;">
-    <h3>Documents du client</h3>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <h3 style="margin:0;">Documents du client</h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <a class="btn btn-compact" href="#docSendDiag" style="text-decoration:none; display:inline-flex; align-items:center;">
+          <i class="fa-solid fa-clipboard-list"></i> Diagnostics envoi
+        </a>
+      </div>
+    </div>
     <form id="addDocForm" style="margin-bottom:12px; display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;">
       {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
       <div>
@@ -3049,11 +3110,30 @@ function generateClientSynthese(){
           <td>{{ (d.date_creation|string)[:10] if d.date_creation else '-' }}</td>
           <td>{{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '-' }}</td>
           <td>{{ d.obsolescence or '-' }}</td>
-          <td><button class="delBtn" data-id="{{ d.id }}">Supprimer</button></td>
+          <td style="white-space:nowrap;">
+            {% if d.download_url %}
+              <button type="button" class="btn btn-compact" style="margin-right:4px;" onclick="openPdfViewer({title:'{{ (d.nom_document or d.base_name or 'Document')|e }}', inlineUrl:'{{ d.download_url }}?inline=1', downloadUrl:'{{ d.download_url }}'})">
+                <i class="fa-solid fa-file-pdf"></i> PDF
+              </button>
+              {% if client and client.email %}
+                <form action="/dashboard/document-client/{{ d.id }}/send-page" method="post" target="_blank" style="display:inline;">
+                  <button type="submit" class="btn btn-compact" style="margin-right:4px;">
+                    <i class="fa-solid fa-paper-plane"></i> Envoyer
+                  </button>
+                </form>
+              {% endif %}
+            {% endif %}
+            <button class="delBtn" data-id="{{ d.id }}">Supprimer</button>
+          </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
+    <details id="docSendDiag" open style="margin-top:10px; border:1px solid #e7e7e7; border-radius:10px; background:#fafafa;">
+      <summary style="cursor:pointer; padding:10px 12px; font-size:12px; color:#334155;">Diagnostics envoi</summary>
+      <div id="docSendLog" style="padding:0 12px 12px; font-size:12px; line-height:1.45; color:#334155; white-space:pre-wrap;"></div>
+    </details>
+
   </div>
 {% else %}
   <div class="card">Client introuvable.</div>
@@ -3481,10 +3561,6 @@ function openClientMsgs(kind){
     if ($alloc){
       $alloc.addEventListener('change', function(){ runClientEsg(); });
     }
-    setTimeout(function(){
-      var section = document.getElementById('esgSection');
-      if (section && section.style.display !== 'none'){ init(); }
-    }, 0);
   })();
 
   // Accordéons internes du bloc Graphiques (exclusifs, fermés par défaut)
@@ -4914,7 +4990,13 @@ function openClientMsgs(kind){
 	        <button class="modal-close" onclick="closeConfConnaissanceDetail()">✕</button>
 	      </div>
 	      <div class="modal-body" style="padding:0; flex:1 1 auto;">
-	        <iframe src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}" style="width:100%; height:100%; border:0;"></iframe>
+	        {% if _is_client %}
+	          <div style="padding:16px; color:var(--muted);">
+	            Le détail de connaissance client n’est pas chargé pour un compte client.
+	          </div>
+	        {% else %}
+	          <iframe data-base-src="/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}" src="about:blank" style="width:100%; height:100%; border:0;" loading="lazy"></iframe>
+	        {% endif %}
 	      </div>
 	    </div>
 	  </div>
@@ -5403,7 +5485,9 @@ function openClientMsgs(kind){
 	        var key = (openKey || 'knowledge');
 	        var iframe = document.querySelector('#confConnaissanceDetailModal iframe');
 	        if (iframe){
-	          iframe.setAttribute('src', "/dashboard/clients/kyc/{{ client.id }}?open=" + encodeURIComponent(key) + "&embed=1&v=1&t=" + Date.now() + "{{ cl_markers_suffix }}");
+	          var base = iframe.getAttribute('data-base-src') || "/dashboard/clients/kyc/{{ client.id }}?open=knowledge&embed=1{{ cl_markers_suffix }}";
+	          var sep = base.indexOf('?') === -1 ? '?' : '&';
+	          iframe.setAttribute('src', base.replace(/([?&]open=)[^&]*/, '$1' + encodeURIComponent(key)) + sep + "v=1&t=" + Date.now());
 	        }
 	      } catch(e){}
 	      __showOverlay('confConnaissanceDetailModal');
@@ -5511,7 +5595,45 @@ function openClientMsgs(kind){
         return url + (String(url).indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
       }
     }
-    function openPdfViewer(options){
+    function _setPdfViewerStatus(message, isError){
+      var el = document.getElementById('pdfViewerStatus');
+      var diag = document.getElementById('pdfViewerDiag');
+      if (!el) return;
+      if (!message){
+        el.textContent = '';
+        el.style.display = 'none';
+        return;
+      }
+      el.textContent = message;
+      el.style.display = 'block';
+      el.style.color = isError ? '#8b1e1e' : '#444';
+      if (diag && isError) diag.open = true;
+    }
+    let __pdfViewerContext = { inlineUrl: '', downloadUrl: '', title: '' };
+    function _setPdfViewerLog(lines){
+      var el = document.getElementById('pdfViewerLog');
+      var wrap = document.getElementById('pdfViewerDiag');
+      if (!el) return;
+      var items = Array.isArray(lines) ? lines.filter(Boolean) : [];
+      if (!items.length){
+        el.textContent = '';
+        if (wrap) wrap.style.display = 'none';
+        return;
+      }
+      el.textContent = items.join('\n');
+      if (wrap) wrap.style.display = 'block';
+    }
+    function _appendPdfViewerLog(line){
+      if (!line) return;
+      if (!window.__pdfViewerLogLines) window.__pdfViewerLogLines = [];
+      window.__pdfViewerLogLines.push(String(line));
+      _setPdfViewerLog(window.__pdfViewerLogLines);
+    }
+    function _resetPdfViewerLogs(){
+      window.__pdfViewerLogLines = [];
+      _setPdfViewerLog([]);
+    }
+    async function openPdfViewer(options){
       try{
         var m = document.getElementById('pdfViewerModal');
         var frame = document.getElementById('pdfViewerFrame');
@@ -5526,14 +5648,18 @@ function openClientMsgs(kind){
         if (titleEl){
           titleEl.innerHTML = '<i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>' + title.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
         }
+        __pdfViewerContext = { inlineUrl: inlineUrl, downloadUrl: downloadUrl, title: title };
         if (openBtn){
-          openBtn.href = inlineUrl || '#';
           openBtn.style.display = inlineUrl ? '' : 'none';
         }
         if (dlBtn){
-          dlBtn.href = downloadUrl || inlineUrl || '#';
           dlBtn.style.display = (downloadUrl || inlineUrl) ? '' : 'none';
         }
+        _setPdfViewerStatus('', false);
+        _resetPdfViewerLogs();
+        _appendPdfViewerLog('Document: ' + title);
+        _appendPdfViewerLog('Inline URL: ' + (inlineUrl || '-'));
+        _appendPdfViewerLog('Download URL: ' + (downloadUrl || '-'));
 
         try{
           if (typeof window.showGlobalLoader === 'function'){
@@ -5541,14 +5667,128 @@ function openClientMsgs(kind){
           }
         }catch(e){}
 
+        window.__pdfViewerPendingLoad = false;
         frame.onload = function(){
-          try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(e){}
+          try{
+            if (!window.__pdfViewerPendingLoad) return;
+            if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+            _setPdfViewerStatus('', false);
+            _appendPdfViewerLog('Preview loaded in iframe.');
+            window.__pdfViewerPendingLoad = false;
+          }catch(e){}
         };
-        frame.src = __pdfNoCache(inlineUrl || downloadUrl || 'about:blank');
+
+        var targetUrl = inlineUrl || downloadUrl || 'about:blank';
+        if (targetUrl && targetUrl !== 'about:blank'){
+          _appendPdfViewerLog('HTTP HEAD probe started.');
+          try{
+            var probe = await fetch(__pdfNoCache(targetUrl), { method: 'HEAD', credentials: 'same-origin', cache: 'no-store' });
+            _appendPdfViewerLog('HTTP HEAD status: ' + probe.status + ' ' + (probe.ok ? 'OK' : 'ERROR'));
+            if (!probe.ok){
+              var detail = 'Aperçu indisponible. Utilisez Ouvrir ou Télécharger.';
+              try{
+                var payload = await probe.text();
+                if (payload){
+                  try{
+                    var parsed = JSON.parse(payload);
+                    if (parsed && parsed.detail) detail = String(parsed.detail);
+                  }catch(_jsonErr){
+                    detail = payload.slice(0, 200);
+                  }
+                }
+              }catch(_bodyErr){}
+              _appendPdfViewerLog('Server detail: ' + detail);
+              _setPdfViewerStatus(detail, true);
+              window.__pdfViewerPendingLoad = false;
+              frame.src = 'about:blank';
+              m.style.display = 'flex';
+              try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
+              return;
+            }
+          }catch(probeErr){
+            _appendPdfViewerLog('HEAD probe failed: ' + (probeErr && probeErr.message ? probeErr.message : probeErr));
+            _setPdfViewerStatus('Impossible de vérifier le PDF sur le serveur. Ouvrez le document dans un nouvel onglet.', true);
+            window.__pdfViewerPendingLoad = false;
+            frame.src = 'about:blank';
+            m.style.display = 'flex';
+            try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
+            return;
+          }
+        }
+
+        window.__pdfViewerPendingLoad = true;
+        frame.src = __pdfNoCache(targetUrl);
 
         m.style.display = 'flex';
       }catch(e){
         try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
+        _setPdfViewerStatus("Impossible d'ouvrir l'apercu du PDF.", true);
+        window.__pdfViewerPendingLoad = false;
+        _appendPdfViewerLog('Open error: ' + (e && e.message ? e.message : e));
+      }
+    }
+    async function openPdfViewerExternal(){
+      try{
+        var url = __pdfViewerContext.inlineUrl || __pdfViewerContext.downloadUrl || '';
+        if (!url) return;
+        _appendPdfViewerLog('Opening external tab...');
+        var probe = await fetch(__pdfNoCache(url), { method: 'HEAD', credentials: 'same-origin', cache: 'no-store' });
+        _appendPdfViewerLog('External HEAD status: ' + probe.status + ' ' + (probe.ok ? 'OK' : 'ERROR'));
+        if (!probe.ok){
+          var detail = 'Open blocked: server returned ' + probe.status + '.';
+          try{
+            var payload = await probe.text();
+            if (payload){
+              try{
+                var parsed = JSON.parse(payload);
+                if (parsed && parsed.detail) detail = String(parsed.detail);
+              }catch(_jsonErr){
+                detail = payload.slice(0, 200);
+              }
+            }
+          }catch(_bodyErr){}
+          _setPdfViewerStatus(detail, true);
+          return;
+        }
+        window.open(__pdfNoCache(url), '_blank', 'noopener');
+      }catch(e){
+        _appendPdfViewerLog('External open failed: ' + (e && e.message ? e.message : e));
+        _setPdfViewerStatus("Impossible d'ouvrir le document dans un nouvel onglet.", true);
+      }
+    }
+    async function downloadPdfViewerFile(){
+      try{
+        var url = __pdfViewerContext.downloadUrl || __pdfViewerContext.inlineUrl || '';
+        if (!url) return;
+        _appendPdfViewerLog('Download started...');
+        var probe = await fetch(__pdfNoCache(url), { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
+        _appendPdfViewerLog('Download status: ' + probe.status + ' ' + (probe.ok ? 'OK' : 'ERROR'));
+        if (!probe.ok){
+          var detail = 'Download blocked: server returned ' + probe.status + '.';
+          try{
+            var payload = await probe.text();
+            if (payload){
+              try{
+                var parsed = JSON.parse(payload);
+                if (parsed && parsed.detail) detail = String(parsed.detail);
+              }catch(_jsonErr){
+                detail = payload.slice(0, 200);
+              }
+            }
+          }catch(_bodyErr){}
+          _setPdfViewerStatus(detail, true);
+          return;
+        }
+        var blob = await probe.blob();
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (__pdfViewerContext.title || 'document') + '.pdf';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){ try{ URL.revokeObjectURL(a.href); document.body.removeChild(a); }catch(e){} }, 1000);
+      }catch(e){
+        _appendPdfViewerLog('Download failed: ' + (e && e.message ? e.message : e));
+        _setPdfViewerStatus('Impossible de telecharger le document.', true);
       }
     }
     function closePdfViewer(){
@@ -5890,9 +6130,12 @@ function openClientMsgs(kind){
         });
       }
       renderOptions('');
-      document.getElementById('doc_filter').addEventListener('input', function(){
-        renderOptions(this.value);
-      });
+      var filterEl = document.getElementById('doc_filter');
+      if (filterEl) {
+        filterEl.addEventListener('input', function(){
+          renderOptions(this.value);
+        });
+      }
     } catch (e) { /* ignore */ }
   })();
 
@@ -5920,6 +6163,247 @@ function openClientMsgs(kind){
       alert('Erreur: ' + (err.detail || res.status));
     }
   });
+
+  // Génération PDF depuis un modèle documentaire
+  async function generateModeleDoc(modeleId, modeleName, sendMail=false) {
+    const confirmLabel = sendMail
+      ? 'Générer, enregistrer et envoyer le document "' + modeleName + '" ?'
+      : 'Générer et enregistrer le document "' + modeleName + '" ?';
+    if (!confirm(confirmLabel)) return;
+    try {
+      if (typeof window.showGlobalLoader === 'function') window.showGlobalLoader('Génération du PDF…');
+      const clientId = {{ client.id }};
+      const res = await fetch(`/dashboard/clients/${clientId}/documents/modeles/${modeleId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ send_mail: !!sendMail })
+      });
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur : ' + (err.detail || res.status));
+        return;
+      }
+      const data = await res.json();
+      if (data.pdf_url) {
+        openPdfViewer({
+          title: modeleName,
+          inlineUrl: data.pdf_url,
+          downloadUrl: data.download_url || data.pdf_url.replace('?inline=1', '')
+        });
+      }
+      if (data.mail_error) {
+        alert(data.mail_error);
+      }
+      location.reload();
+    } catch (e) {
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      alert('Erreur inattendue lors de la génération.');
+    }
+  }
+
+  async function sendClientDocument(docId, docLabel) {
+    if (!docId) return;
+    if (!confirm('Envoyer le document "' + docLabel + '" par email ?')) return;
+    if (window.__docSendBusy) return;
+    window.__docSendBusy = true;
+    const setSendDiag = (lines, open=true) => {
+      const wrap = document.getElementById('docSendDiag');
+      const log = document.getElementById('docSendLog');
+      if (!wrap || !log) return;
+      const items = Array.isArray(lines) ? lines.filter(Boolean) : [];
+      if (!items.length) {
+        wrap.style.display = 'none';
+        log.textContent = '';
+        return;
+      }
+      log.textContent = items.join('\n');
+      wrap.style.display = 'block';
+      if (open) wrap.open = true;
+    };
+    const appendSendDiag = (line) => {
+      if (!window.__docSendLogLines) window.__docSendLogLines = [];
+      window.__docSendLogLines.push(String(line));
+      setSendDiag(window.__docSendLogLines, true);
+    };
+    try {
+      if (typeof window.showGlobalLoader === 'function') window.showGlobalLoader('Envoi du PDF…');
+      window.__docSendLogLines = [];
+      appendSendDiag('Document: ' + docLabel);
+      appendSendDiag('Document ID: ' + docId);
+      const res = await fetch(`/dashboard/document-client/${docId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const detail = err && err.detail ? err.detail : ('HTTP ' + res.status);
+        appendSendDiag('Status HTTP: ' + res.status);
+        appendSendDiag('Erreur serveur: ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)));
+        if (err && err.recipient) appendSendDiag('Destinataire: ' + err.recipient);
+        if (err && err.subject) appendSendDiag('Objet: ' + err.subject);
+        alert('Erreur : ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)));
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      appendSendDiag('Statut HTTP: ' + res.status + ' OK');
+      if (data.recipient) appendSendDiag('Destinataire: ' + data.recipient);
+      if (data.subject) appendSendDiag('Objet: ' + data.subject);
+      if (data.attachment) {
+        appendSendDiag('Pièce jointe: ' + (data.attachment.filename || '-') + ' (' + (data.attachment.size || 0) + ' octets)');
+      }
+      appendSendDiag('SMTP configuré: ' + (data.smtp_configured ? 'oui' : 'non'));
+      appendSendDiag('Résultat: document envoyé');
+      alert('Document envoyé.');
+    } catch (e) {
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      appendSendDiag('Erreur inattendue: ' + (e && e.message ? e.message : e));
+      alert('Erreur inattendue lors de l\'envoi.');
+    } finally {
+      window.__docSendBusy = false;
+    }
+  }
+
+  function openModelePdfModal(){
+    const modal = document.getElementById('modelePdfModal');
+    if (modal) modal.style.display = 'flex';
+    const status = document.getElementById('modelePdfStatus');
+    const empty = document.getElementById('modelePdfEmpty');
+    const doc = document.getElementById('modelePdfDocument');
+    const saveBtn = document.getElementById('modelePdfSaveBtn');
+    const saveSendBtn = document.getElementById('modelePdfSaveSendBtn');
+    const saveState = document.getElementById('modelePdfSaveState');
+    if (status) status.textContent = 'Choisis un modèle puis clique sur Afficher.';
+    if (saveState) saveState.textContent = 'Aucune modification chargée.';
+    if (empty) empty.style.display = 'block';
+    if (doc) doc.style.display = 'none';
+    if (saveBtn) saveBtn.disabled = true;
+    if (saveSendBtn) saveSendBtn.disabled = true;
+  }
+
+  function closeModelePdfModal(){
+    const modal = document.getElementById('modelePdfModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function escapeHtml(text) {
+    return String(text || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function renderModeleDocumentPreview(data) {
+    const empty = document.getElementById('modelePdfEmpty');
+    const doc = document.getElementById('modelePdfDocument');
+    const status = document.getElementById('modelePdfStatus');
+    const saveBtn = document.getElementById('modelePdfSaveBtn');
+    const saveSendBtn = document.getElementById('modelePdfSaveSendBtn');
+    const saveState = document.getElementById('modelePdfSaveState');
+    const objet = document.getElementById('modelePdfObjet');
+    if (!doc || !empty || !status || !saveBtn || !saveSendBtn || !objet) return;
+
+    const title = escapeHtml(data.modele_nom || 'Document');
+    const objetText = data.objet || '';
+    const bodyHtml = data.contenu_html || '';
+    objet.value = objetText;
+    doc.innerHTML = [
+      '<div style="font-family:Arial,Helvetica,sans-serif; color:#1f2937; line-height:1.5;">',
+        '<div style="border-bottom:2px solid #1d4ed8; padding-bottom:10px; margin-bottom:18px;">',
+          '<div style="font-size:18pt; font-weight:700; margin:0 0 4px 0; color:#0f172a;">' + title + '</div>',
+          '<div style="font-size:9.5pt; color:#64748b;">Client: ' + escapeHtml(data.client_fullname || '') + '</div>',
+          '<div style="font-size:9.5pt; color:#64748b; margin-top:2px;">Objet: ' + escapeHtml(objetText) + '</div>',
+        '</div>',
+        '<div style="background:#fff; border:1px solid #e5ebf3; border-radius:12px; padding:18px 20px; min-height:220px;" data-field="contenu" contenteditable="true">',
+          bodyHtml,
+        '</div>',
+      '</div>'
+    ].join('');
+    empty.style.display = 'none';
+    doc.style.display = 'block';
+    status.textContent = 'Modèle chargé. Modifie le document puis enregistre.';
+    if (saveState) saveState.textContent = 'Modèle chargé.';
+    saveBtn.disabled = false;
+    saveSendBtn.disabled = false;
+  }
+
+  async function loadSelectedModeleDoc() {
+    const select = document.getElementById('modeleDocumentSelect');
+    if (!select) return;
+    const modeleId = select.value;
+    if (!modeleId) {
+      alert('Choisis un modèle.');
+      return;
+    }
+    const status = document.getElementById('modelePdfStatus');
+    if (status) status.textContent = 'Chargement du document...';
+    try {
+      const clientId = {{ client.id }};
+      const res = await fetch(`/dashboard/clients/${clientId}/documents/modeles/${modeleId}/preview`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || ('HTTP ' + res.status));
+      }
+      const data = await res.json();
+      data.modele_nom = select.options[select.selectedIndex]?.text || data.modele_nom || 'Document';
+      data.client_fullname = {{ ((client.prenom or '') ~ ' ' ~ (client.nom or '') if client else '')|tojson }};
+      renderModeleDocumentPreview(data);
+    } catch (e) {
+      if (status) status.textContent = 'Erreur de chargement.';
+      alert('Impossible d\'afficher le document: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function saveModelePdf(sendMail=false) {
+    if (window.__modelePdfSaving) return;
+    window.__modelePdfSaving = true;
+    try {
+      const select = document.getElementById('modeleDocumentSelect');
+      const doc = document.getElementById('modelePdfDocument');
+      const objet = document.getElementById('modelePdfObjet');
+      const status = document.getElementById('modelePdfStatus');
+      if (!select || !doc || !objet) return;
+      const modeleId = select.value;
+      if (!modeleId) {
+        alert('Choisis un modèle.');
+        return;
+      }
+      const contentField = doc.querySelector('[data-field="contenu"]');
+      const contenuHtml = contentField ? contentField.innerHTML : doc.innerHTML;
+      const objetText = (objet.value || '').trim();
+      if (status) status.textContent = sendMail ? 'Enregistrement et envoi...' : 'Enregistrement...';
+      const clientId = {{ client.id }};
+      const res = await fetch(`/dashboard/clients/${clientId}/documents/modeles/${modeleId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          send_mail: !!sendMail,
+          contenu_html: contenuHtml,
+          objet: objetText,
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (status) status.textContent = 'Erreur d\'enregistrement.';
+        const saveState = document.getElementById('modelePdfSaveState');
+        if (saveState) saveState.textContent = 'Erreur d\'enregistrement.';
+        alert('Erreur : ' + (err.detail || res.status));
+        return;
+      }
+      const data = await res.json();
+      if (status) status.textContent = sendMail ? 'Document enregistré et envoyé.' : 'Document enregistré.';
+      const saveState = document.getElementById('modelePdfSaveState');
+      if (saveState) saveState.textContent = sendMail ? 'Document enregistré et envoyé.' : 'Document enregistré.';
+      if (data.mail_error) {
+        alert(data.mail_error);
+      }
+    } finally {
+      window.__modelePdfSaving = false;
+    }
+  }
 
   // Suppression document-client
   document.querySelectorAll('.delBtn').forEach(btn => {

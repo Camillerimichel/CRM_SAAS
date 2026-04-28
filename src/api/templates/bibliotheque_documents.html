@@ -1,0 +1,1345 @@
+{% extends "base.html" %}
+
+{% block title %}Bibliothèque documentaire{% endblock %}
+{% block header_title %}
+  <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <span><i class="fa-solid fa-folder-open" style="margin-right:8px;"></i>Bibliothèque documentaire</span>
+    <span class="badge" style="background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:2px 8px; border-radius:999px; font-size:.85rem;">Phase 1</span>
+  </span>
+{% endblock %}
+
+{% block content %}
+<style>
+  .container {
+    max-width: 1600px;
+    padding: 0 1.5rem;
+  }
+  .doc-lib {
+    display: grid;
+    gap: 1rem;
+    width: 100%;
+  }
+  .doc-lib-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+    color: #fff;
+    border-radius: 18px;
+    padding: 1.25rem 1.4rem;
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+  }
+  .doc-lib-hero h1 {
+    margin: 0 0 .35rem 0;
+    font-size: 1.4rem;
+  }
+  .doc-lib-hero p {
+    margin: 0;
+    max-width: 76ch;
+    color: rgba(255,255,255,.88);
+  }
+  .doc-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: .85rem;
+  }
+  .kpi {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 1rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+  .kpi .label {
+    font-size: .82rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: .35rem;
+  }
+  .kpi .value {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #111827;
+  }
+  .section-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    padding: 1.1rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+  .section-card--full {
+    width: auto;
+    box-sizing: border-box;
+  }
+  .section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .section-body {
+    margin-top: 1rem;
+  }
+  .section-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: .45rem .7rem;
+    font-size: .88rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .section-toggle:hover {
+    background: #f8fafc;
+  }
+  .section-card.is-collapsed .section-body {
+    display: none;
+  }
+  .pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-top: .9rem;
+  }
+  .pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex-wrap: wrap;
+  }
+  .pagination-controls .page-btn {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: .45rem .7rem;
+    font-size: .88rem;
+    cursor: pointer;
+  }
+  .pagination-controls .page-btn.is-active {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #fff;
+    font-weight: 700;
+  }
+  .pagination-controls .page-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+  .section-card h2 {
+    margin: 0 0 .75rem 0;
+    font-size: 1.05rem;
+  }
+  .muted {
+    color: #6b7280;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  table.doc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .92rem;
+  }
+  .doc-table th, .doc-table td {
+    padding: .7rem .6rem;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+    text-align: left;
+  }
+  .doc-table th {
+    color: #374151;
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .badge-soft {
+    display: inline-flex;
+    align-items: center;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: .76rem;
+    font-weight: 600;
+  }
+  .badge-green {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .badge-amber {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .doc-excerpt {
+    max-width: 42ch;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    align-items: center;
+    margin-bottom: .9rem;
+    flex-wrap: wrap;
+  }
+  .toolbar input {
+    min-width: 260px;
+    padding: .7rem .85rem;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+  }
+  .preview-panel {
+    display: none;
+    margin-top: 1rem;
+    border: 1px solid #dbe4ee;
+    background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    border-radius: 16px;
+    padding: 1rem 1.1rem;
+  }
+  .preview-panel.is-open {
+    display: block;
+  }
+  .preview-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .6rem;
+  }
+  .preview-title h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .preview-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+    margin-bottom: .85rem;
+  }
+  .preview-meta .box {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: .75rem;
+  }
+  .preview-meta .label {
+    font-size: .74rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #64748b;
+    margin-bottom: .25rem;
+  }
+  .preview-meta .value {
+    color: #0f172a;
+    font-weight: 600;
+  }
+  .preview-body {
+    color: #334155;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .preview-canvas {
+    background: #e2e8f0;
+    border-radius: 18px;
+    padding: 1rem;
+    overflow: auto;
+  }
+  .preview-sheet {
+    width: min(1040px, 100%);
+    min-height: 540px;
+    margin: 0 auto;
+    background: #fff;
+    color: #1f2937;
+    border-radius: 14px;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+    padding: 3rem 3.4rem 3.2rem;
+    font-family: "Times New Roman", Georgia, serif;
+  }
+  .preview-sheet .doc-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    border-bottom: 2px solid #dbe4ee;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .preview-sheet .doc-brand {
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: 0.82rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.35rem;
+  }
+  .preview-sheet .doc-title {
+    font-size: 1.9rem;
+    line-height: 1.1;
+    margin: 0;
+    color: #0f172a;
+    font-weight: 700;
+  }
+  .preview-sheet .doc-meta {
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    text-align: right;
+    font-size: 0.86rem;
+    color: #475569;
+  }
+  .preview-sheet .doc-section {
+    margin-top: 1.2rem;
+  }
+  .preview-sheet .doc-section h4 {
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: 0.88rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin: 0 0 0.55rem;
+  }
+  .preview-sheet .doc-paragraph {
+    margin: 0;
+    font-size: 1.03rem;
+    line-height: 1.8;
+    color: #111827;
+  }
+  .editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    align-items: center;
+    margin: .15rem 0 .85rem;
+    padding: .6rem;
+    border: 1px solid #dbe4ee;
+    border-radius: 12px;
+    background: #f8fafc;
+  }
+  .editor-tool {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: .45rem .65rem;
+    font-size: .88rem;
+    cursor: pointer;
+  }
+  .editor-tool:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+  }
+  .editor-tool.is-active {
+    background: #1d4ed8;
+    color: #fff;
+    border-color: #1d4ed8;
+  }
+  .editor-field-select {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: .45rem .65rem;
+    font-size: .88rem;
+    min-width: 220px;
+  }
+  .editor-status {
+    width: 100%;
+    color: #64748b;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: .82rem;
+    margin-top: .15rem;
+  }
+  .preview-sheet .doc-block {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.95rem 1rem;
+    font-size: 0.98rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+  .preview-sheet .doc-block[contenteditable="true"] {
+    outline: none;
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.28);
+    background: #fff;
+    min-height: 260px;
+    cursor: text;
+  }
+  .preview-sheet .doc-block[contenteditable="true"]:focus {
+    box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.45);
+  }
+  .preview-sheet .doc-block {
+    overflow-wrap: anywhere;
+  }
+  .preview-sheet .merge-field {
+    display: inline-flex;
+    align-items: center;
+    padding: .12rem .5rem;
+    margin: 0 .1rem;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: .9em;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .preview-sheet .doc-edit-hint {
+    margin-bottom: 0.8rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e3a8a;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+  .preview-sheet .doc-edit-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  .preview-sheet .doc-edit-state.is-off {
+    background: #eef2ff;
+    color: #3730a3;
+  }
+  .preview-sheet .doc-footer {
+    margin-top: 1.8rem;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 0.8rem;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+  .preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .btn-link.is-active {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #fff;
+  }
+  .btn-link {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    padding: .5rem .8rem;
+    border-radius: 10px;
+    font-size: .88rem;
+    cursor: pointer;
+  }
+  @media (max-width: 1200px) {
+    .doc-kpis, .grid-2 { grid-template-columns: 1fr; }
+    .container {
+      max-width: none;
+      padding: 0 1rem;
+    }
+    .preview-sheet {
+      width: 100%;
+      padding: 2rem 1.4rem 2.2rem;
+    }
+  }
+</style>
+
+<div class="doc-lib">
+  <div class="doc-lib-hero">
+    <h1>Socle documentaire</h1>
+    <p>Phase 1 : centraliser les modèles PDF dynamiques, les modèles mail et les documents déjà présents dans le système afin de préparer la génération, la consultation et la future mise en pièce jointe des PDF dans les mails.</p>
+  </div>
+
+  <div class="doc-kpis">
+    <div class="kpi">
+      <div class="label">Modèles</div>
+      <div class="value">{{ counts.modeles_total }}</div>
+      <div class="muted">Tous canaux confondus</div>
+    </div>
+    <div class="kpi">
+      <div class="label">PDF dynamiques</div>
+      <div class="value">{{ counts.modeles_pdf }}</div>
+      <div class="muted">Templates prêts à injecter</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Mails</div>
+      <div class="value">{{ counts.modeles_mail }}</div>
+      <div class="muted">Modèles d'envoi</div>
+    </div>
+    <div class="kpi">
+      <div class="label">PDF existants</div>
+      <div class="value">{{ counts.documents_base }}</div>
+      <div class="muted">Référentiel documentaire</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Documents clients</div>
+      <div class="value">{{ counts.documents_clients }}</div>
+      <div class="muted">{{ counts.documents_attachables }} joignables</div>
+    </div>
+  </div>
+
+  <div class="section-card section-card--full" data-collapsible="true" data-collapse-key="repères-phase-1">
+    <div class="section-head">
+      <div>
+        <h2>Repères phase 1</h2>
+        <div class="muted">Synthèse rapide des intentions du socle documentaire.</div>
+      </div>
+      <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
+        <i class="fa-solid fa-chevron-up"></i>
+        <span class="toggle-label">Masquer</span>
+      </button>
+    </div>
+    <div class="section-body">
+      <ul style="margin:0; padding-left:1.15rem; color:#374151; display:grid; gap:.5rem;">
+        <li>Les modèles PDF sont des templates dynamiques liés aux données client.</li>
+        <li>Les documents PDF déjà présents restent consultables et pourront être sélectionnés comme pièces jointes.</li>
+        <li>La bibliothèque sert de point d’entrée pour les phases suivantes : génération, envoi mail et historique.</li>
+        <li>Les documents générés conservent le lien client et l’historique d’origine.</li>
+      </ul>
+      <div style="margin-top:1rem;">
+        <a class="btn btn-primary" href="/dashboard/documents">Voir les documents clients</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card" data-collapsible="true" data-collapse-key="modeles-documentaires">
+    <div class="toolbar">
+      <div>
+        <h2>Modèles documentaires</h2>
+        <div class="muted">Modèles PDF dynamiques et modèles mail déjà disponibles dans la base.</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:.65rem; flex-wrap:wrap;">
+        <input id="modelSearch" type="search" placeholder="Rechercher un modèle..." />
+        <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
+          <i class="fa-solid fa-chevron-up"></i>
+          <span class="toggle-label">Masquer</span>
+        </button>
+      </div>
+    </div>
+    <div class="section-body">
+      <table class="doc-table" id="modelsTable">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Canal</th>
+            <th>Objet</th>
+            <th>Statut</th>
+            <th>Prévisualisation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in modeles %}
+          <tr data-model-id="{{ m.id }}" data-model-name="{{ m.nom|e }}" data-model-canal="{{ m.canal|e }}" data-model-objet="{{ m.objet|e }}" data-model-content="{{ m.contenu|e }}">
+            <td>
+              <strong>{{ m.nom }}</strong>
+              <div class="muted doc-excerpt">{{ m.contenu_excerpt or 'Aucun contenu affichable' }}</div>
+            </td>
+            <td>
+              {% if m.canal == 'pdf' %}
+                <span class="badge-soft badge-green">{{ m.type_label }}</span>
+              {% else %}
+                <span class="badge-soft">{{ m.type_label }}</span>
+              {% endif %}
+            </td>
+            <td>{{ m.objet or '—' }}</td>
+            <td>
+              {% if m.actif %}
+                <span class="badge-soft badge-green">Actif</span>
+              {% else %}
+                <span class="badge-soft badge-amber">Inactif</span>
+              {% endif %}
+            </td>
+            <td>
+              <button
+                type="button"
+                class="btn-link js-preview-model"
+                data-model-id="{{ m.id }}"
+                data-model-name="{{ m.nom|e }}"
+                data-model-canal="{{ m.canal|e }}"
+                data-model-objet="{{ m.objet|e }}"
+                data-model-content="{{ m.contenu|e }}"
+              >
+                Prévisualiser
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not modeles %}
+          <tr><td colspan="5" class="muted">Aucun modèle trouvé.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <div id="modelPreviewPanel" class="preview-panel" aria-live="polite">
+        <div class="preview-title">
+          <h3 id="modelPreviewName">Éditeur WYSIWYG du modèle</h3>
+          <div class="preview-actions">
+            <button type="button" class="btn-link is-active" id="modelPreviewView">Aperçu</button>
+            <button type="button" class="btn-link" id="modelPreviewEdit">Édition</button>
+            <button type="button" class="btn-link" id="modelPreviewSave">Enregistrer</button>
+            <button type="button" class="btn-link" id="modelPreviewReset">Réinitialiser</button>
+            <button type="button" class="btn-link" id="modelPreviewClose">Fermer</button>
+          </div>
+        </div>
+        <div class="preview-meta">
+          <div class="box">
+            <div class="label">Canal</div>
+            <div class="value" id="modelPreviewCanal">—</div>
+          </div>
+          <div class="box">
+            <div class="label">Objet</div>
+            <div class="value" id="modelPreviewObjet">—</div>
+          </div>
+          <div class="box">
+            <div class="label">Identifiant</div>
+            <div class="value" id="modelPreviewId">—</div>
+          </div>
+        </div>
+        <div class="preview-canvas">
+          <div class="preview-sheet">
+            <div class="doc-header">
+              <div>
+                <div class="doc-brand">Bibliothèque documentaire</div>
+                <h4 class="doc-title" id="modelPreviewNameSheet">Éditeur WYSIWYG du modèle</h4>
+              </div>
+              <div class="doc-meta">
+                <div id="modelPreviewMetaCanal">Canal: —</div>
+                <div id="modelPreviewMetaObjet">Objet: —</div>
+                <div id="modelPreviewMetaId">ID: —</div>
+                <div id="modelPreviewMetaMode">Mode: prévisualisation</div>
+              </div>
+            </div>
+
+            <div class="doc-edit-hint">
+              Cliquez dans la feuille pour éditer directement le contenu avec la mise en forme visuelle du document.
+            </div>
+
+            <div class="doc-section">
+              <h4>Contenu rendu</h4>
+              <div class="editor-toolbar" id="modelEditorToolbar">
+                <select id="mergeFieldSelect" class="editor-field-select" aria-label="Champ de fusion">
+                  <option value="">Champ de fusion...</option>
+                  <optgroup label="Identité">
+                    <option value="{{ '{{civilite_client}}' }}">Civilité</option>
+                    <option value="{{ '{{prenom_client}}' }}">Prénom client</option>
+                    <option value="{{ '{{nom_client}}' }}">Nom client</option>
+                    <option value="{{ '{{date_naissance}}' }}">Date de naissance</option>
+                    <option value="{{ '{{lieu_naissance}}' }}">Lieu de naissance</option>
+                    <option value="{{ '{{nationalite_client}}' }}">Nationalité</option>
+                    <option value="{{ '{{adresse_postale}}' }}">Adresse postale</option>
+                  </optgroup>
+                  <optgroup label="Patrimoine et revenus">
+                    <option value="{{ '{{patrimoine_revenus}}' }}">Patrimoine et revenus</option>
+                    <option value="{{ '{{revenus_annuels}}' }}">Revenus annuels</option>
+                    <option value="{{ '{{actifs_financiers}}' }}">Actifs financiers</option>
+                    <option value="{{ '{{passifs}}' }}">Passifs / dettes</option>
+                    <option value="{{ '{{horizon_placement}}' }}">Horizon de placement</option>
+                  </optgroup>
+                  <optgroup label="Connaissance financière">
+                    <option value="{{ '{{connaissance_financiere}}' }}">Connaissance financière</option>
+                    <option value="{{ '{{experience_investissement}}' }}">Expérience investissement</option>
+                    <option value="{{ '{{profil_risque}}' }}">Profil de risque</option>
+                    <option value="{{ '{{objectif_placement}}' }}">Objectif de placement</option>
+                  </optgroup>
+                  <optgroup label="ESG">
+                    <option value="{{ '{{sensibilite_esg}}' }}">Sensibilité ESG</option>
+                    <option value="{{ '{{pref_esg}}' }}">Préférences ESG</option>
+                    <option value="{{ '{{exclusions_esg}}' }}">Exclusions ESG</option>
+                  </optgroup>
+                  <optgroup label="Coordonnées">
+                    <option value="{{ '{{email_client}}' }}">Email client</option>
+                    <option value="{{ '{{telephone_client}}' }}">Téléphone client</option>
+                  </optgroup>
+                </select>
+                <button type="button" class="editor-tool" id="insertMergeFieldBtn"><i class="fa-solid fa-plus"></i> Insérer</button>
+                <button type="button" class="editor-tool" id="copyMergeFieldBtn"><i class="fa-regular fa-clone"></i> Copier</button>
+                <span style="width:1px;height:28px;background:#dbe4ee;display:inline-block;margin:0 .15rem;"></span>
+                <button type="button" class="editor-tool" data-command="bold"><i class="fa-solid fa-bold"></i></button>
+                <button type="button" class="editor-tool" data-command="italic"><i class="fa-solid fa-italic"></i></button>
+                <button type="button" class="editor-tool" data-command="underline"><i class="fa-solid fa-underline"></i></button>
+                <button type="button" class="editor-tool" data-command="insertUnorderedList"><i class="fa-solid fa-list-ul"></i></button>
+                <button type="button" class="editor-tool" data-command="insertOrderedList"><i class="fa-solid fa-list-ol"></i></button>
+                <button type="button" class="editor-tool" data-command="formatBlock" data-value="h2">Titre</button>
+                <button type="button" class="editor-tool" data-command="formatBlock" data-value="p">Texte</button>
+                <button type="button" class="editor-tool" data-command="justifyLeft"><i class="fa-solid fa-align-left"></i></button>
+                <button type="button" class="editor-tool" data-command="justifyCenter"><i class="fa-solid fa-align-center"></i></button>
+                <button type="button" class="editor-tool" data-command="justifyRight"><i class="fa-solid fa-align-right"></i></button>
+                <div class="editor-status" id="mergeFieldStatus">Sélectionnez un champ, puis insérez-le dans la feuille.</div>
+              </div>
+              <div class="doc-block" id="modelPreviewContent" contenteditable="true" spellcheck="true">Sélectionnez un modèle pour afficher un aperçu.</div>
+              <div id="modelPreviewState" class="doc-edit-state is-off">Lecture seule</div>
+            </div>
+
+            <div class="doc-section">
+              <h4>Rendu attendu</h4>
+              <p class="doc-paragraph">
+                Le bloc ci-dessus simule le rendu final avec la mise en page cible. Le contenu est présenté comme un document
+                prêt à être exporté en PDF ou utilisé comme base mail.
+              </p>
+            </div>
+
+            <div class="doc-footer">
+              Prévisualisation WYSIWYG du modèle dynamique. Les champs variables seront remplacés au moment de la génération.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-card" data-collapsible="true" data-collapse-key="documents-pdf-existants">
+    <div class="toolbar">
+      <div>
+        <h2>Référentiel des documents PDF existants</h2>
+        <div class="muted">Les documents de base déjà enregistrés dans le système. Ils alimentent les usages dynamiques par client.</div>
+      </div>
+      <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
+        <i class="fa-solid fa-chevron-up"></i>
+        <span class="toggle-label">Masquer</span>
+      </button>
+    </div>
+    <div class="section-body">
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Niveau</th>
+            <th>Risque</th>
+            <th>Obsolescence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in documents_base %}
+          <tr>
+            <td><strong>{{ d.nom or '—' }}</strong></td>
+            <td>{{ d.niveau or '—' }}</td>
+            <td>{{ d.risque or '—' }}</td>
+            <td>{% if d.obsolescence_annees is not none %}{{ d.obsolescence_annees }} an(s){% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+          {% if not documents_base %}
+          <tr><td colspan="4" class="muted">Aucun document référencé.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section-card" data-collapsible="true" data-collapse-key="documents-clients-generes">
+    <div class="toolbar">
+      <div>
+        <h2>Documents PDF générés par client</h2>
+        <div class="muted">Documents déjà produits avec les données client. Ils constituent la base des futures pièces jointes mails.</div>
+      </div>
+      <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
+        <i class="fa-solid fa-chevron-up"></i>
+        <span class="toggle-label">Masquer</span>
+      </button>
+    </div>
+    <div class="section-body">
+      <table class="doc-table" id="generatedDocsTable">
+        <thead>
+          <tr>
+            <th>Client</th>
+            <th>Document</th>
+            <th>Création</th>
+            <th>Obsolescence</th>
+            <th>Attachement</th>
+          </tr>
+        </thead>
+        <tbody id="generatedDocsTbody">
+          {% for d in documents_clients %}
+          <tr class="generated-doc-row">
+            <td>
+              {% if d.client_id %}
+                <a href="/dashboard/clients/{{ d.client_id }}">{{ d.client_label or '—' }}</a>
+              {% else %}
+                {{ d.client_label or '—' }}
+              {% endif %}
+            </td>
+            <td>
+              <strong>{{ d.nom_document or '—' }}</strong>
+              <div class="muted">Base #{% if d.id_document_base %}{{ d.id_document_base }}{% else %}—{% endif %}</div>
+            </td>
+            <td>{{ d.date_creation or '—' }}</td>
+            <td>{{ d.date_obsolescence or '—' }}</td>
+            <td>
+              {% if d.is_attachable %}
+                <span class="badge-soft badge-green">Joignable au mail</span>
+              {% else %}
+                <span class="badge-soft badge-amber">Non joignable</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not documents_clients %}
+          <tr><td colspan="5" class="muted">Aucun document client trouvé.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <div class="pagination-bar" id="generatedDocsPagination" {% if not documents_clients %}style="display:none"{% endif %}>
+        <div class="muted" id="generatedDocsSummary">Affichage des documents 1 à 25</div>
+        <div class="pagination-controls" id="generatedDocsPager"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var collapseCards = Array.from(document.querySelectorAll('.section-card[data-collapsible="true"]'));
+  function getCollapseKey(card, index) {
+    return card.getAttribute('data-collapse-key') || ('section-' + index);
+  }
+  function applyCollapseState(card, collapsed) {
+    var toggle = card.querySelector('.js-section-toggle');
+    var icon = toggle ? toggle.querySelector('i') : null;
+    var label = toggle ? toggle.querySelector('.toggle-label') : null;
+    card.classList.toggle('is-collapsed', collapsed);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    if (icon) {
+      icon.className = collapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+    }
+    if (label) {
+      label.textContent = collapsed ? 'Afficher' : 'Masquer';
+    }
+  }
+
+  collapseCards.forEach(function(card, index){
+    var toggle = card.querySelector('.js-section-toggle');
+    if (!toggle) return;
+    var key = getCollapseKey(card, index);
+    var saved = null;
+    try {
+      saved = window.localStorage ? window.localStorage.getItem('bibliotheque-documents-collapse:' + key) : null;
+    } catch (err) {
+      saved = null;
+    }
+    applyCollapseState(card, saved !== '0');
+    toggle.addEventListener('click', function(){
+      var collapsed = !card.classList.contains('is-collapsed');
+      applyCollapseState(card, collapsed);
+      try {
+        if (window.localStorage) {
+          window.localStorage.setItem('bibliotheque-documents-collapse:' + key, collapsed ? '1' : '0');
+        }
+      } catch (err) {}
+    });
+  });
+
+  var input = document.getElementById('modelSearch');
+  var table = document.getElementById('modelsTable');
+  if (!input || !table) return;
+  input.addEventListener('input', function(){
+    var q = (input.value || '').toLowerCase().trim();
+    Array.from(table.tBodies[0].rows).forEach(function(row){
+      if (row.cells.length < 2) return;
+      var hay = row.innerText.toLowerCase();
+      row.style.display = !q || hay.indexOf(q) !== -1 ? '' : 'none';
+      });
+  });
+
+  var previewPanel = document.getElementById('modelPreviewPanel');
+  var previewName = document.getElementById('modelPreviewName');
+  var previewCanal = document.getElementById('modelPreviewCanal');
+  var previewObjet = document.getElementById('modelPreviewObjet');
+  var previewId = document.getElementById('modelPreviewId');
+  var previewContent = document.getElementById('modelPreviewContent');
+  var previewNameSheet = document.getElementById('modelPreviewNameSheet');
+  var previewMetaCanal = document.getElementById('modelPreviewMetaCanal');
+  var previewMetaObjet = document.getElementById('modelPreviewMetaObjet');
+  var previewMetaId = document.getElementById('modelPreviewMetaId');
+  var previewMetaMode = document.getElementById('modelPreviewMetaMode');
+  var previewStateBadge = document.getElementById('modelPreviewState');
+  var previewEdit = document.getElementById('modelPreviewEdit');
+  var previewSave = document.getElementById('modelPreviewSave');
+  var previewReset = document.getElementById('modelPreviewReset');
+  var previewClose = document.getElementById('modelPreviewClose');
+  var copyMergeFieldBtn = document.getElementById('copyMergeFieldBtn');
+  var mergeFieldStatus = document.getElementById('mergeFieldStatus');
+  var previewDrafts = {};
+  var previewState = {
+    modelId: null,
+    originalContent: "",
+    currentContent: "",
+    editable: false,
+  };
+  var previewView = document.getElementById('modelPreviewView');
+  var savedSelectionRange = null;
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(char) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char];
+    });
+  }
+
+  function textToHtml(text) {
+    var blocks = String(text || '').replace(/\r\n/g, '\n').trim().split(/\n{2,}/).map(function(part){
+      return part.trim();
+    }).filter(Boolean);
+    if (!blocks.length) {
+      return '<p class="doc-paragraph">Contenu vide. Cliquez ici pour écrire votre document.</p>';
+    }
+    return blocks.map(function(part) {
+      return '<p class="doc-paragraph">' + escapeHtml(part).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+
+  function fallbackHtml(canal, name, objet) {
+    var isPdf = canal === 'pdf' || canal.indexOf('pdf') !== -1 || canal.indexOf('doc') !== -1 || canal.indexOf('courrier') !== -1;
+    if (isPdf) {
+      return [
+        '<p class="doc-paragraph">Ce modèle n’a pas encore de contenu enregistré.</p>',
+        '<p class="doc-paragraph">Ajoutez ici le corps du PDF dynamique, les zones de texte et les champs issus du client.</p>',
+        '<p class="doc-paragraph"><strong>Exemple de rendu :</strong></p>',
+        '<ul>',
+          '<li>Identité du client: {{client_nom}} {{client_prenom}}</li>',
+          '<li>État civil: {{etat_civil}}</li>',
+          '<li>Patrimoine et revenus: {{patrimoine_revenus}}</li>',
+          '<li>Sensibilité ESG: {{sensibilite_esg}}</li>',
+        '</ul>',
+        '<p class="doc-paragraph">Le document sera généré avec la mise en forme finale définie dans le modèle "' + escapeHtml(name) + '".</p>'
+      ].join('');
+    }
+    return [
+      '<p class="doc-paragraph">Ce modèle de mail n’a pas encore de contenu enregistré.</p>',
+      '<p class="doc-paragraph">Ajoutez ici le sujet, le pré-header et le corps du message.</p>',
+      '<p class="doc-paragraph"><strong>Exemple de message :</strong></p>',
+      '<p class="doc-paragraph">Bonjour {{client_prenom}},</p>',
+      '<p class="doc-paragraph">Veuillez trouver ci-joint le document relatif à "' + escapeHtml(objet) + '".</p>',
+      '<p class="doc-paragraph">Cordialement,<br>L’équipe CRM SAAS</p>'
+    ].join('');
+  }
+
+  function normalizeContentToHtml(raw, canal, name, objet) {
+    var content = String(raw || '').trim();
+    if (!content) {
+      return fallbackHtml(canal, name, objet);
+    }
+    if (/<[a-z][\s\S]*>/i.test(content)) {
+      return content;
+    }
+    return textToHtml(content);
+  }
+
+  function setEditorMode(isEditing) {
+    if (!previewContent || !previewEdit || !previewView) return;
+    previewState.editable = isEditing;
+    previewContent.setAttribute('contenteditable', isEditing ? 'true' : 'false');
+    previewEdit.classList.toggle('is-active', isEditing);
+    previewView.classList.toggle('is-active', !isEditing);
+    previewMetaMode.textContent = isEditing ? 'Mode: édition WYSIWYG' : 'Mode: aperçu';
+    setEditState(isEditing);
+    if (isEditing) {
+      previewContent.focus();
+    }
+  }
+
+  function setPreviewMode(isPreview) {
+    setEditorMode(!isPreview);
+  }
+
+  function insertHtmlAtCursor(html) {
+    if (!previewContent) return;
+    var selection = window.getSelection();
+    if ((!selection || !selection.rangeCount) && savedSelectionRange) {
+      selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(savedSelectionRange);
+    }
+    if (!selection || !selection.rangeCount) {
+      previewContent.focus();
+      previewContent.insertAdjacentHTML('beforeend', html);
+      syncStateFromDOM();
+      return;
+    }
+    var range = selection.getRangeAt(0);
+    range.deleteContents();
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var fragment = document.createDocumentFragment();
+    var node;
+    var lastNode = null;
+    while ((node = temp.firstChild)) {
+      lastNode = fragment.appendChild(node);
+    }
+    range.insertNode(fragment);
+    if (lastNode) {
+      range = range.cloneRange();
+      range.setStartAfter(lastNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    syncStateFromDOM();
+  }
+
+  function saveCurrentSelection() {
+    if (!previewContent) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || !selection.rangeCount) return;
+    var range = selection.getRangeAt(0);
+    if (!previewContent.contains(range.commonAncestorContainer)) return;
+    savedSelectionRange = range.cloneRange();
+  }
+
+  function restoreSelection() {
+    if (!savedSelectionRange) return false;
+    var selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(savedSelectionRange);
+    return true;
+  }
+
+  async function copyTextToClipboard(text) {
+    if (!text) return false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {}
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function openPreview(button) {
+    if (!previewPanel || !previewName || !previewCanal || !previewObjet || !previewId || !previewContent || !previewNameSheet || !previewMetaCanal || !previewMetaObjet || !previewMetaId || !previewMetaMode || !previewStateBadge || !previewEdit || !previewSave || !previewReset) return;
+    if (previewState.modelId && previewState.currentContent) {
+      previewDrafts[previewState.modelId] = previewState.currentContent;
+    }
+    previewName.textContent = button.getAttribute('data-model-name') || 'Prévisualisation du modèle';
+    previewCanal.textContent = button.getAttribute('data-model-canal') || '—';
+    previewObjet.textContent = button.getAttribute('data-model-objet') || '—';
+    previewId.textContent = button.getAttribute('data-model-id') || '—';
+    previewNameSheet.textContent = button.getAttribute('data-model-name') || 'Prévisualisation du modèle';
+    previewMetaCanal.textContent = 'Canal: ' + (button.getAttribute('data-model-canal') || '—');
+    previewMetaObjet.textContent = 'Objet: ' + (button.getAttribute('data-model-objet') || '—');
+    previewMetaId.textContent = 'ID: ' + (button.getAttribute('data-model-id') || '—');
+    previewMetaMode.textContent = 'Mode: aperçu';
+    var rawContent = button.getAttribute('data-model-content') || '';
+    var canal = (button.getAttribute('data-model-canal') || '').toLowerCase();
+    var name = button.getAttribute('data-model-name') || 'Modèle sans nom';
+    var objet = button.getAttribute('data-model-objet') || 'Objet non défini';
+    previewState.modelId = button.getAttribute('data-model-id') || "";
+    previewState.originalContent = normalizeContentToHtml(rawContent, canal, name, objet);
+    previewState.currentContent = previewDrafts[previewState.modelId] || previewState.originalContent;
+    previewContent.setAttribute('tabindex', '0');
+    previewContent.setAttribute('role', 'textbox');
+    renderPreviewContent(previewState.currentContent);
+    setPreviewMode(true);
+    previewPanel.classList.add('is-open');
+    previewPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function setEditState(isEditing) {
+    if (!previewStateBadge) return;
+    previewStateBadge.textContent = isEditing ? 'Édition active' : 'Lecture seule';
+    previewStateBadge.classList.toggle('is-off', !isEditing);
+  }
+
+  function renderPreviewContent(content) {
+    if (!previewContent) return;
+    previewContent.innerHTML = content || '';
+  }
+
+  function syncStateFromDOM() {
+    if (!previewContent) return;
+    previewState.currentContent = previewContent.innerHTML || '';
+  }
+
+  if (previewContent) {
+    previewContent.addEventListener('input', function() {
+      previewState.currentContent = previewContent.innerHTML || '';
+      if (previewState.modelId) {
+        previewDrafts[previewState.modelId] = previewState.currentContent;
+      }
+      saveCurrentSelection();
+    });
+    previewContent.addEventListener('keyup', saveCurrentSelection);
+    previewContent.addEventListener('mouseup', saveCurrentSelection);
+    previewContent.addEventListener('click', function(){
+      if (!previewState.editable) {
+        setEditorMode(true);
+      }
+      saveCurrentSelection();
+    });
+  }
+
+  if (previewView) {
+    previewView.addEventListener('click', function(){
+      setPreviewMode(true);
+    });
+  }
+
+  table.querySelectorAll('.js-preview-model').forEach(function(button){
+    button.addEventListener('click', function(){
+      openPreview(button);
+    });
+  });
+
+  if (previewEdit) {
+    previewEdit.addEventListener('click', function(){
+      setPreviewMode(false);
+      if (previewState.editable) {
+        syncStateFromDOM();
+      }
+    });
+  }
+
+  var editorToolbar = document.getElementById('modelEditorToolbar');
+  if (editorToolbar) {
+    editorToolbar.querySelectorAll('.editor-tool').forEach(function(button){
+      button.addEventListener('click', function(){
+        if (!previewContent) return;
+        if (!previewState.editable) {
+          setEditorMode(true);
+        }
+        restoreSelection();
+        var command = button.getAttribute('data-command');
+        var value = button.getAttribute('data-value');
+        previewContent.focus();
+        try {
+          document.execCommand(command, false, value || null);
+        } catch (err) {}
+        syncStateFromDOM();
+        saveCurrentSelection();
+      });
+    });
+  }
+
+  var mergeFieldSelect = document.getElementById('mergeFieldSelect');
+  var insertMergeFieldBtn = document.getElementById('insertMergeFieldBtn');
+  if (insertMergeFieldBtn && mergeFieldSelect) {
+    insertMergeFieldBtn.addEventListener('click', function(){
+      var field = mergeFieldSelect.value || '';
+      if (!field) return;
+      if (!previewState.editable) {
+        setEditorMode(true);
+      }
+      if (!restoreSelection()) {
+        previewContent.focus();
+      }
+      var label = field.replace(/[{}]/g, '');
+      var html = '<span class="merge-field" contenteditable="false" data-field="' + escapeHtml(label) + '">' + escapeHtml(field) + '</span>&nbsp;';
+      insertHtmlAtCursor(html);
+      mergeFieldSelect.selectedIndex = 0;
+      if (mergeFieldStatus) {
+        mergeFieldStatus.textContent = 'Champ inséré: ' + field;
+      }
+    });
+    mergeFieldSelect.addEventListener('change', function(){
+      if (!mergeFieldSelect.value) return;
+      insertMergeFieldBtn.click();
+    });
+  }
+
+  if (copyMergeFieldBtn && mergeFieldSelect) {
+    copyMergeFieldBtn.addEventListener('click', async function(){
+      var field = mergeFieldSelect.value || '';
+      if (!field) return;
+      var ok = await copyTextToClipboard(field);
+      if (mergeFieldStatus) {
+        mergeFieldStatus.textContent = ok ? ('Champ copié: ' + field) : 'Copie impossible, utilisez Ctrl/Cmd+C';
+      }
+      if (!ok) {
+        alert('Impossible de copier le champ. Vous pouvez le sélectionner puis faire Ctrl/Cmd+C.');
+      }
+    });
+  }
+
+  async function savePreviewModel() {
+    if (!previewState.modelId) return;
+    syncStateFromDOM();
+    previewMetaMode.textContent = 'Mode: enregistrement...';
+    if (previewSave) {
+      previewSave.disabled = true;
+    }
+    try {
+      var payload = {
+        nom: previewName.textContent || previewState.modelId,
+        canal: (previewCanal.textContent || '').replace(/^Canal:\s*/i, '').trim() || 'mail',
+        objet: (previewObjet.textContent || '').replace(/^Objet:\s*/i, '').trim() || null,
+        contenu: previewState.currentContent || "",
+        actif: 1,
+      };
+      var response = await fetch('/modeles/' + encodeURIComponent(previewState.modelId), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status);
+      }
+      var saved = await response.json();
+      previewState.originalContent = saved.contenu || previewState.currentContent;
+      previewState.currentContent = saved.contenu || previewState.currentContent;
+      previewDrafts[previewState.modelId] = previewState.currentContent;
+      previewMetaMode.textContent = 'Mode: enregistré';
+      setPreviewMode(true);
+      renderPreviewContent(previewState.currentContent);
+      previewName.textContent = saved.nom || previewName.textContent;
+      previewNameSheet.textContent = saved.nom || previewNameSheet.textContent;
+      previewObjet.textContent = saved.objet || '—';
+      previewMetaObjet.textContent = 'Objet: ' + (saved.objet || '—');
+      var row = table.querySelector('tr[data-model-id="' + previewState.modelId + '"]');
+      if (row) {
+        row.setAttribute('data-model-content', previewState.currentContent || '');
+        var excerpt = row.querySelector('.doc-excerpt');
+        if (excerpt) {
+          var temp = document.createElement('div');
+          temp.innerHTML = previewState.currentContent || '';
+          var compact = (temp.textContent || temp.innerText || '').replace(/\s+/g, ' ').trim();
+          excerpt.textContent = compact ? compact.slice(0, 180) : 'Contenu à compléter';
+        }
+      }
+    } catch (err) {
+      previewMetaMode.textContent = 'Mode: erreur enregistrement';
+      alert('Impossible d’enregistrer le modèle. Vérifiez les droits ou l’état du backend.');
+    } finally {
+      if (previewSave) {
+        previewSave.disabled = false;
+      }
+    }
+  }
+
+  if (previewSave) {
+    previewSave.addEventListener('click', function(){
+      savePreviewModel();
+    });
+  }
+
+  if (previewReset) {
+    previewReset.addEventListener('click', function(){
+      previewState.currentContent = previewState.originalContent;
+      if (previewState.modelId) {
+        previewDrafts[previewState.modelId] = previewState.originalContent;
+      }
+      renderPreviewContent(previewState.originalContent);
+      setEditorMode(previewState.editable);
+    });
+  }
+
+  if (previewClose && previewPanel) {
+    previewClose.addEventListener('click', function(){
+      previewPanel.classList.remove('is-open');
+    });
+  }
+
+  var generatedTable = document.getElementById('generatedDocsTable');
+  var generatedBody = document.getElementById('generatedDocsTbody');
+  var generatedPager = document.getElementById('generatedDocsPager');
+  var generatedSummary = document.getElementById('generatedDocsSummary');
+  var generatedPagination = document.getElementById('generatedDocsPagination');
+  var generatedRows = generatedBody ? Array.from(generatedBody.querySelectorAll('tr.generated-doc-row')) : [];
+  var generatedPageSize = 25;
+  var generatedPage = 1;
+
+  function renderGeneratedDocsPager(totalPages) {
+    if (!generatedPager || !generatedSummary || !generatedPagination) return;
+    generatedPager.innerHTML = '';
+    generatedPagination.style.display = generatedRows.length ? 'flex' : 'none';
+    if (!generatedRows.length) return;
+
+    var startIndex = (generatedPage - 1) * generatedPageSize;
+    var endIndex = Math.min(startIndex + generatedPageSize, generatedRows.length);
+    generatedSummary.textContent = 'Affichage des documents ' + (startIndex + 1) + ' à ' + endIndex + ' sur ' + generatedRows.length;
+
+    var prev = document.createElement('button');
+    prev.type = 'button';
+    prev.className = 'page-btn';
+    prev.textContent = 'Préc.';
+    prev.disabled = generatedPage <= 1;
+    prev.addEventListener('click', function(){
+      if (generatedPage > 1) {
+        generatedPage -= 1;
+        renderGeneratedDocs();
+      }
+    });
+    generatedPager.appendChild(prev);
+
+    var maxButtons = 7;
+    var startPage = Math.max(1, generatedPage - Math.floor(maxButtons / 2));
+    var endPage = Math.min(totalPages, startPage + maxButtons - 1);
+    startPage = Math.max(1, endPage - maxButtons + 1);
+
+    for (var page = startPage; page <= endPage; page += 1) {
+      (function(pageNumber){
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'page-btn' + (pageNumber === generatedPage ? ' is-active' : '');
+        btn.textContent = String(pageNumber);
+        btn.addEventListener('click', function(){
+          generatedPage = pageNumber;
+          renderGeneratedDocs();
+        });
+        generatedPager.appendChild(btn);
+      })(page);
+    }
+
+    var next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'page-btn';
+    next.textContent = 'Suiv.';
+    next.disabled = generatedPage >= totalPages;
+    next.addEventListener('click', function(){
+      if (generatedPage < totalPages) {
+        generatedPage += 1;
+        renderGeneratedDocs();
+      }
+    });
+    generatedPager.appendChild(next);
+  }
+
+  function renderGeneratedDocs() {
+    if (!generatedRows.length) return;
+    var totalPages = Math.max(1, Math.ceil(generatedRows.length / generatedPageSize));
+    if (generatedPage > totalPages) {
+      generatedPage = totalPages;
+    }
+    generatedRows.forEach(function(row, index){
+      var visible = index >= (generatedPage - 1) * generatedPageSize && index < generatedPage * generatedPageSize;
+      row.style.display = visible ? '' : 'none';
+    });
+    renderGeneratedDocsPager(totalPages);
+  }
+
+  renderGeneratedDocs();
+})();
+</script>
+{% endblock %}

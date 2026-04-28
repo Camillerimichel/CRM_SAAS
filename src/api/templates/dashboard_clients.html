@@ -123,7 +123,8 @@
 	      display: flex;
 	      align-items: center;
 	      gap: 10px;
-	      flex-wrap: wrap;
+	      flex-wrap: nowrap;
+	      overflow-x: auto;
 	      pointer-events: all;
 	    }
 	    #clientsSelectionBar .count {
@@ -136,8 +137,10 @@
 	      border: 1px solid #d1d5db;
 	      padding: 0 10px;
 	      background: #fff;
-	      min-width: 260px;
-	      max-width: min(520px, 92vw);
+	      width: 180px;
+	      min-width: 180px;
+	      max-width: 180px;
+	      flex: 0 0 180px;
 	    }
 	    #clientsSelectionBar .status {
 	      color: #6b7280;
@@ -280,6 +283,7 @@
 		        <select id="clientsGroupSelect" disabled>
 		          <option value="">Chargement des groupes…</option>
 		        </select>
+		        <button type="button" class="btn btn-secondary" id="clientsSelectionAllBtn">Tout sélectionner</button>
 		        <button type="button" class="btn btn-primary" id="clientsSelectionAddBtn">Ajouter</button>
 		        <button type="button" class="btn btn-danger" id="clientsSelectionRemoveBtn">Retirer</button>
 		        <button type="button" class="btn btn-primary" id="clientsSelectionTasksBtn">Tâches</button>
@@ -370,6 +374,7 @@ $(document).ready(function () {
 	    const selCountEl = document.getElementById('clientsSelectedCount');
 	    const selStatusEl = document.getElementById('clientsSelectionStatus');
 	    const selGroupSelect = document.getElementById('clientsGroupSelect');
+	    const selectAllBtn = document.getElementById('clientsSelectionAllBtn');
 	    const addBtn = document.getElementById('clientsSelectionAddBtn');
 	    const removeBtn = document.getElementById('clientsSelectionRemoveBtn');
 	    const tasksBtn = document.getElementById('clientsSelectionTasksBtn');
@@ -405,10 +410,29 @@ $(document).ready(function () {
 	      if (selBar){
 	        selBar.style.display = count ? 'flex' : 'none';
 	      }
+	      if (selectAllBtn) selectAllBtn.disabled = !table.rows({ search: 'applied' }).count();
 	      if (addBtn) addBtn.disabled = !count;
 	      if (removeBtn) removeBtn.disabled = !count;
 	      if (tasksBtn) tasksBtn.disabled = !count;
 	      if (purgeBtn) purgeBtn.disabled = !count;
+	    }
+
+	    function selectAllVisibleClients(){
+	      let changed = false;
+	      table.rows({ search: 'applied' }).every(function(){
+	        const node = this.node();
+	        if (!node) return;
+	        const cid = node.getAttribute('data-client-id');
+	        if (!cid) return;
+	        if (!selected.has(String(cid))){
+	          selected.add(String(cid));
+	          changed = true;
+	        }
+	      });
+	      if (changed){
+	        saveSelected(selected);
+	      }
+	      applyRowSelection();
 	    }
 
     function applyRowSelection(){
@@ -541,6 +565,9 @@ $(document).ready(function () {
 
     if (addBtn){
       addBtn.addEventListener('click', function(){ runBatch('add'); });
+    }
+    if (selectAllBtn){
+      selectAllBtn.addEventListener('click', function(){ selectAllVisibleClients(); });
     }
     if (removeBtn){
       removeBtn.addEventListener('click', function(){ runBatch('remove'); });

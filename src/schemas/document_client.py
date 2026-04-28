@@ -12,6 +12,10 @@ class DocumentClientSchema(BaseModel):
     date_creation: Optional[datetime] = None
     date_obsolescence: Optional[datetime] = None
     obsolescence: Optional[str] = None
+    stored_filename: Optional[str] = None
+    stored_path: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -29,6 +33,10 @@ class DocumentClientCreateSchema(BaseModel):
     date_creation: Optional[datetime] = None
     date_obsolescence: Optional[datetime] = None
     obsolescence: Optional[str] = None
+    stored_filename: Optional[str] = None
+    stored_path: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
 
     @field_validator("date_creation", "date_obsolescence", mode="before")
     @classmethod

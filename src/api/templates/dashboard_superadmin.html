@@ -78,7 +78,7 @@
   </div>
 {% endif %}
 {% if error_flag %}
-  <div class="card" style="margin-bottom:1rem; border:1px solid #fecaca; background:#fef2f2; color:#991b1b;">
+  <div class="card" id="superadmin-error-banner" style="margin-bottom:1rem; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; position:sticky; top:12px; z-index:25;">
     {{ saved_error_msg or 'Une erreur est survenue.' }}
   </div>
 {% endif %}
@@ -691,7 +691,12 @@
     {% endif %}
   </div>
   <div class="card" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
-    <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Comptes clients (portail)</h2>
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+      <h2 style="margin:0; font-size:1.2rem;">Comptes clients (portail)</h2>
+      {% if missing_client_accounts %}
+        <a class="btn btn-primary" href="#client-auth-new">Ajouter un compte portail</a>
+      {% endif %}
+    </div>
     <p class="muted" style="margin-bottom:10px; font-size:0.9rem;">Vue simplifiée : Nom, Prénom, Email/Login, dernière connexion issue des logs.</p>
     <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
       <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
@@ -700,6 +705,50 @@
       <input class="form-control" type="text" name="cq" value="{{ client_search_term or '' }}" placeholder="Filtrer par nom/email" style="min-width:240px;">
       <button type="submit" class="btn btn-secondary">Filtrer</button>
     </form>
+    {% if missing_client_accounts %}
+      <div class="card" id="client-auth-new" style="margin:12px 0 14px 0; border:1px solid #d1d5db; background:#f9fafb;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+          <div>
+            <h3 style="margin:0;">Créer un compte portail</h3>
+            <p class="muted" style="margin:4px 0 0 0; font-size:0.95rem;">Sélectionnez un client sans compte portail et synchronisez son email.</p>
+          </div>
+        </div>
+        <form method="post" action="/dashboard/superadmin/client-auth" style="margin-top:12px; display:grid; gap:12px; grid-template-columns: minmax(280px, 1.2fr) minmax(260px, 1fr) minmax(220px, 0.8fr); align-items:end;">
+          <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
+          <label style="display:flex; flex-direction:column; gap:6px;">
+            <span>Client à ajouter</span>
+            <select class="form-control" id="client-new-client-id" name="client_id" required style="height:44px;">
+              {% for c in missing_client_accounts %}
+                <option value="{{ c.client_id }}" data-email="{{ c.email or '' }}">
+                  {{ c.prenom or '' }} {{ c.nom or '' }}{% if c.email %} - {{ c.email }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px;">
+            <span>Login / Email</span>
+            <input class="form-control" id="client-new-login" type="email" name="login" value="{{ missing_client_accounts[0].email if missing_client_accounts else '' }}" required style="height:44px;">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px;">
+            <span>Mot de passe (laisser vide pour générer)</span>
+            <input class="form-control" type="text" name="password" placeholder="Auto-généré si vide" style="height:44px;">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px; grid-column:1/-1;">
+            <span>Statut</span>
+            <select class="form-control" name="status" style="height:44px; max-width:260px;">
+              <option value="active" selected>Actif</option>
+              <option value="disabled">Désactivé</option>
+              <option value="pending_reset">En attente de reset</option>
+            </select>
+          </label>
+          <div style="grid-column:1/-1; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn btn-primary">Créer le compte</button>
+            <a class="btn btn-secondary" href="#client-auth">Aller au formulaire d'édition</a>
+          </div>
+          <div class="muted" style="grid-column:1/-1; font-size:0.9rem;">Le client choisi verra son email mis à jour avec le login du portail.</div>
+        </form>
+      </div>
+    {% endif %}
     {% if not client_accounts %}
       <div class="muted" style="font-size:0.95rem;">Aucun compte client pour cette société de courtage.</div>
     {% else %}
@@ -767,12 +816,17 @@
         </div>
         <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ selected_societe.id }}{% if client_search_term %}&cq={{ client_search_term }}{% endif %}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}">Fermer</a>
       </div>
+      {% if error_flag %}
+        <div class="card" style="margin-top:12px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b;">
+          {{ saved_error_msg or 'Une erreur est survenue.' }}
+        </div>
+      {% endif %}
       <form method="post" action="/dashboard/superadmin/client-auth" style="margin-top:12px; display:grid; gap:12px; grid-template-columns: minmax(260px, 1fr) minmax(360px, 1.2fr) minmax(220px, 0.8fr);">
         <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
         {% if selected_client_form.id %}<input type="hidden" name="client_account_id" value="{{ selected_client_form.id }}">{% endif %}
         <input type="hidden" name="client_id" value="{{ selected_client_form.client_id }}">
         <label style="display:flex; flex-direction:column; gap:6px;">
-          <span>Login / Email</span>
+          <span>Login / Email client</span>
           <input class="form-control" type="email" name="login" value="{{ selected_client_form.email or selected_client_form.login or '' }}" required style="height:44px;">
         </label>
         <label style="display:flex; flex-direction:column; gap:6px;">
@@ -797,6 +851,26 @@
       </form>
     </div>
   {% endif %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var errorBanner = document.getElementById('superadmin-error-banner');
+      if (errorBanner) {
+        try { errorBanner.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+      }
+      var clientSelect = document.getElementById('client-new-client-id');
+      var loginInput = document.getElementById('client-new-login');
+      if (!clientSelect || !loginInput) return;
+      var syncLogin = function () {
+        var option = clientSelect.options[clientSelect.selectedIndex];
+        var email = option && option.dataset ? option.dataset.email || '' : '';
+        if (email) {
+          loginInput.value = email;
+        }
+      };
+      clientSelect.addEventListener('change', syncLogin);
+      syncLogin();
+    });
+  </script>
   {% if selected_user %}
     <div class="card" id="droits" style="margin-bottom:1rem; border:1px solid #e5e7eb;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
