@@ -428,9 +428,14 @@ def get_modele(db: Session, modele_id: int) -> ModeleDocument | None:
 def create_modele(db: Session, nom: str, canal: str, contenu: str, objet: str | None = None, actif: int | None = 1) -> ModeleDocument:
     m = ModeleDocument(nom=nom, canal=canal, contenu=contenu, objet=objet, actif=actif)
     db.add(m)
+    db.flush()
+    new_id = m.id
     db.commit()
-    db.refresh(m)
-    return m
+    if new_id:
+        fresh = db.query(ModeleDocument).filter(ModeleDocument.id == new_id).first()
+        if fresh:
+            return fresh
+    return ModeleDocument(id=new_id, nom=nom, canal=canal, contenu=contenu, objet=objet, actif=actif)
 
 
 def update_modele(db: Session, modele_id: int, **fields) -> ModeleDocument | None:
