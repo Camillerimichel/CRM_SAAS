@@ -5597,7 +5597,48 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
         "valorisation_card": valorisation_card,
         "indicateurs_card": indicateurs_card,
         "affaire": affaire,
+        "affaire_events_open": _fetch_affaire_events_open(db, affaire_id),
     }
+
+def _fetch_affaire_events_open(db: Session, affaire_id: int) -> list[dict]:
+    try:
+        rows = db.execute(
+            text("""
+                SELECT e.id, e.date_evenement, e.statut, e.commentaire,
+                       te.libelle AS type_libelle, te.categorie AS type_categorie,
+                       e.utilisateur_responsable
+                FROM mariadb_evenement e
+                JOIN mariadb_type_evenement te ON te.id = e.type_id
+                WHERE e.affaire_id = :aid
+                  AND (e.statut IS NULL OR LOWER(e.statut) NOT IN (
+                    'termine','terminé','cloture','clôturé','cloturé','clôture','annule','annulé'
+                  ))
+                ORDER BY e.date_evenement DESC
+                LIMIT 100
+            """),
+            {"aid": affaire_id},
+        ).fetchall()
+    except Exception:
+        return []
+    result = []
+    for r in rows:
+        mp = dict(getattr(r, "_mapping", {})) if hasattr(r, "_mapping") else {}
+        try:
+            dstr = r.date_evenement.strftime("%d/%m/%Y %H:%M") if getattr(r, "date_evenement", None) else None
+        except Exception:
+            dstr = str(getattr(r, "date_evenement", ""))[:16] if getattr(r, "date_evenement", None) else None
+        result.append({
+            "id": mp.get("id") or getattr(r, "id", None),
+            "date": dstr,
+            "statut": mp.get("statut") or getattr(r, "statut", None),
+            "commentaire": mp.get("commentaire") or getattr(r, "commentaire", None),
+            "type_libelle": mp.get("type_libelle") or getattr(r, "type_libelle", None),
+            "type_categorie": mp.get("type_categorie") or getattr(r, "type_categorie", None),
+            "responsable": mp.get("utilisateur_responsable") or getattr(r, "utilisateur_responsable", None),
+        })
+    return result
+
+
 def _fetch_task_types(db: Session) -> dict[str, list[dict]]:
     rows = db.execute(
         text(
@@ -6041,13 +6082,155 @@ def dashboard_affaire_synthese_pdf(
 
     html = templates.get_template("synthese_report.html").render(ctx_render)
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
-    filename = f"synthese_affaire_{affaire_id}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
+    affaire_ref_slug = _slugify_document_filename(affaire_ref or str(affaire_id))
+    filename = f"synthese_{affaire_ref_slug}_{ctx['report_date'].strftime('%Y%m%d')}.pdf"
     cd_type = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
         headers={"Content-Disposition": f'{cd_type}; filename="{filename}"'},
     )
+
+
+def _ensure_generated_affaire_pdf_path(affaire_id: int, modele_name: str) -> Path:
+    generated_dir = DOCUMENTS_DIR / "generated_affaires" / str(affaire_id)
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return generated_dir / f"{_slugify_document_filename(modele_name)}_{affaire_id}_{timestamp}.pdf"
+
+
+@router.post("/affaires/{affaire_id}/synthese/save")
+async def dashboard_affaire_synthese_save(
+    affaire_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Génère et enregistre la synthèse PDF d'une affaire dans Documents_client."""
+    try:
+        _require_affaire_write(request, db, affaire_id)
+        affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+        if not affaire:
+            raise HTTPException(status_code=404, detail="Affaire introuvable.")
+        client_id = affaire.id_personne
+        if not client_id:
+            raise HTTPException(status_code=404, detail="Client associé introuvable.")
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+
+        ctx = _build_affaire_synthese_context(db, affaire_id)
+        if not ctx:
+            raise HTTPException(status_code=404, detail="Données synthèse introuvables.")
+        if not ctx.get("esg_comparison_rows"):
+            ctx = _populate_synthese_esg_context(db, ctx, client_id)
+        if not ctx.get("report_logo_png"):
+            try:
+                logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+                if logo_path.exists():
+                    ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+            except Exception:
+                pass
+
+        ctx_render = dict(ctx)
+        ctx_render["request"] = request
+        affaire_ref = getattr(affaire, "ref", None)
+        prenom = getattr(client, "prenom", "") or ""
+        nom_c = getattr(client, "nom", "") or ""
+        client_label = f"{prenom} {nom_c}".strip()
+        title_parts = ["Synthèse contrat"]
+        if affaire_ref:
+            title_parts.append(str(affaire_ref))
+        if client_label:
+            title_parts.append(client_label)
+        ctx_render["title"] = " – ".join([p for p in title_parts if p])
+
+        try:
+            from weasyprint import HTML  # type: ignore
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+        html = templates.get_template("synthese_report.html").render(ctx_render)
+        pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+
+        affaire_ref_val = getattr(affaire, "ref", None) or ""
+        nom_document = "Synthèse contrat" + (f" – {affaire_ref_val}" if affaire_ref_val else "")
+        file_slug = _slugify_document_filename(f"synthese_{affaire_ref_val}" if affaire_ref_val else "synthese_affaire")
+        file_path = _ensure_generated_affaire_pdf_path(affaire_id, file_slug)
+        file_path.write_bytes(pdf_bytes)
+
+        ensure_document_client_storage_columns(db)
+        base_doc_id = ensure_document_base_for_label(db, "Synthèse", niveau="généré", risque=None)
+        doc_client_payload = DocumentClientCreateSchema(
+            id_client=client_id,
+            id_document_base=base_doc_id,
+            nom_document=nom_document,
+            date_creation=datetime.utcnow(),
+            date_obsolescence=None,
+            obsolescence="généré",
+            stored_filename=file_path.name,
+            stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+            mime_type="application/pdf",
+            file_size=len(pdf_bytes),
+            id_affaire=affaire_id,
+        )
+        doc_client, err = create_document_client(db, doc_client_payload)
+        if err or not doc_client:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err or "Impossible d'enregistrer le document")
+
+        doc_client_id = doc_client["id"] if isinstance(doc_client, dict) else getattr(doc_client, "id", None)
+        if not doc_client_id:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Document créé mais identifiant introuvable.")
+
+        return {
+            "id": doc_client_id,
+            "nom_document": nom_document,
+            "affaire_id": affaire_id,
+            "client_id": client_id,
+            "download_url": f"/dashboard/document-client/{doc_client_id}/pdf",
+            "pdf_url": f"/dashboard/document-client/{doc_client_id}/pdf?inline=1",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur synthese save affaire_id=%s", affaire_id)
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'enregistrement.")
+
+
+@router.get("/affaires/{affaire_id}/documents")
+def dashboard_affaire_documents_list(
+    affaire_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Retourne les Documents_client liés à cette affaire (id_affaire = affaire_id)."""
+    _require_affaire_read(request, db, affaire_id)
+    from src.models.document_client import DocumentClient as DocClientModel
+    rows = (
+        db.query(DocClientModel)
+        .filter(DocClientModel.id_affaire == affaire_id)
+        .order_by(DocClientModel.date_creation.desc())
+        .all()
+    )
+    result = []
+    for r in rows:
+        result.append({
+            "id": r.id,
+            "nom_document": r.nom_document,
+            "date_creation": r.date_creation.strftime("%d/%m/%Y %H:%M") if r.date_creation else None,
+            "mime_type": r.mime_type,
+            "file_size": r.file_size,
+            "pdf_url": f"/dashboard/document-client/{r.id}/pdf?inline=1",
+            "download_url": f"/dashboard/document-client/{r.id}/pdf",
+        })
+    return result
 
 
 @router.head("/clients/{client_id}/der/pdf")
@@ -6317,11 +6500,13 @@ async def dashboard_client_modele_generate(
                 mail_error = "Aucun destinataire email pour le client."
             else:
                 subject = rendered.get("objet") or modele.objet or modele.nom or "Document"
+                client_civilite = _get_client_civilite(db, client_id, client)
+                client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+                salutation = f"Bonjour {client_full_name}," if client_full_name else "Bonjour,"
                 body = (
-                    f"Bonjour,\n\n"
+                    f"{salutation}\n\n"
                     f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
                     f"Cordialement,\n"
-                    f"{getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
                 )
                 mail_sent, mail_error = send_email_with_attachments(
                     recipient,
@@ -6691,11 +6876,13 @@ def _send_document_client_mail(request: Request, db: Session, doc_client_id: int
         )
         raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
     subject = getattr(doc, "nom_document", None) or "Document client"
+    client_civilite = _get_client_civilite(db, int(getattr(doc, "id_client", client_id)), client)
+    client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+    salutation = f"Bonjour {client_full_name}," if client_full_name else "Bonjour,"
     body = (
-        f"Bonjour,\n\n"
+        f"{salutation}\n\n"
         f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
         f"Cordialement,\n"
-        f"{getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
     )
     pdf_bytes = file_path.read_bytes()
     logger.info(
@@ -6932,6 +7119,33 @@ def _normalize_civilite(raw: object) -> str:
     if sl in ("mlle", "mademoiselle"):
         return "Mlle"
     return s
+
+
+def _get_client_civilite(db: Session, client_id: int, client: Client | None = None) -> str:
+    civilite = ""
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT civilite
+                FROM etat_civil_client
+                WHERE id_client = :cid
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if row:
+            civilite = _normalize_civilite(getattr(row, "_mapping", {}).get("civilite") if hasattr(row, "_mapping") else row[0])
+    except Exception:
+        civilite = ""
+    if not civilite and client is not None:
+        try:
+            civilite = _normalize_civilite(getattr(client, "civilite", None))
+        except Exception:
+            civilite = ""
+    return civilite
 
 
 def _fmt_date_fr_any(raw: object) -> str:

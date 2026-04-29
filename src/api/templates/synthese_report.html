@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>Rapport de synthèse</title>
+  <title>{{ title or 'Rapport de synthèse' }}</title>
   <style>
     @page {
       size: A4;
@@ -97,12 +97,15 @@
     <div class="toc" style="margin-top:1.5rem; margin-bottom:auto;">
       <ol>
         <li><a href="#section-synthese">Éléments de synthèse</a></li>
-        <li><a href="#section-valorisation-contrats">Valorisation du contrat et historique complet des placements</a></li>
-        <li><a href="#section-valorisation-actifs">Valorisation des actifs détenus au sein de votre contrat</a></li>
+        <li><a href="#section-valorisation-contrats">Valorisations des contrats</a></li>
+        <li><a href="#section-valorisation-actifs">Valorisations des actifs détenus au sein du contrat</a></li>
         <li><a href="#section-historique">Historique des placements</a></li>
         <li><a href="#section-analyses">Évolution comparée à l’offre financière choisie</a></li>
         <li><a href="#section-esg">Notations ESG</a></li>
         <li><a href="#section-repartition">Répartition géographique et sectorielle des placements</a></li>
+        {% if affaire_events_open is defined and affaire_events_open %}
+        <li><a href="#section-taches">Suivi des tâches et messages en cours</a></li>
+        {% endif %}
       </ol>
     </div>
   </div>
@@ -146,7 +149,7 @@
 	    </div>
 	  </div>
 	  <div class="page-break"></div>
-	  <h2 id="section-valorisation-contrats" class="section-title">2. Valorisation du contrat{% if contracts and (contracts|length > 1) %}s{% endif %}</h2>
+	  <h2 id="section-valorisation-contrats" class="section-title">2. Valorisations des contrats</h2>
 	  <p class="muted">Tableau des contrats souscrits et de leur valorisation actuelle.</p>
   {% if contracts %}
   <table class="table table-synthese">
@@ -176,7 +179,7 @@
     <div class="muted">Aucun contrat répertorié.</div>
   {% endif %}
 
-	  <h2 id="section-valorisation-actifs" class="section-title">3. Valorisation des actifs détenus au sein du contrat</h2>
+	  <h2 id="section-valorisation-actifs" class="section-title">3. Valorisations des actifs détenus au sein du contrat</h2>
 	  {% if supports %}
 	  <table class="table table-synthese">
     <thead><tr><th>Code ISIN</th><th>Support</th><th>Catégorie</th><th>SRRI</th><th>Valorisation</th></tr></thead>
@@ -395,6 +398,35 @@
     {% endif %}
   {% else %}
     <div class="muted">Aucune répartition géographique n'est disponible pour ce client.</div>
+  {% endif %}
+
+  {% if affaire_events_open is defined and affaire_events_open %}
+  <div class="page-break"></div>
+  <h2 id="section-taches" class="section-title">8. Suivi des tâches et messages en cours</h2>
+  <table class="table" style="font-size:0.85rem;">
+    <thead>
+      <tr>
+        <th style="text-align:left;">Date</th>
+        <th style="text-align:left;">Type</th>
+        <th style="text-align:left;">Catégorie</th>
+        <th style="text-align:left;">Statut</th>
+        <th style="text-align:left;">Responsable</th>
+        <th style="text-align:left;">Commentaire</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ev in affaire_events_open %}
+      <tr>
+        <td style="white-space:nowrap;">{{ ev.date or '—' }}</td>
+        <td>{{ ev.type_libelle or '—' }}</td>
+        <td>{{ ev.type_categorie or '—' }}</td>
+        <td>{{ ev.statut or 'En cours' }}</td>
+        <td>{{ ev.responsable or '—' }}</td>
+        <td style="max-width:220px; word-wrap:break-word;">{{ ev.commentaire or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 </body>
 </html>

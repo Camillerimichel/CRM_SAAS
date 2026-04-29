@@ -22,3 +22,4 @@ class DocumentClient(Base):
     mime_type = Column("mime_type", String, nullable=True)
     file_size = Column("file_size", Integer, nullable=True)
     id_societe_gestion = Column(Integer, ForeignKey("mariadb_societe_gestion.id"), nullable=True)
+    id_affaire = Column("id_affaire", Integer, nullable=True)

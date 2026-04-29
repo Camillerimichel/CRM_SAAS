@@ -809,7 +809,7 @@ app.add_middleware(
 from src.services.allocations import get_allocations, get_allocation, create_allocation
 from src.services.clients import get_clients, get_client, create_client, update_client
 from src.services.affaires import get_affaires, get_affaire, create_affaire
-from src.services.documents import get_documents, get_document, create_document
+from src.services.documents import get_documents, get_document, create_document, update_document, delete_document
 from src.services.document_client import (
     create_document_client,
     ensure_document_client_storage_columns,
@@ -844,6 +844,8 @@ from src.models.historique_support import HistoriqueSupport
 from src.models.client import Client
 from src.models.affaire import Affaire
 from src.models.support import Support
+from src.models.document import Document
+from src.models.document_client import DocumentClient
 
 # ---------------- Allocations ----------------
 @app.get("/allocations/", response_model=list[AllocationSchema])
@@ -988,6 +990,188 @@ def create_new_document(payload: DocumentCreateSchema, request: Request, db: Ses
         payload.obsolescence_annees,
         payload.risque,
     )
+
+
+@app.get("/bibliotheque-documents/data", response_class=JSONResponse)
+def bibliotheque_documents_data(request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "read")
+    _deny_client_list(access, "bibliotheque documentaire")
+    ensure_document_client_storage_columns(db)
+
+    docs_base: list[dict] = []
+    docs_client: list[dict] = []
+    try:
+        usage_rows = (
+            db.query(
+                DocumentClient.id_document_base.label("id_document_base"),
+                func.count(DocumentClient.id).label("usage_count"),
+            )
+            .group_by(DocumentClient.id_document_base)
+            .all()
+        )
+        usage_map = {
+            int(row.id_document_base): int(row.usage_count or 0)
+            for row in usage_rows or []
+            if getattr(row, "id_document_base", None) is not None
+        }
+        rows = db.query(Document).order_by(Document.id_document_base.asc()).all()
+        for d in rows or []:
+            if not d:
+                continue
+            usage_count = int(usage_map.get(int(d.id_document_base), 0))
+            docs_base.append({
+                "id": d.id_document_base,
+                "nom": d.documents or "",
+                "niveau": d.niveau or "",
+                "risque": d.risque or "",
+                "obsolescence_annees": d.obsolescence_annees,
+                "client_count": usage_count,
+                "is_deletable": usage_count == 0,
+            })
+        docs_base.sort(
+            key=lambda item: (
+                0 if not str(item.get("nom") or "").strip() else 1,
+                str(item.get("nom") or "").strip().lower(),
+                int(item.get("id") or 0),
+            )
+        )
+    except Exception as exc:
+        logging.getLogger("uvicorn.error").error("load base documents failed: %s", exc)
+
+    try:
+        rows = (
+            db.query(
+                DocumentClient.id.label("id"),
+                DocumentClient.id_client.label("id_client"),
+                Client.nom.label("client_nom"),
+                Client.prenom.label("client_prenom"),
+                DocumentClient.nom_client.label("nom_client"),
+                DocumentClient.id_document_base.label("id_document_base"),
+                Document.documents.label("base_nom"),
+                DocumentClient.nom_document.label("nom_document"),
+                DocumentClient.date_creation.label("date_creation"),
+                DocumentClient.date_obsolescence.label("date_obsolescence"),
+                DocumentClient.obsolescence.label("obsolescence"),
+            )
+            .outerjoin(Client, Client.id == DocumentClient.id_client)
+            .outerjoin(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .order_by(DocumentClient.id.desc())
+            .limit(200)
+            .all()
+        )
+        for d in rows or []:
+            if not d:
+                continue
+            client_label_parts = [p for p in [
+                (d.client_prenom or "").strip(),
+                (d.client_nom or "").strip(),
+            ] if p]
+            client_label = " ".join(client_label_parts) if client_label_parts else (d.nom_client or "")
+            try:
+                creation = d.date_creation.strftime("%d/%m/%Y %H:%M") if d.date_creation else ""
+            except Exception:
+                creation = str(d.date_creation) if d.date_creation else ""
+            try:
+                obsolescence_date = d.date_obsolescence.strftime("%d/%m/%Y %H:%M") if d.date_obsolescence else ""
+            except Exception:
+                obsolescence_date = str(d.date_obsolescence) if d.date_obsolescence else ""
+            docs_client.append({
+                "id": d.id,
+                "client_id": d.id_client,
+                "client_label": client_label,
+                "id_document_base": d.id_document_base,
+                "nom_document": d.nom_document or d.base_nom or "",
+                "date_creation": creation,
+                "date_obsolescence": obsolescence_date,
+                "obsolescence": d.obsolescence or "",
+                "is_attachable": True,
+            })
+    except Exception as exc:
+        logging.getLogger("uvicorn.error").error("load client documents failed: %s", exc)
+
+    return {
+        "documents_base": docs_base,
+        "documents_clients": docs_client,
+        "counts": {
+            "documents_base": len(docs_base),
+            "documents_clients": len(docs_client),
+            "documents_attachables": len([d for d in docs_client if d.get("is_attachable")]),
+        },
+    }
+
+
+@app.post("/bibliotheque-documents/create", response_model=DocumentSchema)
+def create_bibliotheque_document(
+    request: Request,
+    documents: str = Form(""),
+    niveau: str = Form(""),
+    obsolescence_annees: str | None = Form(None),
+    risque: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "creation document")
+    try:
+        obsolescence_value = int(obsolescence_annees) if obsolescence_annees not in (None, "") else None
+    except Exception:
+        raise HTTPException(status_code=400, detail="L'obsolescence doit etre un nombre entier.")
+    doc = create_document(
+        db,
+        documents=(documents or "").strip(),
+        niveau=(niveau or "").strip(),
+        obsolescence_annees=obsolescence_value,
+        risque=(risque or "").strip(),
+    )
+    if not doc:
+        raise HTTPException(status_code=500, detail="Creation impossible.")
+    return doc
+
+
+@app.post("/bibliotheque-documents/{document_id}/update", response_model=DocumentSchema)
+def update_bibliotheque_document(
+    document_id: int,
+    request: Request,
+    documents: str = Form(""),
+    niveau: str = Form(""),
+    obsolescence_annees: str | None = Form(None),
+    risque: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "modification document")
+    try:
+        obsolescence_value = int(obsolescence_annees) if obsolescence_annees not in (None, "") else None
+    except Exception:
+        raise HTTPException(status_code=400, detail="L'obsolescence doit etre un nombre entier.")
+    updated = update_document(
+        db,
+        document_id,
+        documents=(documents or "").strip(),
+        niveau=(niveau or "").strip(),
+        obsolescence_annees=obsolescence_value,
+        risque=(risque or "").strip(),
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    return updated
+
+
+@app.post("/bibliotheque-documents/{document_id}/delete")
+def delete_bibliotheque_document(document_id: int, request: Request, db: Session = Depends(get_db)):
+    access, _ = _require_feature(request, db, "data", "write")
+    _deny_client_list(access, "suppression document")
+    linked_count = (
+        db.query(func.count(DocumentClient.id))
+        .filter(DocumentClient.id_document_base == document_id)
+        .scalar()
+        or 0
+    )
+    if linked_count:
+        raise HTTPException(status_code=400, detail="Suppression impossible: ce document est encore utilise par des documents clients.")
+    deleted = delete_document(db, document_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    return {"message": "Document supprimé"}
 
 # ---------------- Documents par client ----------------
 @app.post("/documents_clients/", response_model=DocumentClientSchema)
