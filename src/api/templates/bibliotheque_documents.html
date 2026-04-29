@@ -192,6 +192,145 @@
     margin-bottom: .9rem;
     flex-wrap: wrap;
   }
+  .notice {
+    padding: .8rem .95rem;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    margin-bottom: .9rem;
+    font-size: .92rem;
+  }
+  .notice-success {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #065f46;
+  }
+  .notice-error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+  }
+  .doc-admin-form {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: .75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  .doc-admin-form .field {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+  }
+  .doc-admin-form .field label,
+  .doc-row-form .field label {
+    font-size: .78rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .doc-admin-form input,
+  .doc-row-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: .62rem .75rem;
+    font-size: .92rem;
+    background: #fff;
+  }
+  .doc-row-input {
+    padding: .52rem .65rem;
+  }
+  .doc-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    align-items: center;
+  }
+  .doc-row-actions .btn {
+    padding: .46rem .72rem;
+    border-radius: 10px;
+    font-size: .86rem;
+  }
+  .doc-mini {
+    font-size: .88rem;
+    color: #334155;
+    line-height: 1.45;
+  }
+  .doc-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, .55);
+    z-index: 1000;
+    padding: 1rem;
+  }
+  .doc-modal.is-open {
+    display: flex;
+  }
+  .doc-modal-card {
+    width: min(760px, 96vw);
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
+    overflow: hidden;
+  }
+  .doc-modal-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem 1.1rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(180deg, #f8fafc, #fff);
+  }
+  .doc-modal-body {
+    padding: 1rem 1.1rem 1.1rem;
+  }
+  .doc-modal-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .8rem;
+  }
+  .doc-modal-grid .field {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+  }
+  .doc-modal-grid input,
+  .doc-modal-grid textarea,
+  .doc-modal-grid select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: .62rem .75rem;
+    font-size: .92rem;
+    background: #fff;
+  }
+  .doc-modal-full {
+    grid-column: 1 / -1;
+  }
+  .doc-modal-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 1rem 1.1rem;
+    border-top: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+  .doc-delete-warning {
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 12px;
+    padding: .85rem .9rem;
+    color: #9a3412;
+    line-height: 1.45;
+  }
   .toolbar input {
     min-width: 260px;
     padding: .7rem .85rem;
@@ -451,6 +590,9 @@
   }
   @media (max-width: 1200px) {
     .doc-kpis, .grid-2 { grid-template-columns: 1fr; }
+    .doc-admin-form {
+      grid-template-columns: 1fr;
+    }
     .container {
       max-width: none;
       padding: 0 1rem;
@@ -458,6 +600,9 @@
     .preview-sheet {
       width: 100%;
       padding: 2rem 1.4rem 2.2rem;
+    }
+    .doc-modal-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
@@ -507,7 +652,7 @@
         <span class="toggle-label">Masquer</span>
       </button>
     </div>
-    <div class="section-body">
+      <div class="section-body">
       <ul style="margin:0; padding-left:1.15rem; color:#374151; display:grid; gap:.5rem;">
         <li>Les modèles PDF sont des templates dynamiques liés aux données client.</li>
         <li>Les documents PDF déjà présents restent consultables et pourront être sélectionnés comme pièces jointes.</li>
@@ -528,6 +673,9 @@
       </div>
       <div style="display:flex; align-items:center; gap:.65rem; flex-wrap:wrap;">
         <input id="modelSearch" type="search" placeholder="Rechercher un modèle..." />
+        <button type="button" class="btn btn-primary" id="btnNewModele" style="white-space:nowrap;">
+          <i class="fa-solid fa-plus"></i> Nouveau modèle
+        </button>
         <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
           <i class="fa-solid fa-chevron-up"></i>
           <span class="toggle-label">Masquer</span>
@@ -543,6 +691,7 @@
             <th>Objet</th>
             <th>Statut</th>
             <th>Prévisualisation</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -580,10 +729,20 @@
                 Prévisualiser
               </button>
             </td>
+            <td>
+              <button
+                type="button"
+                class="btn btn-secondary js-delete-modele"
+                data-modele-id="{{ m.id }}"
+                data-modele-name="{{ m.nom|e }}"
+              >
+                <i class="fa-solid fa-trash"></i> Supprimer
+              </button>
+            </td>
           </tr>
           {% endfor %}
           {% if not modeles %}
-          <tr><td colspan="5" class="muted">Aucun modèle trouvé.</td></tr>
+          <tr id="modelsTableEmpty"><td colspan="6" class="muted">Aucun modèle trouvé.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -698,47 +857,105 @@
             <div class="doc-footer">
               Prévisualisation WYSIWYG du modèle dynamique. Les champs variables seront remplacés au moment de la génération.
             </div>
-          </div>
+        </div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div class="section-card" data-collapsible="true" data-collapse-key="documents-pdf-existants">
-    <div class="toolbar">
-      <div>
-        <h2>Référentiel des documents PDF existants</h2>
-        <div class="muted">Les documents de base déjà enregistrés dans le système. Ils alimentent les usages dynamiques par client.</div>
+      <div style="margin-top:1.5rem; padding-top:1.25rem; border-top:1px solid #e5e7eb;">
+        <div class="toolbar" style="padding:0; margin-bottom:1rem;">
+          <div>
+            <h2>Nouveau modèle documentaire</h2>
+            <div class="muted">Créer un document vierge ici pour le définir complètement.</div>
+          </div>
+        </div>
+        <form class="doc-admin-form" method="post" action="/dashboard/bibliotheque-documents/create">
+          <div class="field">
+            <label for="docCreateName">Nom du document</label>
+            <input id="docCreateName" name="documents" type="text" placeholder="Laisser vide pour créer un document vierge" />
+          </div>
+          <div class="field">
+            <label for="docCreateNiveau">Niveau</label>
+            <input id="docCreateNiveau" name="niveau" type="text" placeholder="Ex: réglementaire" />
+          </div>
+          <div class="field">
+            <label for="docCreateObsolescence">Obsolescence (années)</label>
+            <input id="docCreateObsolescence" name="obsolescence_annees" type="number" min="0" step="1" placeholder="Optionnel" />
+          </div>
+          <div class="field">
+            <label for="docCreateRisque">Risque</label>
+            <input id="docCreateRisque" name="risque" type="text" placeholder="Ex: faible" />
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary">Créer un document vierge</button>
+          </div>
+        </form>
       </div>
-      <button type="button" class="section-toggle js-section-toggle" aria-expanded="true">
-        <i class="fa-solid fa-chevron-up"></i>
-        <span class="toggle-label">Masquer</span>
-      </button>
-    </div>
-    <div class="section-body">
-      <table class="doc-table">
-        <thead>
-          <tr>
-            <th>Nom</th>
-            <th>Niveau</th>
-            <th>Risque</th>
-            <th>Obsolescence</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in documents_base %}
-          <tr>
-            <td><strong>{{ d.nom or '—' }}</strong></td>
-            <td>{{ d.niveau or '—' }}</td>
-            <td>{{ d.risque or '—' }}</td>
-            <td>{% if d.obsolescence_annees is not none %}{{ d.obsolescence_annees }} an(s){% else %}—{% endif %}</td>
-          </tr>
-          {% endfor %}
-          {% if not documents_base %}
-          <tr><td colspan="4" class="muted">Aucun document référencé.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+
+      {% if request.query_params.get('saved') == '1' %}
+        <div class="notice notice-success">Modification enregistrée.</div>
+      {% endif %}
+      {% if request.query_params.get('error') == '1' and request.query_params.get('errmsg') %}
+        <div class="notice notice-error">{{ request.query_params.get('errmsg') }}</div>
+      {% endif %}
+
+      <div style="margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid #e5e7eb;">
+        <div class="toolbar" style="padding:0; margin-bottom:1rem;">
+          <div>
+            <h2>Référentiel des documents PDF existants</h2>
+            <div class="muted">Les documents de base déjà enregistrés dans le système. Ils alimentent les usages dynamiques par client.</div>
+          </div>
+        </div>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Niveau</th>
+              <th>Risque</th>
+              <th>Obsolescence</th>
+              <th>Utilisation</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in documents_base %}
+            <tr class="doc-base-row"
+                data-doc-id="{{ d.id }}"
+                data-doc-name="{{ d.nom or '' }}"
+                data-doc-niveau="{{ d.niveau or '' }}"
+                data-doc-risque="{{ d.risque or '' }}"
+                data-doc-obsolescence="{{ d.obsolescence_annees if d.obsolescence_annees is not none else '' }}"
+                data-doc-usage="{{ d.client_count or 0 }}"
+                data-doc-deletable="{{ '1' if d.is_deletable else '0' }}">
+              <td>
+                <strong>{{ d.nom or 'Document vierge' }}</strong>
+                {% if not (d.nom or '').strip() %}
+                  <div class="badge-soft badge-amber" style="margin-top:.35rem;">Vierge</div>
+                {% endif %}
+              </td>
+              <td>{{ d.niveau or '—' }}</td>
+              <td>{{ d.risque or '—' }}</td>
+              <td>{% if d.obsolescence_annees is not none %}{{ d.obsolescence_annees }} an(s){% else %}—{% endif %}</td>
+              <td>
+                <div class="doc-mini">
+                  {{ d.client_count or 0 }} document(s) client
+                  {% if not d.is_deletable %}
+                    <br/>Suppression bloquée
+                  {% endif %}
+                </div>
+              </td>
+              <td>
+                <div class="doc-row-actions">
+                  <button type="button" class="btn btn-primary js-edit-doc">Modifier</button>
+                  <button type="button" class="btn btn-secondary js-delete-doc" {% if not d.is_deletable %}disabled title="Ce document est encore utilisé par des documents clients"{% endif %}>Supprimer</button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not documents_base %}
+            <tr><td colspan="6" class="muted">Aucun document référencé.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -797,6 +1014,150 @@
       <div class="pagination-bar" id="generatedDocsPagination" {% if not documents_clients %}style="display:none"{% endif %}>
         <div class="muted" id="generatedDocsSummary">Affichage des documents 1 à 25</div>
         <div class="pagination-controls" id="generatedDocsPager"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="docBaseEditModal" class="doc-modal" aria-hidden="true">
+  <div class="doc-modal-card" role="dialog" aria-modal="true" aria-labelledby="docBaseEditTitle">
+    <div class="doc-modal-header">
+      <div>
+        <h3 id="docBaseEditTitle" style="margin:0;">Modifier un document de base</h3>
+        <div class="muted" id="docBaseEditSubtitle">Paramétrage complet du document.</div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="docBaseEditClose">Fermer</button>
+    </div>
+    <form id="docBaseEditForm" method="post">
+      <div class="doc-modal-body">
+        <div class="doc-modal-grid">
+          <div class="field doc-modal-full">
+            <label for="docBaseEditName">Nom</label>
+            <input id="docBaseEditName" name="documents" type="text" placeholder="Nom du document" />
+          </div>
+          <div class="field">
+            <label for="docBaseEditNiveau">Niveau</label>
+            <input id="docBaseEditNiveau" name="niveau" type="text" placeholder="Niveau" />
+          </div>
+          <div class="field">
+            <label for="docBaseEditObsolescence">Obsolescence (années)</label>
+            <input id="docBaseEditObsolescence" name="obsolescence_annees" type="number" min="0" step="1" placeholder="Optionnel" />
+          </div>
+          <div class="field doc-modal-full">
+            <label for="docBaseEditRisque">Risque</label>
+            <input id="docBaseEditRisque" name="risque" type="text" placeholder="Risque" />
+          </div>
+        </div>
+      </div>
+      <div class="doc-modal-footer">
+        <div class="muted" id="docBaseEditHint">Les modifications s’appliquent au document de base et seront visibles sur les clients liés.</div>
+        <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" id="docBaseEditCancel">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="docBaseDeleteModal" class="doc-modal" aria-hidden="true">
+  <div class="doc-modal-card" role="dialog" aria-modal="true" aria-labelledby="docBaseDeleteTitle">
+    <div class="doc-modal-header">
+      <div>
+        <h3 id="docBaseDeleteTitle" style="margin:0;">Supprimer un document de base</h3>
+        <div class="muted" id="docBaseDeleteSubtitle">Confirmation renforcée requise.</div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="docBaseDeleteClose">Fermer</button>
+    </div>
+    <form id="docBaseDeleteForm" method="post">
+      <div class="doc-modal-body">
+        <div class="doc-delete-warning">
+          <strong>Attention.</strong> La suppression est définitive.
+          <div style="margin-top:.45rem;" id="docBaseDeleteInfo"></div>
+        </div>
+        <div class="doc-modal-grid" style="margin-top:1rem;">
+          <div class="field doc-modal-full">
+            <label for="docBaseDeleteConfirm">Tape le nom exact du document pour confirmer</label>
+            <input id="docBaseDeleteConfirm" type="text" autocomplete="off" placeholder="Nom exact du document" />
+          </div>
+        </div>
+      </div>
+      <div class="doc-modal-footer">
+        <div class="muted" id="docBaseDeleteHint">La suppression est bloquée si le document est encore utilisé par des documents clients.</div>
+        <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" id="docBaseDeleteCancel">Annuler</button>
+          <button type="submit" class="btn btn-primary" id="docBaseDeleteSubmit">Supprimer</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="modeleCreateModal" class="doc-modal" aria-hidden="true">
+  <div class="doc-modal-card" role="dialog" aria-modal="true" aria-labelledby="modeleCreateTitle">
+    <div class="doc-modal-header">
+      <div>
+        <h3 id="modeleCreateTitle" style="margin:0;">Nouveau modèle documentaire</h3>
+        <div class="muted">Créer un modèle PDF dynamique ou mail.</div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="modeleCreateClose">Fermer</button>
+    </div>
+    <form id="modeleCreateForm">
+      <div class="doc-modal-body">
+        <div id="modeleCreateNotice" class="notice" style="display:none;"></div>
+        <div class="doc-modal-grid">
+          <div class="field doc-modal-full">
+            <label for="modeleCreateNom">Nom *</label>
+            <input id="modeleCreateNom" name="nom" type="text" placeholder="Nom du modèle" required />
+          </div>
+          <div class="field">
+            <label for="modeleCreateCanal">Canal *</label>
+            <select id="modeleCreateCanal" name="canal">
+              <option value="mail">Mail</option>
+              <option value="pdf">PDF dynamique</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="modeleCreateObjet">Objet / Titre</label>
+            <input id="modeleCreateObjet" name="objet" type="text" placeholder="Objet du modèle (optionnel)" />
+          </div>
+          <div class="field doc-modal-full">
+            <label for="modeleCreateContenu">Contenu</label>
+            <textarea id="modeleCreateContenu" name="contenu" rows="6" placeholder="Contenu du modèle (optionnel, modifiable ensuite)..." style="resize:vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="doc-modal-footer">
+        <div class="muted">Les champs * sont obligatoires.</div>
+        <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" id="modeleCreateCancel">Annuler</button>
+          <button type="submit" class="btn btn-primary" id="modeleCreateSubmit">Créer le modèle</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="modeleDeleteModal" class="doc-modal" aria-hidden="true">
+  <div class="doc-modal-card" role="dialog" aria-modal="true" aria-labelledby="modeleDeleteTitle">
+    <div class="doc-modal-header">
+      <div>
+        <h3 id="modeleDeleteTitle" style="margin:0;">Supprimer un modèle</h3>
+        <div class="muted" id="modeleDeleteSubtitle">Confirmation requise.</div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="modeleDeleteClose">Fermer</button>
+    </div>
+    <div class="doc-modal-body">
+      <div class="doc-delete-warning">
+        <strong>Attention.</strong> La suppression est définitive et irréversible.
+        <div style="margin-top:.45rem;" id="modeleDeleteInfo"></div>
+      </div>
+    </div>
+    <div class="doc-modal-footer">
+      <div class="muted">Le modèle sera supprimé définitivement.</div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary" id="modeleDeleteCancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="modeleDeleteConfirmBtn">Supprimer</button>
       </div>
     </div>
   </div>
@@ -1340,6 +1701,317 @@
   }
 
   renderGeneratedDocs();
+
+  var editModal = document.getElementById('docBaseEditModal');
+  var editForm = document.getElementById('docBaseEditForm');
+  var editTitle = document.getElementById('docBaseEditTitle');
+  var editSubtitle = document.getElementById('docBaseEditSubtitle');
+  var editName = document.getElementById('docBaseEditName');
+  var editNiveau = document.getElementById('docBaseEditNiveau');
+  var editObsolescence = document.getElementById('docBaseEditObsolescence');
+  var editRisque = document.getElementById('docBaseEditRisque');
+  var editClose = document.getElementById('docBaseEditClose');
+  var editCancel = document.getElementById('docBaseEditCancel');
+
+  var deleteModal = document.getElementById('docBaseDeleteModal');
+  var deleteForm = document.getElementById('docBaseDeleteForm');
+  var deleteTitle = document.getElementById('docBaseDeleteTitle');
+  var deleteSubtitle = document.getElementById('docBaseDeleteSubtitle');
+  var deleteInfo = document.getElementById('docBaseDeleteInfo');
+  var deleteHint = document.getElementById('docBaseDeleteHint');
+  var deleteConfirm = document.getElementById('docBaseDeleteConfirm');
+  var deleteSubmit = document.getElementById('docBaseDeleteSubmit');
+  var deleteClose = document.getElementById('docBaseDeleteClose');
+  var deleteCancel = document.getElementById('docBaseDeleteCancel');
+
+  function openDocModal(modal) {
+    if (!modal) return;
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDocModal(modal) {
+    if (!modal) return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function getBaseRowData(row) {
+    if (!row) return null;
+    return {
+      id: row.getAttribute('data-doc-id') || '',
+      name: row.getAttribute('data-doc-name') || '',
+      niveau: row.getAttribute('data-doc-niveau') || '',
+      risque: row.getAttribute('data-doc-risque') || '',
+      obsolescence: row.getAttribute('data-doc-obsolescence') || '',
+      usage: row.getAttribute('data-doc-usage') || '0',
+      deletable: row.getAttribute('data-doc-deletable') === '1',
+    };
+  }
+
+  function openEditDocModal(row) {
+    var data = getBaseRowData(row);
+    if (!data || !editForm || !editName || !editNiveau || !editObsolescence || !editRisque) return;
+    editForm.action = '/dashboard/bibliotheque-documents/' + encodeURIComponent(data.id) + '/update';
+    editName.value = data.name;
+    editNiveau.value = data.niveau;
+    editObsolescence.value = data.obsolescence;
+    editRisque.value = data.risque;
+    if (editTitle) editTitle.textContent = 'Modifier un document de base';
+    if (editSubtitle) editSubtitle.textContent = 'Document #' + data.id + (data.name ? ' - ' + data.name : ' - document vierge');
+    openDocModal(editModal);
+    if (editName) editName.focus();
+  }
+
+  function openDeleteDocModal(row) {
+    var data = getBaseRowData(row);
+    if (!data || !deleteForm || !deleteConfirm || !deleteSubmit) return;
+    var expectedName = data.name || 'Document vierge';
+    deleteForm.action = '/dashboard/bibliotheque-documents/' + encodeURIComponent(data.id) + '/delete';
+    deleteForm.dataset.expectedName = expectedName;
+    deleteForm.dataset.deletable = data.deletable ? '1' : '0';
+    deleteConfirm.value = '';
+    deleteSubmit.disabled = true;
+    if (deleteTitle) deleteTitle.textContent = 'Supprimer un document de base';
+    if (deleteSubtitle) deleteSubtitle.textContent = 'Document #' + data.id + (data.name ? ' - ' + data.name : ' - document vierge');
+    if (deleteInfo) {
+      deleteInfo.innerHTML = '<strong>Document:</strong> ' + escapeHtml(expectedName) +
+        '<br><strong>Utilisation:</strong> ' + escapeHtml(data.usage) + ' document(s) client' +
+        (data.deletable ? '' : '<br><strong>Statut:</strong> suppression bloquée car le document est encore utilisé.');
+    }
+    if (deleteHint) {
+      deleteHint.textContent = data.deletable
+        ? 'Tape le nom exact du document pour activer la suppression.'
+        : 'La suppression est impossible tant que le document est utilisé par des documents clients.';
+    }
+    openDocModal(deleteModal);
+    if (deleteConfirm) deleteConfirm.focus();
+  }
+
+  document.querySelectorAll('.doc-base-row .js-edit-doc').forEach(function(button){
+    button.addEventListener('click', function(){
+      openEditDocModal(button.closest('.doc-base-row'));
+    });
+  });
+
+  document.querySelectorAll('.doc-base-row .js-delete-doc').forEach(function(button){
+    button.addEventListener('click', function(){
+      openDeleteDocModal(button.closest('.doc-base-row'));
+    });
+  });
+
+  if (editClose) editClose.addEventListener('click', function(){ closeDocModal(editModal); });
+  if (editCancel) editCancel.addEventListener('click', function(){ closeDocModal(editModal); });
+  if (deleteClose) deleteClose.addEventListener('click', function(){ closeDocModal(deleteModal); });
+  if (deleteCancel) deleteCancel.addEventListener('click', function(){ closeDocModal(deleteModal); });
+
+  if (editModal) {
+    editModal.addEventListener('click', function(ev){
+      if (ev.target === editModal) closeDocModal(editModal);
+    });
+  }
+  if (deleteModal) {
+    deleteModal.addEventListener('click', function(ev){
+      if (ev.target === deleteModal) closeDocModal(deleteModal);
+    });
+  }
+
+  if (deleteConfirm && deleteSubmit) {
+    deleteConfirm.addEventListener('input', function(){
+      var expected = (deleteForm && deleteForm.dataset.expectedName) ? deleteForm.dataset.expectedName : '';
+      var deletable = !deleteForm || deleteForm.dataset.deletable !== '0';
+      deleteSubmit.disabled = !deletable || (deleteConfirm.value || '').trim() !== expected;
+    });
+  }
+
+  if (deleteForm && deleteConfirm && deleteSubmit) {
+    deleteForm.addEventListener('submit', function(ev){
+      var expected = deleteForm.dataset.expectedName || '';
+      var actual = (deleteConfirm.value || '').trim();
+      if (deleteForm.dataset.deletable === '0') {
+        ev.preventDefault();
+        alert('Ce document est encore utilisé. La suppression est bloquée.');
+        return;
+      }
+      if (actual !== expected) {
+        ev.preventDefault();
+        alert('Tape le nom exact du document pour confirmer la suppression.');
+      }
+    });
+  }
+
+  // ── Modèles : création ──────────────────────────────────────────────────────
+  var modeleCreateModal = document.getElementById('modeleCreateModal');
+  var modeleCreateForm = document.getElementById('modeleCreateForm');
+  var modeleCreateClose = document.getElementById('modeleCreateClose');
+  var modeleCreateCancel = document.getElementById('modeleCreateCancel');
+  var modeleCreateSubmit = document.getElementById('modeleCreateSubmit');
+  var modeleCreateNom = document.getElementById('modeleCreateNom');
+  var modeleCreateCanal = document.getElementById('modeleCreateCanal');
+  var modeleCreateObjet = document.getElementById('modeleCreateObjet');
+  var modeleCreateContenu = document.getElementById('modeleCreateContenu');
+  var modeleCreateNotice = document.getElementById('modeleCreateNotice');
+  var btnNewModele = document.getElementById('btnNewModele');
+
+  function openModeleCreateModal() {
+    if (!modeleCreateModal) return;
+    if (modeleCreateForm) modeleCreateForm.reset();
+    if (modeleCreateNotice) { modeleCreateNotice.style.display = 'none'; modeleCreateNotice.className = 'notice'; modeleCreateNotice.textContent = ''; }
+    if (modeleCreateSubmit) modeleCreateSubmit.disabled = false;
+    modeleCreateModal.classList.add('is-open');
+    modeleCreateModal.setAttribute('aria-hidden', 'false');
+    if (modeleCreateNom) modeleCreateNom.focus();
+  }
+
+  function closeModeleCreateModal() {
+    if (!modeleCreateModal) return;
+    modeleCreateModal.classList.remove('is-open');
+    modeleCreateModal.setAttribute('aria-hidden', 'true');
+  }
+
+  if (btnNewModele) btnNewModele.addEventListener('click', openModeleCreateModal);
+  if (modeleCreateClose) modeleCreateClose.addEventListener('click', closeModeleCreateModal);
+  if (modeleCreateCancel) modeleCreateCancel.addEventListener('click', closeModeleCreateModal);
+  if (modeleCreateModal) {
+    modeleCreateModal.addEventListener('click', function(ev){ if (ev.target === modeleCreateModal) closeModeleCreateModal(); });
+  }
+
+  function showModeleCreateNotice(msg, isError) {
+    if (!modeleCreateNotice) return;
+    modeleCreateNotice.textContent = msg;
+    modeleCreateNotice.className = 'notice ' + (isError ? 'notice-error' : 'notice-success');
+    modeleCreateNotice.style.display = '';
+  }
+
+  function buildModeleTypeLabel(canal) {
+    var c = (canal || '').toLowerCase();
+    return (c === 'pdf' || c.indexOf('pdf') !== -1 || c.indexOf('doc') !== -1) ? 'PDF dynamique' : 'Mail';
+  }
+
+  if (modeleCreateForm) {
+    modeleCreateForm.addEventListener('submit', async function(ev) {
+      ev.preventDefault();
+      var nom = (modeleCreateNom ? modeleCreateNom.value : '').trim();
+      var canal = (modeleCreateCanal ? modeleCreateCanal.value : 'mail').trim();
+      var objet = (modeleCreateObjet ? modeleCreateObjet.value : '').trim() || null;
+      var contenu = (modeleCreateContenu ? modeleCreateContenu.value : '').trim();
+      if (!nom) { showModeleCreateNotice('Le nom est obligatoire.', true); return; }
+      if (!canal) { showModeleCreateNotice('Le canal est obligatoire.', true); return; }
+      if (modeleCreateSubmit) modeleCreateSubmit.disabled = true;
+      try {
+        var resp = await fetch('/modeles/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ nom: nom, canal: canal, objet: objet, contenu: contenu || '', actif: 1 }),
+        });
+        if (!resp.ok) {
+          var err = await resp.json().catch(function(){ return {}; });
+          throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
+        var created = await resp.json();
+        closeModeleCreateModal();
+        var tbody = table ? table.tBodies[0] : null;
+        var emptyRow = document.getElementById('modelsTableEmpty');
+        if (emptyRow) emptyRow.remove();
+        if (tbody) {
+          var typeLabel = buildModeleTypeLabel(created.canal || canal);
+          var badgeClass = (created.canal || canal).toLowerCase() === 'pdf' ? 'badge-soft badge-green' : 'badge-soft';
+          var actifBadge = created.actif ? '<span class="badge-soft badge-green">Actif</span>' : '<span class="badge-soft badge-amber">Inactif</span>';
+          var excerpt = (created.contenu || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) || 'Contenu à compléter';
+          var tr = document.createElement('tr');
+          tr.setAttribute('data-model-id', created.id);
+          tr.setAttribute('data-model-name', created.nom || '');
+          tr.setAttribute('data-model-canal', created.canal || '');
+          tr.setAttribute('data-model-objet', created.objet || '');
+          tr.setAttribute('data-model-content', created.contenu || '');
+          tr.innerHTML = '<td><strong>' + escapeHtml(created.nom) + '</strong><div class="muted doc-excerpt">' + escapeHtml(excerpt) + '</div></td>' +
+            '<td><span class="' + badgeClass + '">' + escapeHtml(typeLabel) + '</span></td>' +
+            '<td>' + escapeHtml(created.objet || '—') + '</td>' +
+            '<td>' + actifBadge + '</td>' +
+            '<td><button type="button" class="btn-link js-preview-model" data-model-id="' + created.id + '" data-model-name="' + escapeHtml(created.nom || '') + '" data-model-canal="' + escapeHtml(created.canal || '') + '" data-model-objet="' + escapeHtml(created.objet || '') + '" data-model-content="' + escapeHtml(created.contenu || '') + '">Prévisualiser</button></td>' +
+            '<td><button type="button" class="btn btn-secondary js-delete-modele" data-modele-id="' + created.id + '" data-modele-name="' + escapeHtml(created.nom || '') + '"><i class="fa-solid fa-trash"></i> Supprimer</button></td>';
+          tbody.appendChild(tr);
+          tr.querySelector('.js-preview-model').addEventListener('click', function(){ openPreview(tr.querySelector('.js-preview-model')); });
+          tr.querySelector('.js-delete-modele').addEventListener('click', function(){ openModeleDeleteModal(tr.querySelector('.js-delete-modele')); });
+        }
+      } catch (err) {
+        showModeleCreateNotice('Erreur : ' + (err.message || 'Création impossible.'), true);
+        if (modeleCreateSubmit) modeleCreateSubmit.disabled = false;
+      }
+    });
+  }
+
+  // ── Modèles : suppression ───────────────────────────────────────────────────
+  var modeleDeleteModal = document.getElementById('modeleDeleteModal');
+  var modeleDeleteClose = document.getElementById('modeleDeleteClose');
+  var modeleDeleteCancel = document.getElementById('modeleDeleteCancel');
+  var modeleDeleteConfirmBtn = document.getElementById('modeleDeleteConfirmBtn');
+  var modeleDeleteInfo = document.getElementById('modeleDeleteInfo');
+  var modeleDeleteSubtitle = document.getElementById('modeleDeleteSubtitle');
+  var _pendingModeleDelete = { id: null, name: null, row: null };
+
+  function openModeleDeleteModal(button) {
+    if (!modeleDeleteModal || !button) return;
+    var id = button.getAttribute('data-modele-id') || '';
+    var name = button.getAttribute('data-modele-name') || 'Modèle sans nom';
+    var row = button.closest('tr');
+    _pendingModeleDelete = { id: id, name: name, row: row };
+    if (modeleDeleteSubtitle) modeleDeleteSubtitle.textContent = 'Modèle #' + id + (name ? ' — ' + name : '');
+    if (modeleDeleteInfo) modeleDeleteInfo.innerHTML = '<strong>Modèle :</strong> ' + escapeHtml(name);
+    if (modeleDeleteConfirmBtn) modeleDeleteConfirmBtn.disabled = false;
+    modeleDeleteModal.classList.add('is-open');
+    modeleDeleteModal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeModeleDeleteModal() {
+    if (!modeleDeleteModal) return;
+    modeleDeleteModal.classList.remove('is-open');
+    modeleDeleteModal.setAttribute('aria-hidden', 'true');
+    _pendingModeleDelete = { id: null, name: null, row: null };
+  }
+
+  if (modeleDeleteClose) modeleDeleteClose.addEventListener('click', closeModeleDeleteModal);
+  if (modeleDeleteCancel) modeleDeleteCancel.addEventListener('click', closeModeleDeleteModal);
+  if (modeleDeleteModal) {
+    modeleDeleteModal.addEventListener('click', function(ev){ if (ev.target === modeleDeleteModal) closeModeleDeleteModal(); });
+  }
+
+  if (modeleDeleteConfirmBtn) {
+    modeleDeleteConfirmBtn.addEventListener('click', async function() {
+      var id = _pendingModeleDelete.id;
+      var row = _pendingModeleDelete.row;
+      if (!id) return;
+      modeleDeleteConfirmBtn.disabled = true;
+      try {
+        var resp = await fetch('/modeles/' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!resp.ok) {
+          var err = await resp.json().catch(function(){ return {}; });
+          throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
+        closeModeleDeleteModal();
+        if (row) {
+          row.remove();
+          var tbody = table ? table.tBodies[0] : null;
+          if (tbody && tbody.querySelectorAll('tr').length === 0) {
+            var emptyTr = document.createElement('tr');
+            emptyTr.id = 'modelsTableEmpty';
+            emptyTr.innerHTML = '<td colspan="6" class="muted">Aucun modèle trouvé.</td>';
+            tbody.appendChild(emptyTr);
+          }
+        }
+      } catch (err) {
+        alert('Erreur lors de la suppression : ' + (err.message || 'Suppression impossible.'));
+        modeleDeleteConfirmBtn.disabled = false;
+      }
+    });
+  }
+
+  document.querySelectorAll('.js-delete-modele').forEach(function(button){
+    button.addEventListener('click', function(){ openModeleDeleteModal(button); });
+  });
 })();
 </script>
 {% endblock %}
