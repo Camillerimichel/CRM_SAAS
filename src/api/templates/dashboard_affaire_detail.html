@@ -521,7 +521,7 @@
     </h3>
   </div>
   <div id="affSynthPanel" class="accordion-panel" style="display:none; padding:1rem 1.25rem; border-top:1px solid var(--border);">
-    <div style="display:none; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
       {% if msgs_nonreg_count and msgs_nonreg_count > 0 %}
         <button type="button" class="btn" style="background:transparent; color:#16a34a; border:1px solid transparent; padding:.25rem .5rem; font-size:.85rem;" onclick="openAffMsgs('nonreg')" title="Messages en cours">
           <i class="fa-solid fa-triangle-exclamation"></i> {{ msgs_nonreg_count }}
@@ -627,6 +627,16 @@
           </span>
         </div>
       </div>
+    </div>
+    <!-- Documents enregistrés pour cette affaire -->
+    <div style="margin-top:1.2rem;">
+      <h4 style="font-size:0.95rem; font-weight:600; margin:0 0 6px 0; color:var(--primary);">
+        <i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i> Documents enregistrés
+      </h4>
+      <div id="affaireDocsEmpty" class="muted" style="font-size:0.85rem;">Aucun document enregistré pour ce contrat.</div>
+      <table style="width:100%; font-size:0.85rem; border-collapse:collapse;">
+        <tbody id="affaireDocsTbody"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -1707,6 +1717,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   function closeAffSupportMovementsModal(){ const modal = document.getElementById('affSupportMovementsModal'); if (modal) modal.style.display = 'none'; }
 
   document.addEventListener('DOMContentLoaded', function(){
+    loadAffaireDocuments();
     document.querySelectorAll('.aff-support-link').forEach(function(link){
       link.addEventListener('click', function(ev){
         ev.preventDefault();
@@ -2669,7 +2680,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         var urlDl = '/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/pdf';
         urlInline = appendMarkers(urlInline);
         urlDl = appendMarkers(urlDl);
-        openPdfViewer({ title: 'Synthèse', inlineUrl: urlInline, downloadUrl: urlDl });
+        var affTitle = 'Synthèse{% if affaire %} – {{ affaire.ref }}{% endif %}';
+        openPdfViewer({ title: affTitle, inlineUrl: urlInline, downloadUrl: urlDl, docType: 'synthese_affaire' });
       }catch(err){
         console.warn('Affaire synthèse PDF generation failed', err);
       }
@@ -2684,6 +2696,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         return url + (String(url).indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
       }
     }
+    var __pdfViewerContext = { inlineUrl:'', downloadUrl:'', title:'', docType:'' };
     function openPdfViewer(options){
       try{
         var m = document.getElementById('pdfViewerModal');
@@ -2695,6 +2708,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         var title = (options && options.title) ? String(options.title) : 'Document';
         var inlineUrl = (options && options.inlineUrl) ? String(options.inlineUrl) : '';
         var downloadUrl = (options && options.downloadUrl) ? String(options.downloadUrl) : '';
+        var docType = (options && options.docType) ? String(options.docType) : '';
+        __pdfViewerContext = { inlineUrl, downloadUrl, title, docType };
 
         if (titleEl){
           titleEl.innerHTML = '<i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>' + title.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
@@ -2706,6 +2721,12 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         if (dlBtn){
           dlBtn.href = downloadUrl || inlineUrl || '#';
           dlBtn.style.display = (downloadUrl || inlineUrl) ? '' : 'none';
+        }
+        var saveBtn = document.getElementById('pdfViewerSaveBtn');
+        if (saveBtn){
+          saveBtn.style.display = docType ? '' : 'none';
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer';
         }
 
         try{
@@ -2724,6 +2745,32 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         try{ if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader(); }catch(_e){}
       }
     }
+    async function savePdfToAffaire(){
+      var docType = __pdfViewerContext.docType || '';
+      if (!docType || !AFFAIRE_ID) return;
+      var saveBtn = document.getElementById('pdfViewerSaveBtn');
+      if (saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement…'; }
+      try{
+        var resp = await fetch('/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/synthese/save', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'same-origin',
+          body: JSON.stringify({ doc_type: docType })
+        });
+        var data = {}; try{ data = await resp.json(); }catch(e){}
+        if (resp.ok){
+          if (saveBtn){ saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> Enregistré'; }
+          __pdfViewerContext.docType = '';
+          loadAffaireDocuments();
+        } else {
+          if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer'; }
+          alert('Erreur : ' + (data.detail || "Impossible d'enregistrer"));
+        }
+      }catch(e){
+        if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer'; }
+        alert("Erreur réseau lors de l'enregistrement.");
+      }
+    }
     function closePdfViewer(){
       try{
         var m = document.getElementById('pdfViewerModal');
@@ -2731,6 +2778,33 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         if (m) m.style.display = 'none';
         if (frame) frame.src = 'about:blank';
       }catch(e){}
+    }
+    async function loadAffaireDocuments(){
+      if (!AFFAIRE_ID) return;
+      try{
+        var resp = await fetch('/dashboard/affaires/' + encodeURIComponent(AFFAIRE_ID) + '/documents', { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        var docs = await resp.json();
+        var tbody = document.getElementById('affaireDocsTbody');
+        var emptyMsg = document.getElementById('affaireDocsEmpty');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        if (!docs || docs.length === 0){
+          if (emptyMsg) emptyMsg.style.display = '';
+          return;
+        }
+        if (emptyMsg) emptyMsg.style.display = 'none';
+        docs.forEach(function(d){
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + (d.nom_document || '—') + '</td>'
+            + '<td>' + (d.date_creation || '—') + '</td>'
+            + '<td style="text-align:right;">'
+              + (d.pdf_url ? '<a href="' + d.pdf_url + '" target="_blank" class="btn btn-secondary" style="font-size:.8rem; padding:.2rem .5rem;"><i class="fa-solid fa-eye"></i> Afficher</a> ' : '')
+              + (d.download_url ? '<a href="' + d.download_url + '" class="btn btn-primary" style="font-size:.8rem; padding:.2rem .5rem;"><i class="fa-solid fa-download"></i> Télécharger</a>' : '')
+            + '</td>';
+          tbody.appendChild(tr);
+        });
+      }catch(e){ console.warn('loadAffaireDocuments error', e); }
     }
     function openAffAdminGroups(){
       const el = document.getElementById('affAdminGroupsModal');
@@ -2827,6 +2901,9 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <a id="pdfViewerOpenBtn" class="btn btn-secondary" href="#" target="_blank" rel="noopener">Ouvrir</a>
         <a id="pdfViewerDownloadBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">Télécharger</a>
+        <button id="pdfViewerSaveBtn" class="btn" style="display:none; background:#16a34a; color:#fff; border:none;" onclick="savePdfToAffaire()">
+          <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+        </button>
         <button class="modal-close" onclick="closePdfViewer()">✕</button>
       </div>
     </div>

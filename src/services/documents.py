@@ -15,7 +15,15 @@ def get_document(db: Session, document_id: int):
 
 
 # Ajouter un document
-def create_document(db: Session, documents: str, niveau: str, obsolescence_annees: int = None, risque: str = None):
+def create_document(
+    db: Session,
+    documents: str | None = "",
+    niveau: str | None = "",
+    obsolescence_annees: int = None,
+    risque: str | None = None,
+):
+    documents = documents or ""
+    niveau = niveau or ""
     next_id = db.execute(text("SELECT COALESCE(MAX(id_document_base), 0) + 1 FROM Documents")).scalar()
     if next_id is None:
         raise RuntimeError("Impossible de calculer l'identifiant du document de base")
@@ -50,3 +58,42 @@ def create_document(db: Session, documents: str, niveau: str, obsolescence_annee
         obsolescence_annees=obsolescence_annees,
         risque=risque,
     )
+
+
+def update_document(
+    db: Session,
+    document_id: int,
+    *,
+    documents: str | None = None,
+    niveau: str | None = None,
+    obsolescence_annees: int | None = None,
+    risque: str | None = None,
+):
+    doc = db.query(Document).filter(Document.id_document_base == document_id).first()
+    if not doc:
+        return None
+    if documents is not None:
+        doc.documents = documents
+    if niveau is not None:
+        doc.niveau = niveau
+    if obsolescence_annees is not None:
+        doc.obsolescence_annees = obsolescence_annees
+    else:
+        doc.obsolescence_annees = None
+    if risque is not None:
+        doc.risque = risque
+    db.commit()
+    try:
+        db.refresh(doc)
+    except Exception:
+        pass
+    return doc
+
+
+def delete_document(db: Session, document_id: int):
+    doc = db.query(Document).filter(Document.id_document_base == document_id).first()
+    if not doc:
+        return None
+    db.delete(doc)
+    db.commit()
+    return doc

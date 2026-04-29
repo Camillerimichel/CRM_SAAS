@@ -8,8 +8,8 @@ SOURCE_DOC_HTML="${APP_DIR}/src/api/templates/bibliotheque_documents.html"
 STATIC_TARGET="/var/www/html/crm_saas"
 SERVICE_NAME="crm-saas.service"
 LOG_FILE="${APP_DIR}/deploy.log"
-CHECK_URL="https://crmsaas.eu/dashboard/bibliotheque-documents/"
-CHECK_MARKER="Nouveau modèle documentaire"
+CHECK_URL="https://crmsaas.eu/login"
+CHECK_MARKER="Connexion"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
@@ -37,7 +37,18 @@ need_cmd git
 need_cmd npm
 
 log "Mise à jour du dépôt Git"
-git pull --rebase --autostash origin main
+STASHED=0
+if [ -n "$(git status --porcelain)" ]; then
+  log "Worktree local détecté, stash temporaire"
+  git stash push --include-untracked -m "deploy-autostash" >/dev/null
+  STASHED=1
+fi
+git fetch origin main
+git merge --ff-only FETCH_HEAD
+if [ "$STASHED" -eq 1 ]; then
+  log "Restauration du stash local"
+  git stash pop >/dev/null || true
+fi
 
 if [ -f "$SOURCE_DOC_HTML" ]; then
   log "Synchronisation du template bibliothèque documentaire vers le frontend public"

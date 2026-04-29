@@ -29,6 +29,7 @@ class DocumentClientSchema(BaseModel):
 class DocumentClientCreateSchema(BaseModel):
     id_client: int
     id_document_base: int
+    id_affaire: Optional[int] = None
     nom_document: Optional[str] = None
     date_creation: Optional[datetime] = None
     date_obsolescence: Optional[datetime] = None

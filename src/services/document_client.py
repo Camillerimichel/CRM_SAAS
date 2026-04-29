@@ -18,7 +18,7 @@ def canonical_document_label(label: str | None) -> str | None:
         norm = " ".join(norm.split())
     except Exception:
         norm = raw.lower()
-    if "synthese" in norm or "synthèse" in raw.lower():
+    if norm in {"synthese", "synthese client", "rapport de synthese", "rapport synthese"}:
         return "Synthèse"
     if norm in {
         "rapport kyc",
