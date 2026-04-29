@@ -1672,6 +1672,95 @@ function generateClientSynthese(){
         <label for="modelePdfObjet" style="font-size:12px; color:var(--muted);">Objet</label>
         <input id="modelePdfObjet" type="text" placeholder="Objet du document" style="flex:1 1 320px; min-width:240px; padding:.45rem .6rem;" />
       </div>
+
+      <!-- ── Barre d'outils d'édition ───────────────────────────────────────── -->
+      <div id="modelePdfToolbar" style="display:none; flex-wrap:wrap; gap:5px; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:12px; background:#f8fafc;">
+
+        <!-- Champs de fusion client -->
+        <select id="pdfMergeFieldSelect" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; max-width:170px; background:#fff;">
+          <option value="">Champ client…</option>
+          <optgroup label="Identité">
+            <option value="{{ '{{civilite_client}}' }}">Civilité</option>
+            <option value="{{ '{{prenom_client}}' }}">Prénom</option>
+            <option value="{{ '{{nom_client}}' }}">Nom</option>
+            <option value="{{ '{{date_naissance}}' }}">Date de naissance</option>
+            <option value="{{ '{{lieu_naissance}}' }}">Lieu de naissance</option>
+            <option value="{{ '{{nationalite_client}}' }}">Nationalité</option>
+            <option value="{{ '{{adresse_postale}}' }}">Adresse postale</option>
+          </optgroup>
+          <optgroup label="Patrimoine">
+            <option value="{{ '{{revenus_annuels}}' }}">Revenus annuels</option>
+            <option value="{{ '{{actifs_financiers}}' }}">Actifs financiers</option>
+            <option value="{{ '{{passifs}}' }}">Passifs / dettes</option>
+            <option value="{{ '{{horizon_placement}}' }}">Horizon</option>
+            <option value="{{ '{{profil_risque}}' }}">Profil risque</option>
+            <option value="{{ '{{objectif_placement}}' }}">Objectif</option>
+          </optgroup>
+          <optgroup label="Contact">
+            <option value="{{ '{{email_client}}' }}">Email</option>
+            <option value="{{ '{{telephone_client}}' }}">Téléphone</option>
+          </optgroup>
+        </select>
+        <button type="button" id="pdfInsertMergeBtn" style="padding:.3rem .55rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:.82rem; cursor:pointer; white-space:nowrap;"><i class="fa-solid fa-plus"></i> Champ</button>
+
+        <span style="width:1px; height:22px; background:#e2e8f0; display:inline-block;"></span>
+
+        <!-- Date -->
+        <input type="date" id="pdfDatePicker" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; background:#fff; max-width:140px;" />
+        <button type="button" id="pdfInsertDateBtn" style="padding:.3rem .55rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:.82rem; cursor:pointer; white-space:nowrap;"><i class="fa-regular fa-calendar"></i> Date</button>
+
+        <span style="width:1px; height:22px; background:#e2e8f0; display:inline-block;"></span>
+
+        <!-- Documents à demander -->
+        <select id="pdfDocDemandeSelect" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; max-width:175px; background:#fff;">
+          <option value="">Doc. à demander…</option>
+          <option value="Carte d'identité">Carte d'identité</option>
+          <option value="Justificatif de domicile">Justif. domicile</option>
+          <option value="RIB">RIB</option>
+          <option value="Justificatif de propriété">Justif. propriété</option>
+          <option value="Justificatif de vente">Justif. vente</option>
+          <option value="Avis d'imposition">Avis d'imposition</option>
+          <option value="Bulletin de salaire">Bulletin salaire</option>
+          <option value="__libre__">— Autre… —</option>
+        </select>
+        <input type="text" id="pdfDocDemandeLibre" placeholder="Préciser…" style="display:none; padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; max-width:130px;" />
+        <button type="button" id="pdfInsertDocDemandeBtn" style="padding:.3rem .55rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:.82rem; cursor:pointer; white-space:nowrap;"><i class="fa-solid fa-file-arrow-up"></i> Doc.</button>
+
+        {% if client_affaires %}
+        <span style="width:1px; height:22px; background:#e2e8f0; display:inline-block;"></span>
+        <!-- Contrats client -->
+        <select id="pdfContratSelect" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; max-width:160px; background:#fff;">
+          <option value="">Contrat…</option>
+          {% for a in client_affaires %}
+            <option value="{{ a.ref or ('#' ~ a.id) }}">{{ a.ref or ('#' ~ a.id) }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" id="pdfInsertContratBtn" style="padding:.3rem .55rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:.82rem; cursor:pointer; white-space:nowrap;"><i class="fa-solid fa-file-contract"></i> Contrat</button>
+        {% endif %}
+
+        <span style="width:1px; height:22px; background:#e2e8f0; display:inline-block;"></span>
+
+        <!-- Formatage -->
+        <button type="button" class="pdf-fmt-btn" data-cmd="bold" title="Gras" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; font-weight:700;">B</button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="italic" title="Italique" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; font-style:italic;">I</button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="underline" title="Souligné" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; text-decoration:underline;">S̲</button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="insertUnorderedList" title="Liste à puces" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-list-ul"></i></button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="insertOrderedList" title="Liste numérotée" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-list-ol"></i></button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="formatBlock" data-val="h3" title="Titre" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;">Titre</button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="formatBlock" data-val="p" title="Texte normal" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;">¶</button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="justifyLeft" title="Aligné gauche" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-align-left"></i></button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="justifyCenter" title="Centré" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-align-center"></i></button>
+        <button type="button" class="pdf-fmt-btn" data-cmd="justifyRight" title="Aligné droite" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-align-right"></i></button>
+
+        <!-- Alerte champs non remplis — toujours pleine largeur -->
+        <div id="pdfUnfilledAlert" style="display:none; width:100%; margin-top:2px; padding:6px 10px; border-radius:8px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; font-size:.81rem;">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Champs non remplis — complétez-les avant de valider :
+          <strong id="pdfUnfilledList"></strong>
+        </div>
+      </div>
+      <!-- ── Fin barre d'outils ─────────────────────────────────────────────── -->
+
       <div id="modelePdfPreviewShell" style="flex:1 1 auto; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:12px; background:#f7f9fc; padding:16px;">
         <div id="modelePdfEmpty" class="muted" style="padding:24px; text-align:center;">Sélectionnez un modèle puis cliquez sur Afficher.</div>
         <div id="modelePdfDocument" contenteditable="true" spellcheck="true" style="display:none; outline:none; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; min-height:100%; box-shadow:0 1px 2px rgba(15,23,42,.04);"></div>
@@ -6265,6 +6354,178 @@ function openClientMsgs(kind){
     }
   }
 
+  // ── Barre d'outils PDF : helpers ─────────────────────────────────────────
+  let _pdfSavedRange = null;
+
+  function pdfSaveSelection() {
+    const sel = window.getSelection ? window.getSelection() : null;
+    if (!sel || !sel.rangeCount) return;
+    const doc = document.getElementById('modelePdfDocument');
+    if (!doc) return;
+    const range = sel.getRangeAt(0);
+    if (doc.contains(range.commonAncestorContainer)) {
+      _pdfSavedRange = range.cloneRange();
+    }
+  }
+
+  function pdfInsertAtCursor(html) {
+    const doc = document.getElementById('modelePdfDocument');
+    if (!doc) return;
+    doc.focus();
+    const sel = window.getSelection();
+    let range;
+    if (sel && sel.rangeCount && doc.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      range = sel.getRangeAt(0);
+    } else if (_pdfSavedRange) {
+      sel.removeAllRanges();
+      sel.addRange(_pdfSavedRange);
+      range = _pdfSavedRange;
+    } else {
+      range = document.createRange();
+      range.selectNodeContents(doc);
+      range.collapse(false);
+    }
+    range.deleteContents();
+    const frag = document.createDocumentFragment();
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    let last = null;
+    while (tmp.firstChild) { last = tmp.firstChild; frag.appendChild(last); }
+    range.insertNode(frag);
+    if (last) {
+      const r = range.cloneRange();
+      r.setStartAfter(last);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      _pdfSavedRange = r.cloneRange();
+    }
+    checkPdfUnfilledFields();
+  }
+
+  function checkPdfUnfilledFields() {
+    const doc = document.getElementById('modelePdfDocument');
+    const saveBtn = document.getElementById('modelePdfSaveBtn');
+    const saveSendBtn = document.getElementById('modelePdfSaveSendBtn');
+    const alert = document.getElementById('pdfUnfilledAlert');
+    const list = document.getElementById('pdfUnfilledList');
+    if (!doc) return;
+    if (doc.style.display === 'none') return;
+    const raw = doc.innerText || doc.textContent || '';
+    const matches = raw.match(/\{\{[^}]+\}\}/g);
+    const hasUnfilled = !!(matches && matches.length);
+    if (saveBtn) saveBtn.disabled = hasUnfilled;
+    if (saveSendBtn) saveSendBtn.disabled = hasUnfilled;
+    if (alert) alert.style.display = hasUnfilled ? '' : 'none';
+    if (list && matches) {
+      const unique = [...new Set(matches)];
+      list.textContent = unique.slice(0, 5).join(', ') + (unique.length > 5 ? '…' : '');
+    } else if (list) {
+      list.textContent = '';
+    }
+  }
+
+  // Sauvegarde sélection sur mouseup/keyup dans le document PDF
+  document.addEventListener('mouseup', function(e) {
+    const doc = document.getElementById('modelePdfDocument');
+    if (doc && doc.contains(e.target)) pdfSaveSelection();
+  });
+  document.addEventListener('keyup', function(e) {
+    const doc = document.getElementById('modelePdfDocument');
+    if (doc && doc.contains(e.target)) { pdfSaveSelection(); checkPdfUnfilledFields(); }
+  });
+  document.addEventListener('input', function(e) {
+    const doc = document.getElementById('modelePdfDocument');
+    if (doc && doc.contains(e.target)) checkPdfUnfilledFields();
+  });
+
+  // ── Formatage (gras, italic, etc.) ────────────────────────────────────────
+  document.querySelectorAll('.pdf-fmt-btn').forEach(function(btn) {
+    btn.addEventListener('mousedown', function(e) {
+      e.preventDefault(); // évite de perdre le focus
+      pdfSaveSelection();
+      const cmd = btn.getAttribute('data-cmd');
+      const val = btn.getAttribute('data-val') || null;
+      const doc = document.getElementById('modelePdfDocument');
+      if (!doc) return;
+      if (_pdfSavedRange) {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(_pdfSavedRange);
+      }
+      doc.focus();
+      try { document.execCommand(cmd, false, val); } catch(e) {}
+      pdfSaveSelection();
+    });
+  });
+
+  // ── Champs de fusion client ────────────────────────────────────────────────
+  (function() {
+    const sel = document.getElementById('pdfMergeFieldSelect');
+    const btn = document.getElementById('pdfInsertMergeBtn');
+    if (!btn || !sel) return;
+    btn.addEventListener('click', function() {
+      const field = sel.value;
+      if (!field) return;
+      const label = field.replace(/\{\{|\}\}/g, '');
+      const html = '<span style="display:inline-flex;align-items:center;padding:.1rem .45rem;margin:0 .1rem;border-radius:999px;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;font-size:.9em;font-weight:700;white-space:nowrap;" contenteditable="false">' + escapeHtml(field) + '</span>&nbsp;';
+      pdfInsertAtCursor(html);
+      sel.value = '';
+    });
+  })();
+
+  // ── Sélecteur de date ─────────────────────────────────────────────────────
+  (function() {
+    const picker = document.getElementById('pdfDatePicker');
+    const btn = document.getElementById('pdfInsertDateBtn');
+    if (!picker || !btn) return;
+    // Pré-remplir avec la date du jour
+    const today = new Date();
+    picker.value = today.toISOString().slice(0, 10);
+    btn.addEventListener('click', function() {
+      const v = picker.value;
+      if (!v) return;
+      const parts = v.split('-');
+      const formatted = parts.length === 3 ? (parts[2] + '/' + parts[1] + '/' + parts[0]) : v;
+      const html = '<span style="display:inline-flex;align-items:center;padding:.1rem .45rem;margin:0 .1rem;border-radius:999px;background:#dcfce7;color:#166534;border:1px solid #86efac;font-size:.9em;font-weight:600;white-space:nowrap;">' + escapeHtml(formatted) + '</span>&nbsp;';
+      pdfInsertAtCursor(html);
+    });
+  })();
+
+  // ── Documents à demander ──────────────────────────────────────────────────
+  (function() {
+    const sel = document.getElementById('pdfDocDemandeSelect');
+    const libre = document.getElementById('pdfDocDemandeLibre');
+    const btn = document.getElementById('pdfInsertDocDemandeBtn');
+    if (!sel || !libre || !btn) return;
+    sel.addEventListener('change', function() {
+      libre.style.display = sel.value === '__libre__' ? '' : 'none';
+    });
+    btn.addEventListener('click', function() {
+      const label = sel.value === '__libre__' ? libre.value.trim() : sel.value;
+      if (!label) return;
+      const html = '<span style="display:inline-flex;align-items:center;padding:.15rem .55rem;margin:0 .1rem;border-radius:8px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-size:.88em;font-weight:600;white-space:nowrap;"><i class="fa-solid fa-file-lines" style="margin-right:4px;font-size:.8em;"></i>' + escapeHtml(label) + '</span>&nbsp;';
+      pdfInsertAtCursor(html);
+      if (sel.value !== '__libre__') sel.value = '';
+      else libre.value = '';
+    });
+  })();
+
+  // ── Contrats client ───────────────────────────────────────────────────────
+  (function() {
+    const sel = document.getElementById('pdfContratSelect');
+    const btn = document.getElementById('pdfInsertContratBtn');
+    if (!sel || !btn) return;
+    btn.addEventListener('click', function() {
+      const ref = sel.value;
+      if (!ref) return;
+      const html = '<span style="display:inline-flex;align-items:center;padding:.15rem .55rem;margin:0 .1rem;border-radius:8px;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;font-size:.88em;font-weight:600;white-space:nowrap;"><i class="fa-solid fa-file-contract" style="margin-right:4px;font-size:.8em;"></i>' + escapeHtml(ref) + '</span>&nbsp;';
+      pdfInsertAtCursor(html);
+      sel.value = '';
+    });
+  })();
+  // ── Fin barre d'outils PDF ─────────────────────────────────────────────────
+
   function openModelePdfModal(){
     const modal = document.getElementById('modelePdfModal');
     if (modal) modal.style.display = 'flex';
@@ -6274,10 +6535,12 @@ function openClientMsgs(kind){
     const saveBtn = document.getElementById('modelePdfSaveBtn');
     const saveSendBtn = document.getElementById('modelePdfSaveSendBtn');
     const saveState = document.getElementById('modelePdfSaveState');
+    const toolbar = document.getElementById('modelePdfToolbar');
     if (status) status.textContent = 'Choisis un modèle puis clique sur Afficher.';
     if (saveState) saveState.textContent = 'Aucune modification chargée.';
     if (empty) empty.style.display = 'block';
     if (doc) doc.style.display = 'none';
+    if (toolbar) toolbar.style.display = 'none';
     if (saveBtn) saveBtn.disabled = true;
     if (saveSendBtn) saveSendBtn.disabled = true;
   }
@@ -6326,8 +6589,9 @@ function openClientMsgs(kind){
     doc.style.display = 'block';
     status.textContent = 'Modèle chargé. Modifie le document puis enregistre.';
     if (saveState) saveState.textContent = 'Modèle chargé.';
-    saveBtn.disabled = false;
-    saveSendBtn.disabled = false;
+    const toolbar = document.getElementById('modelePdfToolbar');
+    if (toolbar) toolbar.style.display = 'flex';
+    checkPdfUnfilledFields();
   }
 
   async function loadSelectedModeleDoc() {
@@ -6394,12 +6658,17 @@ function openClientMsgs(kind){
         return;
       }
       const data = await res.json();
-      if (status) status.textContent = sendMail ? 'Document enregistré et envoyé.' : 'Document enregistré.';
+      const successMsg = sendMail ? 'Document enregistré et envoyé.' : 'Document enregistré.';
+      if (status) status.textContent = successMsg;
       const saveState = document.getElementById('modelePdfSaveState');
-      if (saveState) saveState.textContent = sendMail ? 'Document enregistré et envoyé.' : 'Document enregistré.';
-      if (data.mail_error) {
-        alert(data.mail_error);
+      if (saveState) saveState.textContent = successMsg;
+      if (data.mail_error) alert(data.mail_error);
+      // Ouvrir le PDF généré dans un nouvel onglet, puis recharger pour rafraîchir la liste
+      if (data.pdf_url) {
+        window.open(data.pdf_url, '_blank', 'noopener');
       }
+      closeModelePdfModal();
+      location.reload();
     } finally {
       window.__modelePdfSaving = false;
     }
