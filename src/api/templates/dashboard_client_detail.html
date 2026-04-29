@@ -1513,7 +1513,7 @@ function generateClientSynthese(){
   var urlDl = '/dashboard/api/synthese?id_client=' + encodeURIComponent(CLIENT_ID);
   urlInline = appendMarkers(urlInline);
   urlDl = appendMarkers(urlDl);
-  openPdfViewer({ title: 'Synthèse', inlineUrl: urlInline, downloadUrl: urlDl });
+  openPdfViewer({ title: 'Synthèse', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'synthese' });
   const clearLoader = function(){
     if (typeof window.hideGlobalLoader === 'function'){
       window.hideGlobalLoader();
@@ -1630,6 +1630,7 @@ function generateClientSynthese(){
       </h3>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button type="button" id="pdfViewerOpenBtn" class="btn btn-secondary" style="display:none;" onclick="openPdfViewerExternal()">Ouvrir</button>
+        <button type="button" id="pdfViewerSaveBtn" class="btn btn-secondary" style="display:none;" onclick="savePdfToRecord()"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
         <button type="button" id="pdfViewerDownloadBtn" class="btn btn-primary" style="display:none;" onclick="downloadPdfViewerFile()">Télécharger</button>
         <button class="modal-close" onclick="closePdfViewer()">✕</button>
       </div>
@@ -3200,17 +3201,17 @@ function generateClientSynthese(){
           <td>{{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '-' }}</td>
           <td>{{ d.obsolescence or '-' }}</td>
           <td style="white-space:nowrap;">
-            {% if d.download_url %}
-              <button type="button" class="btn btn-compact" style="margin-right:4px;" onclick="openPdfViewer({title:'{{ (d.nom_document or d.base_name or 'Document')|e }}', inlineUrl:'{{ d.download_url }}?inline=1', downloadUrl:'{{ d.download_url }}'})">
-                <i class="fa-solid fa-file-pdf"></i> PDF
+            {% if d.view_url %}
+              <button type="button" class="btn btn-compact" style="margin-right:4px;" onclick='openPdfViewer({title: {{ (d.nom_document or d.base_name or "Document")|tojson }}, inlineUrl: {{ d.view_url|tojson }}, downloadUrl: {{ (d.download_url or d.view_url)|tojson }}})'>
+                <i class="fa-solid fa-eye"></i> Afficher
               </button>
-              {% if client and client.email %}
-                <form action="/dashboard/document-client/{{ d.id }}/send-page" method="post" target="_blank" style="display:inline;">
-                  <button type="submit" class="btn btn-compact" style="margin-right:4px;">
-                    <i class="fa-solid fa-paper-plane"></i> Envoyer
-                  </button>
-                </form>
-              {% endif %}
+            {% endif %}
+            {% if d.download_url and client and client.email %}
+              <form action="/dashboard/document-client/{{ d.id }}/send-page" method="post" target="_blank" style="display:inline;">
+                <button type="submit" class="btn btn-compact" style="margin-right:4px;">
+                  <i class="fa-solid fa-paper-plane"></i> Envoyer
+                </button>
+              </form>
             {% endif %}
             <button class="delBtn" data-id="{{ d.id }}">Supprimer</button>
           </td>
@@ -5737,12 +5738,19 @@ function openClientMsgs(kind){
         if (titleEl){
           titleEl.innerHTML = '<i class="fa-solid fa-file-pdf" style="margin-right:4px;"></i><span>' + title.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
         }
-        __pdfViewerContext = { inlineUrl: inlineUrl, downloadUrl: downloadUrl, title: title };
+        var docType = (options && options.docType) ? String(options.docType) : '';
+        __pdfViewerContext = { inlineUrl: inlineUrl, downloadUrl: downloadUrl, title: title, docType: docType };
         if (openBtn){
           openBtn.style.display = inlineUrl ? '' : 'none';
         }
         if (dlBtn){
           dlBtn.style.display = (downloadUrl || inlineUrl) ? '' : 'none';
+        }
+        var saveBtn = document.getElementById('pdfViewerSaveBtn');
+        if (saveBtn){
+          saveBtn.style.display = docType ? '' : 'none';
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer';
         }
         _setPdfViewerStatus('', false);
         _resetPdfViewerLogs();
@@ -5880,6 +5888,35 @@ function openClientMsgs(kind){
         _setPdfViewerStatus('Impossible de telecharger le document.', true);
       }
     }
+    async function savePdfToRecord(){
+      var docType = __pdfViewerContext.docType || '';
+      if (!docType) return;
+      var clientId = CLIENT_ID;
+      if (!clientId){ alert('Client introuvable.'); return; }
+      var saveBtn = document.getElementById('pdfViewerSaveBtn');
+      if (saveBtn){ saveBtn.disabled = true; saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement…'; }
+      try{
+        var resp = await fetch('/dashboard/clients/' + encodeURIComponent(clientId) + '/documents/save-generated', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'same-origin',
+          body: JSON.stringify({ doc_type: docType })
+        });
+        var data = {};
+        try{ data = await resp.json(); }catch(e){}
+        if (resp.ok){
+          if (saveBtn){ saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> Enregistré'; }
+          __pdfViewerContext.docType = '';
+          _appendPdfViewerLog('Document enregistré : ' + (data.nom_document || docType));
+        } else {
+          if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer'; }
+          _setPdfViewerStatus('Erreur : ' + (data.detail || 'Impossible d\'enregistrer'), true);
+        }
+      }catch(e){
+        if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer'; }
+        _setPdfViewerStatus('Erreur réseau lors de l\'enregistrement.', true);
+      }
+    }
     function closePdfViewer(){
       try{
         var m = document.getElementById('pdfViewerModal');
@@ -5909,7 +5946,7 @@ function openClientMsgs(kind){
         var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/der/pdf';
         urlInline = appendMarkers(urlInline);
         urlDl = appendMarkers(urlDl);
-        openPdfViewer({ title: 'DER', inlineUrl: urlInline, downloadUrl: urlDl });
+        openPdfViewer({ title: 'DER', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'der' });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();
@@ -5944,7 +5981,7 @@ function openClientMsgs(kind){
         var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/mission/pdf';
         urlInline = appendMarkers(urlInline);
         urlDl = appendMarkers(urlDl);
-        openPdfViewer({ title: 'Lettre de mission', inlineUrl: urlInline, downloadUrl: urlDl });
+        openPdfViewer({ title: 'Lettre de mission', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'mission' });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();
@@ -5979,7 +6016,7 @@ function openClientMsgs(kind){
         var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/adequation/pdf';
         urlInline = appendMarkers(urlInline);
         urlDl = appendMarkers(urlDl);
-        openPdfViewer({ title: 'Adéquation', inlineUrl: urlInline, downloadUrl: urlDl });
+        openPdfViewer({ title: 'Adéquation', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'adequation' });
         var clearLoader = function(){
           if (typeof window.hideGlobalLoader === 'function'){
             window.hideGlobalLoader();
@@ -6014,7 +6051,7 @@ function openClientMsgs(kind){
 		        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/fatca/pdf';
 		        urlInline = appendMarkers(urlInline);
 		        urlDl = appendMarkers(urlDl);
-		        openPdfViewer({ title: 'FATCA / EAI', inlineUrl: urlInline, downloadUrl: urlDl });
+		        openPdfViewer({ title: 'FATCA / EAI', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'fatca' });
 		        var clearLoader = function(){
 		          if (typeof window.hideGlobalLoader === 'function'){
 		            window.hideGlobalLoader();
@@ -6049,7 +6086,7 @@ function openClientMsgs(kind){
 		        var urlDl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/tracfin/pdf';
 		        urlInline = appendMarkers(urlInline);
 		        urlDl = appendMarkers(urlDl);
-		        openPdfViewer({ title: 'Tracfin', inlineUrl: urlInline, downloadUrl: urlDl });
+		        openPdfViewer({ title: 'Tracfin', inlineUrl: urlInline, downloadUrl: urlDl, docType: 'tracfin' });
 		        var clearLoader = function(){
 		          if (typeof window.hideGlobalLoader === 'function'){
 		            window.hideGlobalLoader();
@@ -6084,7 +6121,7 @@ function openClientMsgs(kind){
 	        var urlDl = '/dashboard/clients/kyc/' + encodeURIComponent(clientId) + '/rapport?style=conformite&pdf=1';
 	        urlInline = appendMarkers(urlInline);
 	        urlDl = appendMarkers(urlDl);
-	        openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl });
+	        openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl, docType: 'kyc' });
 	        var clearLoader = function(){
 	          if (typeof window.hideGlobalLoader === 'function'){
 	            window.hideGlobalLoader();

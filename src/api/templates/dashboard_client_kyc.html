@@ -315,7 +315,7 @@
 	          // Si on est dans la fiche client (iframe embed), utiliser le viewer PDF du parent (comme DER)
 	          try{
 	            if (window.parent && window.parent !== window && typeof window.parent.openPdfViewer === 'function'){
-	              window.parent.openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl });
+	              window.parent.openPdfViewer({ title: "Compte rendu d'entretien", inlineUrl: urlInline, downloadUrl: urlDl, docType: 'kyc' });
 	              return;
 	            }
 	          }catch(e){}

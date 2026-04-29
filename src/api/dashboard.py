@@ -43,8 +43,10 @@ from src.services.evenements import (
     add_statut_to_evenement,
     create_envoi,
 )
+from src.services.documents import create_document, update_document, delete_document
 from src.services.document_client import (
     create_document_client,
+    canonical_document_label,
     ensure_document_base_for_label,
     ensure_document_client_storage_columns,
 )
@@ -5943,6 +5945,54 @@ def dashboard_api_synthese(
     )
 
 
+def _render_client_synthese_pdf_bytes(request: Request, db: Session, id_client: int, *, esg: int = 1) -> tuple[bytes, dict]:
+    ctx = _build_client_synthese_context(db, id_client)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    if esg and not ctx.get("esg_comparison_rows"):
+        ctx = _populate_synthese_esg_context(db, ctx, id_client)
+    if not ctx.get("report_logo_png"):
+        try:
+            logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+            if logo_path.exists():
+                ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+    ctx_render = dict(ctx)
+    ctx_render["request"] = request
+    ctx_render["title"] = f"Synthèse {ctx['client'].prenom or ''} {ctx['client'].nom or ''}".strip()
+    try:
+        from weasyprint import HTML  # type: ignore
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+    html = templates.get_template("synthese_report.html").render(ctx_render)
+    return HTML(string=html, base_url=str(request.url)).write_pdf(), ctx
+
+
+@router.head("/api/synthese")
+def dashboard_api_synthese_head(
+    request: Request,
+    id_client: int = Query(..., alias="id_client"),
+    esg: int = Query(1, description="Inclure l'analyse ESG (1=oui, 0=non)"),
+    inline: int = Query(0, description="Afficher dans le navigateur (1=inline, 0=download)"),
+    db: Session = Depends(get_db),
+):
+    _ = esg
+    _ = inline
+    _require_client_read(request, db, id_client)
+    if not db.query(Client).filter(Client.id == id_client).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
+
+
+@router.head("/affaires/{affaire_id}/synthese/pdf")
+def dashboard_affaire_synthese_pdf_head(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_affaire_read(request, db, affaire_id)
+    if not db.query(Affaire).filter(Affaire.id == affaire_id).first():
+        raise HTTPException(status_code=404, detail="Affaire introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
+
+
 @router.get("/affaires/{affaire_id}/synthese/pdf")
 def dashboard_affaire_synthese_pdf(
     affaire_id: int,
@@ -5998,6 +6048,14 @@ def dashboard_affaire_synthese_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'{cd_type}; filename="{filename}"'},
     )
+
+
+@router.head("/clients/{client_id}/der/pdf")
+def dashboard_client_der_pdf_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
 
 
 @router.get("/clients/{client_id}/der/pdf")
@@ -6289,6 +6347,154 @@ async def dashboard_client_modele_generate(
     except Exception:
         _log_document_generation_error(f"client_id={client_id} modele_id={modele_id}")
         raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
+
+
+@router.post("/clients/{client_id}/documents/save-generated")
+async def dashboard_client_save_generated(
+    client_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Génère et enregistre un document réglementaire (DER, mission, adéquation, kyc) dans Documents_client."""
+    try:
+        _require_client_write(request, db, client_id)
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        doc_type = (payload.get("doc_type") or "").lower().strip()
+
+        NOM_MAP = {
+            "der": "DER",
+            "mission": "Lettre de mission",
+            "adequation": "Lettre d'adéquation",
+            "kyc": "Compte rendu d'entretien",
+            "synthese": "Synthèse",
+            "fatca": "FATCA",
+            "tracfin": "Tracfin",
+        }
+        if doc_type not in NOM_MAP:
+            raise HTTPException(status_code=400, detail=f"Type de document inconnu: {doc_type}")
+
+        nom_document = NOM_MAP[doc_type]
+        try:
+            from weasyprint import HTML  # type: ignore
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+        # Génération selon le type
+        if doc_type == "der":
+            der_context = _build_der_context(db)
+            ctx = {"request": request, "client": client, "client_id": client_id,
+                   "fatca_today": _date.today().isoformat(), "lm_today": _date.today().strftime('%d/%m/%Y')}
+            ctx.update(der_context)
+            html = templates.get_template("der_report.html").render(ctx)
+            pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+
+        elif doc_type == "mission":
+            der_context = _build_der_context(db)
+            mission_context = _build_mission_context(db, client_id)
+            ctx = {"request": request, "client": client, "client_id": client_id}
+            ctx.update(der_context)
+            ctx.update(mission_context)
+            try:
+                logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+                if logo_path.exists():
+                    ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+            except Exception:
+                pass
+            html = templates.get_template("mission_report.html").render(ctx)
+            pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+
+        elif doc_type == "adequation":
+            ctx = _build_client_adequation_context(db, client_id)
+            if not ctx:
+                raise HTTPException(status_code=404, detail="Données adéquation introuvables.")
+            if not ctx.get("report_logo_png"):
+                try:
+                    logo_path = Path(__file__).resolve().parents[1] / "logo" / "logo.png"
+                    if logo_path.exists():
+                        ctx["report_logo_png"] = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+                except Exception:
+                    pass
+            ctx_render = dict(ctx)
+            ctx_render["request"] = request
+            prenom = getattr(client, "prenom", "") or ""
+            nom_c = getattr(client, "nom", "") or ""
+            client_label = f"{prenom} {nom_c}".strip()
+            ctx_render["title"] = "Lettre d'adéquation" + (f" – {client_label}" if client_label else "")
+            html = templates.get_template("adequation_report.html").render(ctx_render)
+            pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
+
+        elif doc_type in ("kyc", "synthese", "fatca", "tracfin"):
+            # Délègue à la route existante et capture les bytes
+            if doc_type == "kyc":
+                kyc_scope = dict(request.scope)
+                kyc_scope["query_string"] = b"style=conformite&pdf=1&inline=1"
+                kyc_request = Request(kyc_scope, request.receive)
+                gen_resp = await dashboard_client_kyc_report(client_id, kyc_request, pdf=1, db=db)
+            elif doc_type == "synthese":
+                pdf_bytes, _ctx = _render_client_synthese_pdf_bytes(request, db, client_id, esg=1)
+            elif doc_type == "fatca":
+                gen_resp = await dashboard_client_fatca_pdf(client_id, request, inline=0, db=db)
+            else:
+                gen_resp = await dashboard_client_tracfin_pdf(client_id, request, inline=0, db=db)
+            if doc_type in ("kyc", "fatca", "tracfin"):
+                chunks = []
+                async for chunk in gen_resp.body_iterator:
+                    chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode())
+                pdf_bytes = b"".join(chunks)
+        else:
+            raise HTTPException(status_code=400, detail="Type non géré.")
+
+        file_path = _ensure_generated_client_pdf_path(client_id, doc_type)
+        file_path.write_bytes(pdf_bytes)
+
+        ensure_document_client_storage_columns(db)
+        base_doc_id = ensure_document_base_for_label(db, nom_document, niveau="généré", risque=None)
+        doc_client_payload = DocumentClientCreateSchema(
+            id_client=client_id,
+            id_document_base=base_doc_id,
+            nom_document=nom_document,
+            date_creation=datetime.utcnow(),
+            date_obsolescence=None,
+            obsolescence="généré",
+            stored_filename=file_path.name,
+            stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+            mime_type="application/pdf",
+            file_size=len(pdf_bytes),
+        )
+        doc_client, err = create_document_client(db, doc_client_payload)
+        if err or not doc_client:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err or "Impossible d'enregistrer le document client")
+
+        doc_client_id = doc_client["id"] if isinstance(doc_client, dict) else getattr(doc_client, "id", None)
+        if not doc_client_id:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Document créé mais identifiant introuvable.")
+
+        return {
+            "id": doc_client_id,
+            "nom_document": nom_document,
+            "download_url": f"/dashboard/document-client/{doc_client_id}/pdf",
+            "pdf_url": f"/dashboard/document-client/{doc_client_id}/pdf?inline=1",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur save-generated client_id=%s doc_type=%s", client_id, locals().get("doc_type", "?"))
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'enregistrement du document.")
 
 
 @router.get("/clients/{client_id}/documents/modeles/{modele_id}/preview")
@@ -6595,6 +6801,14 @@ def _render_document_client_send_result(
 """
 
 
+@router.head("/clients/{client_id}/mission/pdf")
+def dashboard_client_mission_pdf_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
+
+
 @router.get("/clients/{client_id}/mission/pdf")
 async def dashboard_client_mission_pdf(
     client_id: int,
@@ -6636,6 +6850,14 @@ async def dashboard_client_mission_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'{cd_type}; filename=\"{filename}\"'},
     )
+
+
+@router.head("/clients/{client_id}/adequation/pdf")
+def dashboard_client_adequation_pdf_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
 
 
 @router.get("/clients/{client_id}/adequation/pdf")
@@ -6727,6 +6949,14 @@ def _fmt_date_fr_any(raw: object) -> str:
         except Exception:
             return s
     return s
+
+
+@router.head("/clients/{client_id}/fatca/pdf")
+def dashboard_client_fatca_pdf_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
 
 
 @router.get("/clients/{client_id}/fatca/pdf")
@@ -7031,6 +7261,14 @@ def _pick_radio_value(value: str | None) -> str:
     v = str(value).strip().lower()
     v = re.sub(r"[^a-z0-9_]+", "_", v)
     return f"/{v}" if v else ""
+
+
+@router.head("/clients/{client_id}/tracfin/pdf")
+def dashboard_client_tracfin_pdf_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
 
 
 @router.get("/clients/{client_id}/tracfin/pdf")
@@ -7604,6 +7842,14 @@ async def dashboard_client_tracfin_pdf(
 
 
 # ---------------- KYC Report (HTML/PDF) ----------------
+@router.head("/clients/kyc/{client_id}/rapport")
+def dashboard_client_kyc_rapport_head(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_client_read(request, db, client_id)
+    if not db.query(Client).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    return Response(status_code=200, media_type="application/pdf")
+
+
 @router.get("/clients/kyc/{client_id}/rapport")
 async def dashboard_client_kyc_report(
     client_id: int,
@@ -8921,7 +9167,7 @@ async def dashboard_client_kyc_report(
                 story = []
 
                 # Titre
-                story.append(Paragraph(f"Rapport KYC", H1))
+                story.append(Paragraph("Compte rendu d'entretien", H1))
                 story.append(Paragraph(f"Pour {client.prenom} {client.nom}", H2))
                 story.append(Paragraph(f"Date: {ctx['today']}", P))
                 story.append(Spacer(1, 12))
@@ -31484,21 +31730,67 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         .all()
     )
 
-    documents_client = [
-        {
-            "id": d.id,
-            "nom_document": d.nom_document,
-            "date_creation": d.date_creation,
-            "date_obsolescence": d.date_obsolescence,
-            "obsolescence": d.obsolescence,
-            "stored_filename": getattr(d, "stored_filename", None),
-            "stored_path": getattr(d, "stored_path", None),
-            "download_url": f"/dashboard/document-client/{d.id}/pdf" if getattr(d, "stored_path", None) else None,
-            "base_name": base_name,
-        }
-        for d, base_name in rows
-        if d is not None and d.id is not None
-    ]
+    first_affaire_id = affaires_rows[0].id if affaires_rows else None
+
+    def _display_document_label(value: str | None) -> str | None:
+        return canonical_document_label(value)
+
+    def _doc_view_url(doc_nom, base_nom, cid, doc_id, has_stored, affaire_id=None):
+        import unicodedata as _ud
+        if has_stored:
+            return f"/dashboard/document-client/{doc_id}/pdf?inline=1"
+        raw = (doc_nom or base_nom or "").strip()
+        norm = _ud.normalize("NFD", raw).encode("ascii", "ignore").decode().lower()
+        if norm == "der":
+            return f"/dashboard/clients/{cid}/der/pdf?inline=1"
+        if "adequation" in norm:
+            return f"/dashboard/clients/{cid}/adequation/pdf?inline=1"
+        if "mission" in norm:
+            return f"/dashboard/clients/{cid}/mission/pdf?inline=1"
+        if "fatca" in norm:
+            return f"/dashboard/clients/{cid}/fatca/pdf?inline=1"
+        if "tracfin" in norm:
+            return f"/dashboard/clients/{cid}/tracfin/pdf?inline=1"
+        if any(k in norm for k in ("questionnaire", "recueil", "rgpd", "kyc")):
+            return f"/dashboard/clients/kyc/{cid}/rapport?pdf=1&inline=1"
+        if "synthese" in norm or "synth\xe8se" in norm:
+            if affaire_id:
+                return f"/dashboard/affaires/{affaire_id}/synthese/pdf?inline=1"
+            return f"/dashboard/clients/kyc/{cid}/rapport?pdf=1&inline=1"
+        return None
+
+    documents_client: list[dict[str, Any]] = []
+    seen_generated_keys: set[tuple[int | None, int | None, str]] = set()
+    for d, base_name in rows:
+        if d is None or d.id is None:
+            continue
+        stored_path = getattr(d, "stored_path", None)
+        is_generated = bool(stored_path) and str(stored_path).startswith("generated_clients/")
+        base_name_display = _display_document_label(base_name)
+        doc_name_display = _display_document_label(d.nom_document or base_name_display)
+        dedupe_key = (
+            getattr(d, "id_client", None),
+            doc_name_display or "",
+            "generated" if is_generated else "stored",
+        )
+        if is_generated:
+            if dedupe_key in seen_generated_keys:
+                continue
+            seen_generated_keys.add(dedupe_key)
+        documents_client.append(
+            {
+                "id": d.id,
+                "nom_document": doc_name_display,
+                "date_creation": d.date_creation,
+                "date_obsolescence": d.date_obsolescence,
+                "obsolescence": d.obsolescence,
+                "stored_filename": getattr(d, "stored_filename", None),
+                "stored_path": stored_path,
+                "download_url": f"/dashboard/document-client/{d.id}/pdf" if stored_path else None,
+                "view_url": _doc_view_url(d.nom_document, base_name, client_id, d.id, bool(stored_path), first_affaire_id),
+                "base_name": base_name_display,
+            }
+        )
 
     modeles_documentaires: list[dict[str, Any]] = []
     try:
@@ -33170,16 +33462,41 @@ def dashboard_bibliotheque_documents(request: Request, db: Session = Depends(get
 
     docs_base = []
     try:
+        usage_rows = (
+            db.query(
+                DocumentClient.id_document_base.label("id_document_base"),
+                func.count(DocumentClient.id).label("usage_count"),
+            )
+            .group_by(DocumentClient.id_document_base)
+            .all()
+        )
+        usage_map = {
+            int(row.id_document_base): int(row.usage_count or 0)
+            for row in usage_rows or []
+            if getattr(row, "id_document_base", None) is not None
+        }
         rows = db.query(Document).order_by(Document.id_document_base.asc()).all()
         for d in rows or []:
+            if not d:
+                continue
+            usage_count = int(usage_map.get(int(d.id_document_base), 0))
             docs_base.append({
                 "id": d.id_document_base,
                 "nom": d.documents or "",
                 "niveau": d.niveau or "",
                 "risque": d.risque or "",
                 "obsolescence_annees": d.obsolescence_annees,
+                "client_count": usage_count,
+                "is_deletable": usage_count == 0,
                 "is_pdf_dynamic": True,
             })
+        docs_base.sort(
+            key=lambda item: (
+                0 if not str(item.get("nom") or "").strip() else 1,
+                str(item.get("nom") or "").strip().lower(),
+                int(item.get("id") or 0),
+            )
+        )
     except Exception as exc:
         logger.error(f"load base documents failed: {exc}")
 
@@ -33206,6 +33523,8 @@ def dashboard_bibliotheque_documents(request: Request, db: Session = Depends(get
             .all()
         )
         for d in rows or []:
+            if not d:
+                continue
             client_label_parts = [p for p in [
                 (d.client_prenom or "").strip(),
                 (d.client_nom or "").strip(),
@@ -33244,6 +33563,269 @@ def dashboard_bibliotheque_documents(request: Request, db: Session = Depends(get
             "documents_clients": docs_client,
         },
     )
+
+
+@router.get("/bibliotheque-documents/data", response_class=JSONResponse)
+def dashboard_bibliotheque_documents_data(request: Request, db: Session = Depends(get_db)):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"detail": "Non authentifié"})
+    if user_type == "client":
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "read", societe_id=scope)
+    try:
+        ensure_document_client_storage_columns(db)
+    except Exception:
+        pass
+
+    def _fmt_dt(value):
+        if not value:
+            return ""
+        try:
+            return value.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            try:
+                return value.strftime("%d/%m/%Y")
+            except Exception:
+                return str(value)
+
+    docs_base: list[dict] = []
+    docs_client: list[dict] = []
+    try:
+        usage_rows = (
+            db.query(
+                DocumentClient.id_document_base.label("id_document_base"),
+                func.count(DocumentClient.id).label("usage_count"),
+            )
+            .group_by(DocumentClient.id_document_base)
+            .all()
+        )
+        usage_map = {
+            int(row.id_document_base): int(row.usage_count or 0)
+            for row in usage_rows or []
+            if getattr(row, "id_document_base", None) is not None
+        }
+        rows = db.query(Document).order_by(Document.id_document_base.asc()).all()
+        for d in rows or []:
+            if not d:
+                continue
+            usage_count = int(usage_map.get(int(d.id_document_base), 0))
+            docs_base.append({
+                "id": d.id_document_base,
+                "nom": d.documents or "",
+                "niveau": d.niveau or "",
+                "risque": d.risque or "",
+                "obsolescence_annees": d.obsolescence_annees,
+                "client_count": usage_count,
+                "is_deletable": usage_count == 0,
+            })
+        docs_base.sort(
+            key=lambda item: (
+                0 if not str(item.get("nom") or "").strip() else 1,
+                str(item.get("nom") or "").strip().lower(),
+                int(item.get("id") or 0),
+            )
+        )
+    except Exception as exc:
+        logger.error(f"load base documents failed: {exc}")
+
+    try:
+        rows = (
+            db.query(
+                DocumentClient.id.label("id"),
+                DocumentClient.id_client.label("id_client"),
+                Client.nom.label("client_nom"),
+                Client.prenom.label("client_prenom"),
+                DocumentClient.nom_client.label("nom_client"),
+                DocumentClient.id_document_base.label("id_document_base"),
+                Document.documents.label("base_nom"),
+                DocumentClient.nom_document.label("nom_document"),
+                DocumentClient.date_creation.label("date_creation"),
+                DocumentClient.date_obsolescence.label("date_obsolescence"),
+                DocumentClient.obsolescence.label("obsolescence"),
+            )
+            .outerjoin(Client, Client.id == DocumentClient.id_client)
+            .outerjoin(Document, Document.id_document_base == DocumentClient.id_document_base)
+            .order_by(DocumentClient.id.desc())
+            .limit(200)
+            .all()
+        )
+        for d in rows or []:
+            if not d:
+                continue
+            client_label_parts = [p for p in [
+                (d.client_prenom or "").strip(),
+                (d.client_nom or "").strip(),
+            ] if p]
+            client_label = " ".join(client_label_parts) if client_label_parts else (d.nom_client or "")
+            docs_client.append({
+                "id": d.id,
+                "client_id": d.id_client,
+                "client_label": client_label,
+                "id_document_base": d.id_document_base,
+                "nom_document": d.nom_document or d.base_nom or "",
+                "date_creation": _fmt_dt(d.date_creation),
+                "date_obsolescence": _fmt_dt(d.date_obsolescence),
+                "obsolescence": d.obsolescence or "",
+                "is_attachable": True,
+            })
+    except Exception as exc:
+        logger.error(f"load client documents failed: {exc}")
+
+    counts = {
+        "documents_base": len(docs_base),
+        "documents_clients": len(docs_client),
+        "documents_attachables": len([d for d in docs_client if d.get("is_attachable")]),
+    }
+    return {
+        "counts": counts,
+        "documents_base": docs_base,
+        "documents_clients": docs_client,
+    }
+
+
+@router.post("/bibliotheque-documents/create", response_class=HTMLResponse)
+def dashboard_bibliotheque_documents_create(
+    request: Request,
+    documents: str = Form(""),
+    niveau: str = Form(""),
+    obsolescence_annees: str | None = Form(None),
+    risque: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "write", societe_id=scope)
+
+    try:
+        obsolescence_value = int(obsolescence_annees) if obsolescence_annees not in (None, "") else None
+    except Exception:
+        msg = "L'obsolescence doit etre un nombre entier."
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote(msg)}",
+            status_code=303,
+        )
+
+    try:
+        create_document(
+            db,
+            documents=(documents or "").strip(),
+            niveau=(niveau or "").strip(),
+            obsolescence_annees=obsolescence_value,
+            risque=(risque or "").strip(),
+        )
+    except Exception as exc:
+        logger.error(f"failed to create base document: {exc}")
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Creation impossible.')}",
+            status_code=303,
+        )
+
+    return RedirectResponse(url="/dashboard/bibliotheque-documents?saved=1", status_code=303)
+
+
+@router.post("/bibliotheque-documents/{document_id}/update", response_class=HTMLResponse)
+def dashboard_bibliotheque_documents_update(
+    document_id: int,
+    request: Request,
+    documents: str = Form(""),
+    niveau: str = Form(""),
+    obsolescence_annees: str | None = Form(None),
+    risque: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "write", societe_id=scope)
+
+    try:
+        obsolescence_value = int(obsolescence_annees) if obsolescence_annees not in (None, "") else None
+    except Exception:
+        msg = "L'obsolescence doit etre un nombre entier."
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote(msg)}",
+            status_code=303,
+        )
+
+    try:
+        updated = update_document(
+            db,
+            document_id,
+            documents=(documents or "").strip(),
+            niveau=(niveau or "").strip(),
+            obsolescence_annees=obsolescence_value,
+            risque=(risque or "").strip(),
+        )
+        if not updated:
+            return RedirectResponse(
+                url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Document introuvable.')}",
+                status_code=303,
+            )
+    except Exception as exc:
+        logger.error(f"failed to update base document {document_id}: {exc}")
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Mise a jour impossible.')}",
+            status_code=303,
+        )
+
+    return RedirectResponse(url="/dashboard/bibliotheque-documents?saved=1", status_code=303)
+
+
+@router.post("/bibliotheque-documents/{document_id}/delete", response_class=HTMLResponse)
+def dashboard_bibliotheque_documents_delete(
+    document_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user_type, user_id, req_scope = extract_user_context(request)
+    if user_id is None:
+        return PlainTextResponse("Unauthorized", status_code=401)
+    if user_type == "client":
+        return PlainTextResponse("Forbidden", status_code=403)
+    access = load_access(db, user_type=user_type, user_id=user_id)
+    scope = pick_scope(access, req_scope)
+    require_permission(access, "data", "write", societe_id=scope)
+
+    linked_count = (
+        db.query(func.count(DocumentClient.id))
+        .filter(DocumentClient.id_document_base == document_id)
+        .scalar()
+        or 0
+    )
+    if linked_count:
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Suppression impossible: ce document est encore utilise par des documents clients.')}",
+            status_code=303,
+        )
+
+    try:
+        deleted = delete_document(db, document_id)
+        if not deleted:
+            return RedirectResponse(
+                url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Document introuvable.')}",
+                status_code=303,
+            )
+    except Exception as exc:
+        logger.error(f"failed to delete base document {document_id}: {exc}")
+        return RedirectResponse(
+            url=f"/dashboard/bibliotheque-documents?error=1&errmsg={quote('Suppression impossible.')}",
+            status_code=303,
+        )
+
+    return RedirectResponse(url="/dashboard/bibliotheque-documents?saved=1", status_code=303)
+
 # List allocation dates for a given name (distinct)
 @router.get("/allocations/dates", response_class=JSONResponse)
 def list_allocation_dates(

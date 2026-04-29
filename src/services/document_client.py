@@ -7,6 +7,31 @@ from src.models.document import Document
 from src.schemas.document_client import DocumentClientCreateSchema
 
 
+def canonical_document_label(label: str | None) -> str | None:
+    raw = (label or "").strip()
+    if not raw:
+        return raw
+    try:
+        import unicodedata as _ud
+
+        norm = _ud.normalize("NFD", raw).encode("ascii", "ignore").decode("ascii").lower()
+        norm = " ".join(norm.split())
+    except Exception:
+        norm = raw.lower()
+    if "synthese" in norm or "synthèse" in raw.lower():
+        return "Synthèse"
+    if norm in {
+        "rapport kyc",
+        "rapport de kyc",
+        "compte rendu dentretien",
+        "compte rendu d entretien",
+        "compte rendu entretien",
+        "kyc",
+    } or "kyc" in norm:
+        return "Compte rendu d'entretien"
+    return raw
+
+
 def _document_client_payload(payload: DocumentClientCreateSchema, doc_id: int, full_name: str | None):
     return {
         "id": doc_id,
@@ -67,9 +92,30 @@ def ensure_document_client_storage_columns(db: Session) -> bool:
 
 
 def ensure_document_base_for_label(db: Session, label: str, *, niveau: str = "généré", risque: str | None = None) -> int:
-    existing = db.query(Document).filter(Document.documents == label).first()
-    if existing and getattr(existing, "id_document_base", None) is not None:
-        return int(existing.id_document_base)
+    canonical_label = canonical_document_label(label) or (label or "").strip()
+    alias_labels = {canonical_label}
+    if canonical_label == "Compte rendu d'entretien":
+        alias_labels.update({"Rapport KYC", "Rapport de KYC", "Compte rendu entretien"})
+    elif canonical_label == "Synthèse":
+        alias_labels.update({"Synthese", "Synthèse"})
+
+    existing_rows = (
+        db.query(Document)
+        .filter(Document.documents.in_(sorted(alias_labels)))
+        .order_by(Document.id_document_base.asc())
+        .all()
+    )
+    if existing_rows:
+        primary = existing_rows[0]
+        changed = False
+        for row in existing_rows:
+            if row.documents != canonical_label:
+                row.documents = canonical_label
+                changed = True
+        if changed:
+            db.commit()
+        if getattr(primary, "id_document_base", None) is not None:
+            return int(primary.id_document_base)
     next_id = db.execute(text("SELECT COALESCE(MAX(id_document_base), 0) + 1 FROM Documents")).scalar()
     if next_id is None:
         raise RuntimeError("Impossible de calculer l'identifiant du document de base")
@@ -82,7 +128,7 @@ def ensure_document_base_for_label(db: Session, label: str, *, niveau: str = "g�
         ),
         {
             "id_document_base": int(next_id),
-            "documents": label,
+            "documents": canonical_label,
             "niveau": niveau,
             "obsolescence_annes": None,
             "risque": risque,
@@ -115,6 +161,35 @@ def create_document_client(db: Session, payload: DocumentClientCreateSchema):
         nom = (client_row.nom or "").strip()
         prenom = (client_row.prenom or "").strip()
         full_name = (nom + (" " + prenom if prenom else "")).strip() or None
+
+    # Pour les documents générés, on réécrit l'entrée existante du même type
+    # au lieu d'empiler des doublons dans Documents_client.
+    try:
+        if payload.obsolescence == "généré" and (payload.stored_path or "").startswith("generated_clients/"):
+            existing_doc = (
+                db.query(DocumentClient)
+                .filter(
+                    DocumentClient.id_client == payload.id_client,
+                    DocumentClient.id_document_base == payload.id_document_base,
+                    DocumentClient.obsolescence == "généré",
+                )
+                .order_by(DocumentClient.id.desc())
+                .first()
+            )
+            if existing_doc:
+                existing_doc.nom_client = full_name
+                existing_doc.nom_document = payload.nom_document
+                existing_doc.date_creation = payload.date_creation
+                existing_doc.date_obsolescence = payload.date_obsolescence
+                existing_doc.obsolescence = payload.obsolescence
+                existing_doc.stored_filename = payload.stored_filename
+                existing_doc.stored_path = payload.stored_path
+                existing_doc.mime_type = payload.mime_type
+                existing_doc.file_size = payload.file_size
+                db.commit()
+                return _document_client_payload(payload, int(existing_doc.id), full_name), None
+    except Exception:
+        pass
 
     # Empêche les doubles inserts accidentels lors d'une double soumission quasi simultanée
     # ou d'un rafraîchissement rapide après génération.
