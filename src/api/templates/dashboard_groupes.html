@@ -76,6 +76,35 @@
   .group-items-status.error { color: #b91c1c; border-color: rgba(185, 28, 28, 0.3); background: #fee2e2; }
   .group-items-actions { display: inline-flex; align-items: center; gap: 10px; }
   .group-items-actions .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+  .group-icon-btn {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:36px;
+    height:36px;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:#fff;
+    color:var(--primary);
+    cursor:pointer;
+    text-decoration:none;
+    transition:background .2s ease, color .2s ease, border-color .2s ease, transform .12s ease;
+    flex:0 0 auto;
+  }
+  .group-icon-btn:hover,
+  .group-icon-btn:focus-visible {
+    background:#eff6ff;
+    border-color:#bfdbfe;
+    transform: translateY(-1px);
+  }
+  .group-icon-btn[disabled],
+  .group-icon-btn.is-disabled {
+    opacity:0.45;
+    cursor:not-allowed;
+    pointer-events:none;
+    transform:none;
+  }
+  .group-icon-btn i { font-size:0.95rem; }
   #groupItemsTable th,
   #groupItemsTable td {
     padding: 6px 10px;
@@ -260,6 +289,75 @@
   .support-modal__series table { width:100%; border-collapse:collapse; font-size:0.85rem; }
   .support-modal__series th,
   .support-modal__series td { border:1px solid #e2e8f0; padding:0.45rem 0.5rem; text-align:left; }
+  .group-scatter-modal {
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:flex-start;
+    justify-content:center;
+    background:rgba(15,23,42,0.55);
+    z-index:1250;
+    padding:4rem 1rem 2rem;
+    overflow-y:auto;
+  }
+  .group-scatter-modal.open { display:flex; }
+  .group-scatter-modal__panel {
+    position:relative;
+    width:min(1100px, 100%);
+    background:#fff;
+    border-radius:14px;
+    box-shadow:0 24px 48px rgba(15,23,42,0.32);
+    padding:1.25rem 1.25rem 1rem;
+  }
+  .group-scatter-modal__close {
+    position:absolute;
+    top:12px;
+    right:12px;
+    border:none;
+    background:transparent;
+    font-size:1.5rem;
+    line-height:1;
+    cursor:pointer;
+    color:#475569;
+  }
+  .group-scatter-modal__title { margin:0 2rem 0.35rem 0; font-size:1.15rem; }
+  .group-scatter-modal__subtitle { margin:0 0 0.9rem 0; color:#64748b; font-size:0.9rem; }
+  .group-scatter-modal__legend {
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    margin-bottom:0.75rem;
+    font-size:0.85rem;
+    color:#334155;
+  }
+  .group-scatter-modal__legend-item {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 8px;
+    border-radius:999px;
+    background:#f8fafc;
+    border:1px solid #e2e8f0;
+  }
+  .group-scatter-modal__legend-swatch {
+    width:14px;
+    height:14px;
+    border-radius:4px;
+    border:1px solid rgba(15,23,42,0.15);
+    display:inline-block;
+  }
+  .group-scatter-modal__chart {
+    width:100%;
+    min-height:520px;
+  }
+  .group-scatter-modal__empty {
+    padding:1rem;
+    border:1px dashed #cbd5e1;
+    border-radius:12px;
+    background:#f8fafc;
+    color:#64748b;
+  }
   .support-modal__compare-toggle { display:flex; align-items:center; gap:8px; justify-content:flex-start; flex-wrap:nowrap; padding:8px 0 10px; margin:8px 0 10px; width:100%; box-sizing:border-box; }
   .support-modal__compare-toggle .support-meta-btn { flex:1 1 0; min-width:0; justify-content:center; }
   .support-modal__series th { background:#f1f5f9; font-weight:600; color:#334155; }
@@ -422,7 +520,12 @@
       </div>
       <div class="group-items-actions">
         <span class="group-items-status" id="groupItemsStatus">En attente</span>
-        <a class="btn" id="groupItemsExport" href="#" aria-disabled="true" title="Exporter la liste items">Exporter CSV</a>
+        <button type="button" class="group-icon-btn" id="groupItemsScatterBtn" title="Voir la répartition des items" aria-label="Voir la répartition des items" disabled>
+          <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+        </button>
+        <a class="group-icon-btn" id="groupItemsExport" href="#" aria-disabled="true" title="Exporter la liste items" aria-label="Exporter la liste items">
+          <i class="fa-solid fa-file-export" aria-hidden="true"></i>
+        </a>
       </div>
     </div>
     <div class="table-wrapper" style="overflow:auto;">
@@ -454,6 +557,17 @@
     </div>
   </div>
 </section>
+
+<div id="groupScatterModal" class="group-scatter-modal" aria-hidden="true">
+  <div class="group-scatter-modal__panel" role="dialog" aria-modal="true" aria-labelledby="groupScatterTitle">
+    <button type="button" class="group-scatter-modal__close" id="groupScatterClose" aria-label="Fermer">×</button>
+    <h3 class="group-scatter-modal__title" id="groupScatterTitle">Répartition des items</h3>
+    <p class="group-scatter-modal__subtitle" id="groupScatterSubtitle">Performance en abscisse, SRRI en ordonnée. Chaque point ouvre l’item concerné.</p>
+    <div class="group-scatter-modal__legend" id="groupScatterRuleLegend"></div>
+    <div id="groupScatterChart" class="group-scatter-modal__chart"></div>
+    <div id="groupScatterEmpty" class="group-scatter-modal__empty" style="display:none;"></div>
+  </div>
+</div>
 
 <section id="groupProductsBlock" class="groups-accordion" aria-label="Liste produits">
   <div class="card">
@@ -629,11 +743,17 @@
     const itemsEmpty = document.getElementById('groupItemsEmpty');
     const itemsTableBody = document.querySelector('#groupItemsTable tbody');
     const itemsStatus = document.getElementById('groupItemsStatus');
+    const itemsScatterBtn = document.getElementById('groupItemsScatterBtn');
     const itemsExport = document.getElementById('groupItemsExport');
     const itemsPrev = document.getElementById('groupItemsPrev');
     const itemsNext = document.getElementById('groupItemsNext');
     const itemsPageInfo = document.getElementById('groupItemsPageInfo');
     const itemsPager = document.querySelector('.group-items-pagination');
+    const scatterModal = document.getElementById('groupScatterModal');
+    const scatterModalClose = document.getElementById('groupScatterClose');
+    const scatterRuleLegend = document.getElementById('groupScatterRuleLegend');
+    const scatterChart = document.getElementById('groupScatterChart');
+    const scatterEmpty = document.getElementById('groupScatterEmpty');
     const pageSize = 15;
     let currentPage = 1;
     let currentRows = [];
@@ -642,9 +762,29 @@
 	    let currentGroupId = null;
 	    let currentGroupType = null;
 	    let currentGroupName = null;
+	    let scatterPlotInstance = null;
+	    let scatterRenderToken = 0;
 	    const tasksTab = document.querySelector('.groups-tab[data-target="groupTasksBlock"]');
 	    const tasksOpenBtn = document.getElementById('groupTasksOpen');
 	    const tasksStatus = document.getElementById('groupTasksStatus');
+
+    function ensurePlotlyLib(callback){
+      if (window.Plotly){ callback(); return; }
+      var existing = document.querySelector('script[data-loader="plotly"]');
+      if (existing){
+        existing.addEventListener('load', function(){ callback(); });
+        existing.addEventListener('error', function(){ console.warn('Plotly load error'); });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdn.plot.ly/plotly-2.32.0.min.js';
+      s.async = true;
+      s.setAttribute('data-loader', 'plotly');
+      s.onload = function(){ callback(); };
+      s.onerror = function(){ console.warn('Plotly load error'); };
+      document.head.appendChild(s);
+    }
+    window.ensurePlotlyLib = ensurePlotlyLib;
 
 	    // --- Sélection membres (retrait uniquement) ---
 	    let selectedMemberIds = new Set();
@@ -723,26 +863,35 @@
       if (state) itemsStatus.classList.add(state);
     }
 
+    function setScatterButtonEnabled(enabled){
+      if (!itemsScatterBtn) return;
+      itemsScatterBtn.disabled = !enabled;
+      itemsScatterBtn.classList.toggle('is-disabled', !enabled);
+    }
+
     function updateExportLink(){
       if (!itemsExport) return;
       if (!currentGroupId || !currentGroupType){
         itemsExport.setAttribute('aria-disabled', 'true');
         itemsExport.setAttribute('disabled', 'disabled');
         itemsExport.href = '#';
+        setScatterButtonEnabled(false);
         return;
       }
       itemsExport.removeAttribute('disabled');
       itemsExport.setAttribute('aria-disabled', 'false');
       itemsExport.href = '/dashboard/groupes/items/export?group_id=' + encodeURIComponent(currentGroupId) + '&type=' + encodeURIComponent(currentGroupType);
+      setScatterButtonEnabled(!!(currentRows && currentRows.length));
     }
 
-	    function setItemsLoading(label){
-	      if (itemsLabel) itemsLabel.textContent = label;
-	      if (itemsEmpty) itemsEmpty.style.display = 'none';
-	      clearMembersSel();
-	      if (itemsTableBody) itemsTableBody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
-	      setStatus('Chargement', 'loading');
-	      if (itemsPager) itemsPager.style.display = 'none';
+    function setItemsLoading(label){
+      if (itemsLabel) itemsLabel.textContent = label;
+      if (itemsEmpty) itemsEmpty.style.display = 'none';
+      clearMembersSel();
+      if (itemsTableBody) itemsTableBody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
+      setStatus('Chargement', 'loading');
+      setScatterButtonEnabled(false);
+      if (itemsPager) itemsPager.style.display = 'none';
 	      if (productsTab) {
         productsTab.style.display = 'none';
         if (activeId === 'groupProductsBlock') {
@@ -765,11 +914,12 @@
 		      if (tasksStatus) tasksStatus.textContent = 'Sélectionnez un groupe pour générer 1 tâche par item.';
 	    }
 
-	    function setItemsEmpty(label){
+    function setItemsEmpty(label){
       if (itemsLabel) itemsLabel.textContent = label;
       if (itemsTableBody) itemsTableBody.innerHTML = '';
       if (itemsEmpty) itemsEmpty.style.display = '';
       setStatus('Aucun item', null);
+      setScatterButtonEnabled(false);
       if (itemsPager) itemsPager.style.display = 'none';
       if (productsTab) {
         productsTab.style.display = 'none';
@@ -1043,20 +1193,21 @@
 	      });
 	    }
 
-	    function setItemsRows(rows, label){
-	      if (itemsLabel) itemsLabel.textContent = label;
-	      if (!itemsTableBody) return;
-	      clearMembersSel();
-	      if (!rows.length){
-	        setItemsEmpty(label);
-	        return;
-	      }
+    function setItemsRows(rows, label){
+      if (itemsLabel) itemsLabel.textContent = label;
+      if (!itemsTableBody) return;
+      clearMembersSel();
+      if (!rows.length){
+        setItemsEmpty(label);
+        return;
+      }
       if (itemsEmpty) itemsEmpty.style.display = 'none';
       setStatus(rows.length + ' items', null);
       currentRows = rows;
       currentPage = 1;
       renderPage();
-	      if (productsTab) productsTab.style.display = '';
+      setScatterButtonEnabled(true);
+      if (productsTab) productsTab.style.display = '';
 	      if (esgTab) esgTab.style.display = '';
 	      if (tasksTab) tasksTab.style.display = '';
 	      if (tasksOpenBtn) tasksOpenBtn.disabled = false;
@@ -1098,11 +1249,11 @@
 	      });
 	    }
 
-	    async function loadGroupItems(groupId, groupType, groupName){
-	      const label = 'Liste items — ' + (groupName || 'Groupe');
-	      currentGroupId = groupId;
-	      currentGroupType = groupType;
-	      currentGroupName = groupName || null;
+    async function loadGroupItems(groupId, groupType, groupName){
+      const label = 'Liste items — ' + (groupName || 'Groupe');
+      currentGroupId = groupId;
+      currentGroupType = groupType;
+      currentGroupName = groupName || null;
 	      window.currentGroupId = groupId;
 	      window.currentGroupType = groupType;
       updateExportLink();
@@ -1139,13 +1290,243 @@
       }
     }
 
-	    tabs.forEach(tab => {
-	      tab.addEventListener('click', () => setActive(tab.dataset.target));
-	    });
-	    if (tasksOpenBtn){
-	      tasksOpenBtn.addEventListener('click', function(e){
-	        if (e && e.preventDefault) e.preventDefault();
-	        openGroupTasksModal();
+    function buildScatterUrl(row){
+      if (!row || row.entity_id == null || !currentGroupType) return null;
+      return (String(currentGroupType) === 'client' ? '/dashboard/clients/' : '/dashboard/affaires/') + encodeURIComponent(String(row.entity_id));
+    }
+
+    function closeScatterModal(){
+      if (!scatterModal) return;
+      scatterRenderToken += 1;
+      scatterModal.classList.remove('open');
+      scatterModal.setAttribute('aria-hidden', 'true');
+      if (scatterPlotInstance && window.Plotly){
+        try { Plotly.purge('groupScatterChart'); } catch(e){}
+      }
+      scatterPlotInstance = null;
+      if (scatterChart) scatterChart.innerHTML = '';
+      if (scatterEmpty){
+        scatterEmpty.style.display = 'none';
+        scatterEmpty.textContent = '';
+      }
+      if (scatterRuleLegend) scatterRuleLegend.innerHTML = '';
+    }
+
+    function openScatterModal(){
+      if (!scatterModal || !scatterChart) return;
+      scatterRenderToken += 1;
+      var renderToken = scatterRenderToken;
+      var validRows = (currentRows || []).filter(function(row){
+        return row && row.entity_id != null && isFinite(Number(row.perf_52_num)) && isFinite(Number(row.srri_num));
+      });
+      if (!validRows.length){
+        if (scatterEmpty){
+          scatterEmpty.textContent = 'Aucune donnée exploitable pour la répartition.';
+          scatterEmpty.style.display = '';
+        }
+        if (scatterRuleLegend) scatterRuleLegend.innerHTML = '';
+        scatterChart.innerHTML = '';
+        scatterModal.classList.add('open');
+        scatterModal.setAttribute('aria-hidden', 'false');
+        return;
+      }
+      if (scatterEmpty){
+        scatterEmpty.style.display = 'none';
+        scatterEmpty.textContent = '';
+      }
+      if (scatterRuleLegend) scatterRuleLegend.innerHTML = '';
+      scatterModal.classList.add('open');
+      scatterModal.setAttribute('aria-hidden', 'false');
+      ensurePlotlyLib(function(){
+        if (renderToken !== scatterRenderToken) return;
+        var points = validRows.map(function(row){
+          var perf = Number(row.perf_52_num) * 100;
+          var srri = Number(row.srri_num);
+          return {
+            x: isFinite(perf) ? perf : null,
+            y: isFinite(srri) ? (srri + 0.5) : null,
+            text: row.item || 'Item',
+            customdata: {
+              url: buildScatterUrl(row),
+              item: row.item || 'Item',
+              perfLabel: row.perf_52 || '—',
+              srri: row.srri != null ? row.srri : '—'
+            }
+          };
+        }).filter(function(p){ return p.x != null && p.y != null; });
+        if (!points.length){
+          scatterEmpty.textContent = 'Aucune donnée exploitable pour la répartition.';
+          scatterEmpty.style.display = '';
+          if (scatterRuleLegend) scatterRuleLegend.innerHTML = '';
+          scatterChart.innerHTML = '';
+          scatterModal.classList.add('open');
+          scatterModal.setAttribute('aria-hidden', 'false');
+          return;
+        }
+        var xs = points.map(function(p){ return p.x; });
+        var ys = points.map(function(p){ return p.y; });
+        var minX = Math.min.apply(null, xs);
+        var maxX = Math.max.apply(null, xs);
+        var minY = Math.min.apply(null, ys);
+        var maxY = Math.max.apply(null, ys);
+        var padX = Math.max(1, (maxX - minX) * 0.08);
+        var padY = 0.5;
+        function percentile(values, p){
+          if (!values || !values.length) return NaN;
+          var sorted = values.slice().sort(function(a, b){ return a - b; });
+          var pos = (sorted.length - 1) * p;
+          var base = Math.floor(pos);
+          var rest = pos - base;
+          if (sorted[base + 1] !== undefined){
+            return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+          }
+          return sorted[base];
+        }
+        function median(values){
+          return percentile(values, 0.5);
+        }
+        var centerX = median(xs);
+        var centerY = median(ys);
+        var q1X = percentile(xs, 0.25);
+        var q3X = percentile(xs, 0.75);
+        var q1Y = percentile(ys, 0.25);
+        var q3Y = percentile(ys, 0.75);
+        var scaleX = Math.max(q3X - q1X, 0.0001);
+        var scaleY = Math.max(q3Y - q1Y, 0.0001);
+        var shapes = [];
+        [[1,2],[3,4],[5,6]].forEach(function(range){
+          shapes.push({
+            type: 'rect',
+            xref: 'paper',
+            x0: 0,
+            x1: 1,
+            yref: 'y',
+            y0: range[0],
+            y1: range[1],
+            line: { width: 0 },
+            fillcolor: 'rgba(244,114,182,0.10)',
+            layer: 'below'
+          });
+        });
+        var scoredPoints = points.map(function(p){
+          var scoreX = Math.abs(p.x - centerX) / scaleX;
+          var scoreY = Math.abs(p.y - centerY) / scaleY;
+          return {
+            point: p,
+            score: Math.max(scoreX, scoreY)
+          };
+        });
+        var scoreThreshold = percentile(scoredPoints.map(function(p){ return p.score; }), 0.8);
+        var highlightPoints = scoredPoints.filter(function(p){
+          return p.score <= scoreThreshold;
+        }).map(function(p){ return p.point; });
+        var outsidePoints = scoredPoints.filter(function(p){
+          return p.score > scoreThreshold;
+        }).map(function(p){ return p.point; });
+        var pointColors = scoredPoints.map(function(p){
+          return p.score > scoreThreshold ? '#dc2626' : '#2456a6';
+        });
+        var lowerPerf = centerX - scoreThreshold * scaleX;
+        var upperPerf = centerX + scoreThreshold * scaleX;
+        var lowerSrri = centerY - scoreThreshold * scaleY;
+        var upperSrri = centerY + scoreThreshold * scaleY;
+        if (scatterRuleLegend){
+          var formatPct = function(v){
+            return (isFinite(v) ? Number(v).toFixed(2) : '—');
+          };
+          var formatNum = function(v){
+            return (isFinite(v) ? Number(v).toFixed(2) : '—');
+          };
+          scatterRuleLegend.innerHTML = [
+            '<span class="group-scatter-modal__legend-item"><strong>Centre perf</strong> ' + formatPct(centerX) + '%</span>',
+            '<span class="group-scatter-modal__legend-item"><strong>Centre SRRI</strong> ' + formatNum(centerY) + '</span>',
+            '<span class="group-scatter-modal__legend-item"><strong>Bornes perf</strong> ' + formatPct(lowerPerf) + '% à ' + formatPct(upperPerf) + '%</span>',
+            '<span class="group-scatter-modal__legend-item"><strong>Bornes SRRI</strong> ' + formatNum(lowerSrri) + ' à ' + formatNum(upperSrri) + '</span>',
+            '<span class="group-scatter-modal__legend-item"><strong>Points encadrés</strong> ' + highlightPoints.length + ' / ' + points.length + ' (' + formatPct((highlightPoints.length / points.length) * 100) + '%)</span>',
+            '<span class="group-scatter-modal__legend-item"><strong>Points hors bornes</strong> ' + outsidePoints.length + '</span>'
+          ].join('');
+        }
+        var trace = {
+          type: 'scatter',
+          mode: 'markers',
+          x: points.map(function(p){ return p.x; }),
+          y: points.map(function(p){ return p.y; }),
+          customdata: points.map(function(p){ return p.customdata; }),
+          hovertemplate:
+            '<b>%{customdata.item}</b><br>' +
+            'Performance: %{customdata.perfLabel}<br>' +
+            'SRRI: %{customdata.srri}<extra></extra>',
+          marker: {
+            size: 12,
+            color: pointColors,
+            opacity: 0.95,
+            line: { color: '#ffffff', width: 1.1 }
+          }
+        };
+        var layout = {
+          margin: { l: 60, r: 20, t: 10, b: 55 },
+          xaxis: {
+            title: 'Performance (%)',
+            zeroline: true,
+            zerolinecolor: 'rgba(148,163,184,0.8)',
+            gridcolor: 'rgba(226,232,240,0.9)',
+            range: [minX - padX, maxX + padX]
+          },
+          yaxis: {
+            title: 'SRRI',
+            zeroline: true,
+            zerolinecolor: 'rgba(148,163,184,0.8)',
+            gridcolor: 'rgba(226,232,240,0.0)',
+            tickmode: 'array',
+            tickvals: [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5],
+            ticktext: ['1', '2', '3', '4', '5', '6', '7'],
+            range: [1, 8]
+          },
+          shapes: shapes,
+          paper_bgcolor: '#fff',
+          plot_bgcolor: '#fff',
+          hovermode: 'closest',
+          showlegend: false
+        };
+        var config = { responsive: true, displayModeBar: false };
+        if (scatterPlotInstance && window.Plotly){
+          try { Plotly.purge('groupScatterChart'); } catch(e){}
+          scatterPlotInstance = null;
+        }
+        Plotly.newPlot('groupScatterChart', [trace], layout, config).then(function(chart){
+          scatterPlotInstance = chart;
+          chart.on('plotly_click', function(ev){
+            try {
+              var p = ev && ev.points && ev.points[0];
+              var url = p && p.customdata && p.customdata.url;
+              if (url) window.location.href = url;
+            } catch(e){}
+          });
+        });
+      });
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => setActive(tab.dataset.target));
+    });
+    if (itemsScatterBtn){
+      itemsScatterBtn.addEventListener('click', function(){
+        if (itemsScatterBtn.disabled) return;
+        openScatterModal();
+      });
+    }
+    if (scatterModalClose){
+      scatterModalClose.addEventListener('click', closeScatterModal);
+    }
+    if (scatterModal){
+      scatterModal.addEventListener('click', function(ev){
+        if (ev.target === scatterModal) closeScatterModal();
+      });
+    }
+    if (tasksOpenBtn){
+      tasksOpenBtn.addEventListener('click', function(e){
+        if (e && e.preventDefault) e.preventDefault();
+        openGroupTasksModal();
 	      });
 	    }
 
@@ -1442,6 +1823,10 @@ $(function () {
     }
 
     function ensurePlotlySupportEsg(callback){
+        if (window.ensurePlotlyLib){
+            window.ensurePlotlyLib(callback);
+            return;
+        }
         if (window.Plotly){ callback(); return; }
         var existing = document.querySelector('script[data-loader=\"plotly\"]');
         if (existing){
