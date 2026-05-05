@@ -74,4 +74,5 @@ class ImportCommitResult(BaseModel):
     mis_a_jour: int
     alertes: list[ImportAlerte]
     avis_generes: int = 0
+    affaires_creees: int = 0
     duree_recalcul_s: float = 0.0

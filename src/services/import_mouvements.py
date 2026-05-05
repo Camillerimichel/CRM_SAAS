@@ -30,6 +30,7 @@ from src.schemas.import_portefeuille import (
 from src.services.recalcul_portefeuille import run_full_pipeline
 from src.services.import_inventaire import (
     _resolve_affaire_id,
+    _resolve_or_create_affaire,
     _resolve_or_create_support,
     _parse_date,
 )
@@ -317,6 +318,7 @@ def preview_mouvements(
             {"isin": row.code_isin},
         ).fetchone()
         montant = row.montant_ope if row.montant_ope is not None else abs(row.nbuc * row.vl)
+        affaire_a_creer = id_affaire is None
         apercu.append({
             "ligne": i + 1,
             "ref_affaire": row.ref_affaire or str(row.id_affaire),
@@ -330,13 +332,17 @@ def preview_mouvements(
             "vl": row.vl,
             "montant_ope": round(montant, 4),
             "frais": row.frais or 0,
-            "affaire_trouvee": id_affaire is not None,
+            "affaire_trouvee": not affaire_a_creer,
+            "affaire_a_creer": affaire_a_creer,
             "code_mouvement_connu": regle is not None,
         })
-        if id_affaire is None:
+        if affaire_a_creer:
             alertes.append(ImportAlerte(
-                ligne=i + 1, code="affaire_inconnue",
-                message=f"Affaire introuvable : {row.ref_affaire or row.id_affaire}",
+                ligne=i + 1, code="affaire_a_creer",
+                message=(
+                    f"Affaire '{row.ref_affaire or row.id_affaire}' introuvable – "
+                    "sera créée à vide avec tâche de finalisation"
+                ),
             ))
         if regle is None:
             alertes.append(ImportAlerte(
@@ -368,6 +374,7 @@ def commit_mouvements(
 
     insere = 0
     avis_generes = 0
+    affaires_creees = 0
     affected_affaire_ids: set[int] = set()
     affected_pairs: set[tuple[int, int]] = set()  # (id_affaire, id_support)
 
@@ -378,13 +385,24 @@ def commit_mouvements(
     # First pass: resolve and validate each row
     resolved_rows: list[tuple[MouvementRow, int, int, int, datetime, float, float]] = []
     for i, row in enumerate(rows, start=1):
-        id_affaire = _resolve_affaire_id(db, row)
+        id_affaire, was_created = _resolve_or_create_affaire(
+            db, row, id_societe_gestion, create_if_missing=True
+        )
         if id_affaire is None:
             alertes.append(ImportAlerte(
                 ligne=i, code="affaire_inconnue",
-                message=f"Affaire introuvable : {row.ref_affaire or row.id_affaire}",
+                message=f"Impossible de résoudre ou créer l'affaire : {row.ref_affaire or row.id_affaire}",
             ))
             continue
+        if was_created:
+            affaires_creees += 1
+            alertes.append(ImportAlerte(
+                ligne=i, code="affaire_creee",
+                message=(
+                    f"Affaire '{row.ref_affaire}' créée à vide (id={id_affaire}) – "
+                    "tâche de finalisation générée"
+                ),
+            ))
 
         regle = regle_map.get(row.code_mouvement.upper())
         if regle is None:
@@ -471,5 +489,6 @@ def commit_mouvements(
         mis_a_jour=0,
         alertes=alertes,
         avis_generes=avis_generes,
+        affaires_creees=affaires_creees,
         duree_recalcul_s=round(duree, 2),
     )
