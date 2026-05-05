@@ -45,9 +45,11 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 from src.api import dashboard
 from src.api import events
 from src.api import groupes
+from src.api import import_portefeuille
 app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(groupes.router)
+app.include_router(import_portefeuille.router)
 
 
 @app.middleware("http")
