@@ -105,7 +105,7 @@ def _validate_rows(raw_rows: list[dict]) -> tuple[list[InventaireRow], list[Impo
 # DB helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _resolve_affaire_id(db: Session, row: InventaireRow) -> int | None:
+def _resolve_affaire_id(db: Session, row) -> int | None:  # InventaireRow | MouvementRow
     if row.id_affaire is not None:
         r = db.execute(
             text("SELECT id FROM mariadb_affaires WHERE id = :id"),
@@ -119,6 +119,100 @@ def _resolve_affaire_id(db: Session, row: InventaireRow) -> int | None:
         ).fetchone()
         return r[0] if r else None
     return None
+
+
+def _ensure_type_finalisation(db: Session) -> int:
+    """Retourne l'id du type_evenement 'Finalisation de la création du contrat/compte'."""
+    row = db.execute(
+        text("SELECT id FROM mariadb_type_evenement WHERE libelle LIKE '%Finalisation%création%' LIMIT 1")
+    ).fetchone()
+    if row:
+        return row[0]
+    db.execute(
+        text(
+            "INSERT INTO mariadb_type_evenement (libelle, categorie) "
+            "VALUES ('Finalisation de la création du contrat/compte', 'contrat')"
+        )
+    )
+    db.flush()
+    row = db.execute(
+        text("SELECT id FROM mariadb_type_evenement WHERE libelle LIKE '%Finalisation%création%' LIMIT 1")
+    ).fetchone()
+    return row[0]
+
+
+def _create_affaire_vide(
+    db: Session,
+    ref: str,
+    id_societe_gestion: int | None = None,
+) -> int:
+    """Crée une affaire à vide avec seulement la référence. Retourne l'id."""
+    next_id = db.execute(
+        text("SELECT COALESCE(MAX(id), 0) + 1 FROM mariadb_affaires")
+    ).scalar()
+    db.execute(
+        text(
+            """
+            INSERT INTO mariadb_affaires (id, ref, id_societe_gestion)
+            VALUES (:id, :ref, :sg)
+            """
+        ),
+        {"id": int(next_id), "ref": ref, "sg": id_societe_gestion},
+    )
+    db.flush()
+    logger.warning("IMPORT – Affaire créée à vide : ref=%s (id=%s)", ref, next_id)
+    return int(next_id)
+
+
+def _create_finalisation_task(
+    db: Session,
+    id_affaire: int,
+    id_societe_gestion: int | None = None,
+) -> None:
+    """Génère une tâche 'Finalisation de la création du contrat/compte' liée à l'affaire."""
+    type_id = _ensure_type_finalisation(db)
+    db.execute(
+        text(
+            """
+            INSERT INTO mariadb_evenement
+              (type_id, affaire_id, id_societe_gestion, date_evenement, statut, commentaire)
+            VALUES
+              (:type_id, :aff, :sg, :dt, 'à faire',
+               'Veuillez finir la complétude de la création de l\\'affaire')
+            """
+        ),
+        {
+            "type_id": type_id,
+            "aff": id_affaire,
+            "sg": id_societe_gestion,
+            "dt": datetime.utcnow().strftime("%Y-%m-%d"),
+        },
+    )
+    db.flush()
+
+
+def _resolve_or_create_affaire(
+    db: Session,
+    row,  # InventaireRow | MouvementRow
+    id_societe_gestion: int | None = None,
+    create_if_missing: bool = False,
+) -> tuple[int | None, bool]:
+    """
+    Cherche l'affaire. Si absente et create_if_missing=True, la crée à vide
+    et génère une tâche de finalisation.
+    Retourne (id_affaire | None, was_created).
+    """
+    id_affaire = _resolve_affaire_id(db, row)
+    if id_affaire is not None:
+        return id_affaire, False
+
+    if not create_if_missing:
+        return None, False
+
+    ref = (row.ref_affaire or "").strip() or f"IMP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    id_affaire = _create_affaire_vide(db, ref, id_societe_gestion)
+    _create_finalisation_task(db, id_affaire, id_societe_gestion)
+    return id_affaire, True
 
 
 def _resolve_or_create_support(
@@ -233,6 +327,7 @@ def preview_inventaire(
             text("SELECT id, nom FROM mariadb_support WHERE code_isin = :isin LIMIT 1"),
             {"isin": row.code_isin},
         ).fetchone()
+        affaire_a_creer = id_affaire is None
         apercu.append({
             "ligne": i + 1,
             "ref_affaire": row.ref_affaire or str(row.id_affaire),
@@ -243,14 +338,18 @@ def preview_inventaire(
             "nbuc": row.nbuc,
             "vl": row.vl,
             "valo": round(row.nbuc * row.vl, 4),
-            "affaire_trouvee": id_affaire is not None,
+            "affaire_trouvee": not affaire_a_creer,
+            "affaire_a_creer": affaire_a_creer,
             "support_connu": support_row is not None,
         })
-        if id_affaire is None:
+        if affaire_a_creer:
             alertes.append(ImportAlerte(
                 ligne=i + 1,
-                code="affaire_inconnue",
-                message=f"Affaire introuvable : {row.ref_affaire or row.id_affaire}",
+                code="affaire_a_creer",
+                message=(
+                    f"Affaire '{row.ref_affaire or row.id_affaire}' introuvable – "
+                    "sera créée à vide avec tâche de finalisation"
+                ),
             ))
 
     return ImportPreviewResult(
@@ -276,17 +375,30 @@ def commit_inventaire(
 
     insere = 0
     mis_a_jour = 0
+    affaires_creees = 0
     affected_affaire_ids: set[int] = set()
 
     for i, row in enumerate(rows, start=1):
-        id_affaire = _resolve_affaire_id(db, row)
+        id_affaire, was_created = _resolve_or_create_affaire(
+            db, row, id_societe_gestion, create_if_missing=True
+        )
         if id_affaire is None:
             alertes.append(ImportAlerte(
                 ligne=i,
                 code="affaire_inconnue",
-                message=f"Affaire introuvable : {row.ref_affaire or row.id_affaire}",
+                message=f"Impossible de résoudre ou créer l'affaire : {row.ref_affaire or row.id_affaire}",
             ))
             continue
+        if was_created:
+            affaires_creees += 1
+            alertes.append(ImportAlerte(
+                ligne=i,
+                code="affaire_creee",
+                message=(
+                    f"Affaire '{row.ref_affaire}' créée à vide (id={id_affaire}) – "
+                    "tâche de finalisation générée"
+                ),
+            ))
 
         id_support, created = _resolve_or_create_support(db, row.code_isin, row.nom_support)
         if created:
@@ -330,5 +442,6 @@ def commit_inventaire(
         insere=insere,
         mis_a_jour=mis_a_jour,
         alertes=alertes,
+        affaires_creees=affaires_creees,
         duree_recalcul_s=round(duree, 2),
     )
