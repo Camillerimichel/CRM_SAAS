@@ -145,6 +145,7 @@ def _create_affaire_vide(
     db: Session,
     ref: str,
     id_societe_gestion: int | None = None,
+    id_personne: int | None = None,
 ) -> int:
     """Crée une affaire à vide avec seulement la référence. Retourne l'id."""
     next_id = db.execute(
@@ -153,14 +154,14 @@ def _create_affaire_vide(
     db.execute(
         text(
             """
-            INSERT INTO mariadb_affaires (id, ref, id_societe_gestion)
-            VALUES (:id, :ref, :sg)
+            INSERT INTO mariadb_affaires (id, ref, id_societe_gestion, id_personne)
+            VALUES (:id, :ref, :sg, :personne)
             """
         ),
-        {"id": int(next_id), "ref": ref, "sg": id_societe_gestion},
+        {"id": int(next_id), "ref": ref, "sg": id_societe_gestion, "personne": id_personne},
     )
     db.flush()
-    logger.warning("IMPORT – Affaire créée à vide : ref=%s (id=%s)", ref, next_id)
+    logger.warning("IMPORT – Affaire créée à vide : ref=%s (id=%s, id_personne=%s)", ref, next_id, id_personne)
     return int(next_id)
 
 
@@ -168,22 +169,24 @@ def _create_finalisation_task(
     db: Session,
     id_affaire: int,
     id_societe_gestion: int | None = None,
+    id_personne: int | None = None,
 ) -> None:
-    """Génère une tâche 'Finalisation de la création du contrat/compte' liée à l'affaire."""
+    """Génère une tâche 'Finalisation de la création du contrat/compte' liée à l'affaire et au client."""
     type_id = _ensure_type_finalisation(db)
     db.execute(
         text(
             """
             INSERT INTO mariadb_evenement
-              (type_id, affaire_id, id_societe_gestion, date_evenement, statut, commentaire)
+              (type_id, affaire_id, client_id, id_societe_gestion, date_evenement, statut, commentaire)
             VALUES
-              (:type_id, :aff, :sg, :dt, 'à faire',
+              (:type_id, :aff, :client, :sg, :dt, 'à faire',
                'Veuillez finir la complétude de la création de l\\'affaire')
             """
         ),
         {
             "type_id": type_id,
             "aff": id_affaire,
+            "client": id_personne,
             "sg": id_societe_gestion,
             "dt": datetime.utcnow().strftime("%Y-%m-%d"),
         },
@@ -196,6 +199,7 @@ def _resolve_or_create_affaire(
     row,  # InventaireRow | MouvementRow
     id_societe_gestion: int | None = None,
     create_if_missing: bool = False,
+    id_personne: int | None = None,
 ) -> tuple[int | None, bool]:
     """
     Cherche l'affaire. Si absente et create_if_missing=True, la crée à vide
@@ -210,8 +214,8 @@ def _resolve_or_create_affaire(
         return None, False
 
     ref = (row.ref_affaire or "").strip() or f"IMP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    id_affaire = _create_affaire_vide(db, ref, id_societe_gestion)
-    _create_finalisation_task(db, id_affaire, id_societe_gestion)
+    id_affaire = _create_affaire_vide(db, ref, id_societe_gestion, id_personne)
+    _create_finalisation_task(db, id_affaire, id_societe_gestion, id_personne)
     return id_affaire, True
 
 
@@ -369,6 +373,7 @@ def commit_inventaire(
     db: Session,
     raw_rows: list[dict],
     id_societe_gestion: int | None = None,
+    id_personne: int | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
     rows, alertes = _validate_rows(raw_rows)
@@ -380,7 +385,7 @@ def commit_inventaire(
 
     for i, row in enumerate(rows, start=1):
         id_affaire, was_created = _resolve_or_create_affaire(
-            db, row, id_societe_gestion, create_if_missing=True
+            db, row, id_societe_gestion, create_if_missing=True, id_personne=id_personne
         )
         if id_affaire is None:
             alertes.append(ImportAlerte(

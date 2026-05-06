@@ -367,12 +367,14 @@ def commit_mouvements(
     db: Session,
     raw_rows: list[dict],
     id_societe_gestion: int | None = None,
+    id_personne: int | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
     rows, alertes = _validate_rows(raw_rows)
     regle_map = _load_mouvement_regle(db)
 
     insere = 0
+    mis_a_jour = 0
     avis_generes = 0
     affaires_creees = 0
     affected_affaire_ids: set[int] = set()
@@ -386,7 +388,7 @@ def commit_mouvements(
     resolved_rows: list[tuple[MouvementRow, int, int, int, datetime, float, float]] = []
     for i, row in enumerate(rows, start=1):
         id_affaire, was_created = _resolve_or_create_affaire(
-            db, row, id_societe_gestion, create_if_missing=True
+            db, row, id_societe_gestion, create_if_missing=True, id_personne=id_personne
         )
         if id_affaire is None:
             alertes.append(ImportAlerte(
@@ -438,7 +440,7 @@ def commit_mouvements(
 
     db.commit()
 
-    # Create avis for each (id_affaire, date) group
+    # UPSERT avis pour chaque groupe (id_affaire, date) — évite les doublons sur re-import
     avis_id_map: dict[tuple[int, str], int] = {}
     for (id_affaire, date_str), lines_data in avis_groups.items():
         entree = [f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
@@ -446,21 +448,70 @@ def commit_mouvements(
         sortie = [f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
                   for d in lines_data if (d["sens"] or 0) < 0]
         snap_date = _parse_date(date_str)
-        avis_id = _create_avis(db, id_affaire, snap_date, entree, sortie)
+        ref = f"IMP-{id_affaire}-{snap_date.strftime('%Y%m%d')}"
+        existing_avis = db.execute(
+            text("SELECT id FROM avis WHERE reference = :ref AND id_affaire = :aff LIMIT 1"),
+            {"ref": ref, "aff": id_affaire},
+        ).fetchone()
+        if existing_avis:
+            avis_id = existing_avis[0]
+            entree_txt = "\n".join(entree) if entree else None
+            sortie_txt = "\n".join(sortie) if sortie else None
+            db.execute(
+                text("UPDATE avis SET entree = :e, sortie = :s WHERE id = :id"),
+                {"e": entree_txt, "s": sortie_txt, "id": avis_id},
+            )
+        else:
+            avis_id = _create_avis(db, id_affaire, snap_date, entree, sortie)
+            avis_generes += 1
         avis_id_map[(id_affaire, date_str)] = avis_id
-        avis_generes += 1
 
     db.flush()
 
-    # Insert mouvement rows
+    # UPSERT mouvements : UPDATE si (affaire, support, regle, date) existe, INSERT sinon
     for row, id_affaire, id_support, id_regle, snap_date, montant, frais in resolved_rows:
-        id_avis = avis_id_map.get((id_affaire, row.date), 0)
-        sg = id_societe_gestion or _get_affaire_societe(db, id_affaire)
-        _insert_mouvement(
-            db, id_affaire, id_regle, id_support, id_avis,
-            snap_date, montant, frais, row.vl, row.nbuc, sg,
-        )
-        insere += 1
+        existing = db.execute(
+            text(
+                """
+                SELECT id FROM mouvement
+                WHERE id_affaire = :aff
+                  AND id_support = :sup
+                  AND id_mouvement_regle = :regle
+                  AND vl_date = :dt
+                LIMIT 1
+                """
+            ),
+            {"aff": id_affaire, "sup": id_support, "regle": id_regle, "dt": snap_date},
+        ).fetchone()
+        if existing:
+            db.execute(
+                text(
+                    """
+                    UPDATE mouvement
+                    SET montant_ope = :montant, frais = :frais, vl = :vl, nb_uc = :nbuc,
+                        modif_quand = :now
+                    WHERE id = :id
+                    """
+                ),
+                {"montant": str(montant), "frais": str(frais), "vl": str(row.vl),
+                 "nbuc": str(row.nbuc), "now": datetime.utcnow(), "id": existing[0]},
+            )
+            mis_a_jour += 1
+            alertes.append(ImportAlerte(
+                code="doublon_mouvement",
+                message=(
+                    f"Mouvement mis à jour : affaire {id_affaire}, "
+                    f"ISIN {row.code_isin}, date {row.date}, montant {montant}"
+                ),
+            ))
+        else:
+            id_avis = avis_id_map.get((id_affaire, row.date), 0)
+            sg = id_societe_gestion or _get_affaire_societe(db, id_affaire)
+            _insert_mouvement(
+                db, id_affaire, id_regle, id_support, id_avis,
+                snap_date, montant, frais, row.vl, row.nbuc, sg,
+            )
+            insere += 1
 
     db.commit()
 
@@ -486,7 +537,7 @@ def commit_mouvements(
 
     return ImportCommitResult(
         insere=insere,
-        mis_a_jour=0,
+        mis_a_jour=mis_a_jour,
         alertes=alertes,
         avis_generes=avis_generes,
         affaires_creees=affaires_creees,

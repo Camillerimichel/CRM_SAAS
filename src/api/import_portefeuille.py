@@ -119,6 +119,7 @@ async def inventaire_commit(
     file: Optional[UploadFile] = File(None),
     format: Optional[str] = Query(None, description="csv ou json"),
     id_societe_gestion: Optional[int] = Query(None),
+    id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -126,7 +127,7 @@ async def inventaire_commit(
     )
     if not raw_rows:
         raise HTTPException(status_code=400, detail="Fichier vide ou non parseable.")
-    return commit_inventaire(db, raw_rows, id_societe_gestion=id_societe_gestion)
+    return commit_inventaire(db, raw_rows, id_societe_gestion=id_societe_gestion, id_personne=id_client, run_pipeline=False)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ async def mouvements_commit(
     file: Optional[UploadFile] = File(None),
     format: Optional[str] = Query(None),
     id_societe_gestion: Optional[int] = Query(None),
+    id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -167,4 +169,4 @@ async def mouvements_commit(
     )
     if not raw_rows:
         raise HTTPException(status_code=400, detail="Fichier vide ou non parseable.")
-    return commit_mouvements(db, raw_rows, id_societe_gestion=id_societe_gestion)
+    return commit_mouvements(db, raw_rows, id_societe_gestion=id_societe_gestion, id_personne=id_client, run_pipeline=False)

@@ -176,10 +176,10 @@ def aggregate_affaire_to_personne(
     else:
         client_ids = []
 
-    scope_clause = ""
+    scope_clause = "WHERE a.id_personne IS NOT NULL"
     params: dict = {}
     if client_ids:
-        scope_clause = "WHERE a.id_personne IN :cids"
+        scope_clause = "WHERE a.id_personne IS NOT NULL AND a.id_personne IN :cids"
         params["cids"] = tuple(client_ids)
 
     # Collect (personne_id, date) pairs to replace
@@ -441,7 +441,7 @@ def recompute_dietz_clients(
     scope_filter = ""
     params: dict = {}
     if client_ids:
-        scope_filter = "WHERE id IN :ids"
+        scope_filter = "AND id IN :ids"
         params["ids"] = tuple(client_ids)
 
     db.execute(text("DROP TABLE IF EXISTS tempo_hist_personne_import_w"))
@@ -483,7 +483,7 @@ def recompute_dietz_clients(
                 LAG(valo) OVER (PARTITION BY id ORDER BY `date`)       AS prev_valo,
                 ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`)    AS rn
               FROM mariadb_historique_personne_w
-              {scope_filter}
+              WHERE id IS NOT NULL {scope_filter}
             ),
             base AS (
               SELECT

@@ -1,0 +1,632 @@
+{% extends "base.html" %}
+{% block title %}Import fournisseurs{% endblock %}
+{% block header_title %}Import fournisseurs{% endblock %}
+{% block header_subtitle %}Inventaire · Mouvements · Calcul des risques{% endblock %}
+
+{% block content %}
+<style>
+  .import-step { display: none; }
+  .import-step.active { display: block; }
+
+  .step-bar { display: flex; margin-bottom: 32px; max-width: 600px; }
+  .step-bar-item {
+    flex: 1; text-align: center; padding: 10px 4px; font-size: 13px;
+    background: #f3f4f6; color: #9ca3af; border-right: 1px solid #e5e7eb;
+    transition: background .2s, color .2s;
+  }
+  .step-bar-item:first-child { border-radius: 8px 0 0 8px; }
+  .step-bar-item:last-child  { border-radius: 0 8px 8px 0; border-right: none; }
+  .step-bar-item.done   { background: #bbf7d0; color: #15803d; }
+  .step-bar-item.active { background: #2563eb; color: #fff; font-weight: 700; }
+
+  .icard {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+    max-width: 700px; margin-bottom: 24px;
+    box-shadow: 0 8px 20px rgba(15,23,42,.06);
+  }
+  .icard-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 24px 14px; border-bottom: 1px solid #f3f4f6; gap: 12px;
+  }
+  .icard-body { padding: 20px 24px 24px; }
+
+  .field-label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .text-input {
+    padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+    font-size: 14px; box-sizing: border-box; outline: none;
+    transition: border-color .15s; width: 100%;
+  }
+  .text-input:focus { border-color: #2563eb; }
+
+  .drop-zone {
+    border: 2px dashed #d1d5db; border-radius: 10px; padding: 32px;
+    text-align: center; cursor: pointer; background: #fafafa; transition: all .15s;
+  }
+  .drop-zone.drag { border-color: #2563eb; background: #eff6ff; }
+
+  .btn-primary {
+    padding: 10px 26px; background: #2563eb; color: #fff; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-primary:disabled { background: #d1d5db; cursor: not-allowed; }
+
+  .btn-secondary {
+    padding: 10px 20px; background: #fff; color: #374151;
+    border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px;
+    cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
+    transition: border-color .15s;
+  }
+  .btn-secondary:hover { border-color: #9ca3af; }
+
+  .btn-success {
+    padding: 10px 26px; background: #16a34a; color: #fff; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-success:hover:not(:disabled) { background: #15803d; }
+  .btn-success:disabled { background: #d1d5db; cursor: not-allowed; }
+
+  .alert-box { padding: 10px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 10px; }
+  .alert-error  { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+
+  .badge {
+    display: inline-block; border-radius: 4px; padding: 1px 7px;
+    font-size: 11px; font-weight: 700; color: #fff; margin-right: 2px;
+  }
+  .badge-warn   { background: #f59e0b; }
+  .badge-danger { background: #ef4444; }
+  .badge-muted  { background: #6b7280; }
+  .badge-ok     { background: #22c55e; }
+
+  /* Tableau aperçu */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th {
+    padding: 8px 10px; text-align: left; background: #f9fafb;
+    border-bottom: 2px solid #e5e7eb; font-weight: 700; white-space: nowrap;
+  }
+  .data-table td {
+    padding: 7px 10px; border-bottom: 1px solid #f3f4f6; white-space: nowrap;
+  }
+  .data-table tr:nth-child(even) td { background: #f9fafb; }
+
+  /* Pagination alertes */
+  .pager { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .pager-btn {
+    padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    background: #fff; font-size: 13px; cursor: pointer; transition: all .12s;
+  }
+  .pager-btn:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; }
+  .pager-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 700; }
+  .pager-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* KPIs résultat */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr));
+    gap: 12px; margin-bottom: 20px;
+  }
+  .kpi-card {
+    padding: 14px 16px; background: #f9fafb; border: 1px solid #e5e7eb;
+    border-radius: 10px; text-align: center;
+  }
+  .kpi-card.warn { background: #fffbeb; border-color: #fde68a; }
+  .kpi-card .kpi-val { font-size: 26px; font-weight: 800; }
+  .kpi-card .kpi-lbl { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+  .log-area {
+    background: #0f172a; color: #e2e8f0; font-family: monospace;
+    font-size: 13px; border-radius: 8px; padding: 16px;
+    max-height: 200px; overflow-y: auto; margin-top: 12px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log-area .log-ok  { color: #4ade80; }
+  .log-area .log-err { color: #f87171; }
+  .log-area .log-warn{ color: #fbbf24; }
+
+  .option-field {
+    margin-top: 16px; padding: 14px 16px;
+    background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
+  }
+
+  .result-inline {
+    margin-top: 16px; padding: 16px 18px;
+    background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
+  }
+</style>
+
+<div style="max-width:720px;">
+
+  <div style="margin-bottom:20px;">
+    <a href="/dashboard/superadmin#outils-import" class="btn-secondary">← Retour à la Superadministration</a>
+  </div>
+
+  <!-- Barre de progression 3 étapes -->
+  <div class="step-bar" id="stepBar">
+    <div class="step-bar-item active" id="bar0">Étape 1 — Inventaire</div>
+    <div class="step-bar-item"       id="bar1">Étape 2 — Mouvements</div>
+    <div class="step-bar-item"       id="bar2">Étape 3 — Calcul des risques</div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ÉTAPE 1 : Import inventaire                                           -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="import-step active" id="step0">
+    <div id="step0Upload">
+      <div class="icard">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 1 / 3</p>
+            <h3 style="margin:0;">Import de l'inventaire</h3>
+          </div>
+        </div>
+        <div class="icard-body">
+
+          <div style="margin-bottom:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <span class="muted" style="font-size:13px;">Fichier de test :</span>
+            <a href="/dashboard/superadmin/import-fournisseurs/sample/test_inventaire.csv" download class="btn-secondary" style="font-size:13px; padding:6px 14px;">↓ test_inventaire.csv</a>
+          </div>
+
+          <div class="drop-zone" id="dropInv" onclick="document.getElementById('fileInv').click()">
+            <input type="file" id="fileInv" accept=".csv,.json" style="display:none;" onchange="onFile('inv', this.files[0])">
+            <div style="font-size:26px; margin-bottom:8px;" id="iconInv">📂</div>
+            <p style="margin:0;" id="labelInv">Glissez un fichier CSV ou JSON ici</p>
+            <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subInv">ou cliquez pour parcourir</p>
+          </div>
+
+          <div class="option-field">
+            <label class="field-label" style="font-size:13px; color:#6b7280; font-weight:500;">Option — utilisée si une affaire est créée à vide</label>
+            <div style="margin-top:8px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Société de gestion <span style="color:#dc2626;">*</span></label>
+              <select id="sgInv" class="text-input">
+                <option value="">— Sélectionner —</option>
+                {% for sg in societes %}
+                <option value="{{ sg.id }}">{{ sg.nom }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="errInv" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+
+          <div style="margin-top:20px;">
+            <button type="button" class="btn-primary" id="btnAnalyseInv" disabled onclick="doPreview('inv')">Analyser →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aperçu inventaire -->
+    <div id="step0Apercu" style="display:none;">
+      <div class="icard" style="max-width:720px;">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu inventaire</p>
+            <h3 id="titreApercu0" style="margin:0;"></h3>
+          </div>
+          <div style="display:flex; gap:8px;" id="pillsApercu0"></div>
+        </div>
+        <div class="icard-body">
+          <div id="alertesApercu0"></div>
+          <div style="overflow-x:auto; margin-bottom:8px;">
+            <table class="data-table"><thead id="headApercu0"></thead><tbody id="bodyApercu0"></tbody></table>
+          </div>
+          <p class="muted" id="moreApercu0" style="font-size:13px; margin:0 0 16px;"></p>
+          <div id="errCommit0" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button type="button" class="btn-secondary" onclick="backToUpload('inv')">← Retour</button>
+            <button type="button" class="btn-success" id="btnCommit0" onclick="doCommit('inv')">Importer</button>
+            <span id="hintCommit0" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Résultat inventaire -->
+    <div id="step0Result" style="display:none;">
+      <div class="result-inline">
+        <div class="kpi-grid" id="kpis0"></div>
+        <div id="alertesResult0"></div>
+        <div class="log-area" id="log0"></div>
+      </div>
+      <div style="margin-top:20px;">
+        <button type="button" class="btn-primary" onclick="goToStep(1)">Passer aux mouvements →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ÉTAPE 2 : Import mouvements                                           -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="import-step" id="step1">
+    <div id="step1Upload">
+      <div class="icard">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 2 / 3</p>
+            <h3 style="margin:0;">Import des mouvements</h3>
+          </div>
+        </div>
+        <div class="icard-body">
+
+          <div style="margin-bottom:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <span class="muted" style="font-size:13px;">Fichier de test :</span>
+            <a href="/dashboard/superadmin/import-fournisseurs/sample/test_mouvements.csv" download class="btn-secondary" style="font-size:13px; padding:6px 14px;">↓ test_mouvements.csv</a>
+          </div>
+
+          <div class="drop-zone" id="dropMov" onclick="document.getElementById('fileMov').click()">
+            <input type="file" id="fileMov" accept=".csv,.json" style="display:none;" onchange="onFile('mov', this.files[0])">
+            <div style="font-size:26px; margin-bottom:8px;" id="iconMov">📂</div>
+            <p style="margin:0;" id="labelMov">Glissez un fichier CSV ou JSON ici</p>
+            <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subMov">ou cliquez pour parcourir</p>
+          </div>
+
+          <div class="option-field">
+            <label class="field-label" style="font-size:13px; color:#6b7280; font-weight:500;">Option — utilisée si une affaire est créée à vide</label>
+            <div style="margin-top:8px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Société de gestion <span style="color:#dc2626;">*</span></label>
+              <select id="sgMov" class="text-input">
+                <option value="">— Sélectionner —</option>
+                {% for sg in societes %}
+                <option value="{{ sg.id }}">{{ sg.nom }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="errMov" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+
+          <div style="margin-top:20px; display:flex; gap:10px;">
+            <button type="button" class="btn-secondary" onclick="goToStep(0)">← Retour à l'inventaire</button>
+            <button type="button" class="btn-primary" id="btnAnalyseMov" disabled onclick="doPreview('mov')">Analyser →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aperçu mouvements -->
+    <div id="step1Apercu" style="display:none;">
+      <div class="icard" style="max-width:720px;">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu mouvements</p>
+            <h3 id="titreApercu1" style="margin:0;"></h3>
+          </div>
+          <div style="display:flex; gap:8px;" id="pillsApercu1"></div>
+        </div>
+        <div class="icard-body">
+          <div id="alertesApercu1"></div>
+          <div style="overflow-x:auto; margin-bottom:8px;">
+            <table class="data-table"><thead id="headApercu1"></thead><tbody id="bodyApercu1"></tbody></table>
+          </div>
+          <p class="muted" id="moreApercu1" style="font-size:13px; margin:0 0 16px;"></p>
+          <div id="errCommit1" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button type="button" class="btn-secondary" onclick="backToUpload('mov')">← Retour</button>
+            <button type="button" class="btn-success" id="btnCommit1" onclick="doCommit('mov')">Importer</button>
+            <span id="hintCommit1" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Résultat mouvements -->
+    <div id="step1Result" style="display:none;">
+      <div class="result-inline">
+        <div class="kpi-grid" id="kpis1"></div>
+        <div id="alertesResult1"></div>
+        <div class="log-area" id="log1"></div>
+      </div>
+      <div style="margin-top:20px;">
+        <button type="button" class="btn-primary" onclick="goToStep(2)">Passer au calcul des risques →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ÉTAPE 3 : Calcul des risques                                          -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="import-step" id="step2">
+    <div class="icard">
+      <div class="icard-header">
+        <div>
+          <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 3 / 3</p>
+          <h3 style="margin:0;">Calcul des risques — SRRI &amp; SRI</h3>
+        </div>
+      </div>
+      <div class="icard-body">
+        <p class="muted" style="font-size:14px; margin:0 0 20px;">
+          Lance la chaîne complète : SRRI clients → SRI clients → SRRI affaires → SRI affaires.<br>
+          Cette opération peut prendre une à deux minutes.
+        </p>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <button type="button" class="btn-secondary" onclick="goToStep(1)">← Retour aux mouvements</button>
+          <button type="button" class="btn-primary" id="btnRisques" onclick="doRecalculRisques()">Calculer SRRI &amp; SRI</button>
+          <span id="risquesHint" class="muted" style="font-size:13px; display:none;">Calcul en cours…</span>
+        </div>
+        <div id="risquesResult" style="display:none; margin-top:16px;"></div>
+        <div style="margin-top:20px; display:none;" id="risquesDone">
+          <a href="/dashboard/superadmin#outils-import" class="btn-secondary">Retour à la Superadministration</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── État ─────────────────────────────────────────────────────────────────────
+const st = {
+  inv: { file: null, preview: null },
+  mov: { file: null, preview: null },
+};
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function goToStep(n) {
+  document.querySelectorAll('.import-step').forEach(el => el.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  for (let i = 0; i < 3; i++) {
+    const b = document.getElementById('bar' + i);
+    b.classList.remove('active', 'done');
+    if (i < n) b.classList.add('done');
+    else if (i === n) b.classList.add('active');
+  }
+}
+
+function backToUpload(type) {
+  const idx = type === 'inv' ? 0 : 1;
+  document.getElementById('step' + idx + 'Apercu').style.display = 'none';
+  document.getElementById('step' + idx + 'Upload').style.display = 'block';
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+}
+
+function badgeHtml(code) {
+  const cls = {
+    affaire_a_creer:'warn', unknown_isin:'warn', conflict_date:'danger',
+    doublon_mouvement:'muted', affaire_creee:'ok', recalcul_error:'danger',
+    code_mouvement_inconnu:'danger',
+  };
+  return `<span class="badge badge-${cls[code]||'muted'}">${code}</span>`;
+}
+
+// ─── Tableau d'alertes paginé (10/page) ───────────────────────────────────────
+function renderAlertes(containerId, alertes) {
+  const el = document.getElementById(containerId);
+  if (!alertes || !alertes.length) { el.innerHTML = ''; return; }
+  const PAGE = 10;
+  let page = 0;
+
+  function render() {
+    const total = alertes.length;
+    const pages = Math.ceil(total / PAGE);
+    const slice = alertes.slice(page * PAGE, (page + 1) * PAGE);
+    let html = `
+      <p style="font-weight:700; margin:0 0 8px;">Alertes (${total})</p>
+      <div style="overflow-x:auto; margin-bottom:6px;">
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:50px;">Ligne</th>
+            <th style="width:180px;">Code</th>
+            <th>Message</th>
+          </tr></thead>
+          <tbody>
+            ${slice.map(a => `<tr>
+              <td>${a.ligne ?? '—'}</td>
+              <td>${badgeHtml(a.code)}</td>
+              <td style="white-space:normal;">${a.message}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    if (pages > 1) {
+      html += `<div class="pager">
+        <button class="pager-btn" ${page===0?'disabled':''} onclick="changePage('${containerId}',${page-1})">‹ Préc.</button>`;
+      for (let i = 0; i < pages; i++)
+        html += `<button class="pager-btn ${i===page?'active':''}" onclick="changePage('${containerId}',${i})">${i+1}</button>`;
+      html += `<button class="pager-btn" ${page===pages-1?'disabled':''} onclick="changePage('${containerId}',${page+1})">Suiv. ›</button>
+        <span class="muted" style="font-size:12px; margin-left:4px;">Page ${page+1}/${pages}</span>
+      </div>`;
+    }
+    el.innerHTML = html;
+    el._alertes = alertes;
+    el._page = page;
+  }
+
+  el._changePage = (p) => { page = p; render(); };
+  render();
+}
+
+function changePage(containerId, p) {
+  document.getElementById(containerId)._changePage(p);
+}
+
+// ─── Drop zone ────────────────────────────────────────────────────────────────
+['Inv','Mov'].forEach(k => {
+  const zone = document.getElementById('drop' + k);
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(k === 'Inv' ? 'inv' : 'mov', f);
+  });
+});
+
+function onFile(type, f) {
+  const k = type === 'inv' ? 'Inv' : 'Mov';
+  st[type].file = f || null;
+  document.getElementById('err' + k).style.display = 'none';
+  document.getElementById('btnAnalyse' + k).disabled = !f;
+  if (f) {
+    document.getElementById('icon' + k).textContent = '📄';
+    document.getElementById('label' + k).innerHTML = `<strong>${f.name}</strong>`;
+    document.getElementById('sub' + k).textContent = `${(f.size/1024).toFixed(1)} Ko`;
+  } else {
+    document.getElementById('icon' + k).textContent = '📂';
+    document.getElementById('label' + k).textContent = 'Glissez un fichier CSV ou JSON ici';
+    document.getElementById('sub' + k).textContent = 'ou cliquez pour parcourir';
+  }
+}
+
+// ─── Preview ──────────────────────────────────────────────────────────────────
+const COLS = {
+  inv: ['ref_affaire','date','code_isin','nom_support','nbuc','vl','valo'],
+  mov: ['ref_affaire','date','code_isin','code_mouvement','nbuc','vl','montant_ope'],
+};
+
+async function doPreview(type) {
+  const k = type === 'inv' ? 'Inv' : 'Mov';
+  const idx = type === 'inv' ? 0 : 1;
+  const btn = document.getElementById('btnAnalyse' + k);
+  btn.disabled = true; btn.textContent = 'Analyse…';
+  document.getElementById('err' + k).style.display = 'none';
+  try {
+    const form = new FormData();
+    form.append('file', st[type].file);
+    const apiType = type === 'inv' ? 'inventaire' : 'mouvements';
+    const res = await fetch(`/import/${apiType}/preview`, { method: 'POST', body: form });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    st[type].preview = await res.json();
+    renderApercu(type, idx);
+    document.getElementById('step' + idx + 'Upload').style.display = 'none';
+    document.getElementById('step' + idx + 'Apercu').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('err' + k);
+    box.textContent = e.message; box.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analyser →';
+  }
+}
+
+function renderApercu(type, idx) {
+  const p = st[type].preview;
+  const cols = COLS[type];
+  const label = type === 'inv' ? 'Inventaire' : 'Mouvements';
+
+  document.getElementById('titreApercu' + idx).textContent =
+    `${label} — ${st[type].file.name}`;
+
+  const pillBox = document.getElementById('pillsApercu' + idx);
+  pillBox.innerHTML = `<span class="badge badge-ok" style="font-size:13px;padding:4px 10px;">${p.lignes_valides} valide${p.lignes_valides>1?'s':''}</span>`;
+  if (p.lignes_invalides > 0)
+    pillBox.innerHTML += `<span class="badge badge-danger" style="font-size:13px;padding:4px 10px;">${p.lignes_invalides} invalide${p.lignes_invalides>1?'s':''}</span>`;
+
+  renderAlertes('alertesApercu' + idx, p.alertes);
+
+  document.getElementById('headApercu' + idx).innerHTML =
+    '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '<th>Statut</th></tr>';
+  document.getElementById('bodyApercu' + idx).innerHTML = p.apercu.map(row =>
+    '<tr>' + cols.map(c => `<td>${typeof row[c]==='number' ? fmt(row[c]) : (row[c]??'—')}</td>`).join('') +
+    `<td>${row.affaire_a_creer ? badgeHtml('affaire_a_creer') : (row.affaire_trouvee ? '<span style="color:#22c55e">✓</span>' : '')}${row.support_connu===false?' '+badgeHtml('unknown_isin'):''}</td></tr>`
+  ).join('');
+
+  const moreEl = document.getElementById('moreApercu' + idx);
+  moreEl.textContent = p.total_lignes > p.apercu.length
+    ? `Aperçu limité à ${p.apercu.length} lignes sur ${p.total_lignes} au total.` : '';
+
+  const btn = document.getElementById('btnCommit' + idx);
+  btn.textContent = `Importer ${p.lignes_valides} ligne${p.lignes_valides>1?'s':''}`;
+  btn.disabled = p.lignes_valides === 0;
+}
+
+// ─── Commit ───────────────────────────────────────────────────────────────────
+async function doCommit(type) {
+  const idx = type === 'inv' ? 0 : 1;
+  const sgId = document.getElementById('sg' + (type==='inv'?'Inv':'Mov')).value;
+  const btn  = document.getElementById('btnCommit' + idx);
+  const hint = document.getElementById('hintCommit' + idx);
+  btn.disabled = true; hint.style.display = 'inline';
+  document.getElementById('errCommit' + idx).style.display = 'none';
+  const params = new URLSearchParams();
+  if (sgId) params.set('id_societe_gestion', sgId);
+  const apiType = type === 'inv' ? 'inventaire' : 'mouvements';
+  try {
+    const form = new FormData();
+    form.append('file', st[type].file);
+    const res = await fetch(`/import/${apiType}/commit${params.toString()?'?'+params:''}`, {
+      method: 'POST', body: form,
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    const result = await res.json();
+    renderResult(type, idx, result);
+    document.getElementById('step' + idx + 'Apercu').style.display = 'none';
+    document.getElementById('step' + idx + 'Result').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('errCommit' + idx);
+    box.textContent = e.message; box.style.display = 'block';
+    btn.disabled = false;
+  } finally {
+    hint.style.display = 'none';
+  }
+}
+
+// ─── Résultat ─────────────────────────────────────────────────────────────────
+function renderResult(type, idx, r) {
+  const label = type === 'inv' ? 'Inventaire' : 'Mouvements';
+  const kpis = [
+    { label:'Lignes insérées', val:r.insere },
+    { label:'Mises à jour',    val:r.mis_a_jour },
+    ...(r.avis_generes  > 0 ? [{ label:'Avis générés',    val:r.avis_generes  }] : []),
+    ...(r.affaires_creees>0  ? [{ label:'Affaires créées', val:r.affaires_creees, warn:true }] : []),
+  ];
+  document.getElementById('kpis' + idx).innerHTML = kpis.map(k =>
+    `<div class="kpi-card${k.warn?' warn':''}">
+      <div class="kpi-val">${k.val}</div>
+      <div class="kpi-lbl">${k.label}</div>
+    </div>`
+  ).join('');
+
+  renderAlertes('alertesResult' + idx, r.alertes);
+
+  const lines = [];
+  lines.push(`<span class="log-ok">✓ Import ${label} terminé</span>`);
+  lines.push(`  Fichier  : ${st[type].file.name}`);
+  lines.push(`  Insérés  : ${r.insere}`);
+  if (r.mis_a_jour) lines.push(`  Màj      : ${r.mis_a_jour}`);
+  if (r.avis_generes) lines.push(`  Avis     : ${r.avis_generes}`);
+  if (r.affaires_creees > 0)
+    lines.push(`<span class="log-warn">  Affaires créées : ${r.affaires_creees} (à finaliser)</span>`);
+  r.alertes.filter(a => ['conflict_date','recalcul_error','code_mouvement_inconnu'].includes(a.code))
+    .forEach(a => lines.push(`<span class="log-err">  [ALERTE] ${a.code} — ${a.message}</span>`));
+  document.getElementById('log' + idx).innerHTML = lines.join('\n');
+}
+
+// ─── Calcul des risques ───────────────────────────────────────────────────────
+async function doRecalculRisques() {
+  const btn  = document.getElementById('btnRisques');
+  const hint = document.getElementById('risquesHint');
+  const box  = document.getElementById('risquesResult');
+  btn.disabled = true; hint.style.display = 'inline'; box.style.display = 'none';
+  try {
+    const res  = await fetch('/dashboard/superadmin/import-fournisseurs/recalcul-risques', { method: 'POST' });
+    const data = await res.json();
+    const lines = [];
+    if (data.srri_clients !== undefined)
+      lines.push(`<span class="log-ok">✓ SRRI + SRI clients</span>   ${data.srri_clients}s`);
+    if (data.srri_clients_error)
+      lines.push(`<span class="log-err">✗ SRRI clients : ${data.srri_clients_error}</span>`);
+    if (data.srri_affaires !== undefined)
+      lines.push(`<span class="log-ok">✓ SRRI + SRI affaires</span>  ${data.srri_affaires}s`);
+    if (data.srri_affaires_error)
+      lines.push(`<span class="log-err">✗ SRRI affaires : ${data.srri_affaires_error}</span>`);
+    const hasError = data.srri_clients_error || data.srri_affaires_error;
+    box.innerHTML = `<div class="log-area">${lines.join('\n')}</div>
+      <p style="margin:10px 0 0; font-size:14px; font-weight:600; color:${hasError?'#dc2626':'#16a34a'}">
+        ${hasError ? 'Calcul terminé avec des erreurs.' : 'SRRI &amp; SRI mis à jour avec succès.'}
+      </p>`;
+    box.style.display = 'block';
+    if (!hasError) document.getElementById('risquesDone').style.display = 'block';
+  } catch(e) {
+    box.innerHTML = `<div class="alert-box alert-error">${e.message}</div>`;
+    box.style.display = 'block';
+  } finally {
+    btn.disabled = false; hint.style.display = 'none';
+  }
+}
+</script>
+{% endblock %}

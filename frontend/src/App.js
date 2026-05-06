@@ -7,6 +7,8 @@ import Tasks from "./pages/Tasks";
 import Supports from "./pages/Supports";
 import QuestionnaireRisque from "./pages/QuestionnaireRisque";
 import Veille from "./pages/Veille";
+import ImportPortefeuille from "./pages/ImportPortefeuille";
+import Administration from "./pages/Administration";
 
 const navSections = [
   {
@@ -27,6 +29,7 @@ const navSections = [
       { key: "allocations", label: "Offres", short: "OF", view: "allocations" },
       { key: "documents", label: "Documents", short: "DO", view: "documents" },
       { key: "tasks", label: "Tâches", short: "TA", view: "tasks" },
+      { key: "import", label: "Import fournisseurs", short: "IM", view: "import" },
     ],
   },
   {
@@ -77,7 +80,10 @@ function ComingSoon({ title, description }) {
 }
 
 function App() {
-  const [activeView, setActiveView] = useState("dashboard");
+  const [activeView, setActiveView] = useState(() => {
+    if (sessionStorage.getItem("crm_open_tool") === "import") return "administration";
+    return "dashboard";
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -106,13 +112,10 @@ function App() {
             description="La sélection des documents sera reliée à l'API dès la prochaine itération."
           />
         );
+      case "import":
+        return <ImportPortefeuille />;
       case "administration":
-        return (
-          <ComingSoon
-            title="Administration"
-            description="Espace réservé aux paramètres et à la gestion des utilisateurs."
-          />
-        );
+        return <Administration />;
       case "calendar":
         return (
           <ComingSoon

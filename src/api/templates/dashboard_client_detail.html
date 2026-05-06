@@ -916,11 +916,21 @@
             {{ client_srri if client_srri is not none else '-' }} / {{ current_srri if current_srri is not none else '-' }}
           </span>
         </div>
+        {% set nro_sri_icon_class = None %}
+        {% if client_sri is not none and client_srri is not none %}
+          {% if client_sri > client_srri %}
+            {% set nro_sri_icon_class = 'srri-red' %}
+          {% else %}
+            {% set nro_sri_icon_class = 'srri-blue' %}
+          {% endif %}
+        {% endif %}
         <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-          <span>SRI (détails)</span>
+          <span>NRO (<a href="javascript:void(0)" class="link" style="font-weight:600;" onclick="openSriModal()">détails</a>)</span>
           <span class="kv">
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;" onclick="openSriModal()">Voir SRI</button>
-            <div class="muted" style="font-size:12px; margin-top:4px;">SRI courant : {{ client_sri if client_sri is not none else '—' }}</div>
+            {% if nro_sri_icon_class %}
+              <span class="srri-dot {{ nro_sri_icon_class }}" aria-hidden="true" style="margin-right:6px;"></span>
+            {% endif %}
+            <span style="white-space:nowrap;">NRO {{ client_sri if client_sri is not none else '—' }} / SRI {{ client_srri if client_srri is not none else '—' }}</span>
           </span>
         </div>
         <div class="kpi-mini kpi-line">
@@ -1064,7 +1074,7 @@
   <div id="sriModal" class="modal-overlay hide-hidden-blocks" onclick="if(event.target===this) closeSriModal()">
     <div class="modal-card" style="width:720px; max-width:95vw;">
       <div class="modal-header">
-        <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur SRI</h3>
+        <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur Nouveau Risque Observé (NRO)</h3>
         <button class="modal-close" onclick="closeSriModal()">✕</button>
       </div>
       <div class="modal-body">
@@ -1077,7 +1087,7 @@
               <div class="muted" style="font-size:0.85rem;">Heure serveur : {{ sm.calc_at or '—' }}</div>
             </div>
             <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center;">
-              <div class="muted" style="font-size:0.9rem;">SRI</div>
+              <div class="muted" style="font-size:0.9rem;">NRO</div>
               <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
             </div>
           </div>
@@ -1163,6 +1173,7 @@
               </tbody>
             </table>
             <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
+            <div class="muted" style="font-size:0.85rem; margin-top:2px;">Méthode de calcul identique au SRI.</div>
           {% else %}
             <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
           {% endif %}
