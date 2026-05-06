@@ -585,11 +585,21 @@
         <div class="kpi-mini kpi-line"><span>Perf annualisée (depuis début)</span><span class="kv">{% if overall_ann_perf_pct_aff is not none %}{{ '%.2f'|format(overall_ann_perf_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>Volatilité</span><span class="kv">{% if last_vol_pct_aff is not none %}{{ '%.2f'|format(last_vol_pct_aff) }} %{% else %}-{% endif %}</span></div>
         <div class="kpi-mini kpi-line"><span>SRRI contrat / calculé</span><span class="kv">{{ srri_client if srri_client is not none else '-' }} / {{ srri_calc if srri_calc is not none else '-' }}</span></div>
+        {% set nro_sri_icon_class = None %}
+        {% if sri_metrics_latest and sri_metrics_latest.sri is not none and affaire_sri is not none %}
+          {% if sri_metrics_latest.sri > affaire_sri %}
+            {% set nro_sri_icon_class = 'srri-blue' %}
+          {% else %}
+            {% set nro_sri_icon_class = 'srri-red' %}
+          {% endif %}
+        {% endif %}
         <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-          <span>SRI (détails)</span>
+          <span>NRO (<a href="javascript:void(0)" class="link" style="font-weight:600;" onclick="openSriModalAff()">détails</a>)</span>
           <span class="kv">
-            <button type="button" class="btn btn-secondary" style="padding:6px 10px;" onclick="openSriModalAff()">Voir SRI</button>
-            <div class="muted" style="font-size:12px; margin-top:4px;">SRI courant : {{ affaire_sri if affaire_sri is not none else '—' }}</div>
+            {% if nro_sri_icon_class %}
+              <span class="srri-dot {{ nro_sri_icon_class }}" aria-hidden="true" style="margin-right:6px;"></span>
+            {% endif %}
+            <span style="white-space:nowrap;">NRO {{ sri_metrics_latest.sri if sri_metrics_latest and sri_metrics_latest.sri is not none else '—' }} / SRI {{ affaire_sri if affaire_sri is not none else '—' }}</span>
           </span>
         </div>
         <div class="kpi-mini kpi-line">
@@ -699,7 +709,7 @@
 <div id="sriModalAff" class="modal-overlay" onclick="if(event.target===this) closeSriModalAff()">
   <div class="modal-card" style="width:720px; max-width:95vw;">
     <div class="modal-header">
-      <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur SRI (affaire)</h3>
+      <h3 style="display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-shield-halved"></i>Indicateur Nouveau Risque Observé (NRO)</h3>
       <button class="modal-close" onclick="closeSriModalAff()">✕</button>
     </div>
     <div class="modal-body">
@@ -712,7 +722,7 @@
             <div class="muted" style="font-size:0.85rem;">Heure serveur : {{ sm.calc_at or '—' }}</div>
           </div>
           <div style="min-width:140px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#f8fafc; text-align:center;">
-            <div class="muted" style="font-size:0.9rem;">SRI</div>
+            <div class="muted" style="font-size:0.9rem;">NRO</div>
             <div style="font-size:1.8rem; font-weight:800; color:#1f2937;">{{ sm.sri if sm.sri is not none else '—' }}</div>
           </div>
         </div>
@@ -763,6 +773,7 @@
               </tbody>
             </table>
             <div class="muted" style="font-size:0.85rem;">Calculs basés sur les formules Cornish-Fisher fournies (1 an, 4 ans, 8 ans).</div>
+            <div class="muted" style="font-size:0.85rem; margin-top:2px;">NRO : même méthode de calcul que le SRI.</div>
           {% else %}
             <div class="muted" style="font-size:0.9rem;">Aucun scénario calculable (métriques SRI manquantes).</div>
           {% endif %}

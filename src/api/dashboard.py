@@ -24483,6 +24483,7 @@ def _recompute_srri_clients(db: Session) -> float:
                 LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
                 ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
               FROM mariadb_historique_personne_w
+              WHERE id IS NOT NULL
             ),
             base AS (
               SELECT
@@ -24513,7 +24514,6 @@ def _recompute_srri_clients(db: Session) -> float:
               SELECT
                 id,
                 `date`,
-                isin,
                 valo,
                 mouvement,
                 valorisation_suiv,
@@ -24541,7 +24541,6 @@ def _recompute_srri_clients(db: Session) -> float:
             SELECT
               id,
               `date`,
-              isin,
               COALESCE(valo_prev, 0) AS valo,
               mouvement,
               valorisation_suiv,
@@ -24670,7 +24669,6 @@ def _recompute_srri_affaires(db: Session) -> float:
               SELECT
                 id,
                 `date`,
-                isin,
                 COALESCE(LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`), 0) AS valo_prev,
                 mouvement,
                 valorisation_suiv,
@@ -24697,7 +24695,6 @@ def _recompute_srri_affaires(db: Session) -> float:
             SELECT
               id,
               `date`,
-              isin,
               valo_prev AS valo,
               mouvement,
               valorisation_suiv,
@@ -25971,6 +25968,58 @@ def _require_superadmin_access(request: Request, db: Session):
     require_permission(access, "administration", "access", societe_id=current_scope)
     require_permission(access, "logs", "view", societe_id=current_scope)
     return access, current_scope
+
+
+@router.get("/superadmin/import-fournisseurs", response_class=HTMLResponse)
+def dashboard_import_fournisseurs(request: Request, db: Session = Depends(get_db)):
+    """Page interactive d'import de fichiers fournisseurs (inventaire / mouvements)."""
+    _require_superadmin_access(request, db)
+    societes = db.execute(
+        text("SELECT id, nom FROM mariadb_societe_gestion WHERE actif = 1 ORDER BY nom")
+    ).fetchall()
+    return templates.TemplateResponse("dashboard_import_fournisseurs.html", {
+        "request": request,
+        "societes": [{"id": r[0], "nom": r[1]} for r in societes],
+    })
+
+
+@router.post("/superadmin/import-fournisseurs/recalcul-risques", response_class=JSONResponse)
+def dashboard_import_recalcul_risques(request: Request, db: Session = Depends(get_db)):
+    """Enchaîne SRRI + SRI clients puis SRRI + SRI affaires après un import fournisseur."""
+    _require_superadmin_access(request, db)
+    result = {}
+    try:
+        dur = _recompute_srri_clients(db)
+        _store_sri_metrics(db, entity_type="client", tempo_table="tempo_hist_personne_w", source="vev")
+        _update_sri_current(db, entity_type="client")
+        result["srri_clients"] = round(dur, 2)
+    except Exception as exc:
+        db.rollback()
+        logger.error("recalcul_risques srri_clients: %s", traceback.format_exc())
+        result["srri_clients_error"] = str(exc)
+    try:
+        dur = _recompute_srri_affaires(db)
+        _store_sri_metrics(db, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="vev")
+        _update_sri_current(db, entity_type="affaire")
+        result["srri_affaires"] = round(dur, 2)
+    except Exception as exc:
+        db.rollback()
+        logger.error("recalcul_risques srri_affaires: %s", traceback.format_exc())
+        result["srri_affaires_error"] = str(exc)
+    return JSONResponse(content=result)
+
+
+@router.get("/superadmin/import-fournisseurs/sample/{filename}", response_class=FileResponse)
+def dashboard_import_sample(filename: str, request: Request, db: Session = Depends(get_db)):
+    """Téléchargement des fichiers CSV de test."""
+    _require_superadmin_access(request, db)
+    allowed = {"test_inventaire.csv", "test_mouvements.csv"}
+    if filename not in allowed:
+        raise HTTPException(status_code=404, detail="Fichier introuvable.")
+    path = Path(__file__).parent.parent.parent / "tests" / "import_data" / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Fichier introuvable sur le disque.")
+    return FileResponse(path, filename=filename, media_type="text/csv")
 
 
 @router.post("/superadmin/societes-gestion", response_class=RedirectResponse)
