@@ -117,6 +117,18 @@ def _resolve_client_by_fournisseur(db: Session, fournisseur: str, id_externe: st
     return (row[0] if not hasattr(row, "_mapping") else row._mapping["client_id"]) if row else None
 
 
+def _resolve_societe_by_fournisseur(db: Session, fournisseur: str, id_externe: str) -> int | None:
+    """Retourne le societe_id CRM correspondant à l'identifiant externe chez ce fournisseur."""
+    row = db.execute(
+        text(
+            "SELECT societe_id FROM mariadb_societe_identifiants_fournisseur "
+            "WHERE fournisseur = :f AND identifiant_externe = :id AND actif = 1 LIMIT 1"
+        ),
+        {"f": fournisseur.strip().upper(), "id": id_externe.strip()},
+    ).fetchone()
+    return (row[0] if not hasattr(row, "_mapping") else row._mapping["societe_id"]) if row else None
+
+
 def _resolve_affaire_id(db: Session, row) -> int | None:  # InventaireRow | MouvementRow
     if row.id_affaire is not None:
         r = db.execute(
@@ -421,8 +433,20 @@ def commit_inventaire(
     id_societe_gestion: int | None = None,
     id_personne: int | None = None,
     fournisseur: str | None = None,
+    identifiant_societe_externe: str | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
+    # Résolution automatique de la société via le mapping fournisseur
+    if id_societe_gestion is None and fournisseur and identifiant_societe_externe:
+        resolved = _resolve_societe_by_fournisseur(db, fournisseur, identifiant_societe_externe)
+        if resolved is not None:
+            id_societe_gestion = resolved
+        else:
+            logger.warning(
+                "IMPORT – société '%s' inconnue chez '%s' – id_societe_gestion non résolu",
+                identifiant_societe_externe, fournisseur,
+            )
+
     rows, alertes = _validate_rows(raw_rows)
 
     insere = 0
