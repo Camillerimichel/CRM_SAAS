@@ -216,12 +216,12 @@ def _deduplicate(rows: list[_ClientRow]) -> tuple[list[_ClientRow], list[_Client
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int | None, str | None, int | None]:
-    """Retourne (societe_id, societe_nom, sif_id) ou (None, None, None).
-    identifiant_externe est globalement unique — pas besoin de filtrer par fournisseur."""
+def _resolve_societe(db: Session, ref_cgp: str) -> tuple[int | None, str | None, int | None, str | None]:
+    """Retourne (societe_id, societe_nom, sif_id, fournisseur) ou (None, None, None, None).
+    identifiant_externe est globalement unique — le fournisseur est déduit automatiquement."""
     row = db.execute(
         text(
-            "SELECT s.id, s.nom, m.id AS sif_id "
+            "SELECT s.id, s.nom, m.id AS sif_id, m.fournisseur "
             "FROM mariadb_societe_identifiants_fournisseur m "
             "JOIN mariadb_societe_gestion s ON s.id = m.societe_id "
             "WHERE m.identifiant_externe = :id AND m.actif = 1 LIMIT 1"
@@ -229,19 +229,28 @@ def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int |
         {"id": ref_cgp},
     ).fetchone()
     if not row:
-        return None, None, None
+        return None, None, None, None
     m = row._mapping if hasattr(row, "_mapping") else None
-    return (m["id"] if m else row[0]), (m["nom"] if m else row[1]), (m["sif_id"] if m else row[2])
+    return (
+        (m["id"]          if m else row[0]),
+        (m["nom"]         if m else row[1]),
+        (m["sif_id"]      if m else row[2]),
+        (m["fournisseur"] if m else row[3]),
+    )
 
 
-def _find_client(db: Session, fournisseur: str, ref_client: str) -> int | None:
-    """Retourne client_id si déjà connu pour ce fournisseur."""
+def _find_client(db: Session, sif_id: int | None, fournisseur: str | None, ref_client: str) -> int | None:
+    """Retourne client_id si déjà connu pour cet identifiant.
+    Cherche d'abord par sif_id (précis), puis par fournisseur pour les clients legacy."""
     row = db.execute(
         text(
             "SELECT client_id FROM mariadb_client_identifiants_fournisseur "
-            "WHERE fournisseur = :f AND identifiant_externe = :id AND actif = 1 LIMIT 1"
+            "WHERE identifiant_externe = :id AND actif = 1 "
+            "AND (societe_identifiant_id = :sif_id "
+            "     OR (societe_identifiant_id IS NULL AND fournisseur = :f)) "
+            "LIMIT 1"
         ),
-        {"f": fournisseur.strip().upper(), "id": ref_client},
+        {"sif_id": sif_id, "f": fournisseur or "", "id": ref_client},
     ).fetchone()
     return (row[0] if not hasattr(row, "_mapping") else row._mapping["client_id"]) if row else None
 
@@ -251,7 +260,6 @@ def _find_client(db: Session, fournisseur: str, ref_client: str) -> int | None:
 def preview_clients(
     db: Session,
     raw_rows: list[dict],
-    fournisseur: str,
 ) -> ClientImportPreviewResult:
     rows, alertes = _parse_rows(raw_rows)
     kept, ignored = _deduplicate(rows)
@@ -276,15 +284,15 @@ def preview_clients(
         ))
 
     for row in kept:
-        societe_id, societe_nom, _ = _resolve_societe(db, fournisseur, row.ref_cgp)
-        client_id = _find_client(db, fournisseur, row.ref_client)
+        societe_id, societe_nom, sif_id, fournisseur = _resolve_societe(db, row.ref_cgp)
+        client_id = _find_client(db, sif_id, fournisseur, row.ref_client)
 
         if societe_id is None:
             nb_cgp_inconnus += 1
             alertes.append(ClientImportAlerte(
                 ligne=row.ligne,
                 code="cgp_inconnu",
-                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — importé sans CGP rattaché",
+                message=f"Ref CGP '{row.ref_cgp}' inconnue — importé sans CGP rattaché",
             ))
 
         if client_id:
@@ -329,7 +337,6 @@ def preview_clients(
 def commit_clients(
     db: Session,
     raw_rows: list[dict],
-    fournisseur: str,
 ) -> ClientImportCommitResult:
     rows, alertes = _parse_rows(raw_rows)
     kept, ignored = _deduplicate(rows)
@@ -337,10 +344,9 @@ def commit_clients(
     crees = mis_a_jour = ignores = 0
     ignores += len(ignored)
 
-    fournisseur_upper = fournisseur.strip().upper()
-
     for row in kept:
-        societe_id, _, sif_id = _resolve_societe(db, fournisseur, row.ref_cgp)
+        societe_id, _, sif_id, fournisseur = _resolve_societe(db, row.ref_cgp)
+        fournisseur_upper = fournisseur.strip().upper() if fournisseur else None
         if societe_id is None:
             alertes.append(ClientImportAlerte(
                 ligne=row.ligne,
@@ -348,7 +354,7 @@ def commit_clients(
                 message=f"Ref CGP '{row.ref_cgp}' inconnue — importé sans CGP rattaché",
             ))
 
-        client_id = _find_client(db, fournisseur, row.ref_client)
+        client_id = _find_client(db, sif_id, fournisseur, row.ref_client)
 
         adresse_rue = row.adresse or None
         adresse_cp  = row.cp if row.cp not in ("0", "") else None

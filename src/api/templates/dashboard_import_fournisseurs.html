@@ -216,16 +216,6 @@
           </div>
           <div class="icard-body">
 
-            <div style="margin-bottom:18px; max-width:380px;">
-              <label class="field-label">Fournisseur <span style="color:#dc2626;">*</span></label>
-              <select id="cliFournisseur" class="text-input" onchange="updateCliBtn()">
-                <option value="">— Sélectionner un fournisseur —</option>
-                {% for f in fournisseurs %}
-                <option value="{{ f }}">{{ f }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
             <div class="drop-zone" id="dropCli" onclick="document.getElementById('fileCli').click()">
               <input type="file" id="fileCli" accept=".csv,.xls,.xlsx,.json" style="display:none;" onchange="onFileCli(this.files[0])">
               <div style="font-size:26px; margin-bottom:8px;" id="iconCli">📂</div>
@@ -916,8 +906,7 @@ function renderResult(type, idx, r) {
 const cliSt = { file: null, preview: null };
 
 function updateCliBtn() {
-  const fournisseur = document.getElementById('cliFournisseur').value.trim();
-  document.getElementById('btnAnalyseCli').disabled = !(cliSt.file && fournisseur);
+  document.getElementById('btnAnalyseCli').disabled = !cliSt.file;
 }
 
 function onFileCli(f) {
@@ -960,15 +949,13 @@ function cliStatutBadge(statut) {
 }
 
 async function doPreviewCli() {
-  const fournisseur = document.getElementById('cliFournisseur').value.trim();
   const btn = document.getElementById('btnAnalyseCli');
   btn.disabled = true; btn.textContent = 'Analyse…';
   document.getElementById('errCli').style.display = 'none';
   try {
     const form = new FormData();
     form.append('file', cliSt.file);
-    const params = new URLSearchParams({ fournisseur });
-    const res = await fetch(`/import/clients/preview?${params}`, { method: 'POST', body: form });
+    const res = await fetch('/import/clients/preview', { method: 'POST', body: form });
     if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
     cliSt.preview = await res.json();
     renderApercuCli();
@@ -1029,7 +1016,6 @@ function cliBackToUpload() {
 }
 
 async function doCommitCli() {
-  const fournisseur = document.getElementById('cliFournisseur').value.trim();
   const btn  = document.getElementById('btnCommitCli');
   const hint = document.getElementById('hintCommitCli');
   btn.disabled = true; hint.style.display = 'inline';
@@ -1037,8 +1023,7 @@ async function doCommitCli() {
   try {
     const form = new FormData();
     form.append('file', cliSt.file);
-    const params = new URLSearchParams({ fournisseur });
-    const res = await fetch(`/import/clients/commit?${params}`, { method: 'POST', body: form });
+    const res = await fetch('/import/clients/commit', { method: 'POST', body: form });
     if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
     const result = await res.json();
     renderResultCli(result);
