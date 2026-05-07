@@ -97,6 +97,12 @@
         border-radius: 6px;
         font-size: 12px;
     }
+    /* Contraindre le select SRRI à ne pas gonfler sa colonne */
+    #affairesTable thead tr:nth-child(2) th:nth-child(2) select {
+        width: 48px;
+        min-width: 0;
+        padding: 4px 2px;
+    }
     tbody td {
         padding: 4px 6px;
         line-height: 1.1;
@@ -270,13 +276,13 @@
         <table id="affairesTable" class="display nowrap" style="width:100%">
             <thead>
                 <tr>
-                    <th data-sort="ref">Contrat / Client<span class="sort-arrow"></span></th>
-                    <th data-sort="srri">SRRI<span class="sort-arrow"></span></th>
-                    {% if network_view %}<th>Société source</th>{% endif %}
-                    <th data-sort="date_debut">Date début<span class="sort-arrow"></span></th>
-                    <th data-sort="valo">Montant<span class="sort-arrow"></span></th>
-                    <th>Perf 52 sem. (%)</th>
-                    <th>Vol. 52s (%)</th>
+                    <th data-sort="ref" style="width:38%">Contrat / Client<span class="sort-arrow"></span></th>
+                    <th data-sort="srri" style="width:52px">SRRI<span class="sort-arrow"></span></th>
+                    {% if network_view %}<th style="width:160px">Société source</th>{% endif %}
+                    <th data-sort="date_debut" style="width:110px">Date début<span class="sort-arrow"></span></th>
+                    <th data-sort="valo" style="width:140px">Montant<span class="sort-arrow"></span></th>
+                    <th style="width:88px">Perf 52 sem. (%)</th>
+                    <th style="width:78px">Vol. 52s (%)</th>
                 </tr>
                 <tr>
                     <th><input type="text" id="contrat-filter" placeholder="Filtrer..." value="{{ filters.client|default('') }}"></th>
@@ -398,12 +404,12 @@ $(document).ready(function () {
         ordering: false,
         order: [],
         columnDefs: [
-          // Réduire Contrat/Client, élargir SRRI et Montant
-          { targets: 0, width: '260px' },
-          { targets: 1, width: '120px', className: 'dt-center' },
+          { targets: 0, width: '360px' },
+          { targets: 1, width: '60px', className: 'dt-center' },
           ...(affaireHasSourceColumn ? [{ targets: 2, width: '180px' }] : []),
           { targets: affaireValoCol, width: '200px' },
-          { targets: affaireVolCol, width: '90px' },
+          { targets: affairePerfCol, width: '80px' },
+          { targets: affaireVolCol, width: '70px' },
           { targets: affaireValoCol, render: $.fn.dataTable.render.number(' ', ',', 0, '') },
           { targets: affairePerfCol, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } },
           { targets: affaireVolCol, render: function (data) { if (data==null||data==='') return ''; var n=parseFloat(String(data).replace(',', '.')); if (isNaN(n)) return data; if (Math.abs(n)<=1) n=n*100; return n.toFixed(2)+' %'; } }

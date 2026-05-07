@@ -101,12 +101,13 @@ async def inventaire_preview(
     request: Request,
     file: Optional[UploadFile] = File(None),
     format: Optional[str] = Query(None, description="csv ou json (détection auto si absent)"),
+    fournisseur: Optional[str] = Query(None, description="Code fournisseur (ex: GENERALI) pour résoudre les id_client_fournisseur"),
     db: Session = Depends(get_db),
 ) -> ImportPreviewResult:
     raw_rows = await _read_raw_rows(
         request, file, format, parse_inventaire_csv, parse_inventaire_json
     )
-    return preview_inventaire(db, raw_rows)
+    return preview_inventaire(db, raw_rows, fournisseur=fournisseur)
 
 
 @router.post(
@@ -120,6 +121,7 @@ async def inventaire_commit(
     format: Optional[str] = Query(None, description="csv ou json"),
     id_societe_gestion: Optional[int] = Query(None),
     id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
+    fournisseur: Optional[str] = Query(None, description="Code fournisseur (ex: GENERALI) pour résoudre les id_client_fournisseur"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -127,7 +129,13 @@ async def inventaire_commit(
     )
     if not raw_rows:
         raise HTTPException(status_code=400, detail="Fichier vide ou non parseable.")
-    return commit_inventaire(db, raw_rows, id_societe_gestion=id_societe_gestion, id_personne=id_client, run_pipeline=False)
+    return commit_inventaire(
+        db, raw_rows,
+        id_societe_gestion=id_societe_gestion,
+        id_personne=id_client,
+        fournisseur=fournisseur,
+        run_pipeline=False,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -143,12 +151,13 @@ async def mouvements_preview(
     request: Request,
     file: Optional[UploadFile] = File(None),
     format: Optional[str] = Query(None),
+    fournisseur: Optional[str] = Query(None, description="Code fournisseur pour résoudre les id_client_fournisseur"),
     db: Session = Depends(get_db),
 ) -> ImportPreviewResult:
     raw_rows = await _read_raw_rows(
         request, file, format, parse_mouvements_csv, parse_mouvements_json
     )
-    return preview_mouvements(db, raw_rows)
+    return preview_mouvements(db, raw_rows, fournisseur=fournisseur)
 
 
 @router.post(
@@ -162,6 +171,7 @@ async def mouvements_commit(
     format: Optional[str] = Query(None),
     id_societe_gestion: Optional[int] = Query(None),
     id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
+    fournisseur: Optional[str] = Query(None, description="Code fournisseur pour résoudre les id_client_fournisseur"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -169,4 +179,10 @@ async def mouvements_commit(
     )
     if not raw_rows:
         raise HTTPException(status_code=400, detail="Fichier vide ou non parseable.")
-    return commit_mouvements(db, raw_rows, id_societe_gestion=id_societe_gestion, id_personne=id_client, run_pipeline=False)
+    return commit_mouvements(
+        db, raw_rows,
+        id_societe_gestion=id_societe_gestion,
+        id_personne=id_client,
+        fournisseur=fournisseur,
+        run_pipeline=False,
+    )

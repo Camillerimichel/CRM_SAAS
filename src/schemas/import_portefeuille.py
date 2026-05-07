@@ -6,6 +6,7 @@ from typing import Any
 class InventaireRow(BaseModel):
     ref_affaire: str | None = None
     id_affaire: int | None = None
+    id_client_fournisseur: str | None = None  # identifiant externe du client chez le fournisseur
     date: str
     code_isin: str
     nbuc: float
@@ -29,6 +30,7 @@ class InventaireRow(BaseModel):
 class MouvementRow(BaseModel):
     ref_affaire: str | None = None
     id_affaire: int | None = None
+    id_client_fournisseur: str | None = None  # identifiant externe du client chez le fournisseur
     date: str
     code_isin: str
     code_mouvement: str
