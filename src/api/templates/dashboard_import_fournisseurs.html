@@ -271,7 +271,7 @@
                 <tbody id="cliTableBody"></tbody>
               </table>
             </div>
-            <p class="muted" id="cliMore" style="font-size:13px; margin:0 0 16px;"></p>
+            <div id="cliMore" style="margin:0 0 16px;"></div>
             <div id="errCommitCli" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
             <div style="display:flex; gap:10px; align-items:center;">
               <button type="button" class="btn-secondary" onclick="cliBackToUpload()">← Retour</button>
@@ -455,7 +455,7 @@
           <div style="overflow-x:auto; margin-bottom:8px;">
             <table class="data-table"><thead id="headApercu0"></thead><tbody id="bodyApercu0"></tbody></table>
           </div>
-          <p class="muted" id="moreApercu0" style="font-size:13px; margin:0 0 16px;"></p>
+          <div id="moreApercu0" style="margin:0 0 16px;"></div>
           <div id="errCommit0" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
           <div style="display:flex; gap:10px; align-items:center;">
             <button type="button" class="btn-secondary" onclick="backToUpload('inv')">← Retour</button>
@@ -543,7 +543,7 @@
           <div style="overflow-x:auto; margin-bottom:8px;">
             <table class="data-table"><thead id="headApercu1"></thead><tbody id="bodyApercu1"></tbody></table>
           </div>
-          <p class="muted" id="moreApercu1" style="font-size:13px; margin:0 0 16px;"></p>
+          <div id="moreApercu1" style="margin:0 0 16px;"></div>
           <div id="errCommit1" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
           <div style="display:flex; gap:10px; align-items:center;">
             <button type="button" class="btn-secondary" onclick="backToUpload('mov')">← Retour</button>
@@ -684,55 +684,77 @@ function badgeHtml(code) {
   return `<span class="badge badge-${cls[code]||'muted'}">${code}</span>`;
 }
 
-// ─── Tableau d'alertes paginé (10/page) ───────────────────────────────────────
+// ─── Pagination générique (20 lignes/page) ────────────────────────────────────
+const PAGE_SIZE = 20;
+const _pagers   = {};
+
+function _pagerControls(key, page, total) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) return '';
+  let html = `<div class="pager">
+    <button class="pager-btn" ${page===0?'disabled':''} onclick="_pg('${key}',${page-1})">‹ Préc.</button>`;
+  for (let i = 0; i < pages; i++) {
+    if (pages <= 8 || i === 0 || i === pages-1 || Math.abs(i - page) <= 1)
+      html += `<button class="pager-btn ${i===page?'active':''}" onclick="_pg('${key}',${i})">${i+1}</button>`;
+    else if (Math.abs(i - page) === 2)
+      html += `<span class="muted" style="padding:0 2px;">…</span>`;
+  }
+  html += `<button class="pager-btn" ${page===pages-1?'disabled':''} onclick="_pg('${key}',${page+1})">Suiv. ›</button>
+    <span class="muted" style="font-size:12px; margin-left:6px;">Page ${page+1}/${pages} · ${total} entrées</span>
+  </div>`;
+  return html;
+}
+
+function _pg(key, page) {
+  const p = _pagers[key];
+  if (p) { p.page = page; p.render(); }
+}
+
+// Alertes paginées
 function renderAlertes(containerId, alertes) {
   const el = document.getElementById(containerId);
   if (!alertes || !alertes.length) { el.innerHTML = ''; return; }
-  const PAGE = 10;
-  let page = 0;
-
-  function render() {
-    const total = alertes.length;
-    const pages = Math.ceil(total / PAGE);
-    const slice = alertes.slice(page * PAGE, (page + 1) * PAGE);
-    let html = `
-      <p style="font-weight:700; margin:0 0 8px;">Alertes (${total})</p>
-      <div style="overflow-x:auto; margin-bottom:6px;">
-        <table class="data-table">
-          <thead><tr>
-            <th style="width:50px;">Ligne</th>
-            <th style="width:180px;">Code</th>
-            <th>Message</th>
-          </tr></thead>
-          <tbody>
-            ${slice.map(a => `<tr>
+  const key = containerId;
+  _pagers[key] = {
+    page: 0,
+    render() {
+      const total = alertes.length;
+      const slice = alertes.slice(this.page * PAGE_SIZE, (this.page + 1) * PAGE_SIZE);
+      el.innerHTML = `
+        <p style="font-weight:700; margin:0 0 8px;">Alertes (${total})</p>
+        <div style="overflow-x:auto; margin-bottom:6px;">
+          <table class="data-table">
+            <thead><tr>
+              <th style="width:50px;">Ligne</th>
+              <th style="width:180px;">Code</th>
+              <th>Message</th>
+            </tr></thead>
+            <tbody>${slice.map(a => `<tr>
               <td>${a.ligne ?? '—'}</td>
               <td>${badgeHtml(a.code)}</td>
               <td style="white-space:normal;">${a.message}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-    if (pages > 1) {
-      html += `<div class="pager">
-        <button class="pager-btn" ${page===0?'disabled':''} onclick="changePage('${containerId}',${page-1})">‹ Préc.</button>`;
-      for (let i = 0; i < pages; i++)
-        html += `<button class="pager-btn ${i===page?'active':''}" onclick="changePage('${containerId}',${i})">${i+1}</button>`;
-      html += `<button class="pager-btn" ${page===pages-1?'disabled':''} onclick="changePage('${containerId}',${page+1})">Suiv. ›</button>
-        <span class="muted" style="font-size:12px; margin-left:4px;">Page ${page+1}/${pages}</span>
-      </div>`;
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+        ${_pagerControls(key, this.page, total)}`;
     }
-    el.innerHTML = html;
-    el._alertes = alertes;
-    el._page = page;
-  }
-
-  el._changePage = (p) => { page = p; render(); };
-  render();
+  };
+  _pagers[key].render();
 }
 
-function changePage(containerId, p) {
-  document.getElementById(containerId)._changePage(p);
+// Table de données paginée (aperçu inv/mov/cli)
+function renderTablePaged(key, rows, renderRow, headHtml, bodyEl, pagerEl) {
+  _pagers[key] = {
+    page: 0,
+    render() {
+      const slice = rows.slice(this.page * PAGE_SIZE, (this.page + 1) * PAGE_SIZE);
+      bodyEl.innerHTML = slice.map(renderRow).join('');
+      pagerEl.innerHTML = _pagerControls(key, this.page, rows.length);
+    }
+  };
+  headHtml && (bodyEl.previousElementSibling
+    ? bodyEl.previousElementSibling.innerHTML = headHtml : null);
+  _pagers[key].render();
 }
 
 // ─── Drop zone ────────────────────────────────────────────────────────────────
@@ -810,14 +832,18 @@ function renderApercu(type, idx) {
 
   document.getElementById('headApercu' + idx).innerHTML =
     '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '<th>Statut</th></tr>';
-  document.getElementById('bodyApercu' + idx).innerHTML = p.apercu.map(row =>
-    '<tr>' + cols.map(c => `<td>${typeof row[c]==='number' ? fmt(row[c]) : (row[c]??'—')}</td>`).join('') +
-    `<td>${row.affaire_a_creer ? badgeHtml('affaire_a_creer') : (row.affaire_trouvee ? '<span style="color:#22c55e">✓</span>' : '')}${row.support_connu===false?' '+badgeHtml('unknown_isin'):''}</td></tr>`
-  ).join('');
 
-  const moreEl = document.getElementById('moreApercu' + idx);
-  moreEl.textContent = p.total_lignes > p.apercu.length
-    ? `Aperçu limité à ${p.apercu.length} lignes sur ${p.total_lignes} au total.` : '';
+  const bodyEl  = document.getElementById('bodyApercu' + idx);
+  const pagerEl = document.getElementById('moreApercu' + idx);
+  const key = 'apercu' + idx;
+  renderTablePaged(key, p.apercu, row =>
+    '<tr>' + cols.map(c => `<td>${typeof row[c]==='number' ? fmt(row[c]) : (row[c]??'—')}</td>`).join('') +
+    `<td>${row.affaire_a_creer ? badgeHtml('affaire_a_creer') : (row.affaire_trouvee ? '<span style="color:#22c55e">✓</span>' : '')}${row.support_connu===false?' '+badgeHtml('unknown_isin'):''}</td></tr>`,
+    null, bodyEl, pagerEl
+  );
+
+  if (p.total_lignes > p.apercu.length)
+    pagerEl.innerHTML += `<p class="muted" style="font-size:13px; margin:6px 0 0;">Aperçu limité à ${p.apercu.length} lignes sur ${p.total_lignes} au total.</p>`;
 
   const btn = document.getElementById('btnCommit' + idx);
   btn.textContent = `Importer ${p.lignes_valides} ligne${p.lignes_valides>1?'s':''}`;
@@ -974,7 +1000,7 @@ function renderApercuCli() {
 
   renderAlertes('cliAlertes', p.alertes);
 
-  document.getElementById('cliTableBody').innerHTML = p.apercu.map(row => `
+  renderTablePaged('cliApercu', p.apercu, row => `
     <tr>
       <td>${row.ligne}</td>
       <td>${row.ref_client}</td>
@@ -986,11 +1012,10 @@ function renderApercuCli() {
       <td>${row.cp || '—'}</td>
       <td>${row.ville || '—'}</td>
       <td>${cliStatutBadge(row.statut)}</td>
-    </tr>`).join('');
-
-  const moreEl = document.getElementById('cliMore');
-  moreEl.textContent = p.total_brut > p.apercu.length
-    ? `Aperçu : ${p.apercu.length} lignes affichées sur ${p.total_brut} au total.` : '';
+    </tr>`, null,
+    document.getElementById('cliTableBody'),
+    document.getElementById('cliMore')
+  );
 
   const importables = p.nouveaux + p.existants;
   const btn = document.getElementById('btnCommitCli');
