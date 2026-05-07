@@ -464,6 +464,154 @@
   {% else %}
     <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
   {% endif %}
+
+  <!-- ── Identifiants assureurs ───────────────────────────────────────────── -->
+  <hr style="margin:20px 0 14px; border:0; border-top:1px solid #e5e7eb;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+    <div style="font-weight:600; font-size:1rem;">Identifiants assureurs</div>
+    <button class="btn btn-secondary" onclick="iaAddRow()" style="white-space:nowrap;">+ Ajouter</button>
+  </div>
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+      <thead>
+        <tr style="text-align:left; border-bottom:1px solid var(--border);">
+          <th style="padding:6px 4px;">Société de gestion</th>
+          <th style="padding:6px 4px;">Assureur</th>
+          <th style="padding:6px 4px;">Identifiant</th>
+          <th style="padding:6px 4px; text-align:center;">Actif</th>
+          <th style="padding:6px 4px; text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-ia">
+        {% for ia in identifiants_assureurs %}
+        <tr data-ia-id="{{ ia.id }}">
+          <td style="padding:4px;">
+            <select class="form-control ia-societe" style="min-width:160px;">
+              {% for sg in societe_management_choices %}
+              <option value="{{ sg.id }}"{% if sg.id == ia.societe_id %} selected{% endif %}>{{ sg.nom }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td style="padding:4px;">
+            <input class="form-control ia-fournisseur" list="ia-fournisseurs-list" value="{{ ia.fournisseur }}" style="min-width:150px;">
+          </td>
+          <td style="padding:4px;">
+            <input class="form-control ia-identifiant" type="text" value="{{ ia.identifiant_externe }}" style="min-width:100px;">
+          </td>
+          <td style="padding:4px; text-align:center;">
+            <input type="checkbox" class="ia-actif"{% if ia.actif %} checked{% endif %}>
+          </td>
+          <td style="padding:4px; text-align:center; white-space:nowrap;">
+            <button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>
+            <button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <datalist id="ia-fournisseurs-list">
+    {% for f in fournisseurs_connus %}
+    <option value="{{ f }}">
+    {% endfor %}
+  </datalist>
+  <div id="ia-msg" style="margin-top:8px; font-size:0.88rem; min-height:1.2em;"></div>
+
+  <script>
+  (function() {
+    const IA_SOCIETES = {{ societe_management_choices | tojson }};
+
+    function buildSocieteSelect(selectedId) {
+      let html = '<select class="form-control ia-societe" style="min-width:160px;">';
+      IA_SOCIETES.forEach(function(sg) {
+        html += '<option value="' + sg.id + '"' + (sg.id === selectedId ? ' selected' : '') + '>' + sg.nom + '</option>';
+      });
+      html += '</select>';
+      return html;
+    }
+
+    window.iaAddRow = function() {
+      const tbody = document.getElementById('tbody-ia');
+      const tr = document.createElement('tr');
+      tr.dataset.iaId = '';
+      tr.innerHTML =
+        '<td style="padding:4px;">' + buildSocieteSelect(null) + '</td>' +
+        '<td style="padding:4px;"><input class="form-control ia-fournisseur" list="ia-fournisseurs-list" placeholder="Ex: AFI ESCA FRANCE" style="min-width:150px;"></td>' +
+        '<td style="padding:4px;"><input class="form-control ia-identifiant" type="text" placeholder="Identifiant" style="min-width:100px;"></td>' +
+        '<td style="padding:4px; text-align:center;"><input type="checkbox" class="ia-actif" checked></td>' +
+        '<td style="padding:4px; text-align:center; white-space:nowrap;">' +
+          '<button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>' +
+          '<button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>' +
+        '</td>';
+      tbody.appendChild(tr);
+      tr.querySelector('.ia-fournisseur').focus();
+    };
+
+    window.iaSave = async function(btn) {
+      const tr = btn.closest('tr');
+      const id = tr.dataset.iaId;
+      const societe_id = parseInt(tr.querySelector('.ia-societe').value, 10);
+      const fournisseur = tr.querySelector('.ia-fournisseur').value.trim().toUpperCase();
+      const identifiant_externe = tr.querySelector('.ia-identifiant').value.trim();
+      const actif = tr.querySelector('.ia-actif').checked ? 1 : 0;
+      const msgEl = document.getElementById('ia-msg');
+
+      if (!fournisseur || !identifiant_externe) {
+        msgEl.textContent = 'Assureur et identifiant sont requis.';
+        msgEl.style.color = 'var(--danger, red)';
+        return;
+      }
+
+      try {
+        const url = id ? '/societes/identifiants-fournisseur/' + id : '/societes/identifiants-fournisseur';
+        const resp = await fetch(url, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ societe_id, fournisseur, identifiant_externe, actif }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(function() { return {}; });
+          msgEl.textContent = err.detail || 'Erreur lors de l\'enregistrement.';
+          msgEl.style.color = 'var(--danger, red)';
+          return;
+        }
+        const data = await resp.json();
+        tr.dataset.iaId = String(data.id);
+        tr.querySelector('.ia-fournisseur').value = data.fournisseur;
+        msgEl.textContent = id ? 'Mis à jour.' : 'Créé avec succès.';
+        msgEl.style.color = 'green';
+        setTimeout(function() { msgEl.textContent = ''; }, 3000);
+      } catch(e) {
+        msgEl.textContent = 'Erreur réseau.';
+        msgEl.style.color = 'var(--danger, red)';
+      }
+    };
+
+    window.iaDelete = async function(btn) {
+      const tr = btn.closest('tr');
+      const id = tr.dataset.iaId;
+      if (!id) { tr.remove(); return; }
+      if (!confirm('Supprimer cet identifiant fournisseur ?')) return;
+      const msgEl = document.getElementById('ia-msg');
+      try {
+        const resp = await fetch('/societes/identifiants-fournisseur/' + id, { method: 'DELETE' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(function() { return {}; });
+          msgEl.textContent = err.detail || 'Erreur lors de la suppression.';
+          msgEl.style.color = 'var(--danger, red)';
+          return;
+        }
+        tr.remove();
+        msgEl.textContent = 'Supprimé.';
+        msgEl.style.color = 'green';
+        setTimeout(function() { msgEl.textContent = ''; }, 3000);
+      } catch(e) {
+        msgEl.textContent = 'Erreur réseau.';
+        msgEl.style.color = 'var(--danger, red)';
+      }
+    };
+  })();
+  </script>
 </div>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
