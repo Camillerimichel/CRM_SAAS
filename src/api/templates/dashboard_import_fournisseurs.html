@@ -603,35 +603,47 @@
 </div><!-- fin max-width wrapper -->
 
 <script>
-// ─── Toggle blocs ─────────────────────────────────────────────────────────────
-function toggleBlock(id) {
-  const panel  = document.getElementById(id);
-  const btn    = document.getElementById('toggle-' + id);
-  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
-  if (isOpen) {
-    panel.style.maxHeight = panel.scrollHeight + 'px'; // fix current height before animating
-    requestAnimationFrame(() => {
-      panel.style.maxHeight = '0px';
-      panel.style.opacity   = '0';
-    });
-    btn.classList.add('collapsed');
-  } else {
-    panel.style.maxHeight = panel.scrollHeight + 'px';
-    panel.style.opacity   = '1';
-    btn.classList.remove('collapsed');
-    // reset to auto after transition so content can grow freely
-    panel.addEventListener('transitionend', function h() {
-      panel.style.maxHeight = 'none';
-      panel.removeEventListener('transitionend', h);
-    });
-  }
+// ─── Toggle blocs (accordéon — un seul ouvert à la fois) ─────────────────────
+const BLOCS = ['bloc1','bloc2','bloc3','bloc4','bloc5'];
+
+function closeBloc(id) {
+  const panel = document.getElementById(id);
+  const btn   = document.getElementById('toggle-' + id);
+  panel.style.maxHeight = panel.scrollHeight + 'px';
+  requestAnimationFrame(() => {
+    panel.style.maxHeight = '0px';
+    panel.style.opacity   = '0';
+  });
+  btn.classList.add('collapsed');
 }
 
-// initialiser tous les panneaux ouverts
+function openBloc(id) {
+  const panel = document.getElementById(id);
+  const btn   = document.getElementById('toggle-' + id);
+  panel.style.maxHeight = panel.scrollHeight + 'px';
+  panel.style.opacity   = '1';
+  btn.classList.remove('collapsed');
+  panel.addEventListener('transitionend', function h() {
+    if (panel.style.maxHeight !== '0px') panel.style.maxHeight = 'none';
+    panel.removeEventListener('transitionend', h);
+  });
+}
+
+function toggleBlock(id) {
+  const panel  = document.getElementById(id);
+  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  // fermer tous les autres
+  BLOCS.forEach(b => { if (b !== id) closeBloc(b); });
+  // basculer celui-ci
+  if (isOpen) closeBloc(id); else openBloc(id);
+}
+
+// initialiser tous les panneaux fermés
 document.querySelectorAll('.block-collapsible').forEach(p => {
-  p.style.maxHeight = 'none';
-  p.style.opacity   = '1';
+  p.style.maxHeight = '0px';
+  p.style.opacity   = '0';
 });
+document.querySelectorAll('.block-toggle').forEach(b => b.classList.add('collapsed'));
 
 // ─── État ─────────────────────────────────────────────────────────────────────
 const st = {
