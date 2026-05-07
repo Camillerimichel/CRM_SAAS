@@ -25960,10 +25960,11 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         rows_ia = db.execute(text(
             "SELECT sif.id, sif.societe_id, sg.nom AS societe_nom, "
             "sif.identifiant_externe, sif.actif, "
-            "COUNT(DISTINCT c.id) AS nb_clients "
+            "COUNT(DISTINCT cif.client_id) AS nb_clients "
             "FROM mariadb_societe_identifiants_fournisseur sif "
             "JOIN mariadb_societe_gestion sg ON sg.id = sif.societe_id "
-            "LEFT JOIN mariadb_clients c ON c.id_societe_gestion = sif.societe_id "
+            "LEFT JOIN mariadb_client_identifiants_fournisseur cif "
+            "  ON cif.societe_identifiant_id = sif.id AND cif.actif = 1 "
             "GROUP BY sif.id, sif.societe_id, sg.nom, sif.identifiant_externe, sif.actif "
             "ORDER BY sg.nom, sif.identifiant_externe"
         )).fetchall()
@@ -25980,29 +25981,28 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     except Exception:
         identifiants_assureurs = []
 
-    # Clients par société (pour l'affichage expandable dans le tableau identifiants)
-    clients_par_societe: dict = {}
+    # Clients par sif_id (identifiant société fournisseur) pour l'affichage expandable
+    clients_par_sif: dict = {}
     try:
         rows_clia = db.execute(text(
-            "SELECT c.id_societe_gestion, c.id, c.nom, c.prenom "
-            "FROM mariadb_clients c "
-            "WHERE c.id_societe_gestion IN ("
-            "  SELECT DISTINCT societe_id FROM mariadb_societe_identifiants_fournisseur"
-            ") "
-            "ORDER BY c.id_societe_gestion, c.nom, c.prenom"
+            "SELECT cif.societe_identifiant_id, c.id, c.nom, c.prenom "
+            "FROM mariadb_client_identifiants_fournisseur cif "
+            "JOIN mariadb_clients c ON c.id = cif.client_id "
+            "WHERE cif.societe_identifiant_id IS NOT NULL AND cif.actif = 1 "
+            "ORDER BY cif.societe_identifiant_id, c.nom, c.prenom"
         )).fetchall()
         for r in rows_clia:
             m = r._mapping if hasattr(r, "_mapping") else {}
-            sg_id = m.get("id_societe_gestion") if m else r[0]
-            if sg_id not in clients_par_societe:
-                clients_par_societe[sg_id] = []
-            clients_par_societe[sg_id].append({
+            sif_id = m.get("societe_identifiant_id") if m else r[0]
+            if sif_id not in clients_par_sif:
+                clients_par_sif[sif_id] = []
+            clients_par_sif[sif_id].append({
                 "id":     m.get("id")     if m else r[1],
                 "nom":    m.get("nom")    if m else r[2],
                 "prenom": m.get("prenom") if m else r[3],
             })
     except Exception:
-        clients_par_societe = {}
+        clients_par_sif = {}
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -26064,7 +26064,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "compliance_activites": compliance_activites_sa,
             "identifiants_assureurs": identifiants_assureurs,
             "toutes_societes_gestion": toutes_societes_gestion,
-            "clients_par_societe": clients_par_societe,
+            "clients_par_sif": clients_par_sif,
         },
     )
 

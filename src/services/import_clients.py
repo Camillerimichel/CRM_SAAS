@@ -216,12 +216,12 @@ def _deduplicate(rows: list[_ClientRow]) -> tuple[list[_ClientRow], list[_Client
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int | None, str | None]:
-    """Retourne (societe_id, societe_nom) ou (None, None).
+def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int | None, str | None, int | None]:
+    """Retourne (societe_id, societe_nom, sif_id) ou (None, None, None).
     identifiant_externe est globalement unique — pas besoin de filtrer par fournisseur."""
     row = db.execute(
         text(
-            "SELECT s.id, s.nom "
+            "SELECT s.id, s.nom, m.id AS sif_id "
             "FROM mariadb_societe_identifiants_fournisseur m "
             "JOIN mariadb_societe_gestion s ON s.id = m.societe_id "
             "WHERE m.identifiant_externe = :id AND m.actif = 1 LIMIT 1"
@@ -229,8 +229,9 @@ def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int |
         {"id": ref_cgp},
     ).fetchone()
     if not row:
-        return None, None
-    return row[0], row[1]
+        return None, None, None
+    m = row._mapping if hasattr(row, "_mapping") else None
+    return (m["id"] if m else row[0]), (m["nom"] if m else row[1]), (m["sif_id"] if m else row[2])
 
 
 def _find_client(db: Session, fournisseur: str, ref_client: str) -> int | None:
@@ -275,7 +276,7 @@ def preview_clients(
         ))
 
     for row in kept:
-        societe_id, societe_nom = _resolve_societe(db, fournisseur, row.ref_cgp)
+        societe_id, societe_nom, _ = _resolve_societe(db, fournisseur, row.ref_cgp)
         client_id = _find_client(db, fournisseur, row.ref_client)
 
         if societe_id is None:
@@ -339,12 +340,12 @@ def commit_clients(
     fournisseur_upper = fournisseur.strip().upper()
 
     for row in kept:
-        societe_id, _ = _resolve_societe(db, fournisseur, row.ref_cgp)
+        societe_id, _, sif_id = _resolve_societe(db, fournisseur, row.ref_cgp)
         if societe_id is None:
             alertes.append(ClientImportAlerte(
                 ligne=row.ligne,
                 code="cgp_inconnu",
-                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — importé sans CGP rattaché",
+                message=f"Ref CGP '{row.ref_cgp}' inconnue — importé sans CGP rattaché",
             ))
 
         client_id = _find_client(db, fournisseur, row.ref_client)
@@ -375,14 +376,14 @@ def commit_clients(
                     "sg": societe_id,
                 },
             )
-            # Enregistrer le mapping fournisseur
+            # Enregistrer le mapping fournisseur avec le sif_id
             db.execute(
                 text(
                     "INSERT IGNORE INTO mariadb_client_identifiants_fournisseur "
-                    "(client_id, fournisseur, identifiant_externe, actif) "
-                    "VALUES (:cid, :f, :id, 1)"
+                    "(client_id, fournisseur, identifiant_externe, actif, societe_identifiant_id) "
+                    "VALUES (:cid, :f, :id, 1, :sif_id)"
                 ),
-                {"cid": next_id, "f": fournisseur_upper, "id": row.ref_client},
+                {"cid": next_id, "f": fournisseur_upper, "id": row.ref_client, "sif_id": sif_id},
             )
             crees += 1
             logger.info("IMPORT CLIENTS – créé client id=%s ref=%s (%s %s)", next_id, row.ref_client, row.nom, row.prenom)
@@ -406,6 +407,16 @@ def commit_clients(
                 db.execute(
                     text(f"UPDATE mariadb_clients SET {set_clause} WHERE id = :cid"),
                     updates,
+                )
+            # Mettre à jour societe_identifiant_id si non encore renseigné
+            if sif_id:
+                db.execute(
+                    text(
+                        "UPDATE mariadb_client_identifiants_fournisseur "
+                        "SET societe_identifiant_id = :sif_id "
+                        "WHERE client_id = :cid AND fournisseur = :f AND societe_identifiant_id IS NULL"
+                    ),
+                    {"sif_id": sif_id, "cid": client_id, "f": fournisseur_upper},
                 )
             mis_a_jour += 1
 
