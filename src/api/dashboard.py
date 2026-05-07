@@ -16839,82 +16839,111 @@ async def dashboard_client_kyc(
             date_saisie = (form.get("date_saisie") or None) or None
             date_expiration = (form.get("date_expiration") or None) or None
 
-            if not type_id or not rue or not code_postal or not ville or not pays:
-                adresse_error = "Veuillez renseigner le type d'adresse et les champs obligatoires."
+            is_primary = str(type_id) == "1" or str(adresse_id) == "0"
+
+            if is_primary:
+                # Résidence principale → mariadb_clients (source unique)
+                if not rue or not code_postal or not ville:
+                    adresse_error = "Veuillez renseigner la rue, le code postal et la ville."
+                else:
+                    try:
+                        db.execute(
+                            text(
+                                "UPDATE mariadb_clients "
+                                "SET adresse_rue = :rue, adresse_cp = :cp, adresse_ville = :ville, adresse_pays = :pays "
+                                "WHERE id = :cid"
+                            ),
+                            {"rue": rue, "cp": code_postal, "ville": ville, "pays": pays or None, "cid": client_id},
+                        )
+                        db.commit()
+                        _snapshot_synthese()
+                        adresse_success = "Adresse enregistrée."
+                    except Exception as exc:
+                        db.rollback()
+                        adresse_error = "Impossible d'enregistrer l'adresse."
+                        logger.debug("Dashboard KYC client: erreur adresse principale: %s", exc, exc_info=True)
             else:
-                try:
-                    params = {
-                        "cid": client_id,
-                        "type_id": int(type_id),
-                        "rue": rue,
-                        "complement": complement,
-                        "code_postal": code_postal,
-                        "ville": ville,
-                        "pays": pays,
-                        "date_saisie": date_saisie,
-                        "date_expiration": date_expiration,
-                    }
-                    if adresse_id:
-                        params["id"] = int(adresse_id)
-                        db.execute(
-                            text(
-                                """
-                                UPDATE KYC_Client_Adresse
-                                SET type_adresse_id = :type_id,
-                                    rue = :rue,
-                                    complement = :complement,
-                                    code_postal = :code_postal,
-                                    ville = :ville,
-                                    pays = :pays,
-                                    date_saisie = :date_saisie,
-                                    date_expiration = :date_expiration
-                                WHERE id = :id AND client_id = :cid
-                                """
-                            ),
-                            params,
-                        )
-                    else:
-                        db.execute(
-                            text(
-                                """
-                                INSERT INTO KYC_Client_Adresse (
-                                    client_id,
-                                    type_adresse_id,
-                                    rue,
-                                    complement,
-                                    code_postal,
-                                    ville,
-                                    pays,
-                                    date_saisie,
-                                    date_expiration
-                                ) VALUES (
-                                    :cid,
-                                    :type_id,
-                                    :rue,
-                                    :complement,
-                                    :code_postal,
-                                    :ville,
-                                    :pays,
-                                    :date_saisie,
-                                    :date_expiration
-                                )
-                                """
-                            ),
-                            params,
-                        )
-                    db.commit()
-                    _snapshot_synthese()
-                    adresse_success = "Adresse enregistrée."
-                except Exception as exc:
-                    db.rollback()
-                    adresse_error = "Impossible d'enregistrer l'adresse."
-                    logger.debug("Dashboard KYC client: erreur adresse save: %s", exc, exc_info=True)
+                # Autres types → KYC_Client_Adresse
+                if not type_id or not rue or not code_postal or not ville or not pays:
+                    adresse_error = "Veuillez renseigner le type d'adresse et les champs obligatoires."
+                else:
+                    try:
+                        params = {
+                            "cid": client_id,
+                            "type_id": int(type_id),
+                            "rue": rue,
+                            "complement": complement,
+                            "code_postal": code_postal,
+                            "ville": ville,
+                            "pays": pays,
+                            "date_saisie": date_saisie,
+                            "date_expiration": date_expiration,
+                        }
+                        if adresse_id:
+                            params["id"] = int(adresse_id)
+                            db.execute(
+                                text(
+                                    """
+                                    UPDATE KYC_Client_Adresse
+                                    SET type_adresse_id = :type_id,
+                                        rue = :rue,
+                                        complement = :complement,
+                                        code_postal = :code_postal,
+                                        ville = :ville,
+                                        pays = :pays,
+                                        date_saisie = :date_saisie,
+                                        date_expiration = :date_expiration
+                                    WHERE id = :id AND client_id = :cid
+                                    """
+                                ),
+                                params,
+                            )
+                        else:
+                            db.execute(
+                                text(
+                                    """
+                                    INSERT INTO KYC_Client_Adresse (
+                                        client_id, type_adresse_id, rue, complement,
+                                        code_postal, ville, pays, date_saisie, date_expiration
+                                    ) VALUES (
+                                        :cid, :type_id, :rue, :complement,
+                                        :code_postal, :ville, :pays, :date_saisie, :date_expiration
+                                    )
+                                    """
+                                ),
+                                params,
+                            )
+                        db.commit()
+                        _snapshot_synthese()
+                        adresse_success = "Adresse enregistrée."
+                    except Exception as exc:
+                        db.rollback()
+                        adresse_error = "Impossible d'enregistrer l'adresse."
+                        logger.debug("Dashboard KYC client: erreur adresse save: %s", exc, exc_info=True)
             active_section = "adresse"
 
         elif action == "adresse_delete":
             adresse_id = form.get("adresse_id") or None
             if not adresse_id:
                 adresse_error = "Adresse introuvable."
+            elif str(adresse_id) == "0":
+                # Résidence principale → vider les champs dans mariadb_clients
+                try:
+                    db.execute(
+                        text(
+                            "UPDATE mariadb_clients "
+                            "SET adresse_rue = NULL, adresse_cp = NULL, adresse_ville = NULL, adresse_pays = NULL "
+                            "WHERE id = :cid"
+                        ),
+                        {"cid": client_id},
+                    )
+                    db.commit()
+                    _snapshot_synthese()
+                    adresse_success = "Adresse supprimée."
+                except Exception as exc:
+                    db.rollback()
+                    adresse_error = "Impossible de supprimer l'adresse."
+                    logger.debug("Dashboard KYC client: erreur adresse principale delete: %s", exc, exc_info=True)
             else:
                 try:
                     db.execute(
@@ -19345,6 +19374,27 @@ async def dashboard_client_kyc(
 
     adresses: list[dict] = []
     try:
+        # Résidence principale : source unique = mariadb_clients (id virtuel 0)
+        mc = db.execute(
+            text("SELECT adresse_rue, adresse_cp, adresse_ville, adresse_pays FROM mariadb_clients WHERE id = :cid"),
+            {"cid": client_id},
+        ).fetchone()
+        if mc and (mc[0] or mc[1] or mc[2]):
+            adresses.append({
+                "id": 0,
+                "type_adresse_id": 1,
+                "type_libelle": "Résidence principale",
+                "is_primary": True,
+                "is_secondary": False,
+                "rue": mc[0] or "",
+                "complement": None,
+                "code_postal": mc[1] or "",
+                "ville": mc[2] or "",
+                "pays": mc[3] or "",
+                "date_saisie": None,
+                "date_expiration": None,
+            })
+        # Autres types d'adresse depuis KYC_Client_Adresse (hors résidence principale)
         rows_adresses = db.execute(
             text(
                 """
@@ -19360,7 +19410,7 @@ async def dashboard_client_kyc(
                        a.date_expiration
                 FROM KYC_Client_Adresse a
                 LEFT JOIN ref_type_adresse t ON t.id = a.type_adresse_id
-                WHERE a.client_id = :cid
+                WHERE a.client_id = :cid AND a.type_adresse_id != 1
                 ORDER BY (a.date_saisie IS NULL), a.date_saisie DESC, a.id DESC
                 """
             ),
@@ -19368,28 +19418,21 @@ async def dashboard_client_kyc(
         ).fetchall()
         for row in rows_adresses:
             data = row._mapping
-            date_saisie = data.get("date_saisie")
-            date_expiration = data.get("date_expiration")
             libelle = _safe_text(data.get("type_libelle"))
-            libelle_lower = libelle.lower()
-            is_primary = "princip" in libelle_lower
-            is_secondary = (not is_primary) and "second" in libelle_lower
-            adresses.append(
-                {
-                    "id": data.get("id"),
-                    "type_adresse_id": data.get("type_adresse_id"),
-                    "type_libelle": libelle,
-                    "is_primary": is_primary,
-                    "is_secondary": is_secondary,
-                    "rue": _safe_text(data.get("rue")),
-                    "complement": _safe_text(data.get("complement")),
-                    "code_postal": _safe_text(data.get("code_postal")),
-                    "ville": _safe_text(data.get("ville")),
-                    "pays": _safe_text(data.get("pays")),
-                    "date_saisie": _fmt_date(date_saisie),
-                    "date_expiration": _fmt_date(date_expiration),
-                }
-            )
+            adresses.append({
+                "id": data.get("id"),
+                "type_adresse_id": data.get("type_adresse_id"),
+                "type_libelle": libelle,
+                "is_primary": False,
+                "is_secondary": "second" in libelle.lower(),
+                "rue": _safe_text(data.get("rue")),
+                "complement": _safe_text(data.get("complement")),
+                "code_postal": _safe_text(data.get("code_postal")),
+                "ville": _safe_text(data.get("ville")),
+                "pays": _safe_text(data.get("pays")),
+                "date_saisie": _fmt_date(data.get("date_saisie")),
+                "date_expiration": _fmt_date(data.get("date_expiration")),
+            })
     except Exception:
         adresses = []
 
