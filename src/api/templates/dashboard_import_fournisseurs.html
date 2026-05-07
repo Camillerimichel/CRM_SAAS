@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Import fournisseurs{% endblock %}
 {% block header_title %}Import fournisseurs{% endblock %}
-{% block header_subtitle %}Inventaire · Mouvements · Calcul des risques{% endblock %}
+{% block header_subtitle %}Clients · Produits · Supports · Souscriptions · Inventaires &amp; Mouvements{% endblock %}
 
 {% block content %}
 <style>
@@ -124,6 +124,40 @@
   .log-area .log-err { color: #f87171; }
   .log-area .log-warn{ color: #fbbf24; }
 
+  /* ── Blocs thématiques ─────────────────────────────────────── */
+  .block-card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+    margin-bottom: 20px; box-shadow: 0 8px 20px rgba(15,23,42,.06);
+  }
+  .block-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 24px; gap: 16px;
+  }
+  .block-header-left { display: flex; align-items: center; gap: 14px; }
+  .block-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #e5e7eb; color: #6b7280;
+    font-weight: 700; font-size: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .block-num.active { background: #2563eb; color: #fff; }
+  .block-title { margin: 0; font-size: 16px; font-weight: 700; }
+  .block-desc { margin: 3px 0 0; font-size: 13px; color: #6b7280; }
+  .block-badge {
+    flex-shrink: 0; display: inline-block; padding: 3px 10px;
+    border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+  .block-badge-soon   { background: #f3f4f6; color: #6b7280; }
+  .block-badge-active { background: #eff6ff; color: #2563eb; }
+  .block-placeholder {
+    padding: 14px 24px; color: #9ca3af; font-size: 13px;
+    border-top: 1px solid #f3f4f6;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .block-body {
+    padding: 20px 24px 24px; border-top: 1px solid #f3f4f6;
+  }
+
   .option-field {
     margin-top: 16px; padding: 14px 16px;
     background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
@@ -135,14 +169,88 @@
   }
 </style>
 
-<div style="max-width:720px;">
+<div style="max-width:760px;">
 
-  <div style="margin-bottom:20px;">
+  <div style="margin-bottom:24px;">
     <a href="/dashboard/superadmin#outils-import" class="btn-secondary">← Retour à la Superadministration</a>
   </div>
 
+  <!-- ── Bloc 1 : Clients ──────────────────────────────────────────────────── -->
+  <div class="block-card" style="opacity:.75;">
+    <div class="block-header">
+      <div class="block-header-left">
+        <div class="block-num">1</div>
+        <div>
+          <p class="block-title">Clients</p>
+          <p class="block-desc">Import de la liste des clients (identité, coordonnées, identifiants fournisseur).</p>
+        </div>
+      </div>
+      <span class="block-badge block-badge-soon">À venir</span>
+    </div>
+    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+  </div>
+
+  <!-- ── Bloc 2 : Produits ─────────────────────────────────────────────────── -->
+  <div class="block-card" style="opacity:.75;">
+    <div class="block-header">
+      <div class="block-header-left">
+        <div class="block-num">2</div>
+        <div>
+          <p class="block-title">Produits</p>
+          <p class="block-desc">Import des contrats d'assurance vie génériques (référence produit, compagnie, type de contrat).</p>
+        </div>
+      </div>
+      <span class="block-badge block-badge-soon">À venir</span>
+    </div>
+    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+  </div>
+
+  <!-- ── Bloc 3 : Supports ─────────────────────────────────────────────────── -->
+  <div class="block-card" style="opacity:.75;">
+    <div class="block-header">
+      <div class="block-header-left">
+        <div class="block-num">3</div>
+        <div>
+          <p class="block-title">Supports</p>
+          <p class="block-desc">Import des supports financiers disponibles (code ISIN, libellé, catégorie, indicateurs de risque).</p>
+        </div>
+      </div>
+      <span class="block-badge block-badge-soon">À venir</span>
+    </div>
+    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+  </div>
+
+  <!-- ── Bloc 4 : Souscriptions ────────────────────────────────────────────── -->
+  <div class="block-card" style="opacity:.75;">
+    <div class="block-header">
+      <div class="block-header-left">
+        <div class="block-num">4</div>
+        <div>
+          <p class="block-title">Souscriptions</p>
+          <p class="block-desc">Import des dates d'ouverture et de clôture des contrats clients par produit.</p>
+        </div>
+      </div>
+      <span class="block-badge block-badge-soon">À venir</span>
+    </div>
+    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+  </div>
+
+  <!-- ── Bloc 5 : Inventaires, Mouvements & Avis d'opérations ─────────────── -->
+  <div class="block-card">
+    <div class="block-header">
+      <div class="block-header-left">
+        <div class="block-num active">5</div>
+        <div>
+          <p class="block-title">Inventaires, Mouvements &amp; Avis d'opérations</p>
+          <p class="block-desc">Import des situations de portefeuille, flux financiers et avis d'opérations — CSV ou JSON.</p>
+        </div>
+      </div>
+      <span class="block-badge block-badge-active">Actif</span>
+    </div>
+    <div class="block-body">
+
   <!-- Barre de progression 3 étapes -->
-  <div class="step-bar" id="stepBar">
+  <div class="step-bar" id="stepBar" style="max-width:600px;">
     <div class="step-bar-item active" id="bar0">Étape 1 — Inventaire</div>
     <div class="step-bar-item"       id="bar1">Étape 2 — Mouvements</div>
     <div class="step-bar-item"       id="bar2">Étape 3 — Calcul des risques</div>
@@ -352,7 +460,10 @@
     </div>
   </div>
 
-</div>
+    </div><!-- fin block-body -->
+  </div><!-- fin block-card bloc 5 -->
+
+</div><!-- fin max-width wrapper -->
 
 <script>
 // ─── État ─────────────────────────────────────────────────────────────────────

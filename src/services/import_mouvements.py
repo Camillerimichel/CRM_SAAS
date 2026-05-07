@@ -305,6 +305,7 @@ def _recompute_prmp(
 def preview_mouvements(
     db: Session,
     raw_rows: list[dict],
+    fournisseur: str | None = None,
 ) -> ImportPreviewResult:
     rows, alertes = _validate_rows(raw_rows)
     regle_map = _load_mouvement_regle(db)
@@ -368,6 +369,7 @@ def commit_mouvements(
     raw_rows: list[dict],
     id_societe_gestion: int | None = None,
     id_personne: int | None = None,
+    fournisseur: str | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
     rows, alertes = _validate_rows(raw_rows)
@@ -388,7 +390,8 @@ def commit_mouvements(
     resolved_rows: list[tuple[MouvementRow, int, int, int, datetime, float, float]] = []
     for i, row in enumerate(rows, start=1):
         id_affaire, was_created = _resolve_or_create_affaire(
-            db, row, id_societe_gestion, create_if_missing=True, id_personne=id_personne
+            db, row, id_societe_gestion, create_if_missing=True,
+            id_personne=id_personne, fournisseur=fournisseur,
         )
         if id_affaire is None:
             alertes.append(ImportAlerte(

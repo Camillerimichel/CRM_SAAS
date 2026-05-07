@@ -46,10 +46,12 @@ from src.api import dashboard
 from src.api import events
 from src.api import groupes
 from src.api import import_portefeuille
+from src.api import client_identifiants_fournisseur
 app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(groupes.router)
 app.include_router(import_portefeuille.router)
+app.include_router(client_identifiants_fournisseur.router)
 
 
 @app.middleware("http")

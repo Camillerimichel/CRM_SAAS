@@ -105,6 +105,18 @@ def _validate_rows(raw_rows: list[dict]) -> tuple[list[InventaireRow], list[Impo
 # DB helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _resolve_client_by_fournisseur(db: Session, fournisseur: str, id_externe: str) -> int | None:
+    """Retourne le client_id CRM correspondant à l'identifiant externe chez ce fournisseur."""
+    row = db.execute(
+        text(
+            "SELECT client_id FROM mariadb_client_identifiants_fournisseur "
+            "WHERE fournisseur = :f AND identifiant_externe = :id AND actif = 1 LIMIT 1"
+        ),
+        {"f": fournisseur.strip().upper(), "id": id_externe.strip()},
+    ).fetchone()
+    return (row[0] if not hasattr(row, "_mapping") else row._mapping["client_id"]) if row else None
+
+
 def _resolve_affaire_id(db: Session, row) -> int | None:  # InventaireRow | MouvementRow
     if row.id_affaire is not None:
         r = db.execute(
@@ -200,12 +212,31 @@ def _resolve_or_create_affaire(
     id_societe_gestion: int | None = None,
     create_if_missing: bool = False,
     id_personne: int | None = None,
+    fournisseur: str | None = None,
 ) -> tuple[int | None, bool]:
     """
     Cherche l'affaire. Si absente et create_if_missing=True, la crée à vide
     et génère une tâche de finalisation.
+
+    Si la row contient id_client_fournisseur et que fournisseur est fourni,
+    le client CRM est résolu via mariadb_client_identifiants_fournisseur et
+    utilisé comme id_personne (priorité sur le paramètre id_personne).
+
     Retourne (id_affaire | None, was_created).
     """
+    # Résolution du client via la table de mapping fournisseur
+    effective_personne = id_personne
+    id_client_ext = getattr(row, "id_client_fournisseur", None)
+    if id_client_ext and fournisseur:
+        resolved = _resolve_client_by_fournisseur(db, fournisseur, id_client_ext)
+        if resolved is not None:
+            effective_personne = resolved
+        else:
+            logger.warning(
+                "IMPORT – id_client_fournisseur '%s' inconnu chez '%s' – client non résolu",
+                id_client_ext, fournisseur,
+            )
+
     id_affaire = _resolve_affaire_id(db, row)
     if id_affaire is not None:
         return id_affaire, False
@@ -214,8 +245,8 @@ def _resolve_or_create_affaire(
         return None, False
 
     ref = (row.ref_affaire or "").strip() or f"IMP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    id_affaire = _create_affaire_vide(db, ref, id_societe_gestion, id_personne)
-    _create_finalisation_task(db, id_affaire, id_societe_gestion, id_personne)
+    id_affaire = _create_affaire_vide(db, ref, id_societe_gestion, effective_personne)
+    _create_finalisation_task(db, id_affaire, id_societe_gestion, effective_personne)
     return id_affaire, True
 
 
@@ -321,11 +352,24 @@ def _upsert_historique_support(
 def preview_inventaire(
     db: Session,
     raw_rows: list[dict],
+    fournisseur: str | None = None,
 ) -> ImportPreviewResult:
     rows, alertes = _validate_rows(raw_rows)
 
     apercu: list[dict] = []
     for i, row in enumerate(rows[:20]):  # max 20 lignes en aperçu
+        # Résolution client fournisseur si disponible
+        id_client_ext = getattr(row, "id_client_fournisseur", None)
+        client_resolu: int | None = None
+        if id_client_ext and fournisseur:
+            client_resolu = _resolve_client_by_fournisseur(db, fournisseur, id_client_ext)
+            if client_resolu is None:
+                alertes.append(ImportAlerte(
+                    ligne=i + 1,
+                    code="client_fournisseur_inconnu",
+                    message=f"id_client_fournisseur '{id_client_ext}' introuvable chez '{fournisseur}'",
+                ))
+
         id_affaire = _resolve_affaire_id(db, row)
         support_row = db.execute(
             text("SELECT id, nom FROM mariadb_support WHERE code_isin = :isin LIMIT 1"),
@@ -335,6 +379,8 @@ def preview_inventaire(
         apercu.append({
             "ligne": i + 1,
             "ref_affaire": row.ref_affaire or str(row.id_affaire),
+            "id_client_fournisseur": id_client_ext,
+            "client_resolu": client_resolu,
             "id_affaire": id_affaire,
             "code_isin": row.code_isin,
             "nom_support": support_row[1] if support_row else (row.nom_support or "INCONNU"),
@@ -374,6 +420,7 @@ def commit_inventaire(
     raw_rows: list[dict],
     id_societe_gestion: int | None = None,
     id_personne: int | None = None,
+    fournisseur: str | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
     rows, alertes = _validate_rows(raw_rows)
@@ -385,7 +432,8 @@ def commit_inventaire(
 
     for i, row in enumerate(rows, start=1):
         id_affaire, was_created = _resolve_or_create_affaire(
-            db, row, id_societe_gestion, create_if_missing=True, id_personne=id_personne
+            db, row, id_societe_gestion, create_if_missing=True,
+            id_personne=id_personne, fournisseur=fournisseur,
         )
         if id_affaire is None:
             alertes.append(ImportAlerte(
