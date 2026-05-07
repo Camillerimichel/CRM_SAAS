@@ -25987,6 +25987,31 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         identifiants_assureurs = []
         fournisseurs_connus = ["AFI ESCA FRANCE"]
 
+    # Clients groupés par sif_id : clients importés de ce fournisseur rattachés à cette société
+    clients_par_sif: dict = {}
+    try:
+        rows_clia = db.execute(text(
+            "SELECT sif.id AS sif_id, c.id, c.nom, c.prenom, cif.identifiant_externe "
+            "FROM mariadb_societe_identifiants_fournisseur sif "
+            "JOIN mariadb_clients c ON c.id_societe_gestion = sif.societe_id "
+            "JOIN mariadb_client_identifiants_fournisseur cif "
+            "  ON cif.client_id = c.id AND cif.fournisseur = sif.fournisseur AND cif.actif = 1 "
+            "ORDER BY sif.id, c.nom, c.prenom"
+        )).fetchall()
+        for r in rows_clia:
+            m = r._mapping if hasattr(r, "_mapping") else {}
+            sif_id = m.get("sif_id") if m else r[0]
+            if sif_id not in clients_par_sif:
+                clients_par_sif[sif_id] = []
+            clients_par_sif[sif_id].append({
+                "id":         m.get("id")                  if m else r[1],
+                "nom":        m.get("nom")                 if m else r[2],
+                "prenom":     m.get("prenom")              if m else r[3],
+                "ref_client": m.get("identifiant_externe") if m else r[4],
+            })
+    except Exception:
+        clients_par_sif = {}
+
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
         {
@@ -26048,6 +26073,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "identifiants_assureurs": identifiants_assureurs,
             "fournisseurs_connus": fournisseurs_connus,
             "toutes_societes_gestion": toutes_societes_gestion,
+            "clients_par_sif": clients_par_sif,
         },
     )
 
