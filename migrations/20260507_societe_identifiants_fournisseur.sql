@@ -25,4 +25,7 @@ CREATE TABLE IF NOT EXISTS mariadb_societe_identifiants_fournisseur (
 -- Données initiales
 INSERT IGNORE INTO mariadb_societe_identifiants_fournisseur (societe_id, fournisseur, identifiant_externe, actif)
 VALUES (5,  'AFI ESCA FRANCE', '21079',   1),  -- Majors Courtage chez AFI ESCA France
-       (12, 'AFI ESCA FRANCE', '9910386', 1);  -- BCAM chez AFI ESCA France
+       (12, 'AFI ESCA FRANCE', '9910386', 1),  -- BCAM chez AFI ESCA France
+       (1,  'AES PAT-LUX',     '9303799', 1),  -- SAS Optiwealth chez AES Pat-Lux
+       (1,  'AES PAT-LUX',     '9321900', 1),  -- SAS Optiwealth chez AES Pat-Lux (2e identifiant)
+       (1,  'AES PATRIMOINE',  '9335111', 1);  -- SAS Optiwealth chez AES Patrimoine
