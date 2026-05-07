@@ -24,4 +24,5 @@ CREATE TABLE IF NOT EXISTS mariadb_societe_identifiants_fournisseur (
 
 -- Données initiales
 INSERT IGNORE INTO mariadb_societe_identifiants_fournisseur (societe_id, fournisseur, identifiant_externe, actif)
-VALUES (5, 'AFI ESCA FRANCE', '21079', 1);  -- Majors Courtage chez AFI ESCA France
+VALUES (5,  'AFI ESCA FRANCE', '21079',   1),  -- Majors Courtage chez AFI ESCA France
+       (12, 'AFI ESCA FRANCE', '9910386', 1);  -- BCAM chez AFI ESCA France
