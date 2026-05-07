@@ -275,22 +275,22 @@ def preview_clients(
 
     for row in kept:
         societe_id, societe_nom = _resolve_societe(db, fournisseur, row.ref_cgp)
+        client_id = _find_client(db, fournisseur, row.ref_client)
+
         if societe_id is None:
-            statut = "cgp_inconnu"
             nb_cgp_inconnus += 1
             alertes.append(ClientImportAlerte(
                 ligne=row.ligne,
                 code="cgp_inconnu",
-                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — client ignoré",
+                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — importé sans CGP rattaché",
             ))
+
+        if client_id:
+            statut = "existant" if societe_id else "cgp_inconnu_existant"
+            nb_existants += 1
         else:
-            client_id = _find_client(db, fournisseur, row.ref_client)
-            if client_id:
-                statut = "existant"
-                nb_existants += 1
-            else:
-                statut = "nouveau"
-                nb_nouveaux += 1
+            statut = "nouveau" if societe_id else "cgp_inconnu_nouveau"
+            nb_nouveaux += 1
 
         apercu.append(ClientImportRowPreview(
             ligne=row.ligne,
@@ -305,7 +305,7 @@ def preview_clients(
             cp=row.cp,
             ville=row.ville,
             statut=statut,
-            client_id=_find_client(db, fournisseur, row.ref_client) if societe_id else None,
+            client_id=client_id,
         ))
 
     apercu.sort(key=lambda r: r.ligne)
@@ -343,10 +343,8 @@ def commit_clients(
             alertes.append(ClientImportAlerte(
                 ligne=row.ligne,
                 code="cgp_inconnu",
-                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — ignoré",
+                message=f"Ref CGP '{row.ref_cgp}' inconnue chez '{fournisseur}' — importé sans CGP rattaché",
             ))
-            ignores += 1
-            continue
 
         client_id = _find_client(db, fournisseur, row.ref_client)
 

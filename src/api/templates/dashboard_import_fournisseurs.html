@@ -834,10 +834,11 @@ function onFileCli(f) {
 })();
 
 const CLI_STATUT = {
-  nouveau:        { cls:'ok',     label:'Nouveau' },
-  existant:       { cls:'muted',  label:'Existant' },
-  cgp_inconnu:    { cls:'warn',   label:'CGP inconnu' },
-  doublon_ignore: { cls:'danger', label:'Doublon ignoré' },
+  nouveau:              { cls:'ok',     label:'Nouveau' },
+  existant:             { cls:'muted',  label:'Existant' },
+  cgp_inconnu_nouveau:  { cls:'warn',   label:'Nouveau (CGP ?)' },
+  cgp_inconnu_existant: { cls:'warn',   label:'Existant (CGP ?)' },
+  doublon_ignore:       { cls:'danger', label:'Doublon ignoré' },
 };
 
 function cliStatutBadge(statut) {
@@ -907,7 +908,7 @@ function renderApercuCli() {
   const importables = p.nouveaux + p.existants;
   const btn = document.getElementById('btnCommitCli');
   btn.textContent = `Importer ${importables} client${importables>1?'s':''}`;
-  btn.disabled = importables === 0;
+  btn.disabled = importables === 0 && p.cgp_inconnus === 0;
 }
 
 function cliBackToUpload() {
