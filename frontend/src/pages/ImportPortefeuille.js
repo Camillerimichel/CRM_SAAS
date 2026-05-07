@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL } from "../config";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n) {
   if (n == null) return "—";
   return Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
@@ -30,6 +30,61 @@ function Badge({ code }) {
     >
       {code}
     </span>
+  );
+}
+
+// ─── Bloc placeholder "À venir" ───────────────────────────────────────────────
+function BlockAVenir({ num, title, description }) {
+  return (
+    <div className="card" style={{ opacity: 0.75 }}>
+      <div className="card-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              background: "#e5e7eb",
+              color: "#6b7280",
+              fontWeight: 700,
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {num}
+          </span>
+          <div>
+            <h3 style={{ margin: 0 }}>{title}</h3>
+            <p className="muted" style={{ margin: "2px 0 0", fontSize: 13 }}>
+              {description}
+            </p>
+          </div>
+        </div>
+        <span
+          className="pill"
+          style={{ background: "#f3f4f6", color: "#6b7280", flexShrink: 0 }}
+        >
+          À venir
+        </span>
+      </div>
+      <div
+        style={{
+          padding: "16px 24px",
+          color: "#9ca3af",
+          fontSize: 13,
+          borderTop: "1px solid #f3f4f6",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 16 }}>🔧</span>
+        Ce module d'import est en cours de développement.
+      </div>
+    </div>
   );
 }
 
@@ -246,6 +301,12 @@ function StepFichier({ client, idSg, onNext, onBack }) {
     }
   };
 
+  const types = [
+    { key: "inventaire", label: "Inventaire" },
+    { key: "mouvements", label: "Mouvements" },
+    { key: "avis_operations", label: "Avis d'opérations" },
+  ];
+
   return (
     <div className="card" style={{ maxWidth: 520 }}>
       <div className="card-header">
@@ -258,24 +319,24 @@ function StepFichier({ client, idSg, onNext, onBack }) {
         </span>
       </div>
       <div style={{ padding: "0 24px 24px" }}>
-        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          {["inventaire", "mouvements"].map((t) => (
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+          {types.map((t) => (
             <button
-              key={t}
+              key={t.key}
               type="button"
-              onClick={() => setType(t)}
+              onClick={() => setType(t.key)}
               style={{
                 padding: "8px 20px",
                 border: "2px solid",
-                borderColor: type === t ? "#2563eb" : "#d1d5db",
+                borderColor: type === t.key ? "#2563eb" : "#d1d5db",
                 borderRadius: 6,
-                background: type === t ? "#eff6ff" : "#fff",
-                color: type === t ? "#2563eb" : "#374151",
-                fontWeight: type === t ? 600 : 400,
+                background: type === t.key ? "#eff6ff" : "#fff",
+                color: type === t.key ? "#2563eb" : "#374151",
+                fontWeight: type === t.key ? 600 : 400,
                 cursor: "pointer",
               }}
             >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t.label}
             </button>
           ))}
         </div>
@@ -381,10 +442,12 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const isInventaire = type === "inventaire";
-  const cols = isInventaire
-    ? ["ref_affaire", "date", "code_isin", "nom_support", "nbuc", "vl", "valo"]
-    : ["ref_affaire", "date", "code_isin", "code_mouvement", "nbuc", "vl", "montant_ope"];
+  const colsByType = {
+    inventaire: ["ref_affaire", "date", "code_isin", "nom_support", "nbuc", "vl", "valo"],
+    mouvements: ["ref_affaire", "date", "code_isin", "code_mouvement", "nbuc", "vl", "montant_ope"],
+    avis_operations: ["ref_affaire", "date", "code_isin", "code_mouvement", "nbuc", "vl", "montant_ope"],
+  };
+  const cols = colsByType[type] || colsByType.inventaire;
 
   const handleCommit = async () => {
     setLoading(true);
@@ -433,7 +496,6 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
       </div>
 
       <div style={{ padding: "0 24px 24px" }}>
-        {/* Alertes */}
         {preview.alertes.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <p style={{ fontWeight: 600, marginBottom: 8 }}>
@@ -463,7 +525,6 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
           </div>
         )}
 
-        {/* Table aperçu */}
         {preview.apercu.length > 0 && (
           <div style={{ overflowX: "auto", marginBottom: 16 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -490,10 +551,7 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
               </thead>
               <tbody>
                 {preview.apercu.map((row, i) => (
-                  <tr
-                    key={i}
-                    style={{ background: i % 2 === 0 ? "#fff" : "#f9fafb" }}
-                  >
+                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#f9fafb" }}>
                     {cols.map((c) => (
                       <td
                         key={c}
@@ -507,15 +565,11 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
                       </td>
                     ))}
                     <td style={{ padding: "7px 10px", borderBottom: "1px solid #f3f4f6" }}>
-                      {row.affaire_a_creer && (
-                        <Badge code="affaire_a_creer" />
-                      )}
+                      {row.affaire_a_creer && <Badge code="affaire_a_creer" />}
                       {!row.affaire_a_creer && row.affaire_trouvee && (
                         <span style={{ color: "#22c55e", fontSize: 12 }}>✓</span>
                       )}
-                      {!row.support_connu && (
-                        <> <Badge code="unknown_isin" /></>
-                      )}
+                      {!row.support_connu && <> <Badge code="unknown_isin" /></>}
                     </td>
                   </tr>
                 ))}
@@ -566,13 +620,11 @@ function StepApercu({ client, idSg, type, file, preview, onNext, onBack }) {
             disabled={loading || preview.lignes_valides === 0}
             style={{
               padding: "10px 28px",
-              background:
-                loading || preview.lignes_valides === 0 ? "#d1d5db" : "#16a34a",
+              background: loading || preview.lignes_valides === 0 ? "#d1d5db" : "#16a34a",
               color: "#fff",
               border: "none",
               borderRadius: 6,
-              cursor:
-                loading || preview.lignes_valides === 0 ? "not-allowed" : "pointer",
+              cursor: loading || preview.lignes_valides === 0 ? "not-allowed" : "pointer",
               fontWeight: 600,
             }}
           >
@@ -612,7 +664,6 @@ function StepResultat({ client, type, result, onRestart }) {
         </span>
       </div>
       <div style={{ padding: "0 24px 24px" }}>
-        {/* KPIs */}
         <div
           style={{
             display: "grid",
@@ -648,7 +699,6 @@ function StepResultat({ client, type, result, onRestart }) {
           ))}
         </div>
 
-        {/* Alertes critiques */}
         {alertesCritiques.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <p style={{ fontWeight: 600, marginBottom: 6, color: "#dc2626" }}>
@@ -677,7 +727,6 @@ function StepResultat({ client, type, result, onRestart }) {
           </div>
         )}
 
-        {/* Alertes info */}
         {alertesInfo.length > 0 && (
           <details style={{ marginBottom: 16 }}>
             <summary
@@ -721,8 +770,8 @@ function StepResultat({ client, type, result, onRestart }) {
   );
 }
 
-// ─── Page principale ──────────────────────────────────────────────────────────
-function ImportPortefeuille() {
+// ─── Bloc 5 : Inventaires, Mouvements & Avis d'opérations ────────────────────
+function BlockInventaires() {
   const [step, setStep] = useState(0);
   const [ctx, setCtx] = useState({});
 
@@ -731,6 +780,115 @@ function ImportPortefeuille() {
     setCtx({});
   };
 
+  const STEPS = ["Client", "Fichier", "Aperçu", "Résultat"];
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              background: "#2563eb",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            5
+          </span>
+          <div>
+            <h3 style={{ margin: 0 }}>Inventaires, Mouvements & Avis d'opérations</h3>
+            <p className="muted" style={{ margin: "2px 0 0", fontSize: 13 }}>
+              Import des situations de portefeuille, flux financiers et avis d'opérations — CSV ou JSON.
+            </p>
+          </div>
+        </div>
+        <span
+          className="pill"
+          style={{ background: "#eff6ff", color: "#2563eb", flexShrink: 0 }}
+        >
+          Actif
+        </span>
+      </div>
+
+      <div style={{ padding: "20px 24px 24px", borderTop: "1px solid #f3f4f6" }}>
+        {/* Barre de progression */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 24, maxWidth: 520 }}>
+          {STEPS.map((label, i) => (
+            <div
+              key={label}
+              style={{
+                flex: 1,
+                textAlign: "center",
+                padding: "8px 0",
+                background: i === step ? "#2563eb" : i < step ? "#bbf7d0" : "#f3f4f6",
+                color: i === step ? "#fff" : i < step ? "#15803d" : "#9ca3af",
+                fontSize: 12,
+                fontWeight: i === step ? 700 : 400,
+                borderRadius: i === 0 ? "6px 0 0 6px" : i === 3 ? "0 6px 6px 0" : 0,
+                transition: "all .2s",
+              }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+
+        {step === 0 && (
+          <StepClient
+            onNext={(data) => {
+              setCtx((c) => ({ ...c, ...data }));
+              setStep(1);
+            }}
+          />
+        )}
+        {step === 1 && (
+          <StepFichier
+            client={ctx.client}
+            idSg={ctx.idSg}
+            onNext={(data) => {
+              setCtx((c) => ({ ...c, ...data }));
+              setStep(2);
+            }}
+            onBack={() => setStep(0)}
+          />
+        )}
+        {step === 2 && (
+          <StepApercu
+            client={ctx.client}
+            idSg={ctx.idSg}
+            type={ctx.type}
+            file={ctx.file}
+            preview={ctx.preview}
+            onNext={(data) => {
+              setCtx((c) => ({ ...c, ...data }));
+              setStep(3);
+            }}
+            onBack={() => setStep(1)}
+          />
+        )}
+        {step === 3 && (
+          <StepResultat
+            client={ctx.client}
+            type={ctx.type}
+            result={ctx.result}
+            onRestart={restart}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page principale ──────────────────────────────────────────────────────────
+function ImportPortefeuille() {
   return (
     <section className="page">
       <div className="page-header">
@@ -738,75 +896,34 @@ function ImportPortefeuille() {
           <p className="eyebrow">Opérations</p>
           <h1>Import de fichiers fournisseurs</h1>
           <p className="muted">
-            Inventaire de portefeuille ou fichier de mouvements — CSV ou JSON.
+            Chargez les données transmises par les sociétés de gestion : clients, produits, supports, souscriptions, inventaires et mouvements.
           </p>
         </div>
       </div>
 
-      {/* Barre de progression */}
-      <div style={{ display: "flex", gap: 0, marginBottom: 24, maxWidth: 520 }}>
-        {["Client", "Fichier", "Aperçu", "Résultat"].map((label, i) => (
-          <div
-            key={label}
-            style={{
-              flex: 1,
-              textAlign: "center",
-              padding: "8px 0",
-              background: i === step ? "#2563eb" : i < step ? "#bbf7d0" : "#f3f4f6",
-              color: i === step ? "#fff" : i < step ? "#15803d" : "#9ca3af",
-              fontSize: 12,
-              fontWeight: i === step ? 700 : 400,
-              borderRadius:
-                i === 0 ? "6px 0 0 6px" : i === 3 ? "0 6px 6px 0" : 0,
-              transition: "all .2s",
-            }}
-          >
-            {label}
-          </div>
-        ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <BlockAVenir
+          num={1}
+          title="Clients"
+          description="Import de la liste des clients (identité, coordonnées, identifiants fournisseur)."
+        />
+        <BlockAVenir
+          num={2}
+          title="Produits"
+          description="Import des contrats d'assurance vie génériques (référence produit, compagnie, type de contrat)."
+        />
+        <BlockAVenir
+          num={3}
+          title="Supports"
+          description="Import des supports financiers disponibles (code ISIN, libellé, catégorie, indicateurs de risque)."
+        />
+        <BlockAVenir
+          num={4}
+          title="Souscriptions"
+          description="Import des dates d'ouverture et de clôture des contrats clients par produit."
+        />
+        <BlockInventaires />
       </div>
-
-      {step === 0 && (
-        <StepClient
-          onNext={(data) => {
-            setCtx((c) => ({ ...c, ...data }));
-            setStep(1);
-          }}
-        />
-      )}
-      {step === 1 && (
-        <StepFichier
-          client={ctx.client}
-          idSg={ctx.idSg}
-          onNext={(data) => {
-            setCtx((c) => ({ ...c, ...data }));
-            setStep(2);
-          }}
-          onBack={() => setStep(0)}
-        />
-      )}
-      {step === 2 && (
-        <StepApercu
-          client={ctx.client}
-          idSg={ctx.idSg}
-          type={ctx.type}
-          file={ctx.file}
-          preview={ctx.preview}
-          onNext={(data) => {
-            setCtx((c) => ({ ...c, ...data }));
-            setStep(3);
-          }}
-          onBack={() => setStep(1)}
-        />
-      )}
-      {step === 3 && (
-        <StepResultat
-          client={ctx.client}
-          type={ctx.type}
-          result={ctx.result}
-          onRestart={restart}
-        />
-      )}
     </section>
   );
 }
