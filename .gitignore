@@ -7,6 +7,19 @@ __pycache__/
 # Virtualenv local noise
 .venv/**/__pycache__/
 
-# Runtime files
+# Runtime / logs
 uvicorn.pid
 uvicorn.lock
+uvicorn.log
+deploy.log
+
+# Frontend build output (généré par npm run build)
+frontend/build/
+
+# Frontend caches
+frontend/node_modules/.cache/
+
+# Outils locaux
+.codex
+.claude/
+bibliotheque_document.md
