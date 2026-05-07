@@ -388,8 +388,13 @@ def commit_clients(
             crees += 1
             logger.info("IMPORT CLIENTS – créé client id=%s ref=%s (%s %s)", next_id, row.ref_client, row.nom, row.prenom)
         else:
-            # Mettre à jour l'adresse si la nouvelle est plus complète
             updates = {}
+            if row.qualite:
+                updates["qualite"] = row.qualite
+            if row.nom:
+                updates["nom"] = row.nom
+            if row.prenom:
+                updates["prenom"] = row.prenom
             if adresse_rue:
                 updates["adresse_rue"] = adresse_rue
             if adresse_cp:
