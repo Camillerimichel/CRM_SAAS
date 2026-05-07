@@ -476,7 +476,6 @@
       <thead>
         <tr style="text-align:left; border-bottom:1px solid var(--border);">
           <th style="padding:6px 4px;">Société de gestion</th>
-          <th style="padding:6px 4px;">Assureur</th>
           <th style="padding:6px 4px;">Identifiant</th>
           <th style="padding:6px 4px; text-align:center;">Actif</th>
           <th style="padding:6px 4px; text-align:center;">Clients</th>
@@ -485,8 +484,8 @@
       </thead>
       <tbody id="tbody-ia">
         {% for ia in identifiants_assureurs %}
-        {% set ia_clients = clients_par_sif.get(ia.id, []) %}
-        <tr data-ia-id="{{ ia.id }}">
+        {% set sg_clients = clients_par_societe.get(ia.societe_id, []) %}
+        <tr data-ia-id="{{ ia.id }}" data-ia-sg="{{ ia.societe_id }}">
           <td style="padding:4px;">
             <select class="form-control ia-societe" style="min-width:160px;">
               {% for sg in toutes_societes_gestion %}
@@ -495,21 +494,18 @@
             </select>
           </td>
           <td style="padding:4px;">
-            <input class="form-control ia-fournisseur" list="ia-fournisseurs-list" value="{{ ia.fournisseur }}" style="min-width:150px;">
-          </td>
-          <td style="padding:4px;">
-            <input class="form-control ia-identifiant" type="text" value="{{ ia.identifiant_externe }}" style="min-width:100px;">
+            <input class="form-control ia-identifiant" type="text" value="{{ ia.identifiant_externe }}" style="min-width:120px;">
           </td>
           <td style="padding:4px; text-align:center;">
             <input type="checkbox" class="ia-actif"{% if ia.actif %} checked{% endif %}>
           </td>
           <td style="padding:4px; text-align:center;">
-            {% if ia_clients %}
-            <button class="btn btn-secondary ia-toggle-btn" data-ia-parent="{{ ia.id }}"
+            {% if ia.nb_clients > 0 %}
+            <button class="btn btn-secondary" data-ia-sg="{{ ia.societe_id }}"
                     onclick="iaToggleClients(this)"
                     title="Afficher / masquer les clients"
                     style="font-size:0.8rem; padding:2px 8px;">
-              {{ ia_clients | length }} client{% if ia_clients | length > 1 %}s{% endif %} ▶
+              {{ ia.nb_clients }} client{% if ia.nb_clients > 1 %}s{% endif %} ▶
             </button>
             {% else %}
             <span class="muted" style="font-size:0.85rem;">0</span>
@@ -520,22 +516,20 @@
             <button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>
           </td>
         </tr>
-        {% if ia_clients %}
-        <tr class="ia-clients-row" data-ia-parent="{{ ia.id }}" style="display:none;">
-          <td colspan="6" style="padding:8px 12px; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+        {% if sg_clients and loop.changed(ia.societe_id) %}
+        <tr class="ia-clients-row" data-ia-sg="{{ ia.societe_id }}" style="display:none;">
+          <td colspan="5" style="padding:8px 12px; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
             <div style="font-size:0.85rem; max-height:220px; overflow-y:auto;">
               <table style="width:100%; border-collapse:collapse;">
                 <thead>
                   <tr style="border-bottom:1px solid #e5e7eb; text-align:left;">
-                    <th style="padding:4px 6px; font-weight:600;">Réf. client</th>
                     <th style="padding:4px 6px; font-weight:600;">Nom</th>
                     <th style="padding:4px 6px; font-weight:600;">Prénom</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for cli in ia_clients %}
+                  {% for cli in sg_clients %}
                   <tr style="border-bottom:1px solid #f0f0f0;">
-                    <td style="padding:3px 6px; font-family:monospace;">{{ cli.ref_client }}</td>
                     <td style="padding:3px 6px;">{{ cli.nom or '—' }}</td>
                     <td style="padding:3px 6px;">{{ cli.prenom or '—' }}</td>
                   </tr>
@@ -550,11 +544,6 @@
       </tbody>
     </table>
   </div>
-  <datalist id="ia-fournisseurs-list">
-    {% for f in fournisseurs_connus %}
-    <option value="{{ f }}">
-    {% endfor %}
-  </datalist>
   <div id="ia-msg" style="margin-top:8px; font-size:0.88rem; min-height:1.2em;"></div>
 
   <script>
@@ -571,8 +560,8 @@
     }
 
     window.iaToggleClients = function(btn) {
-      const id = btn.dataset.iaParent;
-      const subRow = document.querySelector('tr.ia-clients-row[data-ia-parent="' + id + '"]');
+      const sgId = btn.dataset.iaSg;
+      const subRow = document.querySelector('tr.ia-clients-row[data-ia-sg="' + sgId + '"]');
       if (!subRow) return;
       const open = subRow.style.display !== 'none';
       subRow.style.display = open ? 'none' : '';
@@ -585,8 +574,7 @@
       tr.dataset.iaId = '';
       tr.innerHTML =
         '<td style="padding:4px;">' + buildSocieteSelect(null) + '</td>' +
-        '<td style="padding:4px;"><input class="form-control ia-fournisseur" list="ia-fournisseurs-list" placeholder="Ex: AFI ESCA FRANCE" style="min-width:150px;"></td>' +
-        '<td style="padding:4px;"><input class="form-control ia-identifiant" type="text" placeholder="Identifiant" style="min-width:100px;"></td>' +
+        '<td style="padding:4px;"><input class="form-control ia-identifiant" type="text" placeholder="Identifiant" style="min-width:120px;"></td>' +
         '<td style="padding:4px; text-align:center;"><input type="checkbox" class="ia-actif" checked></td>' +
         '<td style="padding:4px; text-align:center;"><span class="muted" style="font-size:0.85rem;">0</span></td>' +
         '<td style="padding:4px; text-align:center; white-space:nowrap;">' +
@@ -594,20 +582,19 @@
           '<button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>' +
         '</td>';
       tbody.appendChild(tr);
-      tr.querySelector('.ia-fournisseur').focus();
+      tr.querySelector('.ia-identifiant').focus();
     };
 
     window.iaSave = async function(btn) {
       const tr = btn.closest('tr');
       const id = tr.dataset.iaId;
       const societe_id = parseInt(tr.querySelector('.ia-societe').value, 10);
-      const fournisseur = tr.querySelector('.ia-fournisseur').value.trim().toUpperCase();
       const identifiant_externe = tr.querySelector('.ia-identifiant').value.trim();
       const actif = tr.querySelector('.ia-actif').checked ? 1 : 0;
       const msgEl = document.getElementById('ia-msg');
 
-      if (!fournisseur || !identifiant_externe) {
-        msgEl.textContent = 'Assureur et identifiant sont requis.';
+      if (!identifiant_externe) {
+        msgEl.textContent = 'L\'identifiant est requis.';
         msgEl.style.color = 'var(--danger, red)';
         return;
       }
@@ -617,7 +604,7 @@
         const resp = await fetch(url, {
           method: id ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ societe_id, fournisseur, identifiant_externe, actif }),
+          body: JSON.stringify({ societe_id, identifiant_externe, actif }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(function() { return {}; });
@@ -627,7 +614,6 @@
         }
         const data = await resp.json();
         tr.dataset.iaId = String(data.id);
-        tr.querySelector('.ia-fournisseur').value = data.fournisseur;
         msgEl.textContent = id ? 'Mis à jour.' : 'Créé avec succès.';
         msgEl.style.color = 'green';
         setTimeout(function() { msgEl.textContent = ''; }, 3000);
@@ -641,7 +627,7 @@
       const tr = btn.closest('tr');
       const id = tr.dataset.iaId;
       if (!id) { tr.remove(); return; }
-      if (!confirm('Supprimer cet identifiant fournisseur ?')) return;
+      if (!confirm('Supprimer cet identifiant ?')) return;
       const msgEl = document.getElementById('ia-msg');
       try {
         const resp = await fetch('/societes/identifiants-fournisseur/' + id, { method: 'DELETE' });

@@ -1,9 +1,9 @@
 """
 Endpoints CRUD pour la table mariadb_societe_identifiants_fournisseur.
 
-Permet de gérer les correspondances entre identifiants externes fournisseurs
-et sociétés de gestion CRM. Utilisé en amont de l'import de fichiers fournisseurs
-pour résoudre automatiquement la société à partir du code transmis par l'assureur.
+Permet de gérer les correspondances entre identifiants externes (ref CGP / ORIAS)
+et sociétés de gestion CRM. L'identifiant externe est globalement unique —
+il identifie une société indépendamment de l'assureur qui transmet le fichier.
 
 Endpoints :
   GET    /societes/{societe_id}/identifiants-fournisseur      – liste par société
@@ -11,7 +11,7 @@ Endpoints :
   POST   /societes/identifiants-fournisseur                   – création
   PUT    /societes/identifiants-fournisseur/{id}              – mise à jour
   DELETE /societes/identifiants-fournisseur/{id}              – suppression
-  GET    /societes/identifiants-fournisseur/resolve           – résolution fournisseur → societe_id
+  GET    /societes/identifiants-fournisseur/resolve           – résolution identifiant → societe_id
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from src.schemas.societe_identifiant_fournisseur import (
 router = APIRouter(tags=["societes-identifiants-fournisseur"])
 
 TABLE = "mariadb_societe_identifiants_fournisseur"
-COLS  = "id, societe_id, fournisseur, identifiant_externe, date_creation, actif"
+COLS  = "id, societe_id, identifiant_externe, date_creation, actif"
 
 
 def _get_or_404(db: Session, record_id: int):
@@ -45,7 +45,7 @@ def _get_or_404(db: Session, record_id: int):
 def _row_to_dict(row) -> dict:
     if hasattr(row, "_mapping"):
         return dict(row._mapping)
-    keys = ["id", "societe_id", "fournisseur", "identifiant_externe", "date_creation", "actif"]
+    keys = ["id", "societe_id", "identifiant_externe", "date_creation", "actif"]
     return dict(zip(keys, row))
 
 
@@ -58,7 +58,7 @@ def _row_to_dict(row) -> dict:
 )
 def list_by_societe(societe_id: int, db: Session = Depends(get_db)):
     rows = db.execute(
-        text(f"SELECT {COLS} FROM {TABLE} WHERE societe_id = :sid ORDER BY fournisseur"),
+        text(f"SELECT {COLS} FROM {TABLE} WHERE societe_id = :sid ORDER BY identifiant_externe"),
         {"sid": societe_id},
     ).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -72,28 +72,20 @@ def list_by_societe(societe_id: int, db: Session = Depends(get_db)):
     response_model=dict,
 )
 def resolve(
-    fournisseur: str = Query(..., description="Code fournisseur (ex: GENERALI)"),
-    identifiant_externe: str = Query(..., description="Identifiant de la société chez ce fournisseur"),
+    identifiant_externe: str = Query(..., description="Identifiant de la société (ref CGP / ORIAS)"),
     db: Session = Depends(get_db),
 ):
     row = db.execute(
-        text(
-            f"SELECT societe_id FROM {TABLE} "
-            "WHERE fournisseur = :f AND identifiant_externe = :id AND actif = 1"
-        ),
-        {"f": fournisseur.strip().upper(), "id": identifiant_externe.strip()},
+        text(f"SELECT societe_id FROM {TABLE} WHERE identifiant_externe = :id AND actif = 1"),
+        {"id": identifiant_externe.strip()},
     ).fetchone()
     if not row:
         raise HTTPException(
             status_code=404,
-            detail="Aucune société trouvée pour cet identifiant fournisseur",
+            detail="Aucune société trouvée pour cet identifiant",
         )
     sid = row[0] if not hasattr(row, "_mapping") else row._mapping["societe_id"]
-    return {
-        "societe_id": sid,
-        "fournisseur": fournisseur.upper(),
-        "identifiant_externe": identifiant_externe,
-    }
+    return {"societe_id": sid, "identifiant_externe": identifiant_externe}
 
 
 # ─── Détail ───────────────────────────────────────────────────────────────────
@@ -113,7 +105,7 @@ def get_one(record_id: int, db: Session = Depends(get_db)):
     "/societes/identifiants-fournisseur",
     response_model=SocieteIdentifiantFournisseurSchema,
     status_code=201,
-    summary="Créer une correspondance société ↔ fournisseur",
+    summary="Créer une correspondance identifiant ↔ société",
 )
 def create(payload: SocieteIdentifiantFournisseurCreate, db: Session = Depends(get_db)):
     exists = db.execute(
@@ -124,27 +116,19 @@ def create(payload: SocieteIdentifiantFournisseurCreate, db: Session = Depends(g
         raise HTTPException(status_code=404, detail=f"Société {payload.societe_id} introuvable")
 
     conflict = db.execute(
-        text(f"SELECT id, societe_id FROM {TABLE} WHERE fournisseur = :f AND identifiant_externe = :id"),
-        {"f": payload.fournisseur, "id": payload.identifiant_externe},
+        text(f"SELECT id, societe_id FROM {TABLE} WHERE identifiant_externe = :id"),
+        {"id": payload.identifiant_externe},
     ).fetchone()
     if conflict:
         sid = conflict[1] if not hasattr(conflict, "_mapping") else conflict._mapping["societe_id"]
         raise HTTPException(
             status_code=409,
-            detail=f"Cet identifiant externe est déjà attribué à la société {sid} chez {payload.fournisseur}",
+            detail=f"L'identifiant '{payload.identifiant_externe}' est déjà attribué à la société {sid}",
         )
 
     db.execute(
-        text(
-            f"INSERT INTO {TABLE} (societe_id, fournisseur, identifiant_externe, actif) "
-            "VALUES (:sid, :f, :id, :actif)"
-        ),
-        {
-            "sid": payload.societe_id,
-            "f": payload.fournisseur,
-            "id": payload.identifiant_externe,
-            "actif": payload.actif,
-        },
+        text(f"INSERT INTO {TABLE} (societe_id, identifiant_externe, actif) VALUES (:sid, :id, :actif)"),
+        {"sid": payload.societe_id, "id": payload.identifiant_externe, "actif": payload.actif},
     )
     db.commit()
     new_id = db.execute(text("SELECT LAST_INSERT_ID()")).scalar()
