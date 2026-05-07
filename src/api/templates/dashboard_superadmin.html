@@ -487,7 +487,7 @@
         <tr data-ia-id="{{ ia.id }}">
           <td style="padding:4px;">
             <select class="form-control ia-societe" style="min-width:160px;">
-              {% for sg in societe_management_choices %}
+              {% for sg in toutes_societes_gestion %}
               <option value="{{ sg.id }}"{% if sg.id == ia.societe_id %} selected{% endif %}>{{ sg.nom }}</option>
               {% endfor %}
             </select>
@@ -519,7 +519,7 @@
 
   <script>
   (function() {
-    const IA_SOCIETES = {{ societe_management_choices | tojson }};
+    const IA_SOCIETES = {{ toutes_societes_gestion | tojson }};
 
     function buildSocieteSelect(selectedId) {
       let html = '<select class="form-control ia-societe" style="min-width:160px;">';
