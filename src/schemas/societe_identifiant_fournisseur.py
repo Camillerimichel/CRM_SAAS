@@ -6,14 +6,8 @@ from typing import Any
 
 class SocieteIdentifiantFournisseurBase(BaseModel):
     societe_id: int
-    fournisseur: str
     identifiant_externe: str
     actif: int = 1
-
-    @field_validator("fournisseur", mode="before")
-    @classmethod
-    def _normalize_fournisseur(cls, v: Any) -> str:
-        return str(v).strip().upper()
 
     @field_validator("identifiant_externe", mode="before")
     @classmethod
@@ -26,14 +20,14 @@ class SocieteIdentifiantFournisseurCreate(SocieteIdentifiantFournisseurBase):
 
 
 class SocieteIdentifiantFournisseurUpdate(BaseModel):
-    fournisseur: str | None = None
+    societe_id: int | None = None
     identifiant_externe: str | None = None
     actif: int | None = None
 
-    @field_validator("fournisseur", mode="before")
+    @field_validator("identifiant_externe", mode="before")
     @classmethod
-    def _normalize_fournisseur(cls, v: Any) -> str | None:
-        return str(v).strip().upper() if v is not None else None
+    def _strip_id(cls, v: Any) -> str | None:
+        return str(v).strip() if v is not None else None
 
 
 class SocieteIdentifiantFournisseurSchema(SocieteIdentifiantFournisseurBase):

@@ -217,15 +217,16 @@ def _deduplicate(rows: list[_ClientRow]) -> tuple[list[_ClientRow], list[_Client
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _resolve_societe(db: Session, fournisseur: str, ref_cgp: str) -> tuple[int | None, str | None]:
-    """Retourne (societe_id, societe_nom) ou (None, None)."""
+    """Retourne (societe_id, societe_nom) ou (None, None).
+    identifiant_externe est globalement unique — pas besoin de filtrer par fournisseur."""
     row = db.execute(
         text(
             "SELECT s.id, s.nom "
             "FROM mariadb_societe_identifiants_fournisseur m "
             "JOIN mariadb_societe_gestion s ON s.id = m.societe_id "
-            "WHERE m.fournisseur = :f AND m.identifiant_externe = :id AND m.actif = 1 LIMIT 1"
+            "WHERE m.identifiant_externe = :id AND m.actif = 1 LIMIT 1"
         ),
-        {"f": fournisseur.strip().upper(), "id": ref_cgp},
+        {"id": ref_cgp},
     ).fetchone()
     if not row:
         return None, None

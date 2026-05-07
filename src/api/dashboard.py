@@ -25956,61 +25956,53 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
 
     # Identifiants assureurs (table mariadb_societe_identifiants_fournisseur)
     identifiants_assureurs: list[dict] = []
-    fournisseurs_connus: list[str] = []
     try:
         rows_ia = db.execute(text(
             "SELECT sif.id, sif.societe_id, sg.nom AS societe_nom, "
-            "sif.fournisseur, sif.identifiant_externe, sif.actif "
+            "sif.identifiant_externe, sif.actif, "
+            "COUNT(DISTINCT c.id) AS nb_clients "
             "FROM mariadb_societe_identifiants_fournisseur sif "
             "JOIN mariadb_societe_gestion sg ON sg.id = sif.societe_id "
-            "ORDER BY sg.nom, sif.fournisseur"
+            "LEFT JOIN mariadb_clients c ON c.id_societe_gestion = sif.societe_id "
+            "GROUP BY sif.id, sif.societe_id, sg.nom, sif.identifiant_externe, sif.actif "
+            "ORDER BY sg.nom, sif.identifiant_externe"
         )).fetchall()
         for r in rows_ia:
             m = r._mapping if hasattr(r, "_mapping") else {}
             identifiants_assureurs.append({
-                "id": m.get("id") if m else r[0],
-                "societe_id": m.get("societe_id") if m else r[1],
-                "societe_nom": m.get("societe_nom") if m else r[2],
-                "fournisseur": m.get("fournisseur") if m else r[3],
-                "identifiant_externe": m.get("identifiant_externe") if m else r[4],
-                "actif": bool(m.get("actif") if m else r[5]),
+                "id":                  m.get("id")                  if m else r[0],
+                "societe_id":          m.get("societe_id")          if m else r[1],
+                "societe_nom":         m.get("societe_nom")         if m else r[2],
+                "identifiant_externe": m.get("identifiant_externe") if m else r[3],
+                "actif":               bool(m.get("actif")          if m else r[4]),
+                "nb_clients":          int(m.get("nb_clients") or 0 if m else r[5] or 0),
             })
-        seen = set()
-        for ia in identifiants_assureurs:
-            f = ia["fournisseur"]
-            if f not in seen:
-                seen.add(f)
-                fournisseurs_connus.append(f)
-        if not fournisseurs_connus:
-            fournisseurs_connus = ["AFI ESCA FRANCE"]
     except Exception:
         identifiants_assureurs = []
-        fournisseurs_connus = ["AFI ESCA FRANCE"]
 
-    # Clients groupés par sif_id : clients importés de ce fournisseur rattachés à cette société
-    clients_par_sif: dict = {}
+    # Clients par société (pour l'affichage expandable dans le tableau identifiants)
+    clients_par_societe: dict = {}
     try:
         rows_clia = db.execute(text(
-            "SELECT sif.id AS sif_id, c.id, c.nom, c.prenom, cif.identifiant_externe "
-            "FROM mariadb_societe_identifiants_fournisseur sif "
-            "JOIN mariadb_clients c ON c.id_societe_gestion = sif.societe_id "
-            "JOIN mariadb_client_identifiants_fournisseur cif "
-            "  ON cif.client_id = c.id AND cif.fournisseur = sif.fournisseur AND cif.actif = 1 "
-            "ORDER BY sif.id, c.nom, c.prenom"
+            "SELECT c.id_societe_gestion, c.id, c.nom, c.prenom "
+            "FROM mariadb_clients c "
+            "WHERE c.id_societe_gestion IN ("
+            "  SELECT DISTINCT societe_id FROM mariadb_societe_identifiants_fournisseur"
+            ") "
+            "ORDER BY c.id_societe_gestion, c.nom, c.prenom"
         )).fetchall()
         for r in rows_clia:
             m = r._mapping if hasattr(r, "_mapping") else {}
-            sif_id = m.get("sif_id") if m else r[0]
-            if sif_id not in clients_par_sif:
-                clients_par_sif[sif_id] = []
-            clients_par_sif[sif_id].append({
-                "id":         m.get("id")                  if m else r[1],
-                "nom":        m.get("nom")                 if m else r[2],
-                "prenom":     m.get("prenom")              if m else r[3],
-                "ref_client": m.get("identifiant_externe") if m else r[4],
+            sg_id = m.get("id_societe_gestion") if m else r[0]
+            if sg_id not in clients_par_societe:
+                clients_par_societe[sg_id] = []
+            clients_par_societe[sg_id].append({
+                "id":     m.get("id")     if m else r[1],
+                "nom":    m.get("nom")    if m else r[2],
+                "prenom": m.get("prenom") if m else r[3],
             })
     except Exception:
-        clients_par_sif = {}
+        clients_par_societe = {}
 
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
@@ -26071,9 +26063,8 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "doc_controle_keyword_form": doc_controle_keyword_form,
             "compliance_activites": compliance_activites_sa,
             "identifiants_assureurs": identifiants_assureurs,
-            "fournisseurs_connus": fournisseurs_connus,
             "toutes_societes_gestion": toutes_societes_gestion,
-            "clients_par_sif": clients_par_sif,
+            "clients_par_societe": clients_par_societe,
         },
     )
 
