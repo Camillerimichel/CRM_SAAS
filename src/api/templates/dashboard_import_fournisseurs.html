@@ -202,9 +202,12 @@
 
             <div style="margin-bottom:18px; max-width:380px;">
               <label class="field-label">Fournisseur <span style="color:#dc2626;">*</span></label>
-              <input type="text" id="cliFournisseur" class="text-input" placeholder="ex : AFI ESCA FRANCE"
-                     oninput="updateCliBtn()" />
-              <p class="muted" style="font-size:12px; margin:4px 0 0;">Identifiant du fournisseur tel qu'enregistré dans le système.</p>
+              <select id="cliFournisseur" class="text-input" onchange="updateCliBtn()">
+                <option value="">— Sélectionner un fournisseur —</option>
+                {% for f in fournisseurs %}
+                <option value="{{ f }}">{{ f }}</option>
+                {% endfor %}
+              </select>
             </div>
 
             <div class="drop-zone" id="dropCli" onclick="document.getElementById('fileCli').click()">

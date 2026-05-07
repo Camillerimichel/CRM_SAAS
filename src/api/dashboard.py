@@ -25977,9 +25977,13 @@ def dashboard_import_fournisseurs(request: Request, db: Session = Depends(get_db
     societes = db.execute(
         text("SELECT id, nom FROM mariadb_societe_gestion WHERE actif = 1 ORDER BY nom")
     ).fetchall()
+    fournisseurs = db.execute(
+        text("SELECT DISTINCT fournisseur FROM mariadb_societe_identifiants_fournisseur WHERE actif = 1 ORDER BY fournisseur")
+    ).fetchall()
     return templates.TemplateResponse("dashboard_import_fournisseurs.html", {
         "request": request,
         "societes": [{"id": r[0], "nom": r[1]} for r in societes],
+        "fournisseurs": [r[0] for r in fournisseurs],
     })
 
 
