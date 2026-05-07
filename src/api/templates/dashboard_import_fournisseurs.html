@@ -176,18 +176,107 @@
   </div>
 
   <!-- ── Bloc 1 : Clients ──────────────────────────────────────────────────── -->
-  <div class="block-card" style="opacity:.75;">
+  <div class="block-card">
     <div class="block-header">
       <div class="block-header-left">
-        <div class="block-num">1</div>
+        <div class="block-num active">1</div>
         <div>
           <p class="block-title">Clients</p>
           <p class="block-desc">Import de la liste des clients (identité, coordonnées, identifiants fournisseur).</p>
         </div>
       </div>
-      <span class="block-badge block-badge-soon">À venir</span>
+      <span class="block-badge block-badge-active">Actif</span>
     </div>
-    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    <div class="block-body">
+
+      <!-- Phase 1 : Upload -->
+      <div id="cliUpload">
+        <div class="icard" style="max-width:680px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Import clients</p>
+              <h3 style="margin:0;">Sélectionner un fichier</h3>
+            </div>
+          </div>
+          <div class="icard-body">
+
+            <div style="margin-bottom:18px; max-width:380px;">
+              <label class="field-label">Fournisseur <span style="color:#dc2626;">*</span></label>
+              <input type="text" id="cliFournisseur" class="text-input" placeholder="ex : AFI ESCA FRANCE"
+                     oninput="updateCliBtn()" />
+              <p class="muted" style="font-size:12px; margin:4px 0 0;">Identifiant du fournisseur tel qu'enregistré dans le système.</p>
+            </div>
+
+            <div class="drop-zone" id="dropCli" onclick="document.getElementById('fileCli').click()">
+              <input type="file" id="fileCli" accept=".csv,.xls,.xlsx,.json" style="display:none;" onchange="onFileCli(this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconCli">📂</div>
+              <p style="margin:0;" id="labelCli">Glissez un fichier CSV, XLS, XLSX ou JSON ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subCli">ou cliquez pour parcourir</p>
+            </div>
+
+            <div id="errCli" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+
+            <div style="margin-top:20px;">
+              <button type="button" class="btn-primary" id="btnAnalyseCli" disabled onclick="doPreviewCli()">Analyser →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 2 : Aperçu -->
+      <div id="cliApercu" style="display:none;">
+        <div class="icard" style="max-width:760px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu clients</p>
+              <h3 id="cliAperecuTitre" style="margin:0;"></h3>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;" id="cliPills"></div>
+          </div>
+          <div class="icard-body">
+            <div id="cliAlertes"></div>
+            <div style="overflow-x:auto; margin-bottom:8px;">
+              <table class="data-table">
+                <thead><tr>
+                  <th>Ligne</th>
+                  <th>Ref client</th>
+                  <th>Ref CGP</th>
+                  <th>CGP</th>
+                  <th>Nom</th>
+                  <th>Prénom</th>
+                  <th>Adresse</th>
+                  <th>CP</th>
+                  <th>Ville</th>
+                  <th>Statut</th>
+                </tr></thead>
+                <tbody id="cliTableBody"></tbody>
+              </table>
+            </div>
+            <p class="muted" id="cliMore" style="font-size:13px; margin:0 0 16px;"></p>
+            <div id="errCommitCli" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button type="button" class="btn-secondary" onclick="cliBackToUpload()">← Retour</button>
+              <button type="button" class="btn-success" id="btnCommitCli" onclick="doCommitCli()">Importer</button>
+              <span id="hintCommitCli" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 3 : Résultat -->
+      <div id="cliResult" style="display:none;">
+        <div class="result-inline">
+          <div class="kpi-grid" id="cliKpis"></div>
+          <div id="cliAlertesResult"></div>
+          <div class="log-area" id="cliLog"></div>
+        </div>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button type="button" class="btn-secondary" onclick="cliReset()">Importer un autre fichier</button>
+          <a href="/dashboard/superadmin#outils-import" class="btn-secondary">Retour à la Superadministration</a>
+        </div>
+      </div>
+
+    </div><!-- fin block-body -->
   </div>
 
   <!-- ── Bloc 2 : Produits ─────────────────────────────────────────────────── -->
@@ -705,6 +794,182 @@ function renderResult(type, idx, r) {
   r.alertes.filter(a => ['conflict_date','recalcul_error','code_mouvement_inconnu'].includes(a.code))
     .forEach(a => lines.push(`<span class="log-err">  [ALERTE] ${a.code} — ${a.message}</span>`));
   document.getElementById('log' + idx).innerHTML = lines.join('\n');
+}
+
+// ─── Import Clients ───────────────────────────────────────────────────────────
+const cliSt = { file: null, preview: null };
+
+function updateCliBtn() {
+  const fournisseur = document.getElementById('cliFournisseur').value.trim();
+  document.getElementById('btnAnalyseCli').disabled = !(cliSt.file && fournisseur);
+}
+
+function onFileCli(f) {
+  cliSt.file = f || null;
+  document.getElementById('errCli').style.display = 'none';
+  if (f) {
+    document.getElementById('iconCli').textContent = '📄';
+    document.getElementById('labelCli').innerHTML = `<strong>${f.name}</strong>`;
+    document.getElementById('subCli').textContent = `${(f.size/1024).toFixed(1)} Ko`;
+  } else {
+    document.getElementById('iconCli').textContent = '📂';
+    document.getElementById('labelCli').textContent = 'Glissez un fichier CSV, XLS, XLSX ou JSON ici';
+    document.getElementById('subCli').textContent = 'ou cliquez pour parcourir';
+  }
+  updateCliBtn();
+}
+
+(function() {
+  const zone = document.getElementById('dropCli');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (f) { document.getElementById('fileCli').value = ''; onFileCli(f); }
+  });
+})();
+
+const CLI_STATUT = {
+  nouveau:        { cls:'ok',     label:'Nouveau' },
+  existant:       { cls:'muted',  label:'Existant' },
+  cgp_inconnu:    { cls:'warn',   label:'CGP inconnu' },
+  doublon_ignore: { cls:'danger', label:'Doublon ignoré' },
+};
+
+function cliStatutBadge(statut) {
+  const s = CLI_STATUT[statut] || { cls:'muted', label: statut };
+  return `<span class="badge badge-${s.cls}">${s.label}</span>`;
+}
+
+async function doPreviewCli() {
+  const fournisseur = document.getElementById('cliFournisseur').value.trim();
+  const btn = document.getElementById('btnAnalyseCli');
+  btn.disabled = true; btn.textContent = 'Analyse…';
+  document.getElementById('errCli').style.display = 'none';
+  try {
+    const form = new FormData();
+    form.append('file', cliSt.file);
+    const params = new URLSearchParams({ fournisseur });
+    const res = await fetch(`/import/clients/preview?${params}`, { method: 'POST', body: form });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    cliSt.preview = await res.json();
+    renderApercuCli();
+    document.getElementById('cliUpload').style.display = 'none';
+    document.getElementById('cliApercu').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('errCli');
+    box.textContent = e.message; box.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analyser →';
+  }
+}
+
+function renderApercuCli() {
+  const p = cliSt.preview;
+  document.getElementById('cliAperecuTitre').textContent = cliSt.file.name;
+
+  const pillBox = document.getElementById('cliPills');
+  const pills = [
+    { label: `${p.total_valides} valide${p.total_valides>1?'s':''}`, cls: 'ok' },
+  ];
+  if (p.nouveaux > 0)         pills.push({ label: `${p.nouveaux} nouveau${p.nouveaux>1?'x':''}`,    cls: 'ok' });
+  if (p.existants > 0)        pills.push({ label: `${p.existants} existant${p.existants>1?'s':''}`, cls: 'muted' });
+  if (p.cgp_inconnus > 0)     pills.push({ label: `${p.cgp_inconnus} CGP inconnu${p.cgp_inconnus>1?'s':''}`, cls: 'warn' });
+  if (p.doublons_ignores > 0) pills.push({ label: `${p.doublons_ignores} doublon${p.doublons_ignores>1?'s':''}`, cls: 'danger' });
+  pillBox.innerHTML = pills.map(pl =>
+    `<span class="badge badge-${pl.cls}" style="font-size:13px;padding:4px 10px;">${pl.label}</span>`
+  ).join('');
+
+  renderAlertes('cliAlertes', p.alertes);
+
+  document.getElementById('cliTableBody').innerHTML = p.apercu.map(row => `
+    <tr>
+      <td>${row.ligne}</td>
+      <td>${row.ref_client}</td>
+      <td>${row.ref_cgp || '—'}</td>
+      <td>${row.societe_nom || '—'}</td>
+      <td>${row.nom || '—'}</td>
+      <td>${row.prenom || '—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;">${row.adresse || '—'}</td>
+      <td>${row.cp || '—'}</td>
+      <td>${row.ville || '—'}</td>
+      <td>${cliStatutBadge(row.statut)}</td>
+    </tr>`).join('');
+
+  const moreEl = document.getElementById('cliMore');
+  moreEl.textContent = p.total_brut > p.apercu.length
+    ? `Aperçu : ${p.apercu.length} lignes affichées sur ${p.total_brut} au total.` : '';
+
+  const importables = p.nouveaux + p.existants;
+  const btn = document.getElementById('btnCommitCli');
+  btn.textContent = `Importer ${importables} client${importables>1?'s':''}`;
+  btn.disabled = importables === 0;
+}
+
+function cliBackToUpload() {
+  document.getElementById('cliApercu').style.display = 'none';
+  document.getElementById('cliUpload').style.display = 'block';
+}
+
+async function doCommitCli() {
+  const fournisseur = document.getElementById('cliFournisseur').value.trim();
+  const btn  = document.getElementById('btnCommitCli');
+  const hint = document.getElementById('hintCommitCli');
+  btn.disabled = true; hint.style.display = 'inline';
+  document.getElementById('errCommitCli').style.display = 'none';
+  try {
+    const form = new FormData();
+    form.append('file', cliSt.file);
+    const params = new URLSearchParams({ fournisseur });
+    const res = await fetch(`/import/clients/commit?${params}`, { method: 'POST', body: form });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    const result = await res.json();
+    renderResultCli(result);
+    document.getElementById('cliApercu').style.display = 'none';
+    document.getElementById('cliResult').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('errCommitCli');
+    box.textContent = e.message; box.style.display = 'block';
+    btn.disabled = false;
+  } finally {
+    hint.style.display = 'none';
+  }
+}
+
+function renderResultCli(r) {
+  const kpis = [
+    { label: 'Créés',      val: r.crees },
+    { label: 'Mis à jour', val: r.mis_a_jour },
+    { label: 'Ignorés',    val: r.ignores, warn: r.ignores > 0 },
+  ];
+  document.getElementById('cliKpis').innerHTML = kpis.map(k =>
+    `<div class="kpi-card${k.warn?' warn':''}">
+      <div class="kpi-val">${k.val}</div>
+      <div class="kpi-lbl">${k.label}</div>
+    </div>`
+  ).join('');
+
+  renderAlertes('cliAlertesResult', r.alertes);
+
+  const lines = [];
+  lines.push(`<span class="log-ok">✓ Import clients terminé</span>`);
+  lines.push(`  Fichier    : ${cliSt.file.name}`);
+  lines.push(`  Fournisseur: ${document.getElementById('cliFournisseur').value.trim()}`);
+  lines.push(`  Créés      : ${r.crees}`);
+  if (r.mis_a_jour) lines.push(`  Mis à jour : ${r.mis_a_jour}`);
+  if (r.ignores)    lines.push(`<span class="log-warn">  Ignorés    : ${r.ignores}</span>`);
+  r.alertes.filter(a => a.code === 'cgp_inconnu')
+    .forEach(a => lines.push(`<span class="log-err">  [ALERTE] ${a.message}</span>`));
+  document.getElementById('cliLog').innerHTML = lines.join('\n');
+}
+
+function cliReset() {
+  cliSt.file = null; cliSt.preview = null;
+  document.getElementById('fileCli').value = '';
+  onFileCli(null);
+  document.getElementById('cliResult').style.display = 'none';
+  document.getElementById('cliUpload').style.display = 'block';
 }
 
 // ─── Calcul des risques ───────────────────────────────────────────────────────
