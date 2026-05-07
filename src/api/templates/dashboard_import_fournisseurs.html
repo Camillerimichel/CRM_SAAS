@@ -149,6 +149,16 @@
   }
   .block-badge-soon   { background: #f3f4f6; color: #6b7280; }
   .block-badge-active { background: #eff6ff; color: #2563eb; }
+  .block-toggle {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 6px;
+    background: #f3f4f6; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #6b7280; font-size: 15px; transition: background .15s, color .15s;
+  }
+  .block-toggle:hover { background: #e5e7eb; color: #111827; }
+  .block-toggle svg { transition: transform .2s; }
+  .block-toggle.collapsed svg { transform: rotate(-90deg); }
+  .block-collapsible { overflow: hidden; transition: max-height .25s ease, opacity .2s; }
   .block-placeholder {
     padding: 14px 24px; color: #9ca3af; font-size: 13px;
     border-top: 1px solid #f3f4f6;
@@ -177,7 +187,7 @@
 
   <!-- ── Bloc 1 : Clients ──────────────────────────────────────────────────── -->
   <div class="block-card">
-    <div class="block-header">
+    <div class="block-header" onclick="toggleBlock('bloc1')" style="cursor:pointer;">
       <div class="block-header-left">
         <div class="block-num active">1</div>
         <div>
@@ -185,8 +195,14 @@
           <p class="block-desc">Import de la liste des clients (identité, coordonnées, identifiants fournisseur).</p>
         </div>
       </div>
-      <span class="block-badge block-badge-active">Actif</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="block-badge block-badge-active">Actif</span>
+        <button class="block-toggle" id="toggle-bloc1" onclick="event.stopPropagation(); toggleBlock('bloc1')" title="Réduire / développer">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
+    <div class="block-collapsible" id="bloc1">
     <div class="block-body">
 
       <!-- Phase 1 : Upload -->
@@ -280,11 +296,12 @@
       </div>
 
     </div><!-- fin block-body -->
+  </div><!-- fin block-collapsible bloc1 -->
   </div>
 
   <!-- ── Bloc 2 : Produits ─────────────────────────────────────────────────── -->
   <div class="block-card" style="opacity:.75;">
-    <div class="block-header">
+    <div class="block-header" onclick="toggleBlock('bloc2')" style="cursor:pointer;">
       <div class="block-header-left">
         <div class="block-num">2</div>
         <div>
@@ -292,14 +309,21 @@
           <p class="block-desc">Import des contrats d'assurance vie génériques (référence produit, compagnie, type de contrat).</p>
         </div>
       </div>
-      <span class="block-badge block-badge-soon">À venir</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="block-badge block-badge-soon">À venir</span>
+        <button class="block-toggle" id="toggle-bloc2" onclick="event.stopPropagation(); toggleBlock('bloc2')" title="Réduire / développer">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
-    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    <div class="block-collapsible" id="bloc2">
+      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    </div>
   </div>
 
   <!-- ── Bloc 3 : Supports ─────────────────────────────────────────────────── -->
   <div class="block-card" style="opacity:.75;">
-    <div class="block-header">
+    <div class="block-header" onclick="toggleBlock('bloc3')" style="cursor:pointer;">
       <div class="block-header-left">
         <div class="block-num">3</div>
         <div>
@@ -307,14 +331,21 @@
           <p class="block-desc">Import des supports financiers disponibles (code ISIN, libellé, catégorie, indicateurs de risque).</p>
         </div>
       </div>
-      <span class="block-badge block-badge-soon">À venir</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="block-badge block-badge-soon">À venir</span>
+        <button class="block-toggle" id="toggle-bloc3" onclick="event.stopPropagation(); toggleBlock('bloc3')" title="Réduire / développer">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
-    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    <div class="block-collapsible" id="bloc3">
+      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    </div>
   </div>
 
   <!-- ── Bloc 4 : Souscriptions ────────────────────────────────────────────── -->
   <div class="block-card" style="opacity:.75;">
-    <div class="block-header">
+    <div class="block-header" onclick="toggleBlock('bloc4')" style="cursor:pointer;">
       <div class="block-header-left">
         <div class="block-num">4</div>
         <div>
@@ -322,14 +353,21 @@
           <p class="block-desc">Import des dates d'ouverture et de clôture des contrats clients par produit.</p>
         </div>
       </div>
-      <span class="block-badge block-badge-soon">À venir</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="block-badge block-badge-soon">À venir</span>
+        <button class="block-toggle" id="toggle-bloc4" onclick="event.stopPropagation(); toggleBlock('bloc4')" title="Réduire / développer">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
-    <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    <div class="block-collapsible" id="bloc4">
+      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
+    </div>
   </div>
 
   <!-- ── Bloc 5 : Inventaires, Mouvements & Avis d'opérations ─────────────── -->
   <div class="block-card">
-    <div class="block-header">
+    <div class="block-header" onclick="toggleBlock('bloc5')" style="cursor:pointer;">
       <div class="block-header-left">
         <div class="block-num active">5</div>
         <div>
@@ -337,8 +375,14 @@
           <p class="block-desc">Import des situations de portefeuille, flux financiers et avis d'opérations — CSV ou JSON.</p>
         </div>
       </div>
-      <span class="block-badge block-badge-active">Actif</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="block-badge block-badge-active">Actif</span>
+        <button class="block-toggle" id="toggle-bloc5" onclick="event.stopPropagation(); toggleBlock('bloc5')" title="Réduire / développer">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
+    <div class="block-collapsible" id="bloc5">
     <div class="block-body">
 
   <!-- Barre de progression 3 étapes -->
@@ -553,11 +597,42 @@
   </div>
 
     </div><!-- fin block-body -->
+  </div><!-- fin block-collapsible bloc5 -->
   </div><!-- fin block-card bloc 5 -->
 
 </div><!-- fin max-width wrapper -->
 
 <script>
+// ─── Toggle blocs ─────────────────────────────────────────────────────────────
+function toggleBlock(id) {
+  const panel  = document.getElementById(id);
+  const btn    = document.getElementById('toggle-' + id);
+  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  if (isOpen) {
+    panel.style.maxHeight = panel.scrollHeight + 'px'; // fix current height before animating
+    requestAnimationFrame(() => {
+      panel.style.maxHeight = '0px';
+      panel.style.opacity   = '0';
+    });
+    btn.classList.add('collapsed');
+  } else {
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+    panel.style.opacity   = '1';
+    btn.classList.remove('collapsed');
+    // reset to auto after transition so content can grow freely
+    panel.addEventListener('transitionend', function h() {
+      panel.style.maxHeight = 'none';
+      panel.removeEventListener('transitionend', h);
+    });
+  }
+}
+
+// initialiser tous les panneaux ouverts
+document.querySelectorAll('.block-collapsible').forEach(p => {
+  p.style.maxHeight = 'none';
+  p.style.opacity   = '1';
+});
+
 // ─── État ─────────────────────────────────────────────────────────────────────
 const st = {
   inv: { file: null, preview: null },
