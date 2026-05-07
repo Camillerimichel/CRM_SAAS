@@ -25940,6 +25940,20 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     log_page_count = math.ceil(total_logs / log_per_page) if log_per_page else 1
     societe_management_choices = _load_admin_societes_gestion(db, access_scope_ids)
 
+    # Liste complète de toutes les sociétés pour le dropdown identifiants assureurs
+    try:
+        rows_all_sg = db.execute(text(
+            "SELECT id, nom FROM mariadb_societe_gestion "
+            "WHERE COALESCE(actif, 1) = 1 ORDER BY nom"
+        )).fetchall()
+        toutes_societes_gestion = [
+            {"id": r._mapping["id"] if hasattr(r, "_mapping") else r[0],
+             "nom": r._mapping["nom"] if hasattr(r, "_mapping") else r[1]}
+            for r in rows_all_sg
+        ]
+    except Exception:
+        toutes_societes_gestion = societe_management_choices
+
     # Identifiants assureurs (table mariadb_societe_identifiants_fournisseur)
     identifiants_assureurs: list[dict] = []
     fournisseurs_connus: list[str] = []
@@ -26033,6 +26047,7 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "compliance_activites": compliance_activites_sa,
             "identifiants_assureurs": identifiants_assureurs,
             "fournisseurs_connus": fournisseurs_connus,
+            "toutes_societes_gestion": toutes_societes_gestion,
         },
     )
 
