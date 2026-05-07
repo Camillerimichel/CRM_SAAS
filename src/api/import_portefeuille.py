@@ -122,6 +122,7 @@ async def inventaire_commit(
     id_societe_gestion: Optional[int] = Query(None),
     id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
     fournisseur: Optional[str] = Query(None, description="Code fournisseur (ex: GENERALI) pour résoudre les id_client_fournisseur"),
+    identifiant_societe_externe: Optional[str] = Query(None, description="Identifiant de la société chez ce fournisseur, pour résolution automatique"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -134,6 +135,7 @@ async def inventaire_commit(
         id_societe_gestion=id_societe_gestion,
         id_personne=id_client,
         fournisseur=fournisseur,
+        identifiant_societe_externe=identifiant_societe_externe,
         run_pipeline=False,
     )
 
@@ -172,6 +174,7 @@ async def mouvements_commit(
     id_societe_gestion: Optional[int] = Query(None),
     id_client: Optional[int] = Query(None, description="ID du client (id_personne) à rattacher aux affaires créées à vide"),
     fournisseur: Optional[str] = Query(None, description="Code fournisseur pour résoudre les id_client_fournisseur"),
+    identifiant_societe_externe: Optional[str] = Query(None, description="Identifiant de la société chez ce fournisseur, pour résolution automatique"),
     db: Session = Depends(get_db),
 ) -> ImportCommitResult:
     raw_rows = await _read_raw_rows(
@@ -184,5 +187,6 @@ async def mouvements_commit(
         id_societe_gestion=id_societe_gestion,
         id_personne=id_client,
         fournisseur=fournisseur,
+        identifiant_societe_externe=identifiant_societe_externe,
         run_pipeline=False,
     )

@@ -32,6 +32,7 @@ from src.services.import_inventaire import (
     _resolve_affaire_id,
     _resolve_or_create_affaire,
     _resolve_or_create_support,
+    _resolve_societe_by_fournisseur,
     _parse_date,
 )
 
@@ -370,8 +371,20 @@ def commit_mouvements(
     id_societe_gestion: int | None = None,
     id_personne: int | None = None,
     fournisseur: str | None = None,
+    identifiant_societe_externe: str | None = None,
     run_pipeline: bool = True,
 ) -> ImportCommitResult:
+    # Résolution automatique de la société via le mapping fournisseur
+    if id_societe_gestion is None and fournisseur and identifiant_societe_externe:
+        resolved = _resolve_societe_by_fournisseur(db, fournisseur, identifiant_societe_externe)
+        if resolved is not None:
+            id_societe_gestion = resolved
+        else:
+            logger.warning(
+                "IMPORT – société '%s' inconnue chez '%s' – id_societe_gestion non résolu",
+                identifiant_societe_externe, fournisseur,
+            )
+
     rows, alertes = _validate_rows(raw_rows)
     regle_map = _load_mouvement_regle(db)
 
