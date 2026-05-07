@@ -1056,7 +1056,6 @@ function renderResultCli(r) {
   const lines = [];
   lines.push(`<span class="log-ok">✓ Import clients terminé</span>`);
   lines.push(`  Fichier    : ${cliSt.file.name}`);
-  lines.push(`  Fournisseur: ${document.getElementById('cliFournisseur').value.trim()}`);
   lines.push(`  Créés      : ${r.crees}`);
   if (r.mis_a_jour) lines.push(`  Mis à jour : ${r.mis_a_jour}`);
   if (r.ignores)    lines.push(`<span class="log-warn">  Ignorés    : ${r.ignores}</span>`);
