@@ -25940,6 +25940,39 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     log_page_count = math.ceil(total_logs / log_per_page) if log_per_page else 1
     societe_management_choices = _load_admin_societes_gestion(db, access_scope_ids)
 
+    # Identifiants assureurs (table mariadb_societe_identifiants_fournisseur)
+    identifiants_assureurs: list[dict] = []
+    fournisseurs_connus: list[str] = []
+    try:
+        rows_ia = db.execute(text(
+            "SELECT sif.id, sif.societe_id, sg.nom AS societe_nom, "
+            "sif.fournisseur, sif.identifiant_externe, sif.actif "
+            "FROM mariadb_societe_identifiants_fournisseur sif "
+            "JOIN mariadb_societe_gestion sg ON sg.id = sif.societe_id "
+            "ORDER BY sg.nom, sif.fournisseur"
+        )).fetchall()
+        for r in rows_ia:
+            m = r._mapping if hasattr(r, "_mapping") else {}
+            identifiants_assureurs.append({
+                "id": m.get("id") if m else r[0],
+                "societe_id": m.get("societe_id") if m else r[1],
+                "societe_nom": m.get("societe_nom") if m else r[2],
+                "fournisseur": m.get("fournisseur") if m else r[3],
+                "identifiant_externe": m.get("identifiant_externe") if m else r[4],
+                "actif": bool(m.get("actif") if m else r[5]),
+            })
+        seen = set()
+        for ia in identifiants_assureurs:
+            f = ia["fournisseur"]
+            if f not in seen:
+                seen.add(f)
+                fournisseurs_connus.append(f)
+        if not fournisseurs_connus:
+            fournisseurs_connus = ["AFI ESCA FRANCE"]
+    except Exception:
+        identifiants_assureurs = []
+        fournisseurs_connus = ["AFI ESCA FRANCE"]
+
     return templates.TemplateResponse(
         "dashboard_superadmin.html",
         {
@@ -25998,6 +26031,8 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "doc_controle_type_form": doc_controle_type_form,
             "doc_controle_keyword_form": doc_controle_keyword_form,
             "compliance_activites": compliance_activites_sa,
+            "identifiants_assureurs": identifiants_assureurs,
+            "fournisseurs_connus": fournisseurs_connus,
         },
     )
 
