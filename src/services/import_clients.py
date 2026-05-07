@@ -383,6 +383,16 @@ def commit_clients(
                 ),
                 {"cid": next_id, "f": fournisseur_upper, "id": row.ref_client},
             )
+            # Créer l'adresse KYC (résidence principale)
+            if adresse_rue or adresse_cp or adresse_ville:
+                db.execute(
+                    text(
+                        "INSERT INTO KYC_Client_Adresse "
+                        "(client_id, type_adresse_id, rue, code_postal, ville) "
+                        "VALUES (:cid, 1, :rue, :cp, :ville)"
+                    ),
+                    {"cid": next_id, "rue": adresse_rue, "cp": adresse_cp, "ville": adresse_ville},
+                )
             crees += 1
             logger.info("IMPORT CLIENTS – créé client id=%s ref=%s (%s %s)", next_id, row.ref_client, row.nom, row.prenom)
         else:
@@ -406,7 +416,33 @@ def commit_clients(
                     text(f"UPDATE mariadb_clients SET {set_clause} WHERE id = :cid"),
                     updates,
                 )
-                mis_a_jour += 1
+            # Mettre à jour l'adresse KYC résidence principale, ou la créer si absente
+            if adresse_rue or adresse_cp or adresse_ville:
+                existing_kyc = db.execute(
+                    text(
+                        "SELECT id FROM KYC_Client_Adresse "
+                        "WHERE client_id = :cid AND type_adresse_id = 1 LIMIT 1"
+                    ),
+                    {"cid": client_id},
+                ).fetchone()
+                if existing_kyc:
+                    db.execute(
+                        text(
+                            "UPDATE KYC_Client_Adresse SET rue = :rue, code_postal = :cp, ville = :ville "
+                            "WHERE id = :id"
+                        ),
+                        {"rue": adresse_rue, "cp": adresse_cp, "ville": adresse_ville, "id": existing_kyc[0]},
+                    )
+                else:
+                    db.execute(
+                        text(
+                            "INSERT INTO KYC_Client_Adresse "
+                            "(client_id, type_adresse_id, rue, code_postal, ville) "
+                            "VALUES (:cid, 1, :rue, :cp, :ville)"
+                        ),
+                        {"cid": client_id, "rue": adresse_rue, "cp": adresse_cp, "ville": adresse_ville},
+                    )
+            mis_a_jour += 1
 
     db.commit()
 
