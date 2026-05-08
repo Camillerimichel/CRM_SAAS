@@ -22869,6 +22869,22 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                     if row_soc:
                         societe_gestion_nom = row_soc._mapping.get("societe_nom") if hasattr(row_soc, "_mapping") else row_soc[0]
                         societe_gestion_role = row_soc._mapping.get("role") if hasattr(row_soc, "_mapping") else (row_soc[1] if len(row_soc) > 1 else None)
+                    else:
+                        row_soc2 = db.execute(
+                            text(
+                                """
+                                SELECT sg.nom AS societe_nom
+                                FROM mariadb_clients c
+                                JOIN mariadb_societe_gestion sg ON sg.id = c.id_societe_gestion
+                                WHERE c.id = :cid
+                                LIMIT 1
+                                """
+                            ),
+                            {"cid": cli.id},
+                        ).fetchone()
+                        if row_soc2:
+                            societe_gestion_nom = row_soc2._mapping.get("societe_nom") if hasattr(row_soc2, "_mapping") else row_soc2[0]
+                            societe_gestion_role = None
                 except Exception:
                     societe_gestion_nom = None
                     societe_gestion_role = None
@@ -26087,10 +26103,18 @@ def dashboard_import_fournisseurs(request: Request, db: Session = Depends(get_db
     fournisseurs = db.execute(
         text("SELECT DISTINCT fournisseur FROM mariadb_societe_identifiants_fournisseur WHERE actif = 1 ORDER BY fournisseur")
     ).fetchall()
+    assureurs = db.execute(
+        text("SELECT id, nom FROM mariadb_societe ORDER BY nom")
+    ).fetchall()
+    contrat_categories = db.execute(
+        text("SELECT id, libelle FROM mariadb_affaires_generique_ctg ORDER BY libelle")
+    ).fetchall()
     return templates.TemplateResponse("dashboard_import_fournisseurs.html", {
         "request": request,
         "societes": [{"id": r[0], "nom": r[1]} for r in societes],
         "fournisseurs": [r[0] for r in fournisseurs],
+        "assureurs": [{"id": r[0], "nom": r[1]} for r in assureurs],
+        "contrat_categories": [{"id": r[0], "libelle": r[1]} for r in contrat_categories],
     })
 
 
@@ -28713,12 +28737,10 @@ from sqlalchemy import text
 
 @router.get("/supports", response_class=HTMLResponse)
 def dashboard_supports(request: Request, db: Session = Depends(get_db)):
-    # Récupérer la dernière date disponible
     last_date = db.execute(
         text("SELECT MAX(date) FROM mariadb_historique_support_w")
     ).scalar()
 
-    # Formatage robuste de la date pour l'affichage
     if isinstance(last_date, (datetime, _date)):
         last_date_str = last_date.strftime("%Y-%m-%d")
     elif isinstance(last_date, str):
@@ -28726,7 +28748,6 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
     else:
         last_date_str = None
 
-    # Récupérer les supports avec leur valo à cette date
     rows = db.execute(
         text("""
             SELECT
@@ -28739,16 +28760,19 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
                 esg.note_s_grade AS noteS,
                 esg.note_g_grade AS noteG,
                 SUM(h.valo) AS total_valo,
-                h.date
+                MAX(h.date) AS date
             FROM mariadb_historique_support_w h
             JOIN mariadb_support s ON s.id = h.id_support
             LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
-            WHERE h.date = :last_date
-            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e_grade, esg.note_s_grade, esg.note_g_grade, h.date
+            JOIN (
+                SELECT id_support, MAX(date) AS max_date
+                FROM mariadb_historique_support_w
+                GROUP BY id_support
+            ) latest ON latest.id_support = h.id_support AND h.date = latest.max_date
+            GROUP BY s.code_isin, s.nom, s.cat_gene, s.cat_geo, s.SRRI, esg.note_e_grade, esg.note_s_grade, esg.note_g_grade
             HAVING SUM(h.valo) > 0
             ORDER BY total_valo DESC
-        """),
-        {"last_date": last_date}
+        """)
     ).fetchall()
     supports = []
     for row in rows or []:
@@ -31003,6 +31027,23 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             if row_soc:
                 societe_gestion_nom = row_soc._mapping.get("societe_nom") if hasattr(row_soc, "_mapping") else row_soc[0]
                 societe_gestion_role = row_soc._mapping.get("role") if hasattr(row_soc, "_mapping") else (row_soc[1] if len(row_soc) > 1 else None)
+            else:
+                # Fallback : clients importés — société stockée dans mariadb_clients.id_societe_gestion
+                row_soc2 = db.execute(
+                    text(
+                        """
+                        SELECT sg.nom AS societe_nom
+                        FROM mariadb_clients c
+                        JOIN mariadb_societe_gestion sg ON sg.id = c.id_societe_gestion
+                        WHERE c.id = :cid
+                        LIMIT 1
+                        """
+                    ),
+                    {"cid": client_id},
+                ).fetchone()
+                if row_soc2:
+                    societe_gestion_nom = row_soc2._mapping.get("societe_nom") if hasattr(row_soc2, "_mapping") else row_soc2[0]
+                    societe_gestion_role = None
         except Exception:
             societe_gestion_nom = None
             societe_gestion_role = None
