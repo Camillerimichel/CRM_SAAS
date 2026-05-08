@@ -25257,14 +25257,13 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.created_at,
                         sg.updated_at,
                         (
-                            SELECT COUNT(DISTINCT cs.client_id)
-                            FROM mariadb_client_societe cs
-                            WHERE cs.societe_id IN (
+                            SELECT COUNT(DISTINCT c.id)
+                            FROM mariadb_clients c
+                            WHERE c.id_societe_gestion IN (
                                 SELECT h.descendant_societe_id
                                 FROM mariadb_societe_hierarchy h
                                 WHERE h.ancestor_societe_id = sg.id
                             )
-                            AND cs.date_fin IS NULL
                         ) AS clients_actifs,
                         (
                             SELECT COUNT(DISTINCT afs.affaire_id)
@@ -25316,14 +25315,13 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                         sg.created_at,
                         sg.updated_at,
                         (
-                            SELECT COUNT(DISTINCT cs.client_id)
-                            FROM mariadb_client_societe cs
-                            WHERE cs.societe_id IN (
+                            SELECT COUNT(DISTINCT c.id)
+                            FROM mariadb_clients c
+                            WHERE c.id_societe_gestion IN (
                                 SELECT h.descendant_societe_id
                                 FROM mariadb_societe_hierarchy h
                                 WHERE h.ancestor_societe_id = sg.id
                             )
-                            AND cs.date_fin IS NULL
                         ) AS clients_actifs,
                         (
                             SELECT COUNT(DISTINCT afs.affaire_id)
@@ -25388,14 +25386,13 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                             sg.created_at,
                             sg.updated_at,
                             (
-                                SELECT COUNT(DISTINCT cs.client_id)
-                                FROM mariadb_client_societe cs
-                                WHERE cs.societe_id IN (
+                                SELECT COUNT(DISTINCT c.id)
+                                FROM mariadb_clients c
+                                WHERE c.id_societe_gestion IN (
                                     SELECT h.descendant_societe_id
                                     FROM mariadb_societe_hierarchy h
                                     WHERE h.ancestor_societe_id = sg.id
                                 )
-                                AND cs.date_fin IS NULL
                             ) AS clients_actifs,
                             (
                                 SELECT COUNT(DISTINCT afs.affaire_id)
