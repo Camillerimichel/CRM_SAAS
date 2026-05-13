@@ -3883,10 +3883,10 @@ function openClientMsgs(kind){
     const ctx = canvas.getContext('2d');
     const normLabels = labels.map(d => (d||'').toString().slice(0,10));
     const parsedDates = normLabels.map(d => new Date(d));
-    const primaryColorValo = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#1d4ed8';
+    const primaryColorValo = '#16a34a';
     const gridSoft = 'rgba(15, 23, 42, 0.08)';
     const textMuted = '#000';
-    const movementColor = '#0f766e';
+    const movementColor = '#dc2626';
     function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
     function yearAt(index){
       const d = parsedDates[index];
@@ -4055,8 +4055,8 @@ function openClientMsgs(kind){
     const annPerfClient = {{ ann_perf_client | tojson }};
     const el = document.getElementById('clientSrriChart');
     if (!el) return;
-    const srriColor = '#ff6b6b';
-    const srriBandColor = 'rgba(255, 107, 107, 0.12)';
+    const srriColor = '#dc2626';
+    const srriBandColor = 'rgba(220, 38, 38, 0.12)';
     function normalizeVol(value){
       if (value === null || typeof value === 'undefined') return null;
       const str = typeof value === 'string' ? value.replace(',', '.') : value;
@@ -4143,7 +4143,7 @@ function openClientMsgs(kind){
         ctxPlugin.restore();
       }
     };
-    const perfColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1d4ed8';
+    const perfColor = '#16a34a';
     const labelPlugin = {
       id: 'perfLabels',
       afterDatasetsDraw(chart){
@@ -4193,7 +4193,7 @@ function openClientMsgs(kind){
         labels: (yearsClient||[]).map(String),
         datasets: [
           { type:'line', label: 'SRRI moyen', data: srriSeries, borderColor: srriColor, backgroundColor: srriBandColor, fill: false, borderWidth: 1.4, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, spanGaps: true, yAxisID: 'y2', order: 1 },
-          { type:'bar', label: 'Perf annuelle (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(37, 99, 235, 0.35)', borderWidth: 1, yAxisID: 'y', order: 2 }
+          { type:'bar', label: 'Perf annuelle (%)', data: perfSeries, borderColor: perfColor, backgroundColor: 'rgba(22, 163, 74, 0.35)', borderWidth: 1, yAxisID: 'y', order: 2 }
         ]
       },
       options: {
@@ -4339,8 +4339,8 @@ function openClientMsgs(kind){
       if (base === null) base = 1; // fallback
       return labels.map(d => { const v = map.get(d); return isFinite(v) ? +(v/base*100).toFixed(2) : null; });
     }
-    const allocColor = '#0f766e';
-    const portfolioColor = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6';
+    const allocColor = '#dc2626';
+    const portfolioColor = '#16a34a';
     const gridSoft = 'rgba(15, 23, 42, 0.08)';
     let chartAlloc;
     let currentRange = 'all';

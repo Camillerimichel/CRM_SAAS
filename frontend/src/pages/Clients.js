@@ -46,7 +46,7 @@ function Clients() {
               <YAxis allowDecimals={false} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="count" fill="#dc2626" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

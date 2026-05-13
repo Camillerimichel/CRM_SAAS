@@ -116,7 +116,7 @@ function Dashboard() {
     { name: "Allocations", value: stats.allocations },
     { name: "Supports", value: stats.supports },
   ];
-  const COLORS = ["#2563eb", "#22c55e", "#f97316", "#06b6d4"];
+  const COLORS = ["#dc2626", "#16a34a", "#ea580c", "#2563eb"];
   const tableauCategoryOrder = [
     { key: "climate", label: "Indicateurs climatiques" },
     { key: "biodiversity", label: "Indicateurs biodiversité" },
@@ -225,7 +225,7 @@ function Dashboard() {
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill="#dc2626" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
