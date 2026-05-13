@@ -1,0 +1,876 @@
+{% extends "base.html" %}
+{% block title %}Normalisation de fichiers — Profils de mapping{% endblock %}
+{% block header_title %}Normalisation de fichiers fournisseurs{% endblock %}
+{% block header_subtitle %}Correspondance de champs · Transformations · Profils sauvegardés{% endblock %}
+
+{% block content %}
+<style>
+/* ── Structure wizard ─────────────────────────────────────────────────────── */
+.wstep { display: none; }
+.wstep.active { display: block; }
+
+.step-bar { display:flex; margin-bottom:28px; max-width:860px; }
+.sbi {
+  flex:1; text-align:center; padding:10px 6px; font-size:12px;
+  background:#f3f4f6; color:#9ca3af; border-right:1px solid #e5e7eb;
+  transition:background .2s,color .2s; cursor:default;
+}
+.sbi:first-child { border-radius:8px 0 0 8px; }
+.sbi:last-child  { border-radius:0 8px 8px 0; border-right:none; }
+.sbi.done   { background:#bbf7d0; color:#15803d; }
+.sbi.active { background:#2563eb; color:#fff; font-weight:700; }
+
+/* ── Cartes ──────────────────────────────────────────────────────────────── */
+.mc {
+  background:#fff; border:1px solid #e5e7eb; border-radius:14px;
+  max-width:860px; margin-bottom:22px;
+  box-shadow:0 8px 20px rgba(15,23,42,.06);
+}
+.mc-header {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:16px 22px 12px; border-bottom:1px solid #f3f4f6; gap:12px;
+}
+.mc-title { font-weight:700; font-size:15px; color:#111827; }
+.mc-body { padding:18px 22px 22px; }
+
+/* ── Formulaire ──────────────────────────────────────────────────────────── */
+.fl { display:block; font-weight:600; font-size:13px; margin-bottom:5px; color:#374151; }
+.ti {
+  padding:8px 11px; border:1px solid #d1d5db; border-radius:8px;
+  font-size:14px; box-sizing:border-box; outline:none;
+  transition:border-color .15s; width:100%;
+}
+.ti:focus { border-color:#2563eb; }
+select.ti { background:#fff; }
+
+/* ── Zone drop ───────────────────────────────────────────────────────────── */
+.dz {
+  border:2px dashed #d1d5db; border-radius:10px; padding:34px 24px;
+  text-align:center; cursor:pointer; background:#fafafa; transition:all .15s;
+}
+.dz.drag { border-color:#2563eb; background:#eff6ff; }
+.dz input[type=file] { display:none; }
+
+/* ── Boutons ─────────────────────────────────────────────────────────────── */
+.btn { padding:9px 22px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s; }
+.btn-primary  { background:#2563eb; color:#fff; }
+.btn-primary:hover:not(:disabled)  { background:#1d4ed8; }
+.btn-success  { background:#16a34a; color:#fff; }
+.btn-success:hover:not(:disabled)  { background:#15803d; }
+.btn-secondary { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.btn-secondary:hover { border-color:#9ca3af; }
+.btn-danger   { background:#dc2626; color:#fff; }
+.btn-danger:hover:not(:disabled)   { background:#b91c1c; }
+.btn:disabled { background:#d1d5db; color:#9ca3af; cursor:not-allowed; }
+
+/* ── Alertes ─────────────────────────────────────────────────────────────── */
+.alert { padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:10px; }
+.alert-err  { background:#fef2f2; border:1px solid #fecaca; color:#dc2626; }
+.alert-warn { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+.alert-ok   { background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; }
+.alert-info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+
+/* ── Table mapping ──────────────────────────────────────────────────────── */
+.mtable { width:100%; border-collapse:collapse; font-size:13px; }
+.mtable th { background:#f9fafb; padding:8px 10px; text-align:left; font-weight:600; border-bottom:2px solid #e5e7eb; color:#6b7280; font-size:12px; }
+.mtable td { padding:8px 10px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+.mtable tr:last-child td { border-bottom:none; }
+.badge-req { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #fde68a; border-radius:4px; font-size:10px; font-weight:700; padding:1px 6px; margin-left:4px; }
+.badge-opt { display:inline-block; background:#f3f4f6; color:#6b7280; border:1px solid #e5e7eb; border-radius:4px; font-size:10px; padding:1px 6px; margin-left:4px; }
+.badge-ok  { display:inline-block; background:#d1fae5; color:#065f46; border-radius:4px; font-size:11px; padding:1px 7px; }
+
+/* ── Table aperçu ────────────────────────────────────────────────────────── */
+.ptable-wrap { overflow-x:auto; }
+.ptable { width:100%; border-collapse:collapse; font-size:12px; min-width:600px; }
+.ptable th { background:#f3f4f6; padding:6px 10px; text-align:left; font-weight:600; border-bottom:2px solid #e5e7eb; white-space:nowrap; }
+.ptable td { padding:5px 10px; border-bottom:1px solid #f3f4f6; white-space:nowrap; font-family:monospace; }
+.ptable tr:hover td { background:#f9fafb; }
+
+/* ── Transformations ─────────────────────────────────────────────────────── */
+.transfo-row { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; margin-bottom:8px; }
+.transfo-label { font-size:13px; font-weight:600; min-width:180px; padding-top:8px; }
+.transfo-type  { flex:0 0 180px; }
+.transfo-extra { flex:1 0 200px; }
+
+/* ── Liste profils ───────────────────────────────────────────────────────── */
+.profil-card {
+  border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px;
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:8px; background:#fff; gap:10px;
+}
+.profil-card:hover { border-color:#93c5fd; }
+.profil-info { flex:1; }
+.profil-nom  { font-weight:700; font-size:14px; color:#111827; }
+.profil-meta { font-size:12px; color:#6b7280; margin-top:2px; }
+
+/* ── Valeurs fixes ───────────────────────────────────────────────────────── */
+.vfix-row { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+.vfix-label { flex:0 0 200px; font-size:13px; color:#374151; }
+.vfix-input { flex:1; }
+</style>
+
+<div id="alerts-top"></div>
+
+<!-- ══════════════════════════ BARRE D'ÉTAPES ═══════════════════════════════ -->
+<div class="step-bar" id="stepBar">
+  <div class="sbi active" id="sb0">① Fichier</div>
+  <div class="sbi" id="sb1">② Correspondance</div>
+  <div class="sbi" id="sb2">③ Transformations</div>
+  <div class="sbi" id="sb3">④ Aperçu</div>
+  <div class="sbi" id="sb4">⑤ Import &amp; Profil</div>
+</div>
+
+<!-- ══════════════════════════ ÉTAPE 1 : FICHIER ════════════════════════════ -->
+<div class="wstep active" id="step0">
+  <div class="mc">
+    <div class="mc-header"><span class="mc-title">Chargement du fichier</span></div>
+    <div class="mc-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div>
+          <label class="fl">Type d'import <span style="color:#dc2626">*</span></label>
+          <select class="ti" id="selType">
+            <option value="">— Sélectionner —</option>
+            {% for t in types_import %}
+            <option value="{{ t }}">{{ t | capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="fl">Fournisseur (optionnel)</label>
+          <input class="ti" id="inputFournisseur" type="text" placeholder="ex: CARDIF, AXA…">
+        </div>
+      </div>
+
+      <div>
+        <label class="fl">Profil existant <small style="font-weight:400;color:#6b7280">(optionnel — pré-remplir depuis un profil sauvegardé)</small></label>
+        <select class="ti" id="selProfilExistant" style="max-width:420px;">
+          <option value="">— Aucun —</option>
+          {% for p in profils %}
+          <option value="{{ p.id }}" data-profil='{{ p | tojson }}'>{{ p.nom }} ({{ p.type_import }}{% if p.fournisseur %} · {{ p.fournisseur }}{% endif %})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="margin-top:18px;">
+        <label class="fl">Fichier (CSV ou XLSX)</label>
+        <div class="dz" id="dropZone">
+          <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.txt">
+          <div id="dzContent">
+            <div style="font-size:32px;margin-bottom:8px;">📂</div>
+            <div style="font-weight:600;color:#374151;">Déposez votre fichier ici ou <span style="color:#2563eb;cursor:pointer;" onclick="document.getElementById('fileInput').click()">cliquez pour parcourir</span></div>
+            <div style="font-size:12px;color:#9ca3af;margin-top:6px;">Formats acceptés : CSV, XLSX — séparateurs auto-détectés</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;gap:10px;align-items:center;">
+        <button class="btn btn-primary" id="btnAnalyser" disabled onclick="lancerAnalyse()">Analyser le fichier →</button>
+        <span id="loadingAnalyse" style="display:none;color:#6b7280;font-size:13px;">Analyse en cours…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ ÉTAPE 2 : CORRESPONDANCE ═════════════════════ -->
+<div class="wstep" id="step1">
+  <div class="mc">
+    <div class="mc-header">
+      <span class="mc-title">Correspondance des champs</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="goStep(0)" style="font-size:12px;padding:6px 14px;">← Retour</button>
+        <button class="btn btn-secondary" id="btnAutoSuggest" onclick="appliquerSuggestions()" style="font-size:12px;padding:6px 14px;">🔄 Auto-suggestion</button>
+      </div>
+    </div>
+    <div class="mc-body">
+      <div id="infoFichier" style="font-size:13px;color:#6b7280;margin-bottom:14px;"></div>
+
+      <table class="mtable" id="mappingTable">
+        <thead>
+          <tr>
+            <th style="width:220px;">Champ attendu</th>
+            <th>Colonne source dans votre fichier</th>
+            <th style="width:120px;">Échantillon</th>
+          </tr>
+        </thead>
+        <tbody id="mappingBody"></tbody>
+      </table>
+
+      <div style="margin-top:20px;border-top:1px solid #f3f4f6;padding-top:16px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:10px;color:#374151;">Valeurs fixes <small style="font-weight:400;color:#6b7280">(pour les champs sans colonne source)</small></div>
+        <div id="valeursFixesContainer"></div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="goStep(2)">Configurer les transformations →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ ÉTAPE 3 : TRANSFORMATIONS ════════════════════ -->
+<div class="wstep" id="step2">
+  <div class="mc">
+    <div class="mc-header">
+      <span class="mc-title">Transformations des valeurs</span>
+      <button class="btn btn-secondary" onclick="goStep(1)" style="font-size:12px;padding:6px 14px;">← Retour</button>
+    </div>
+    <div class="mc-body">
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px;">Définissez ici comment transformer chaque valeur lors de l'import (format de date, séparateur décimal, correspondance de codes…). Les champs sans transformation seront importés tels quels.</p>
+      <div id="transfosContainer"></div>
+      <div style="margin-top:18px;display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="lancerApercu()">Voir l'aperçu →</button>
+        <span id="loadingApercu" style="display:none;color:#6b7280;font-size:13px;">Calcul en cours…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ ÉTAPE 4 : APERÇU ═════════════════════════════ -->
+<div class="wstep" id="step3">
+  <div class="mc">
+    <div class="mc-header">
+      <span class="mc-title">Aperçu des données transformées</span>
+      <button class="btn btn-secondary" onclick="goStep(2)" style="font-size:12px;padding:6px 14px;">← Retour</button>
+    </div>
+    <div class="mc-body">
+      <div id="apercuStats" style="margin-bottom:14px;"></div>
+      <div id="apercuAlertes" style="margin-bottom:14px;"></div>
+      <div class="ptable-wrap"><table class="ptable" id="apercuTable"><thead id="apercuThead"></thead><tbody id="apercuTbody"></tbody></table></div>
+      <div style="margin-top:18px;display:flex;gap:10px;">
+        <button class="btn btn-success" id="btnGoImport" onclick="goStep(4)">Procéder à l'import →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ ÉTAPE 5 : IMPORT & PROFIL ════════════════════ -->
+<div class="wstep" id="step4">
+  <div class="mc">
+    <div class="mc-header">
+      <span class="mc-title">Import &amp; Sauvegarde du profil</span>
+      <button class="btn btn-secondary" onclick="goStep(3)" style="font-size:12px;padding:6px 14px;">← Retour</button>
+    </div>
+    <div class="mc-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Sauvegarde du profil</div>
+          <label class="fl">Nom du profil</label>
+          <input class="ti" id="inputNomProfil" type="text" placeholder="ex: Cardif inventaire mensuel" style="margin-bottom:10px;">
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" id="btnSauverProfil" onclick="sauverProfil()" style="font-size:13px;">💾 Sauvegarder le profil</button>
+          </div>
+          <div id="msgSauveProfil" style="margin-top:8px;font-size:13px;"></div>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Import effectif</div>
+          <div style="font-size:13px;color:#374151;margin-bottom:10px;">
+            Les <strong id="nbLignesImport">—</strong> lignes valides seront importées.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-success" id="btnImporter" onclick="lancerImport()" style="font-size:13px;">🚀 Importer maintenant</button>
+          </div>
+          <div style="margin-top:8px;">
+            <label style="font-size:12px;color:#6b7280;">
+              <input type="checkbox" id="chkPipeline" checked style="margin-right:5px;">
+              Recalculer les performances après import
+            </label>
+          </div>
+          <div id="msgImport" style="margin-top:8px;font-size:13px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Liste des profils sauvegardés -->
+  <div class="mc">
+    <div class="mc-header"><span class="mc-title">Profils sauvegardés</span></div>
+    <div class="mc-body">
+      <div id="listeProfilsSauvegardes">
+        <p style="font-size:13px;color:#9ca3af;">Chargement…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// État global
+// ─────────────────────────────────────────────────────────────────────────────
+const STATE = {
+  typeImport: '',
+  fournisseur: '',
+  file: null,
+  sessionId: null,
+  colonnes: [],
+  echantillon: [],
+  nbLignes: 0,
+  suggestions: {},
+  champsAttendus: {},          // {champ: {label,requis,type}}
+  mapping: {},                 // {champ_cible: champ_source|""}
+  transformations: {},         // {champ_cible: {type, ...}}
+  valeursFixees: {},           // {champ_cible: valeur}
+  apercu: null,
+  profilEnCours: null,         // id du profil si édition
+};
+
+const CHAMPS_ATTENDUS = {{ champs_attendus_json | safe }};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Navigation entre étapes
+// ─────────────────────────────────────────────────────────────────────────────
+function goStep(n) {
+  document.querySelectorAll('.wstep').forEach((el, i) => el.classList.toggle('active', i === n));
+  document.querySelectorAll('.sbi').forEach((el, i) => {
+    el.classList.remove('active','done');
+    if (i < n) el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  });
+  if (n === 4) chargerListeProfils();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Étape 1 — Fichier
+// ─────────────────────────────────────────────────────────────────────────────
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+dz.addEventListener('click', () => fi.click());
+fi.addEventListener('change', () => { if (fi.files[0]) setFile(fi.files[0]); });
+
+function setFile(f) {
+  STATE.file = f;
+  document.getElementById('dzContent').innerHTML =
+    `<div style="font-size:20px;margin-bottom:6px;">📄</div>
+     <div style="font-weight:600;color:#374151;">${f.name}</div>
+     <div style="font-size:12px;color:#9ca3af;margin-top:4px;">${(f.size/1024).toFixed(1)} Ko — <span style="color:#2563eb;cursor:pointer;" onclick="event.stopPropagation();document.getElementById('fileInput').click()">changer</span></div>`;
+  checkBtnAnalyser();
+}
+
+document.getElementById('selType').addEventListener('change', checkBtnAnalyser);
+
+function checkBtnAnalyser() {
+  const ok = STATE.file && document.getElementById('selType').value;
+  document.getElementById('btnAnalyser').disabled = !ok;
+}
+
+// Chargement d'un profil existant en étape 1
+document.getElementById('selProfilExistant').addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  if (!opt.value) { STATE.profilEnCours = null; return; }
+  const p = JSON.parse(opt.dataset.profil);
+  STATE.profilEnCours = p.id;
+  document.getElementById('selType').value = p.type_import;
+  document.getElementById('inputFournisseur').value = p.fournisseur || '';
+  STATE.mapping       = p.mapping        || {};
+  STATE.transformations = p.transformations || {};
+  STATE.valeursFixees  = p.valeurs_fixes  || {};
+  checkBtnAnalyser();
+  showAlert('Profil « ' + p.nom + ' » chargé — uploadez le fichier puis analysez.', 'info', 'alerts-top');
+});
+
+async function lancerAnalyse() {
+  const type = document.getElementById('selType').value;
+  if (!type || !STATE.file) return;
+  STATE.typeImport  = type;
+  STATE.fournisseur = document.getElementById('inputFournisseur').value.trim();
+
+  document.getElementById('btnAnalyser').disabled = true;
+  document.getElementById('loadingAnalyse').style.display = 'inline';
+
+  const fd = new FormData();
+  fd.append('file', STATE.file);
+
+  try {
+    const r = await fetch(`/import/mapping/analyser?type_import=${encodeURIComponent(type)}`, {
+      method: 'POST', body: fd, credentials: 'include'
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+
+    STATE.colonnes      = data.colonnes;
+    STATE.echantillon   = data.echantillon;
+    STATE.nbLignes      = data.nb_lignes;
+    STATE.sessionId     = data.session_id;
+    STATE.champsAttendus = data.champs_attendus;
+
+    // Si suggestions nouvelles ET pas de profil chargé, on les utilise
+    if (!STATE.profilEnCours) {
+      STATE.mapping = {};
+      STATE.transformations = {};
+      STATE.valeursFixees  = {};
+    }
+    // Remplir les suggestions seulement pour les champs non encore mappés
+    for (const [champ, col] of Object.entries(data.suggestions)) {
+      if (!STATE.mapping[champ]) STATE.mapping[champ] = col || '';
+    }
+
+    construireTableauMapping();
+    construireValeursFixees();
+    document.getElementById('infoFichier').textContent =
+      `Fichier : ${STATE.file.name} — ${STATE.nbLignes} lignes — ${STATE.colonnes.length} colonnes détectées`;
+    goStep(1);
+  } catch(e) {
+    showAlert('Erreur analyse : ' + e.message, 'err', 'alerts-top');
+  } finally {
+    document.getElementById('btnAnalyser').disabled = false;
+    document.getElementById('loadingAnalyse').style.display = 'none';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Étape 2 — Tableau de correspondance
+// ─────────────────────────────────────────────────────────────────────────────
+function construireTableauMapping() {
+  const tbody = document.getElementById('mappingBody');
+  tbody.innerHTML = '';
+  const champs = STATE.champsAttendus || CHAMPS_ATTENDUS[STATE.typeImport] || {};
+
+  for (const [champ, info] of Object.entries(champs)) {
+    const mapped = STATE.mapping[champ] || '';
+    const badge = info.requis
+      ? '<span class="badge-req">Requis</span>'
+      : '<span class="badge-opt">Optionnel</span>';
+
+    // Échantillon de la colonne actuellement mappée
+    const sample = mapped ? getSample(mapped) : '<span style="color:#d1d5db">—</span>';
+
+    const opts = STATE.colonnes.map(c =>
+      `<option value="${esc(c)}" ${c === mapped ? 'selected' : ''}>${esc(c)}</option>`
+    ).join('');
+
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td>
+          <span style="font-weight:600;font-size:13px;">${esc(info.label)}</span>${badge}
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;font-family:monospace;">${champ}</div>
+        </td>
+        <td>
+          <select class="ti" style="max-width:280px;" id="map_${champ}"
+            onchange="onMappingChange('${champ}',this.value)">
+            <option value="">— Ignorer ce champ —</option>
+            ${opts}
+          </select>
+        </td>
+        <td id="sample_${champ}" style="font-size:11px;font-family:monospace;color:#374151;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sample}</td>
+      </tr>
+    `);
+  }
+}
+
+function onMappingChange(champ, col) {
+  STATE.mapping[champ] = col;
+  const sampleEl = document.getElementById('sample_' + champ);
+  if (sampleEl) sampleEl.innerHTML = col ? getSample(col) : '<span style="color:#d1d5db">—</span>';
+}
+
+function getSample(col) {
+  const vals = STATE.echantillon.map(r => r[col]).filter(v => v !== undefined && v !== null && v !== '');
+  if (!vals.length) return '<span style="color:#d1d5db">—</span>';
+  return esc(String(vals[0]).substring(0, 40));
+}
+
+function appliquerSuggestions() {
+  // Re-lance la suggestion automatique depuis les colonnes détectées
+  fetch(`/import/mapping/analyser?type_import=${encodeURIComponent(STATE.typeImport)}`, {
+    method: 'POST',
+    body: (() => { const fd = new FormData(); fd.append('file', STATE.file); return fd; })(),
+    credentials: 'include'
+  }).then(r => r.json()).then(data => {
+    for (const [champ, col] of Object.entries(data.suggestions)) {
+      STATE.mapping[champ] = col || '';
+    }
+    construireTableauMapping();
+  });
+}
+
+function construireValeursFixees() {
+  const cont = document.getElementById('valeursFixesContainer');
+  cont.innerHTML = '';
+  const champs = STATE.champsAttendus || CHAMPS_ATTENDUS[STATE.typeImport] || {};
+  const champsOptionnels = Object.entries(champs).filter(([, info]) => !info.requis);
+  if (!champsOptionnels.length) {
+    cont.innerHTML = '<p style="font-size:13px;color:#9ca3af;">Aucun champ optionnel disponible.</p>';
+    return;
+  }
+  for (const [champ, info] of champsOptionnels) {
+    const val = STATE.valeursFixees[champ] || '';
+    cont.insertAdjacentHTML('beforeend', `
+      <div class="vfix-row">
+        <span class="vfix-label">${esc(info.label)} <span style="font-family:monospace;font-size:11px;color:#9ca3af;">(${champ})</span></span>
+        <input class="ti vfix-input" type="text" placeholder="Valeur fixe (optionnel)"
+          value="${esc(val)}" oninput="STATE.valeursFixees['${champ}']=this.value"
+          style="max-width:260px;">
+      </div>
+    `);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Étape 3 — Transformations
+// ─────────────────────────────────────────────────────────────────────────────
+const TRANSFO_TYPES = [
+  { value: '',              label: 'Aucune transformation' },
+  { value: 'date',          label: 'Normaliser date' },
+  { value: 'float_virgule', label: 'Nombre : virgule → point décimal' },
+  { value: 'float_point',   label: 'Nombre : point décimal (nettoyer)' },
+  { value: 'uppercase',     label: 'Majuscules' },
+  { value: 'valeur_map',    label: 'Correspondance de valeurs' },
+];
+
+function construireTransfos() {
+  const cont = document.getElementById('transfosContainer');
+  cont.innerHTML = '';
+  const champs = STATE.champsAttendus || CHAMPS_ATTENDUS[STATE.typeImport] || {};
+
+  const champsMappés = Object.keys(STATE.mapping).filter(c => STATE.mapping[c]);
+  if (!champsMappés.length) {
+    cont.innerHTML = '<p style="font-size:13px;color:#9ca3af;">Aucun champ mappé — retournez à l\'étape précédente.</p>';
+    return;
+  }
+
+  for (const champ of champsMappés) {
+    const info = champs[champ] || { label: champ };
+    const t = (STATE.transformations[champ] || {});
+    const tType = t.type || '';
+    const sample = getSample(STATE.mapping[champ]);
+
+    const opts = TRANSFO_TYPES.map(o =>
+      `<option value="${o.value}" ${o.value === tType ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+
+    // Pré-remplissage intelligent selon le type de champ
+    let defaultTransfo = '';
+    if (info.type === 'date') defaultTransfo = 'date';
+    else if (info.type === 'float' && tType === '') defaultTransfo = '';
+    else if (champ === 'code_isin' || champ === 'code_mouvement') defaultTransfo = 'uppercase';
+
+    cont.insertAdjacentHTML('beforeend', `
+      <div class="transfo-row" id="tr_${champ}">
+        <div class="transfo-label">
+          <strong>${esc(info.label)}</strong>
+          <div style="font-size:11px;font-family:monospace;color:#9ca3af;">${esc(STATE.mapping[champ])}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px;">Ex: ${sample}</div>
+        </div>
+        <div class="transfo-type">
+          <label class="fl" style="font-size:11px;">Transformation</label>
+          <select class="ti" id="ttype_${champ}" onchange="onTransfoChange('${champ}',this.value)">
+            ${opts}
+          </select>
+        </div>
+        <div class="transfo-extra" id="textra_${champ}">
+          ${renderTransfoExtra(champ, t)}
+        </div>
+      </div>
+    `);
+  }
+}
+
+function renderTransfoExtra(champ, t) {
+  const type = t.type || '';
+  if (type === 'date') {
+    return `<div>
+      <label class="fl" style="font-size:11px;">Format source</label>
+      <select class="ti" id="tformat_${champ}" onchange="onTransfoParam('${champ}','format',this.value)">
+        <option value="">— Auto-détection —</option>
+        ${[['DD/MM/YYYY','DD/MM/YYYY'],['YYYY-MM-DD','YYYY-MM-DD'],['DDMMYYYY','DDMMYYYY'],['DD/MM/YY','DD/MM/YY'],['MM/DD/YYYY','MM/DD/YYYY'],['DD.MM.YYYY','DD.MM.YYYY']]
+          .map(([v,l]) => `<option value="${v}" ${(t.format||'')==v?'selected':''}>${l}</option>`).join('')}
+      </select>
+    </div>`;
+  } else if (type === 'valeur_map') {
+    const mapJson = JSON.stringify(t.mapping || {}, null, 2);
+    return `<div>
+      <label class="fl" style="font-size:11px;">Correspondances JSON <small style="color:#9ca3af">{"source":"cible"}</small></label>
+      <textarea class="ti" rows="4" style="font-family:monospace;font-size:12px;"
+        id="tmap_${champ}" onchange="onTransfoMapChange('${champ}',this.value)">${esc(mapJson)}</textarea>
+    </div>`;
+  }
+  return '<div style="font-size:12px;color:#9ca3af;padding-top:8px;">Aucun paramètre requis.</div>';
+}
+
+function onTransfoChange(champ, ttype) {
+  if (!STATE.transformations[champ]) STATE.transformations[champ] = {};
+  STATE.transformations[champ].type = ttype;
+  if (!ttype) { delete STATE.transformations[champ]; }
+  document.getElementById('textra_' + champ).innerHTML = renderTransfoExtra(champ, STATE.transformations[champ] || {});
+}
+
+function onTransfoParam(champ, param, val) {
+  if (!STATE.transformations[champ]) STATE.transformations[champ] = {};
+  STATE.transformations[champ][param] = val;
+}
+
+function onTransfoMapChange(champ, val) {
+  try {
+    const m = JSON.parse(val);
+    if (!STATE.transformations[champ]) STATE.transformations[champ] = {};
+    STATE.transformations[champ].mapping = m;
+  } catch(e) { /* JSON invalide, on attend */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Étape 4 — Aperçu
+// ─────────────────────────────────────────────────────────────────────────────
+async function lancerApercu() {
+  if (!STATE.sessionId) { showAlert('Session expirée — rechargez le fichier.', 'err', 'alerts-top'); goStep(0); return; }
+  if (STATE.typeImport !== 'inventaire' && STATE.typeImport !== 'mouvements') {
+    showAlert('L\'aperçu n\'est disponible que pour les types inventaire et mouvements.', 'warn', 'alerts-top');
+    goStep(3); return;
+  }
+
+  // Lire les valeurs actuelles des selects de mapping et transformations
+  syncMappingFromDOM();
+
+  document.getElementById('loadingApercu').style.display = 'inline';
+  construireTransfos();  // build transfo UI before going to step 3
+
+  const qp = new URLSearchParams({ session_id: STATE.sessionId });
+  if (STATE.fournisseur) qp.set('fournisseur', STATE.fournisseur);
+
+  try {
+    const r = await fetch(`/import/mapping/appliquer/${STATE.typeImport}/preview?${qp}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        mapping: STATE.mapping,
+        transformations: STATE.transformations,
+        valeurs_fixes: STATE.valeursFixees,
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+
+    STATE.apercu = data;
+    afficherApercu(data);
+    document.getElementById('nbLignesImport').textContent = data.lignes_valides;
+    goStep(3);
+  } catch(e) {
+    showAlert('Erreur aperçu : ' + e.message, 'err', 'alerts-top');
+  } finally {
+    document.getElementById('loadingApercu').style.display = 'none';
+  }
+}
+
+function afficherApercu(data) {
+  // Stats
+  const statsEl = document.getElementById('apercuStats');
+  statsEl.innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      ${statChip('Total lignes', data.total_lignes, '#374151')}
+      ${statChip('Valides', data.lignes_valides, '#15803d', '#d1fae5')}
+      ${statChip('Invalides', data.lignes_invalides, '#dc2626', '#fef2f2')}
+      ${data.alertes?.length ? statChip('Alertes', data.alertes.length, '#92400e', '#fffbeb') : ''}
+    </div>`;
+
+  // Alertes
+  const alertesEl = document.getElementById('apercuAlertes');
+  alertesEl.innerHTML = '';
+  if (data.alertes?.length) {
+    const max5 = data.alertes.slice(0, 5);
+    alertesEl.innerHTML = max5.map(a =>
+      `<div class="alert alert-warn" style="font-size:12px;margin-bottom:6px;">
+        ${a.ligne ? `<strong>Ligne ${a.ligne}</strong> — ` : ''}<code>${a.code}</code> : ${esc(a.message)}
+      </div>`
+    ).join('') + (data.alertes.length > 5 ? `<div style="font-size:12px;color:#9ca3af;">…et ${data.alertes.length-5} autres alertes</div>` : '');
+  }
+
+  // Table
+  const apercu = data.apercu || [];
+  if (!apercu.length) {
+    document.getElementById('apercuTable').innerHTML = '<thead></thead><tbody><tr><td style="padding:16px;color:#9ca3af;">Aucune donnée à afficher.</td></tr></tbody>';
+    return;
+  }
+  const cols = Object.keys(apercu[0]);
+  document.getElementById('apercuThead').innerHTML =
+    '<tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+  document.getElementById('apercuTbody').innerHTML =
+    apercu.map(row =>
+      '<tr>' + cols.map(c => `<td>${esc(String(row[c] ?? ''))}</td>`).join('') + '</tr>'
+    ).join('');
+}
+
+function statChip(label, val, color, bg = '#f3f4f6') {
+  return `<div style="background:${bg};border-radius:8px;padding:8px 14px;">
+    <div style="font-size:11px;color:#6b7280;">${label}</div>
+    <div style="font-size:20px;font-weight:700;color:${color};">${val}</div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Étape 5 — Import & Profil
+// ─────────────────────────────────────────────────────────────────────────────
+async function sauverProfil() {
+  const nom = document.getElementById('inputNomProfil').value.trim();
+  if (!nom) { showMsg('msgSauveProfil', 'Saisissez un nom de profil.', 'err'); return; }
+
+  syncMappingFromDOM();
+
+  const payload = {
+    nom,
+    type_import: STATE.typeImport,
+    fournisseur: STATE.fournisseur || null,
+    mapping: STATE.mapping,
+    transformations: STATE.transformations,
+    valeurs_fixes: STATE.valeursFixees,
+  };
+
+  const url = STATE.profilEnCours
+    ? `/import/mapping/profils/${STATE.profilEnCours}`
+    : '/import/mapping/profils';
+  const method = STATE.profilEnCours ? 'PUT' : 'POST';
+
+  try {
+    const r = await fetch(url, {
+      method, headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    STATE.profilEnCours = data.id;
+    showMsg('msgSauveProfil', '✅ Profil sauvegardé avec succès.', 'ok');
+    chargerListeProfils();
+  } catch(e) {
+    showMsg('msgSauveProfil', 'Erreur : ' + e.message, 'err');
+  }
+}
+
+async function lancerImport() {
+  if (!STATE.sessionId) { showMsg('msgImport', 'Session expirée — rechargez le fichier.', 'err'); return; }
+  syncMappingFromDOM();
+
+  const runPipeline = document.getElementById('chkPipeline').checked;
+  const qp = new URLSearchParams({ session_id: STATE.sessionId, run_pipeline: runPipeline });
+  if (STATE.fournisseur) qp.set('fournisseur', STATE.fournisseur);
+
+  document.getElementById('btnImporter').disabled = true;
+  showMsg('msgImport', '⏳ Import en cours…', 'info');
+
+  try {
+    const r = await fetch(`/import/mapping/appliquer/${STATE.typeImport}/commit?${qp}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        mapping: STATE.mapping,
+        transformations: STATE.transformations,
+        valeurs_fixes: STATE.valeursFixees,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+
+    const msg = `✅ Import réussi — ${data.insere ?? 0} insérés, ${data.mis_a_jour ?? 0} mis à jour.`
+      + (data.alertes?.length ? ` — ${data.alertes.length} alerte(s).` : '');
+    showMsg('msgImport', msg, 'ok');
+  } catch(e) {
+    showMsg('msgImport', '❌ Erreur import : ' + e.message, 'err');
+  } finally {
+    document.getElementById('btnImporter').disabled = false;
+  }
+}
+
+async function chargerListeProfils() {
+  const cont = document.getElementById('listeProfilsSauvegardes');
+  try {
+    const r = await fetch('/import/mapping/profils', { credentials: 'include' });
+    const profils = await r.json();
+    if (!profils.length) {
+      cont.innerHTML = '<p style="font-size:13px;color:#9ca3af;">Aucun profil sauvegardé.</p>';
+      return;
+    }
+    cont.innerHTML = profils.map(p => `
+      <div class="profil-card">
+        <div class="profil-info">
+          <div class="profil-nom">${esc(p.nom)}</div>
+          <div class="profil-meta">
+            <span style="background:#eff6ff;color:#1e40af;border-radius:4px;padding:1px 7px;font-size:11px;margin-right:6px;">${p.type_import}</span>
+            ${p.fournisseur ? `<span style="color:#6b7280;">${esc(p.fournisseur)}</span>` : ''}
+            <span style="color:#d1d5db;margin:0 6px;">·</span>
+            <span style="color:#9ca3af;">${Object.keys(p.mapping||{}).length} champs mappés</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="chargerProfil(${p.id})" style="font-size:12px;padding:6px 12px;">Charger</button>
+          <button class="btn btn-danger" onclick="supprimerProfil(${p.id})" style="font-size:12px;padding:6px 12px;background:#fff;color:#dc2626;border:1px solid #fecaca;">Supprimer</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    cont.innerHTML = '<p style="font-size:13px;color:#dc2626;">Erreur chargement profils.</p>';
+  }
+}
+
+async function chargerProfil(id) {
+  const r = await fetch('/import/mapping/profils', { credentials: 'include' });
+  const profils = await r.json();
+  const p = profils.find(x => x.id === id);
+  if (!p) return;
+  STATE.profilEnCours = p.id;
+  STATE.typeImport    = p.type_import;
+  STATE.fournisseur   = p.fournisseur || '';
+  STATE.mapping       = p.mapping || {};
+  STATE.transformations = p.transformations || {};
+  STATE.valeursFixees  = p.valeurs_fixes || {};
+  document.getElementById('selType').value = p.type_import;
+  document.getElementById('inputFournisseur').value = p.fournisseur || '';
+  document.getElementById('inputNomProfil').value = p.nom;
+  showAlert('Profil « ' + p.nom + ' » chargé. Uploadez un fichier pour l\'utiliser.', 'info', 'alerts-top');
+  goStep(0);
+}
+
+async function supprimerProfil(id) {
+  if (!confirm('Supprimer ce profil ?')) return;
+  const r = await fetch(`/import/mapping/profils/${id}`, { method:'DELETE', credentials:'include' });
+  if (r.ok) chargerListeProfils();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilitaires
+// ─────────────────────────────────────────────────────────────────────────────
+function syncMappingFromDOM() {
+  const champs = STATE.champsAttendus || CHAMPS_ATTENDUS[STATE.typeImport] || {};
+  for (const champ of Object.keys(champs)) {
+    const sel = document.getElementById('map_' + champ);
+    if (sel) STATE.mapping[champ] = sel.value;
+  }
+}
+
+function showAlert(msg, type, containerId) {
+  const cont = document.getElementById(containerId);
+  if (!cont) return;
+  const div = document.createElement('div');
+  div.className = `alert alert-${type}`;
+  div.innerHTML = msg + ' <span style="float:right;cursor:pointer;" onclick="this.parentElement.remove()">✕</span>';
+  cont.prepend(div);
+  setTimeout(() => div.remove(), 8000);
+}
+
+function showMsg(elId, msg, type) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.className = `alert alert-${type}`;
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Surcharge goStep pour construire les UIs dérivées
+const _origGoStep = goStep;
+window.goStep = function(n) {
+  _origGoStep(n);
+  if (n === 2) construireTransfos();
+};
+</script>
+{% endblock %}

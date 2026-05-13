@@ -57,6 +57,24 @@ class MouvementRow(BaseModel):
         return (str(v) if v is not None else "").strip().upper()
 
 
+class AvisRow(BaseModel):
+    ref_affaire: str | None = None
+    id_affaire: int | None = None
+    id_client_fournisseur: str | None = None
+    date: str
+    reference: str | None = None
+    entree: str | None = None
+    sortie: str | None = None
+    commentaire: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {k.lower().strip(): v for k, v in data.items()}
+        return data
+
+
 class ImportAlerte(BaseModel):
     ligne: int | None = None
     code: str

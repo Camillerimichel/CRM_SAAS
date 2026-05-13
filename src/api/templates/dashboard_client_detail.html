@@ -2747,6 +2747,34 @@ function generateClientSynthese(){
       </a>
       {% endfor %}
     </div>
+
+    {% if contrats_sans_historique %}
+    <div id="contratsSansHistoriqueBlock" style="margin-top:16px;">
+      <h3 class="section-title-blue toggle-title" style="margin-top:0; margin-bottom:10px;">
+        Contrats sans valorisation
+        <span style="font-size:0.78rem; font-weight:400; color:#6b7280; margin-left:6px;">({{ contrats_sans_historique|length }} contrat{{ 's' if contrats_sans_historique|length > 1 else '' }} importé{{ 's' if contrats_sans_historique|length > 1 else '' }}, en attente d'inventaire)</span>
+      </h3>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb; border-bottom:2px solid #e5e7eb;">
+            <th style="padding:7px 10px; text-align:left; font-weight:700;">Référence contrat</th>
+            <th style="padding:7px 10px; text-align:left; font-weight:700;">Produit</th>
+            <th style="padding:7px 10px; text-align:left; font-weight:700;">Date d'ouverture</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in contrats_sans_historique %}
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:7px 10px;"><a href="/dashboard/affaires/{{ c.id }}" target="_blank" style="color:#2563eb;">{{ c.ref or ('#' ~ c.id) }}</a></td>
+            <td style="padding:7px 10px; color:#374151;">{{ c.nom_contrat or '—' }}</td>
+            <td style="padding:7px 10px; color:#6b7280;">{{ c.date_debut or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
     </div>
     <div id="invSupportsBlock">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -2928,7 +2956,7 @@ function generateClientSynthese(){
     })();
   </script>
 
-  {% set esg_default_alloc = allocation_reference_name or allocation_risque_name_raw or (risque_latest.allocation_nom if risque_latest else (risque_snapshot.allocation_nom if risque_snapshot else None)) %}
+  {% set esg_default_alloc = allocation_reference_name or allocation_risque_name_raw or (risque_latest.allocation_nom|default(none) if risque_latest else none) or (risque_snapshot.allocation_nom|default(none) if risque_snapshot else none) %}
   <div id="esgSection" class="card" style="display:none;">
     <div class="card-header">Suivi ESG</div>
     <div id="clientEsgPanel" style="margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
@@ -3353,9 +3381,9 @@ function openClientMsgs(kind){
   (function(){
     var clientId = {{ client.id if client else 'null' }};
     if (!clientId) return;
-    var defaultAllocName = {{ esg_default_alloc|tojson }};
-    var defaultFields = {{ esg_default_fields|tojson }};
-    var fallbackFields = {{ esg_fields|tojson }};
+    var defaultAllocName = {{ esg_default_alloc|default(none)|tojson }};
+    var defaultFields = {{ esg_default_fields|default([])|tojson }};
+    var fallbackFields = {{ esg_fields|default([])|tojson }};
     var $alloc = document.getElementById('clientEsgAlloc');
     var $fieldsWrap = document.getElementById('clientEsgFields');
     var $unmatched = document.getElementById('clientEsgUnmatched');

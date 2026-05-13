@@ -556,6 +556,16 @@
             Ouvert
           {% endif %}
         </div>
+        <div class="kpi-mini"><strong>Date de souscription:</strong>
+          {% if affaire and affaire.date_debut %}
+            {{ affaire.date_debut.strftime('%d/%m/%Y') }}
+          {% else %}
+            —
+          {% endif %}
+        </div>
+        <div class="kpi-mini"><strong>Compagnie d'assurance:</strong>
+          {{ compagnie_assurance_nom if compagnie_assurance_nom else '—' }}
+        </div>
         <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
         <div class="kpi-mini"><strong>Société (gestion/courtage):</strong>
           {% if societe_gestion_nom %}
@@ -2599,13 +2609,19 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   <!-- Modal Avis d'opération -->
   <style>
     #avisModal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 9999; }
-    #avisModal .modal-card { background:#fff; border-radius:12px; width: 1000px; max-width: 96vw; max-height: 92vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    #avisModal .modal-header { display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom:1px solid var(--border); }
-    #avisModal .modal-body { padding: 12px 14px; }
-    #avisModal table th, #avisModal table td { white-space: nowrap; }
-    #avisModal table td:nth-child(2) { max-width: 60ch; white-space: normal; }
-    #avisModal table tbody tr:nth-child(even) { background:#eff6ff; }
-    #avisModal table tbody tr:nth-child(odd) { background:#fff; }
+    #avisModal .modal-card { background:#fff; border-radius:12px; width: 900px; max-width: 96vw; max-height: 92vh; display:flex; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    #avisModal .modal-header { flex-shrink:0; display:flex; align-items:center; justify-content: space-between; padding: 10px 14px; border-bottom:1px solid var(--border); }
+    #avisModal .modal-body { flex:1; overflow:auto; padding: 12px 14px; }
+    #avisModal #avisModalTable { table-layout: fixed; width: 100%; border-collapse: collapse; }
+    #avisModal #avisModalTable th, #avisModal #avisModalTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; }
+    #avisModal #avisModalTable th:nth-child(1), #avisModal #avisModalTable td:nth-child(1) { width: 9ch; }
+    #avisModal #avisModalTable th:nth-child(2), #avisModal #avisModalTable td:nth-child(2) { width: 20ch; }
+    #avisModal #avisModalTable th:nth-child(3), #avisModal #avisModalTable td:nth-child(3) { width: 10ch; }
+    #avisModal #avisModalTable th:nth-child(4), #avisModal #avisModalTable td:nth-child(4) { width: auto; text-align: right; }
+    #avisModal #avisModalTable th:nth-child(5), #avisModal #avisModalTable td:nth-child(5) { width: auto; text-align: right; }
+    #avisModal #avisModalTable th:nth-child(6), #avisModal #avisModalTable td:nth-child(6) { width: 5ch; text-align: center; }
+    #avisModal #avisModalTable tbody tr:nth-child(even) { background:#eff6ff; }
+    #avisModal #avisModalTable tbody tr:nth-child(odd) { background:#fff; }
   </style>
   <div id="avisModal" onclick="if(event.target===this) closeAvisModal()">
     <div class="modal-card">
@@ -2629,10 +2645,10 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
             {% for a in avis_affaire %}
             <tr>
               <td><span class="js-local-dt" data-iso="{{ a.date }}">{{ a.date }}</span></td>
-              <td>{{ a.reference or '' }}</td>
-              <td>{{ a.etape or '' }}</td>
-              <td style="text-align:right;">{{ a.entree_str or '' }}</td>
-              <td style="text-align:right;">{{ a.sortie_str or '' }}</td>
+              <td title="{{ a.reference or '' }}">{{ a.reference or '' }}</td>
+              <td title="{{ a.etape or '' }}">{{ a.etape or '' }}</td>
+              <td title="{{ a.entree_str or '' }}">{{ a.entree_str or '' }}</td>
+              <td title="{{ a.sortie_str or '' }}">{{ a.sortie_str or '' }}</td>
               <td><button type="button" class="btn btn-choice" title="Voir mouvement" onclick="openMovementPopup({{ affaire.id }}, {{ a.avis_id }})"><i class="fa-solid fa-eye"></i></button></td>
             </tr>
             {% endfor %}

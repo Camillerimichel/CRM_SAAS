@@ -59,6 +59,23 @@
             gap: 18px;
             z-index: 40;
         }
+        .sidebar:has(#sidebarNavClient),
+        .sidebar:has(#sidebarNavAffaire) {
+            background: #f1f5f9;
+        }
+        .sidebar-back-btn {
+            background: #111827 !important;
+            color: #d1d5db !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+        }
+        .sidebar-back-btn i { color: #d1d5db !important; }
+        .sidebar-back-btn:hover {
+            background: #1f2937 !important;
+            color: #f3f4f6 !important;
+            transform: none;
+        }
+        .sidebar-back-btn:hover i { color: #f3f4f6 !important; }
         .sidebar-brand {
             display: flex;
             align-items: center;
@@ -137,13 +154,21 @@
         .sidebar-nav a.active i { color: var(--primary-600); }
 	        .sidebar-subtree {
 	            display: none;
-	            margin: 0.25rem 0 0.35rem 0.75rem;
-	            padding-left: 0.6rem;
+	            margin: 0.25rem 0 0.35rem 0.5rem;
+	            padding: 0.3rem 0.4rem 0.3rem 0.6rem;
 	            border-left: 2px solid rgba(15, 23, 42, 0.14);
+	            background: #e2e8f0;
+	            border-radius: 0 8px 8px 0;
 	        }
 	        .sidebar-subtree a {
 	            font-size: 0.92rem;
 	            padding: 0.45rem 0.75rem;
+	            border-radius: 6px;
+	        }
+	        .sidebar-subtree a:hover {
+	            background: #e2e8f0;
+	            transform: none;
+	            box-shadow: none;
 	        }
 	        .sidebar-subtree a i { opacity: 0.9; }
 	        .sidebar-subtree a.subtree-group {
@@ -156,9 +181,11 @@
 	            font-weight: 650;
 	        }
 	        .sidebar-subtree--nested {
-	            margin: 0.15rem 0 0.5rem 0.5rem;
-	            padding-left: 0.6rem;
+	            margin: 0.15rem 0 0.25rem 0.5rem;
+	            padding: 0.2rem 0.3rem 0.2rem 0.6rem;
 	            border-left: 2px solid rgba(15, 23, 42, 0.10);
+	            background: #e8edf3;
+	            border-radius: 0 6px 6px 0;
 	        }
 	        .sidebar-subtree a.subtree-group .mgmt-caret {
 	            margin-left: auto;
@@ -568,7 +595,7 @@
 	            {% if _is_affaire_detail_page %}
 	            <div id="sidebarNavAffaire" data-menu="affaire">
 	              <div class="sidebar-section-title">Affaire</div>
-	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireMenu && window.toggleSidebarAffaireMenu(false); }catch(e){}; return false;">
+	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarAffaireMenu && window.toggleSidebarAffaireMenu(false); }catch(e){}; return false;" class="sidebar-back-btn">
 	                <i class="fa-solid fa-arrow-left"></i>Retour
 	              </a>
 	              <a href="javascript:void(0)" onclick="try{ return window.openAffaireDetailSection ? window.openAffaireDetailSection('inv') : true; }catch(e){}">
@@ -626,7 +653,7 @@
 	            {% if _is_client_detail_page %}
 	            <div id="sidebarNavClient" data-menu="client">
 	              <div class="sidebar-section-title">Client</div>
-	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(false); }catch(e){}; return false;">
+	              <a href="javascript:void(0)" onclick="try{ window.toggleSidebarClientMenu && window.toggleSidebarClientMenu(false); }catch(e){}; return false;" class="sidebar-back-btn">
 	                <i class="fa-solid fa-arrow-left"></i>Retour
               </a>
               <a href="javascript:void(0)" onclick="try{ window.toggleSidebarConformiteTree && window.toggleSidebarConformiteTree(); }catch(e){}; return false;">
