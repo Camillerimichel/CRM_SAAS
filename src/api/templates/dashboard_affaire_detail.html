@@ -1929,7 +1929,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const affaireSicav = {{ affaire_sicav | tojson }};
   const supportsData = {{ supports | tojson }};
   
-  const primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'').trim() || '#2456a6';
+  const primaryColor = '#16a34a';
 
   const fillDiffBetween = {
     id: 'fillDiffBetween',
@@ -1984,7 +1984,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     };
     const gridSoft = 'rgba(15, 23, 42, 0.08)';
     const textMuted = '#000';
-    const movementColor = '#0f766e';
+    const movementColor = '#dc2626';
     const allMin = Math.min(...V, ...C);
     const allMax = Math.max(...V, ...C);
     const margin = (allMax - allMin) * 0.1 || 1;
@@ -2213,8 +2213,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
         }
       }],
       data: { labels: (years||[]).map(String), datasets: [
-        { type: 'bar', label: 'Perf annuelle (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: 'rgba(37, 99, 235, 0.35)', borderWidth: 1, yAxisID: 'y' },
-        { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#ff6b6b', backgroundColor: '#ff6b6b', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
+        { type: 'bar', label: 'Perf annuelle (%)', data: annPerfPct, borderColor: primaryColor, backgroundColor: 'rgba(22, 163, 74, 0.35)', borderWidth: 1, yAxisID: 'y' },
+        { type: 'line', label: 'SRRI', data: annSrri, borderColor: '#dc2626', backgroundColor: '#dc2626', fill: false, tension: 0.25, pointRadius: 4, pointHoverRadius: 5, yAxisID: 'y2' },
       ]},
       options: { responsive:true, interaction:{ mode:'index', intersect:false }, scales:{
           x:{ ticks:{ color:'#000', font:{ weight:'700' } } },
@@ -2290,8 +2290,8 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       return vals.map(v => isFinite(v) ? (v / base) * 100 : null);
     }
     const gridSoft = 'rgba(15, 23, 42, 0.08)';
-    const allocColor = '#0f766e';
-    const portfolioColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#2456a6').trim();
+    const allocColor = '#dc2626';
+    const portfolioColor = '#16a34a';
     const datasets = [];
     datasets.push({
       label:'{{ affaire.ref if affaire else "Affaire" }} (base 100)',
@@ -2523,7 +2523,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       var catValues = catValuesAbs.map(function(v){ return totalCat>0 ? +(v/totalCat*100).toFixed(1) : 0; });
       // hauteur contrôlée par l'attribut height du canvas (pas de redimension dynamique)
       if (catChart) catChart.destroy();
-      var primaryColor = (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '').trim() || '#2456a6';
+      var primaryColor = '#16a34a';
       catChart = new Chart(catCtx, {
         type: 'bar',
         data: { labels: catLabels, datasets: [{ data: catValues, backgroundColor: primaryColor, borderColor: primaryColor, borderWidth: 1 }] },
@@ -2561,7 +2561,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       var geoValues = geoValuesAbs.map(function(v){ return totalGeo>0 ? +(v/totalGeo*100).toFixed(1) : 0; });
       // hauteur fixée par attribut height du canvas
       if (geoChart) geoChart.destroy();
-      var teal = '#2a9d8f';
+      var teal = '#16a34a';
       geoChart = new Chart(geoCtx, {
         type:'bar',
         data:{ labels: geoLabels, datasets:[{ data: geoValues, backgroundColor: teal, borderColor: teal, borderWidth: 1 }] },

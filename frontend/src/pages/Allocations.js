@@ -141,7 +141,7 @@ function Allocations() {
                   type="monotone"
                   dataKey={nom}
                   name={nom}
-                  stroke={"#" + ((Math.random() * 0xffffff) << 0).toString(16)}
+                  stroke={["#dc2626", "#16a34a", "#2563eb", "#ea580c", "#9333ea", "#0891b2"][selectedNoms.indexOf(nom) % 6]}
                   dot={false}
                 />
               ))}

@@ -47,7 +47,7 @@ function Affaires() {
               <YAxis allowDecimals={false} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="count" fill="#22c55e" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="count" fill="#16a34a" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
