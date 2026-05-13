@@ -5,19 +5,26 @@
 
 {% block content %}
 <style>
-  .import-step { display: none; }
-  .import-step.active { display: block; }
-
-  .step-bar { display: flex; margin-bottom: 32px; max-width: 600px; }
-  .step-bar-item {
-    flex: 1; text-align: center; padding: 10px 4px; font-size: 13px;
-    background: #f3f4f6; color: #9ca3af; border-right: 1px solid #e5e7eb;
-    transition: background .2s, color .2s;
+  .sub-bloc {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px;
+    margin-bottom: 14px;
   }
-  .step-bar-item:first-child { border-radius: 8px 0 0 8px; }
-  .step-bar-item:last-child  { border-radius: 0 8px 8px 0; border-right: none; }
-  .step-bar-item.done   { background: #bbf7d0; color: #15803d; }
-  .step-bar-item.active { background: #2563eb; color: #fff; font-weight: 700; }
+  .sub-bloc-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; gap: 12px;
+  }
+  .sub-bloc-num {
+    min-width: 40px; height: 26px; border-radius: 6px;
+    background: #e5e7eb; color: #6b7280;
+    font-weight: 700; font-size: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: .02em;
+  }
+  .sub-bloc-num.active { background: #2563eb; color: #fff; }
+  .sub-bloc-title { margin: 0; font-size: 14px; font-weight: 700; color: #111827; }
+  .sub-bloc-desc  { margin: 2px 0 0; font-size: 12px; color: #6b7280; }
+  .sub-bloc-collapsible { overflow: hidden; transition: max-height .25s ease, opacity .2s; }
+  .sub-bloc-body { padding: 16px 18px 20px; border-top: 1px solid #e5e7eb; }
 
   .icard {
     background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
@@ -290,69 +297,366 @@
   </div>
 
   <!-- ── Bloc 2 : Produits ─────────────────────────────────────────────────── -->
-  <div class="block-card" style="opacity:.75;">
+  <div class="block-card">
     <div class="block-header" onclick="toggleBlock('bloc2')" style="cursor:pointer;">
       <div class="block-header-left">
-        <div class="block-num">2</div>
+        <div class="block-num active">2</div>
         <div>
           <p class="block-title">Produits</p>
           <p class="block-desc">Import des contrats d'assurance vie génériques (référence produit, compagnie, type de contrat).</p>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
-        <span class="block-badge block-badge-soon">À venir</span>
+        <span class="block-badge block-badge-active">Actif</span>
         <button class="block-toggle" id="toggle-bloc2" onclick="event.stopPropagation(); toggleBlock('bloc2')" title="Réduire / développer">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
     </div>
     <div class="block-collapsible" id="bloc2">
-      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
-    </div>
+    <div class="block-body">
+
+      <!-- Phase 1 : Upload -->
+      <div id="prodUpload">
+        <div class="icard" style="max-width:680px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Import produits</p>
+              <h3 style="margin:0;">Sélectionner un fichier</h3>
+            </div>
+          </div>
+          <div class="icard-body">
+
+            <div class="drop-zone" id="dropProd" onclick="document.getElementById('fileProd').click()">
+              <input type="file" id="fileProd" accept=".csv,.txt" style="display:none;" onchange="onFileProd(this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconProd">📂</div>
+              <p style="margin:0;" id="labelProd">Glissez un fichier CSV ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subProd">ou cliquez pour parcourir</p>
+            </div>
+
+            <div id="errProd" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+
+            <div style="margin-top:20px;">
+              <button type="button" class="btn-primary" id="btnAnalyseProd" disabled onclick="doPreviewProd()">Analyser →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 2 : Aperçu -->
+      <div id="prodApercu" style="display:none;">
+        <div class="icard" style="max-width:760px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu produits</p>
+              <h3 id="prodApercuTitre" style="margin:0;"></h3>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;" id="prodPills"></div>
+          </div>
+          <div class="icard-body">
+            <div style="overflow-x:auto; margin-bottom:8px;">
+              <table class="data-table">
+                <thead><tr>
+                  <th>Code</th>
+                  <th>Nom produit</th>
+                  <th>Statut</th>
+                </tr></thead>
+                <tbody id="prodTableBody"></tbody>
+              </table>
+            </div>
+            <div id="errCommitProd" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button type="button" class="btn-secondary" onclick="prodBackToUpload()">← Retour</button>
+              <button type="button" class="btn-success" id="btnCommitProd" onclick="doCommitProd()">Importer</button>
+              <span id="hintCommitProd" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 3 : Résultat -->
+      <div id="prodResult" style="display:none;">
+        <div class="result-inline">
+          <div class="kpi-grid" id="prodKpis"></div>
+          <div class="log-area" id="prodLog"></div>
+        </div>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button type="button" class="btn-secondary" onclick="prodReset()">Importer un autre fichier</button>
+          <a href="/dashboard/parametres?open=contrats" class="btn-secondary">Voir dans Paramètres</a>
+        </div>
+      </div>
+
+    </div><!-- fin block-body -->
+    </div><!-- fin block-collapsible bloc2 -->
   </div>
 
   <!-- ── Bloc 3 : Supports ─────────────────────────────────────────────────── -->
-  <div class="block-card" style="opacity:.75;">
+  <div class="block-card">
     <div class="block-header" onclick="toggleBlock('bloc3')" style="cursor:pointer;">
       <div class="block-header-left">
-        <div class="block-num">3</div>
+        <div class="block-num active">3</div>
         <div>
           <p class="block-title">Supports</p>
-          <p class="block-desc">Import des supports financiers disponibles (code ISIN, libellé, catégorie, indicateurs de risque).</p>
+          <p class="block-desc">Import des supports financiers disponibles (code ISIN, libellé).</p>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
-        <span class="block-badge block-badge-soon">À venir</span>
+        <span class="block-badge block-badge-active">Actif</span>
         <button class="block-toggle" id="toggle-bloc3" onclick="event.stopPropagation(); toggleBlock('bloc3')" title="Réduire / développer">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
     </div>
     <div class="block-collapsible" id="bloc3">
-      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
-    </div>
+    <div class="block-body">
+
+      <!-- Phase 1 : Upload -->
+      <div id="supUpload">
+        <div class="icard" style="max-width:680px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Import supports</p>
+              <h3 style="margin:0;">Sélectionner un fichier</h3>
+            </div>
+          </div>
+          <div class="icard-body">
+            <div class="drop-zone" id="dropSup" onclick="document.getElementById('fileSup').click()">
+              <input type="file" id="fileSup" accept=".csv,.txt" style="display:none;" onchange="onFileSup(this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconSup">📂</div>
+              <p style="margin:0;" id="labelSup">Glissez un fichier CSV ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subSup">ou cliquez pour parcourir</p>
+            </div>
+            <div id="errSup" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+            <div style="margin-top:20px;">
+              <button type="button" class="btn-primary" id="btnDetectSup" disabled onclick="doDetectSup()">Analyser →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 2 : Mapping colonnes + aperçu 5 lignes -->
+      <div id="supMapping" style="display:none;">
+        <div class="icard" style="max-width:760px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Correspondance des colonnes</p>
+              <h3 id="supMappingTitre" style="margin:0;"></h3>
+            </div>
+          </div>
+          <div class="icard-body">
+
+            <p style="font-size:13px; color:#6b7280; margin:0 0 16px;">
+              Vérifiez les 5 premières lignes et confirmez quelle colonne contient chaque information.
+            </p>
+
+            <!-- Aperçu 5 lignes -->
+            <div style="overflow-x:auto; margin-bottom:20px;">
+              <table class="data-table" id="supSampleTable">
+                <thead id="supSampleHead"></thead>
+                <tbody id="supSampleBody"></tbody>
+              </table>
+            </div>
+
+            <!-- 3 dropdowns de mapping -->
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:20px;">
+              <div>
+                <label class="field-label" style="font-size:13px;">Code hexadécimal <span style="color:#9ca3af;">(optionnel)</span></label>
+                <select id="supColHex" class="text-input" style="font-size:13px;">
+                  <option value="">— Ignorer —</option>
+                </select>
+                <p class="muted" style="font-size:11px; margin:4px 0 0;">Identifiant fournisseur UUID</p>
+              </div>
+              <div>
+                <label class="field-label" style="font-size:13px;">Code ISIN <span style="color:#dc2626;">*</span></label>
+                <select id="supColIsin" class="text-input" style="font-size:13px;">
+                  <option value="">— Sélectionner —</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" style="font-size:13px;">Libellé <span style="color:#dc2626;">*</span></label>
+                <select id="supColLibelle" class="text-input" style="font-size:13px;">
+                  <option value="">— Sélectionner —</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="errSupMapping" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button type="button" class="btn-secondary" onclick="supBackToUpload()">← Retour</button>
+              <button type="button" class="btn-primary" id="btnPreviewSup" onclick="doPreviewSup()">Confirmer le mapping →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 3 : Aperçu complet avec statuts -->
+      <div id="supApercu" style="display:none;">
+        <div class="icard" style="max-width:760px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu supports</p>
+              <h3 id="supApercuTitre" style="margin:0;"></h3>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;" id="supPills"></div>
+          </div>
+          <div class="icard-body">
+            <div style="overflow-x:auto; margin-bottom:8px;">
+              <table class="data-table">
+                <thead><tr><th>Ligne</th><th>Code ISIN</th><th>Libellé</th><th>Statut</th></tr></thead>
+                <tbody id="supTableBody"></tbody>
+              </table>
+            </div>
+            <div id="supMore" style="margin:0 0 16px;"></div>
+            <div id="errCommitSup" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button type="button" class="btn-secondary" onclick="supBackToMapping()">← Retour</button>
+              <button type="button" class="btn-success" id="btnCommitSup" onclick="doCommitSup()">Importer</button>
+              <span id="hintCommitSup" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 4 : Résultat -->
+      <div id="supResult" style="display:none;">
+        <div class="result-inline">
+          <div class="kpi-grid" id="supKpis"></div>
+          <div class="log-area" id="supLog"></div>
+        </div>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button type="button" class="btn-secondary" onclick="supReset()">Importer un autre fichier</button>
+          <a href="/dashboard/supports" class="btn-secondary">Voir les supports</a>
+        </div>
+      </div>
+
+    </div><!-- fin block-body -->
+    </div><!-- fin block-collapsible bloc3 -->
   </div>
 
   <!-- ── Bloc 4 : Souscriptions ────────────────────────────────────────────── -->
-  <div class="block-card" style="opacity:.75;">
+  <div class="block-card">
     <div class="block-header" onclick="toggleBlock('bloc4')" style="cursor:pointer;">
       <div class="block-header-left">
-        <div class="block-num">4</div>
+        <div class="block-num active">4</div>
         <div>
           <p class="block-title">Souscriptions</p>
-          <p class="block-desc">Import des dates d'ouverture et de clôture des contrats clients par produit.</p>
+          <p class="block-desc">Import des ouvertures de contrats clients (produit, référence, date d'ouverture).</p>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
-        <span class="block-badge block-badge-soon">À venir</span>
+        <span class="block-badge block-badge-active">Actif</span>
         <button class="block-toggle" id="toggle-bloc4" onclick="event.stopPropagation(); toggleBlock('bloc4')" title="Réduire / développer">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
     </div>
     <div class="block-collapsible" id="bloc4">
-      <div class="block-placeholder">🔧 Ce module d'import est en cours de développement.</div>
-    </div>
+    <div class="block-body">
+
+      <!-- Phase 1 : Upload -->
+      <div id="sousUpload">
+        <div class="icard" style="max-width:680px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Import souscriptions</p>
+              <h3 style="margin:0;">Sélectionner un fichier</h3>
+            </div>
+          </div>
+          <div class="icard-body">
+            <div class="drop-zone" id="dropSous" onclick="document.getElementById('fileSous').click()">
+              <input type="file" id="fileSous" accept=".csv,.txt" style="display:none;" onchange="onFileSous(this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconSous">📂</div>
+              <p style="margin:0;" id="labelSous">Glissez un fichier CSV ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subSous">ou cliquez pour parcourir</p>
+            </div>
+            <div id="errSous" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+            <div style="margin-top:20px;">
+              <button type="button" class="btn-primary" id="btnAnalyseSous" disabled onclick="doPreviewSous()">Analyser →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 2 : Aperçu -->
+      <div id="sousApercu" style="display:none;">
+        <div class="icard" style="max-width:820px;">
+          <div class="icard-header">
+            <div>
+              <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu souscriptions (5 premières lignes)</p>
+              <h3 id="sousApercuTitre" style="margin:0;"></h3>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;" id="sousPills"></div>
+          </div>
+          <div class="icard-body">
+            <div style="overflow-x:auto; margin-bottom:16px;">
+              <table class="data-table">
+                <thead><tr>
+                  <th>Ref client</th>
+                  <th>Nom contrat</th>
+                  <th>Réf contrat</th>
+                  <th>Date ouverture</th>
+                  <th>Statut</th>
+                </tr></thead>
+                <tbody id="sousTableBody"></tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size:12px; margin:0 0 16px;">Les 5 premières lignes sont affichées. L'import traitera la totalité du fichier.</p>
+
+            <!-- Produits introuvables : création avant import -->
+            <div id="sousProdManquants" style="display:none; margin-bottom:20px; padding:16px 18px; background:#fffbeb; border:1px solid #fcd34d; border-radius:10px;">
+              <p style="font-weight:700; color:#92400e; margin:0 0 4px; font-size:14px;">
+                Produits introuvables — à créer avant d'importer
+              </p>
+              <p class="muted" style="font-size:12px; margin:0 0 14px;">
+                Saisissez l'intitulé long pour chaque code, puis cliquez <strong>Créer</strong>. Une fois tous créés, cliquez <strong>Re-analyser</strong>.
+              </p>
+              <div id="sousProdManquantsList"></div>
+              <div style="margin-top:14px;">
+                <button type="button" class="btn-primary" onclick="reanalyseSous()">Re-analyser →</button>
+                <span id="hintReanalyseSous" class="muted" style="font-size:13px; display:none; margin-left:8px;">Analyse en cours…</span>
+                <span id="errReanalyseSous" style="font-size:13px; color:#dc2626; display:none; margin-left:8px;"></span>
+              </div>
+            </div>
+
+            <!-- Clients introuvables : informatif -->
+            <div id="sousCliManquants" style="display:none; margin-bottom:16px; padding:12px 16px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;">
+              <p style="font-weight:700; color:#9a3412; margin:0 0 4px; font-size:13px;">
+                <span id="sousCliManquantsTitle"></span>
+              </p>
+              <p class="muted" style="font-size:12px; margin:0 0 8px;">Ces contrats seront ignorés à l'import. Importez d'abord les clients via le Bloc 1.</p>
+              <div style="overflow-x:auto;">
+                <table class="data-table" style="font-size:12px;">
+                  <thead><tr>
+                    <th>Ref client</th><th>Code produit</th><th>Réf contrat</th>
+                  </tr></thead>
+                  <tbody id="sousCliManquantsList"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="errCommitSous" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button type="button" class="btn-secondary" onclick="sousBackToUpload()">← Retour</button>
+              <button type="button" class="btn-success" id="btnCommitSous" onclick="doCommitSous()">Importer</button>
+              <span id="hintCommitSous" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase 3 : Résultat -->
+      <div id="sousResult" style="display:none;">
+        <div class="result-inline">
+          <div class="kpi-grid" id="sousKpis"></div>
+          <div class="log-area" id="sousLog"></div>
+        </div>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button type="button" class="btn-secondary" onclick="sousReset()">Importer un autre fichier</button>
+        </div>
+      </div>
+
+    </div><!-- fin block-body -->
+    </div><!-- fin block-collapsible bloc4 -->
   </div>
 
   <!-- ── Bloc 5 : Inventaires, Mouvements & Avis d'opérations ─────────────── -->
@@ -375,38 +679,201 @@
     <div class="block-collapsible" id="bloc5">
     <div class="block-body">
 
-  <!-- Barre de progression 3 étapes -->
-  <div class="step-bar" id="stepBar" style="max-width:600px;">
-    <div class="step-bar-item active" id="bar0">Étape 1 — Inventaire</div>
-    <div class="step-bar-item"       id="bar1">Étape 2 — Mouvements</div>
-    <div class="step-bar-item"       id="bar2">Étape 3 — Calcul des risques</div>
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <!-- ÉTAPE 1 : Import inventaire                                           -->
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div class="import-step active" id="step0">
+  <!-- 5.1 Import inventaire -->
+  <div class="sub-bloc" id="subbloc51">
+    <div class="sub-bloc-header" onclick="toggleSubBloc('subbloc51_body')" style="cursor:pointer;">
+      <div class="block-header-left">
+        <div class="sub-bloc-num active">5.1</div>
+        <div>
+          <p class="sub-bloc-title">Import de l'inventaire</p>
+          <p class="sub-bloc-desc">Situation de portefeuille — CSV ou JSON</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <a onclick="event.stopPropagation(); event.preventDefault(); downloadTemplate('inventaire')" href="#"
+           style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#2563eb;text-decoration:none;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;font-weight:600;white-space:nowrap;"
+           title="Télécharger le modèle CSV inventaire">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 2v7M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Modèle CSV
+        </a>
+        <button class="block-toggle collapsed" id="toggle-subbloc51_body">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="sub-bloc-collapsible" id="subbloc51_body" style="max-height:0;opacity:0;">
+    <div class="sub-bloc-body">
+  <div id="step0">
     <div id="step0Upload">
       <div class="icard">
         <div class="icard-header">
           <div>
-            <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 1 / 3</p>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">5.1 — Inventaire</p>
             <h3 style="margin:0;">Import de l'inventaire</h3>
           </div>
         </div>
         <div class="icard-body">
 
-          <div style="margin-bottom:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div style="margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <span class="muted" style="font-size:13px;">Fichier de test :</span>
             <a href="/dashboard/superadmin/import-fournisseurs/sample/test_inventaire.csv" download class="btn-secondary" style="font-size:13px; padding:6px 14px;">↓ test_inventaire.csv</a>
           </div>
 
-          <div class="drop-zone" id="dropInv" onclick="document.getElementById('fileInv').click()">
-            <input type="file" id="fileInv" accept=".csv,.json" style="display:none;" onchange="onFile('inv', this.files[0])">
-            <div style="font-size:26px; margin-bottom:8px;" id="iconInv">📂</div>
-            <p style="margin:0;" id="labelInv">Glissez un fichier CSV ou JSON ici</p>
-            <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subInv">ou cliquez pour parcourir</p>
+          <!-- Mode toggle -->
+          <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #2563eb;border-radius:10px;flex:1;max-width:260px;" id="modeStdCard_inv">
+              <input type="radio" name="modeImport_inv" value="standard" checked onchange="setModeImport_t('inv','standard')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Format standard</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes déjà nommées : date, code_isin, nbuc, vl…</div>
+              </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #d1d5db;border-radius:10px;flex:1;max-width:260px;" id="modeNormCard_inv">
+              <input type="radio" name="modeImport_inv" value="normalisation" onchange="setModeImport_t('inv','normalisation')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Normalisation</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes à retravailler via un profil de correspondance</div>
+              </div>
+            </label>
           </div>
+
+          <!-- Panel standard -->
+          <div id="panelStd_inv">
+            <div class="drop-zone" id="dropInv" onclick="document.getElementById('fileInv').click()">
+              <input type="file" id="fileInv" accept=".csv,.json" style="display:none;" onchange="onFile('inv', this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconInv">📂</div>
+              <p style="margin:0;" id="labelInv">Glissez un fichier CSV ou JSON ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subInv">ou cliquez pour parcourir</p>
+            </div>
+          </div>
+
+          <!-- Panel normalisation -->
+          <div id="panelNorm_inv" style="display:none;">
+
+            <!-- Fournisseur -->
+            <div style="margin-bottom:12px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Fournisseur <span style="color:#9ca3af;font-weight:400;">(optionnel)</span></label>
+              <input id="normFournisseur_inv" class="text-input" type="text" placeholder="ex: CARDIF, AXA, Allianz…">
+            </div>
+
+            <!-- Profil existant -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Utiliser un profil sauvegardé <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <select class="text-input" id="normSelProfil_inv" onchange="chargerProfilNorm_t('inv',this.value)" style="max-width:400px;">
+                  <option value="">— Aucun — (créer un mapping ci-dessous)</option>
+                </select>
+                <button type="button" class="btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="chargerListeProfilsNorm_t('inv')">🔄</button>
+              </div>
+            </div>
+
+            <!-- Résumé profil sélectionné -->
+            <div id="normProfilActif_inv" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+              <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 3px;">✓ Profil sélectionné : <span id="normProfilNom_inv"></span></p>
+              <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="normProfilResume_inv"></p>
+              <button type="button" onclick="deselectionnerProfil_t('inv')" style="margin-top:6px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">Retirer</button>
+            </div>
+
+            <!-- Fichier à importer (mode norm) -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Fichier inventaire à importer</label>
+              <div class="drop-zone" id="dropNormInv" onclick="document.getElementById('fileNormInv').click()">
+                <input type="file" id="fileNormInv" accept=".csv,.xlsx,.xls,.json" style="display:none;" onchange="onFile('inv', this.files[0])">
+                <div style="font-size:22px; margin-bottom:6px;" id="iconNormInv">📂</div>
+                <p style="margin:0;" id="labelNormInv">Glissez un fichier CSV / XLSX / JSON ici</p>
+                <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subNormInv">ou cliquez pour parcourir</p>
+              </div>
+            </div>
+
+            <!-- Séparateur -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+              <span style="font-size:12px;color:#9ca3af;white-space:nowrap;">OU configurer un nouveau mapping</span>
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            </div>
+
+            <!-- Mini-wizard inventaire -->
+            <div id="normWizard_inv">
+
+              <!-- A : fichier exemple + formats -->
+              <div id="nwA_inv">
+                <div style="border:2px dashed #d1d5db;border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:#fafafa;" id="nwDrop_inv" onclick="document.getElementById('nwFile_inv').click()">
+                  <input type="file" id="nwFile_inv" accept=".csv,.xlsx,.xls,.txt" style="display:none;" onchange="nwOnFile('inv',this.files[0])">
+                  <div id="nwDropLabel_inv" style="font-size:13px;color:#6b7280;">Déposez un fichier exemple pour détecter les colonnes ou <span style="color:#2563eb;">cliquez ici</span></div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                  <div>
+                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Séparateur décimal</div>
+                    <div style="display:flex;gap:10px;">
+                      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
+                        <input type="radio" name="nwDecSep_inv" value="," checked onchange="nwByType.inv.separateurDecimal=','"> , &nbsp;virgule
+                      </label>
+                      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
+                        <input type="radio" name="nwDecSep_inv" value="." onchange="nwByType.inv.separateurDecimal='.'"> . &nbsp;point
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Format de date</div>
+                    <select id="nwDateFmt_inv" onchange="nwByType.inv.formatDate=this.value" style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                      <option value="auto">Détection automatique</option>
+                      <option value="DD/MM/YYYY">jj/mm/aaaa — ex : 31/01/2024</option>
+                      <option value="D/M/YYYY">j/m/aaaa — ex : 1/1/2024 ou 31/1/2024</option>
+                      <option value="MM/DD/YYYY">mm/jj/aaaa — ex : 01/31/2024</option>
+                      <option value="YYYY-MM-DD">aaaa-mm-jj — ex : 2024-01-31</option>
+                      <option value="DDMMYYYY">jjmmaaaa (sans sép.) — ex : 31012024</option>
+                      <option value="YYYYMMDD">aaaammjj (sans sép.) — ex : 20240131</option>
+                      <option value="DD.MM.YYYY">jj.mm.aaaa — ex : 31.01.2024</option>
+                      <option value="DD-MM-YYYY">jj-mm-aaaa — ex : 31-01-2024</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:10px;align-items:center;">
+                  <button type="button" class="btn-primary" id="nwBtnAnalyse_inv" disabled onclick="nwAnalyse('inv')" style="font-size:13px;padding:7px 16px;">Détecter les colonnes →</button>
+                  <span id="nwHintA_inv" style="font-size:12px;color:#dc2626;"></span>
+                </div>
+              </div>
+
+              <!-- B : correspondance des champs -->
+              <div id="nwB_inv" style="display:none;">
+                <div style="font-size:12px;color:#6b7280;margin-bottom:8px;" id="nwInfoFichier_inv"></div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                  <thead><tr>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:190px;">Champ attendu</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;">Colonne source</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:130px;">Exemple</th>
+                  </tr></thead>
+                  <tbody id="nwMappingBody_inv"></tbody>
+                </table>
+                <div style="margin-top:12px;border-top:1px solid #f3f4f6;padding-top:10px;">
+                  <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Valeurs fixes <span style="font-weight:400;color:#9ca3af;">(sans colonne source)</span></div>
+                  <div id="nwValeursFixees_inv"></div>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:10px;">
+                  <button type="button" class="btn-secondary" onclick="nwGoA('inv')" style="font-size:13px;padding:7px 14px;">← Retour</button>
+                  <button type="button" class="btn-primary" onclick="nwValider('inv')" style="font-size:13px;padding:7px 16px;">Valider ce mapping →</button>
+                </div>
+              </div>
+
+              <!-- C : confirmation + sauvegarde -->
+              <div id="nwC_inv" style="display:none;">
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+                  <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 4px;">✓ Mapping configuré — <span id="nwNbChamps_inv"></span> champs mappés</p>
+                  <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="nwResume_inv"></p>
+                </div>
+                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;">
+                  <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#374151;">Sauvegarder comme profil réutilisable <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></p>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input class="text-input" id="nwNomProfil_inv" type="text" placeholder="Nom du profil…" style="max-width:260px;">
+                    <button type="button" class="btn-secondary" id="nwBtnSauver_inv" onclick="nwSauver('inv')" style="font-size:13px;padding:7px 14px;">💾 Sauvegarder</button>
+                    <span id="nwMsgSauve_inv" style="font-size:12px;"></span>
+                  </div>
+                </div>
+                <button type="button" onclick="nwGoB('inv')" style="margin-top:10px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">← Modifier le mapping</button>
+              </div>
+
+            </div><!-- fin normWizard_inv -->
+          </div><!-- fin panelNorm_inv -->
 
           <div class="option-field">
             <label class="field-label" style="font-size:13px; color:#6b7280; font-weight:500;">Option — utilisée si une affaire est créée à vide</label>
@@ -423,7 +890,7 @@
 
           <div id="errInv" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
 
-          <div style="margin-top:20px;">
+          <div style="margin-top:20px;display:flex;gap:10px;align-items:center;">
             <button type="button" class="btn-primary" id="btnAnalyseInv" disabled onclick="doPreview('inv')">Analyser →</button>
           </div>
         </div>
@@ -452,6 +919,17 @@
             <button type="button" class="btn-success" id="btnCommit0" onclick="doCommit('inv')">Importer</button>
             <span id="hintCommit0" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
           </div>
+          <div id="progressCommit0" style="display:none; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span id="progressPhase0" style="font-size:12px; color:#2563eb; font-weight:700;"></span>
+              <span id="progressText0" style="font-size:12px; color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+            </div>
+            <div style="background:#e5e7eb; border-radius:99px; height:7px; overflow:hidden;">
+              <div id="progressBar0" style="background:#2563eb; height:100%; width:0%; transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div style="display:none">
+          </div>
         </div>
       </div>
     </div>
@@ -463,37 +941,206 @@
         <div id="alertesResult0"></div>
         <div class="log-area" id="log0"></div>
       </div>
-      <div style="margin-top:20px;">
-        <button type="button" class="btn-primary" onclick="goToStep(1)">Passer aux mouvements →</button>
+    </div><!-- fin step0 -->
+    </div><!-- fin sub-bloc-body 5.1 -->
+    </div><!-- fin sub-bloc-collapsible 5.1 -->
+  </div><!-- fin sub-bloc 5.1 -->
+
+  <!-- 5.2 Import mouvements -->
+  <div class="sub-bloc" id="subbloc52">
+    <div class="sub-bloc-header" onclick="toggleSubBloc('subbloc52_body')" style="cursor:pointer;">
+      <div class="block-header-left">
+        <div class="sub-bloc-num">5.2</div>
+        <div>
+          <p class="sub-bloc-title">Import des mouvements</p>
+          <p class="sub-bloc-desc">Flux financiers de portefeuille — CSV ou JSON</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <a onclick="event.stopPropagation(); event.preventDefault(); downloadTemplate('mouvements')" href="#"
+           style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#2563eb;text-decoration:none;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;font-weight:600;white-space:nowrap;"
+           title="Télécharger le modèle CSV mouvements">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 2v7M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Modèle CSV
+        </a>
+        <button class="block-toggle collapsed" id="toggle-subbloc52_body">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
     </div>
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <!-- ÉTAPE 2 : Import mouvements                                           -->
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div class="import-step" id="step1">
+    <div class="sub-bloc-collapsible" id="subbloc52_body" style="max-height:0;opacity:0;">
+    <div class="sub-bloc-body">
+  <div id="step1">
     <div id="step1Upload">
       <div class="icard">
         <div class="icard-header">
           <div>
-            <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 2 / 3</p>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">5.2 — Mouvements</p>
             <h3 style="margin:0;">Import des mouvements</h3>
           </div>
         </div>
         <div class="icard-body">
 
-          <div style="margin-bottom:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <div style="margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <span class="muted" style="font-size:13px;">Fichier de test :</span>
             <a href="/dashboard/superadmin/import-fournisseurs/sample/test_mouvements.csv" download class="btn-secondary" style="font-size:13px; padding:6px 14px;">↓ test_mouvements.csv</a>
           </div>
 
-          <div class="drop-zone" id="dropMov" onclick="document.getElementById('fileMov').click()">
-            <input type="file" id="fileMov" accept=".csv,.json" style="display:none;" onchange="onFile('mov', this.files[0])">
-            <div style="font-size:26px; margin-bottom:8px;" id="iconMov">📂</div>
-            <p style="margin:0;" id="labelMov">Glissez un fichier CSV ou JSON ici</p>
-            <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subMov">ou cliquez pour parcourir</p>
+          <!-- Mode toggle -->
+          <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #2563eb;border-radius:10px;flex:1;max-width:260px;" id="modeStdCard_mov">
+              <input type="radio" name="modeImport_mov" value="standard" checked onchange="setModeImport_t('mov','standard')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Format standard</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes déjà nommées : date, code_isin, code_mouvement…</div>
+              </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #d1d5db;border-radius:10px;flex:1;max-width:260px;" id="modeNormCard_mov">
+              <input type="radio" name="modeImport_mov" value="normalisation" onchange="setModeImport_t('mov','normalisation')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Normalisation</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes à retravailler via un profil de correspondance</div>
+              </div>
+            </label>
           </div>
+
+          <!-- Panel standard -->
+          <div id="panelStd_mov">
+            <div class="drop-zone" id="dropMov" onclick="document.getElementById('fileMov').click()">
+              <input type="file" id="fileMov" accept=".csv,.json" style="display:none;" onchange="onFile('mov', this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconMov">📂</div>
+              <p style="margin:0;" id="labelMov">Glissez un fichier CSV ou JSON ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subMov">ou cliquez pour parcourir</p>
+            </div>
+          </div>
+
+          <!-- Panel normalisation -->
+          <div id="panelNorm_mov" style="display:none;">
+
+            <!-- Fournisseur -->
+            <div style="margin-bottom:12px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Fournisseur <span style="color:#9ca3af;font-weight:400;">(optionnel)</span></label>
+              <input id="normFournisseur_mov" class="text-input" type="text" placeholder="ex: CARDIF, AXA, Allianz…">
+            </div>
+
+            <!-- Profil existant -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Utiliser un profil sauvegardé <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <select class="text-input" id="normSelProfil_mov" onchange="chargerProfilNorm_t('mov',this.value)" style="max-width:400px;">
+                  <option value="">— Aucun — (créer un mapping ci-dessous)</option>
+                </select>
+                <button type="button" class="btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="chargerListeProfilsNorm_t('mov')">🔄</button>
+              </div>
+            </div>
+
+            <!-- Résumé profil sélectionné -->
+            <div id="normProfilActif_mov" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+              <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 3px;">✓ Profil sélectionné : <span id="normProfilNom_mov"></span></p>
+              <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="normProfilResume_mov"></p>
+              <button type="button" onclick="deselectionnerProfil_t('mov')" style="margin-top:6px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">Retirer</button>
+            </div>
+
+            <!-- Fichier à importer (mode norm) -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Fichier mouvements à importer</label>
+              <div class="drop-zone" id="dropNormMov" onclick="document.getElementById('fileNormMov').click()">
+                <input type="file" id="fileNormMov" accept=".csv,.xlsx,.xls,.json" style="display:none;" onchange="onFile('mov', this.files[0])">
+                <div style="font-size:22px; margin-bottom:6px;" id="iconNormMov">📂</div>
+                <p style="margin:0;" id="labelNormMov">Glissez un fichier CSV / XLSX / JSON ici</p>
+                <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subNormMov">ou cliquez pour parcourir</p>
+              </div>
+            </div>
+
+            <!-- Séparateur -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+              <span style="font-size:12px;color:#9ca3af;white-space:nowrap;">OU configurer un nouveau mapping</span>
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            </div>
+
+            <!-- Mini-wizard mouvements -->
+            <div id="normWizard_mov">
+
+              <!-- A : fichier exemple + formats -->
+              <div id="nwA_mov">
+                <div style="border:2px dashed #d1d5db;border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:#fafafa;" id="nwDrop_mov" onclick="document.getElementById('nwFile_mov').click()">
+                  <input type="file" id="nwFile_mov" accept=".csv,.xlsx,.xls,.txt" style="display:none;" onchange="nwOnFile('mov',this.files[0])">
+                  <div id="nwDropLabel_mov" style="font-size:13px;color:#6b7280;">Déposez un fichier exemple pour détecter les colonnes ou <span style="color:#2563eb;">cliquez ici</span></div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                  <div>
+                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Séparateur décimal</div>
+                    <div style="display:flex;gap:10px;">
+                      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
+                        <input type="radio" name="nwDecSep_mov" value="," checked onchange="nwByType.mov.separateurDecimal=','"> , &nbsp;virgule
+                      </label>
+                      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
+                        <input type="radio" name="nwDecSep_mov" value="." onchange="nwByType.mov.separateurDecimal='.'"> . &nbsp;point
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Format de date</div>
+                    <select id="nwDateFmt_mov" onchange="nwByType.mov.formatDate=this.value" style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                      <option value="auto">Détection automatique</option>
+                      <option value="DD/MM/YYYY">jj/mm/aaaa — ex : 31/01/2024</option>
+                      <option value="D/M/YYYY">j/m/aaaa — ex : 1/1/2024 ou 31/1/2024</option>
+                      <option value="MM/DD/YYYY">mm/jj/aaaa — ex : 01/31/2024</option>
+                      <option value="YYYY-MM-DD">aaaa-mm-jj — ex : 2024-01-31</option>
+                      <option value="DDMMYYYY">jjmmaaaa (sans sép.) — ex : 31012024</option>
+                      <option value="YYYYMMDD">aaaammjj (sans sép.) — ex : 20240131</option>
+                      <option value="DD.MM.YYYY">jj.mm.aaaa — ex : 31.01.2024</option>
+                      <option value="DD-MM-YYYY">jj-mm-aaaa — ex : 31-01-2024</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:10px;align-items:center;">
+                  <button type="button" class="btn-primary" id="nwBtnAnalyse_mov" disabled onclick="nwAnalyse('mov')" style="font-size:13px;padding:7px 16px;">Détecter les colonnes →</button>
+                  <span id="nwHintA_mov" style="font-size:12px;color:#dc2626;"></span>
+                </div>
+              </div>
+
+              <!-- B : correspondance des champs -->
+              <div id="nwB_mov" style="display:none;">
+                <div style="font-size:12px;color:#6b7280;margin-bottom:8px;" id="nwInfoFichier_mov"></div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                  <thead><tr>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:190px;">Champ attendu</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;">Colonne source</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:130px;">Exemple</th>
+                  </tr></thead>
+                  <tbody id="nwMappingBody_mov"></tbody>
+                </table>
+                <div style="margin-top:12px;border-top:1px solid #f3f4f6;padding-top:10px;">
+                  <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Valeurs fixes <span style="font-weight:400;color:#9ca3af;">(sans colonne source)</span></div>
+                  <div id="nwValeursFixees_mov"></div>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:10px;">
+                  <button type="button" class="btn-secondary" onclick="nwGoA('mov')" style="font-size:13px;padding:7px 14px;">← Retour</button>
+                  <button type="button" class="btn-primary" onclick="nwValider('mov')" style="font-size:13px;padding:7px 16px;">Valider ce mapping →</button>
+                </div>
+              </div>
+
+              <!-- C : confirmation + sauvegarde -->
+              <div id="nwC_mov" style="display:none;">
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+                  <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 4px;">✓ Mapping configuré — <span id="nwNbChamps_mov"></span> champs mappés</p>
+                  <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="nwResume_mov"></p>
+                </div>
+                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;">
+                  <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#374151;">Sauvegarder comme profil réutilisable <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></p>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input class="text-input" id="nwNomProfil_mov" type="text" placeholder="Nom du profil…" style="max-width:260px;">
+                    <button type="button" class="btn-secondary" id="nwBtnSauver_mov" onclick="nwSauver('mov')" style="font-size:13px;padding:7px 14px;">💾 Sauvegarder</button>
+                    <span id="nwMsgSauve_mov" style="font-size:12px;"></span>
+                  </div>
+                </div>
+                <button type="button" onclick="nwGoB('mov')" style="margin-top:10px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">← Modifier le mapping</button>
+              </div>
+
+            </div><!-- fin normWizard_mov -->
+          </div><!-- fin panelNorm_mov -->
 
           <div class="option-field">
             <label class="field-label" style="font-size:13px; color:#6b7280; font-weight:500;">Option — utilisée si une affaire est créée à vide</label>
@@ -511,8 +1158,7 @@
           <div id="errMov" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
 
           <div style="margin-top:20px; display:flex; gap:10px;">
-            <button type="button" class="btn-secondary" onclick="goToStep(0)">← Retour à l'inventaire</button>
-            <button type="button" class="btn-primary" id="btnAnalyseMov" disabled onclick="doPreview('mov')">Analyser →</button>
+<button type="button" class="btn-primary" id="btnAnalyseMov" disabled onclick="doPreview('mov')">Analyser →</button>
           </div>
         </div>
       </div>
@@ -540,6 +1186,17 @@
             <button type="button" class="btn-success" id="btnCommit1" onclick="doCommit('mov')">Importer</button>
             <span id="hintCommit1" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
           </div>
+          <div id="progressCommit1" style="display:none; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span id="progressPhase1" style="font-size:12px; color:#2563eb; font-weight:700;"></span>
+              <span id="progressText1" style="font-size:12px; color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+            </div>
+            <div style="background:#e5e7eb; border-radius:99px; height:7px; overflow:hidden;">
+              <div id="progressBar1" style="background:#2563eb; height:100%; width:0%; transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div style="display:none">
+          </div>
         </div>
       </div>
     </div>
@@ -551,20 +1208,323 @@
         <div id="alertesResult1"></div>
         <div class="log-area" id="log1"></div>
       </div>
-      <div style="margin-top:20px;">
-        <button type="button" class="btn-primary" onclick="goToStep(2)">Passer au calcul des risques →</button>
+    </div><!-- fin step1 -->
+
+    <!-- Reconstruction historique -->
+    <div id="panelReconstructHistorique" style="display:none; margin-top:20px; padding:18px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px;">
+      <div style="display:flex; align-items:flex-start; gap:12px;">
+        <div style="flex:1;">
+          <p style="margin:0 0 4px; font-size:14px; font-weight:700; color:#166534;">Reconstruction historique</p>
+          <p style="margin:0 0 12px; font-size:13px; color:#374151;">
+            Les affaires importées via inventaire n'ont qu'une seule date de snapshot — les graphiques restent vides.
+            Cliquez ici pour reconstruire la série temporelle en rejouant les mouvements.
+          </p>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="button" id="btnReconstructHistorique" onclick="doReconstructHistorique()"
+                    style="padding:8px 18px; background:#16a34a; color:#fff; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer;">
+              Reconstruire l'historique
+            </button>
+            <span id="hintReconstruct" class="muted" style="font-size:13px; display:none;">Reconstruction en cours…</span>
+          </div>
+          <div id="progressReconstruct" style="display:none; margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span id="progressPhaseReconstruct" style="font-size:12px; color:#16a34a; font-weight:700;"></span>
+              <span id="progressTextReconstruct" style="font-size:12px; color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+            </div>
+            <div style="background:#d1fae5; border-radius:99px; height:7px; overflow:hidden;">
+              <div id="progressBarReconstruct" style="background:#16a34a; height:100%; width:0%; transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div id="resultReconstruct" style="display:none; margin-top:12px; font-size:13px; color:#166534;"></div>
+          <div id="errReconstruct" class="alert-box alert-error" style="display:none; margin-top:10px;"></div>
+        </div>
+      </div>
+    </div><!-- fin reconstruction -->
+    </div><!-- fin sub-bloc-body 5.2 -->
+    </div><!-- fin sub-bloc-collapsible 5.2 -->
+  </div><!-- fin sub-bloc 5.2 -->
+
+  <!-- 5.3 Import avis d'opérations -->
+  <div class="sub-bloc" id="subbloc53">
+    <div class="sub-bloc-header" onclick="toggleSubBloc('subbloc53_body')" style="cursor:pointer;">
+      <div class="block-header-left">
+        <div class="sub-bloc-num">5.3</div>
+        <div>
+          <p class="sub-bloc-title">Import des avis d'opérations</p>
+          <p class="sub-bloc-desc">Avis transmis par les fournisseurs — CSV ou JSON</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <a onclick="event.stopPropagation(); event.preventDefault(); downloadTemplate('avis')" href="#"
+           style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#2563eb;text-decoration:none;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;font-weight:600;white-space:nowrap;"
+           title="Télécharger le modèle CSV avis d'opérations">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 2v7M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Modèle CSV
+        </a>
+        <button class="block-toggle collapsed" id="toggle-subbloc53_body">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
     </div>
-  </div>
+    <div class="sub-bloc-collapsible" id="subbloc53_body" style="max-height:0;opacity:0;">
+    <div class="sub-bloc-body">
+  <div id="step2">
+    <div id="step2Upload">
+      <div class="icard">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">5.3 — Avis d'opérations</p>
+            <h3 style="margin:0;">Import des avis d'opérations</h3>
+          </div>
+        </div>
+        <div class="icard-body">
 
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <!-- ÉTAPE 3 : Calcul des risques                                          -->
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div class="import-step" id="step2">
+          <div style="margin-bottom:16px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;">
+            <p style="font-size:12px;font-weight:600;margin:0 0 6px;color:#374151;">Colonnes attendues :</p>
+            <ul style="margin:0;padding-left:16px;font-size:12px;font-family:monospace;color:#374151;line-height:1.7;">
+              <li>date <span style="color:#dc2626">*</span></li>
+              <li>ref_affaire <span style="color:#dc2626">*</span> <span style="color:#9ca3af;">ou id_client_fournisseur</span></li>
+              <li style="color:#9ca3af;">reference · entree · sortie · commentaire</li>
+            </ul>
+          </div>
+
+          <!-- Mode toggle -->
+          <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #2563eb;border-radius:10px;flex:1;max-width:260px;" id="modeStdCard_avi">
+              <input type="radio" name="modeImport_avi" value="standard" checked onchange="setModeImport_t('avi','standard')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Format standard</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes déjà nommées : date, ref_affaire…</div>
+              </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:2px solid #d1d5db;border-radius:10px;flex:1;max-width:260px;" id="modeNormCard_avi">
+              <input type="radio" name="modeImport_avi" value="normalisation" onchange="setModeImport_t('avi','normalisation')" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+              <div>
+                <div style="font-weight:700;font-size:13px;">Normalisation</div>
+                <div style="font-size:11px;color:#6b7280;margin-top:2px;">Colonnes à retravailler via un profil de correspondance</div>
+              </div>
+            </label>
+          </div>
+
+          <!-- Panel standard -->
+          <div id="panelStd_avi">
+            <div class="drop-zone" id="dropAvi" onclick="document.getElementById('fileAvi').click()">
+              <input type="file" id="fileAvi" accept=".csv,.json" style="display:none;" onchange="onFile('avi', this.files[0])">
+              <div style="font-size:26px; margin-bottom:8px;" id="iconAvi">📂</div>
+              <p style="margin:0;" id="labelAvi">Glissez un fichier CSV ou JSON ici</p>
+              <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subAvi">ou cliquez pour parcourir</p>
+            </div>
+          </div>
+
+          <!-- Panel normalisation -->
+          <div id="panelNorm_avi" style="display:none;">
+
+            <!-- Fournisseur -->
+            <div style="margin-bottom:12px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Fournisseur <span style="color:#9ca3af;font-weight:400;">(optionnel)</span></label>
+              <input id="normFournisseur_avi" class="text-input" type="text" placeholder="ex: CARDIF, AXA, Allianz…">
+            </div>
+
+            <!-- Profil existant -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Utiliser un profil sauvegardé <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <select class="text-input" id="normSelProfil_avi" onchange="chargerProfilNorm_t('avi',this.value)" style="max-width:400px;">
+                  <option value="">— Aucun — (créer un mapping ci-dessous)</option>
+                </select>
+                <button type="button" class="btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="chargerListeProfilsNorm_t('avi')">🔄</button>
+              </div>
+            </div>
+
+            <!-- Résumé profil sélectionné -->
+            <div id="normProfilActif_avi" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+              <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 3px;">✓ Profil sélectionné : <span id="normProfilNom_avi"></span></p>
+              <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="normProfilResume_avi"></p>
+              <button type="button" onclick="deselectionnerProfil_t('avi')" style="margin-top:6px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">Retirer</button>
+            </div>
+
+            <!-- Fichier à importer -->
+            <div style="margin-bottom:14px;">
+              <label class="field-label" style="font-size:13px;">Fichier avis à importer</label>
+              <div class="drop-zone" id="dropNormAvi" onclick="document.getElementById('fileNormAvi').click()">
+                <input type="file" id="fileNormAvi" accept=".csv,.xlsx,.xls,.json" style="display:none;" onchange="onFile('avi', this.files[0])">
+                <div style="font-size:22px; margin-bottom:6px;" id="iconNormAvi">📂</div>
+                <p style="margin:0;" id="labelNormAvi">Glissez un fichier CSV / XLSX / JSON ici</p>
+                <p class="muted" style="margin:4px 0 0; font-size:13px;" id="subNormAvi">ou cliquez pour parcourir</p>
+              </div>
+            </div>
+
+            <!-- Séparateur -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+              <span style="font-size:12px;color:#9ca3af;white-space:nowrap;">OU configurer un nouveau mapping</span>
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            </div>
+
+            <!-- Mini-wizard avis -->
+            <div id="normWizard_avi">
+
+              <!-- A : fichier exemple + formats -->
+              <div id="nwA_avi">
+                <div style="border:2px dashed #d1d5db;border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:#fafafa;" id="nwDrop_avi" onclick="document.getElementById('nwFile_avi').click()">
+                  <input type="file" id="nwFile_avi" accept=".csv,.xlsx,.xls,.txt" style="display:none;" onchange="nwOnFile('avi',this.files[0])">
+                  <div id="nwDropLabel_avi" style="font-size:13px;color:#6b7280;">Déposez un fichier exemple pour détecter les colonnes ou <span style="color:#2563eb;">cliquez ici</span></div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;">
+                  <div>
+                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Format de date</div>
+                    <select id="nwDateFmt_avi" onchange="nwByType.avi.formatDate=this.value" style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                      <option value="auto">Détection automatique</option>
+                      <option value="DD/MM/YYYY">jj/mm/aaaa — ex : 31/01/2024</option>
+                      <option value="D/M/YYYY">j/m/aaaa — ex : 1/1/2024 ou 31/1/2024</option>
+                      <option value="MM/DD/YYYY">mm/jj/aaaa — ex : 01/31/2024</option>
+                      <option value="YYYY-MM-DD">aaaa-mm-jj — ex : 2024-01-31</option>
+                      <option value="DDMMYYYY">jjmmaaaa (sans sép.) — ex : 31012024</option>
+                      <option value="YYYYMMDD">aaaammjj (sans sép.) — ex : 20240131</option>
+                      <option value="DD.MM.YYYY">jj.mm.aaaa — ex : 31.01.2024</option>
+                      <option value="DD-MM-YYYY">jj-mm-aaaa — ex : 31-01-2024</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:10px;align-items:center;">
+                  <button type="button" class="btn-primary" id="nwBtnAnalyse_avi" disabled onclick="nwAnalyse('avi')" style="font-size:13px;padding:7px 16px;">Détecter les colonnes →</button>
+                  <span id="nwHintA_avi" style="font-size:12px;color:#dc2626;"></span>
+                </div>
+              </div>
+
+              <!-- B : correspondance des champs -->
+              <div id="nwB_avi" style="display:none;">
+                <div style="font-size:12px;color:#6b7280;margin-bottom:8px;" id="nwInfoFichier_avi"></div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                  <thead><tr>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:190px;">Champ attendu</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;">Colonne source</th>
+                    <th style="text-align:left;padding:6px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;width:130px;">Exemple</th>
+                  </tr></thead>
+                  <tbody id="nwMappingBody_avi"></tbody>
+                </table>
+                <div style="margin-top:12px;border-top:1px solid #f3f4f6;padding-top:10px;">
+                  <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Valeurs fixes <span style="font-weight:400;color:#9ca3af;">(sans colonne source)</span></div>
+                  <div id="nwValeursFixees_avi"></div>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:10px;">
+                  <button type="button" class="btn-secondary" onclick="nwGoA('avi')" style="font-size:13px;padding:7px 14px;">← Retour</button>
+                  <button type="button" class="btn-primary" onclick="nwValider('avi')" style="font-size:13px;padding:7px 16px;">Valider ce mapping →</button>
+                </div>
+              </div>
+
+              <!-- C : confirmation + sauvegarde -->
+              <div id="nwC_avi" style="display:none;">
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+                  <p style="font-size:13px;font-weight:700;color:#15803d;margin:0 0 4px;">✓ Mapping configuré — <span id="nwNbChamps_avi"></span> champs mappés</p>
+                  <p style="font-size:12px;color:#6b7280;margin:0;white-space:pre-wrap;" id="nwResume_avi"></p>
+                </div>
+                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;">
+                  <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#374151;">Sauvegarder comme profil réutilisable <span style="font-weight:400;color:#9ca3af;">(optionnel)</span></p>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input class="text-input" id="nwNomProfil_avi" type="text" placeholder="Nom du profil…" style="max-width:260px;">
+                    <button type="button" class="btn-secondary" id="nwBtnSauver_avi" onclick="nwSauver('avi')" style="font-size:13px;padding:7px 14px;">💾 Sauvegarder</button>
+                    <span id="nwMsgSauve_avi" style="font-size:12px;"></span>
+                  </div>
+                </div>
+                <button type="button" onclick="nwGoB('avi')" style="margin-top:10px;font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">← Modifier le mapping</button>
+              </div>
+
+            </div><!-- fin normWizard_avi -->
+          </div><!-- fin panelNorm_avi -->
+
+          <div class="option-field">
+            <label class="field-label" style="font-size:13px; color:#6b7280; font-weight:500;">Option — utilisée si une affaire est créée à vide</label>
+            <div style="margin-top:8px; max-width:300px;">
+              <label class="field-label" style="font-size:13px;">Société de gestion <span style="color:#dc2626;">*</span></label>
+              <select id="sgAvi" class="text-input">
+                <option value="">— Sélectionner —</option>
+                {% for sg in societes %}
+                <option value="{{ sg.id }}">{{ sg.nom }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="errAvi" class="alert-box alert-error" style="display:none; margin-top:12px;"></div>
+
+          <div style="margin-top:20px; display:flex; gap:10px;">
+<button type="button" class="btn-primary" id="btnAnalyseAvi" disabled onclick="doPreview('avi')">Analyser →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aperçu avis -->
+    <div id="step2Apercu" style="display:none;">
+      <div class="icard" style="max-width:720px;">
+        <div class="icard-header">
+          <div>
+            <p class="muted" style="font-size:12px; margin:0 0 2px;">Aperçu avis d'opérations</p>
+            <h3 id="titreApercu2" style="margin:0;"></h3>
+          </div>
+          <div style="display:flex; gap:8px;" id="pillsApercu2"></div>
+        </div>
+        <div class="icard-body">
+          <div id="alertesApercu2"></div>
+          <div style="overflow-x:auto; margin-bottom:8px;">
+            <table class="data-table"><thead id="headApercu2"></thead><tbody id="bodyApercu2"></tbody></table>
+          </div>
+          <div id="moreApercu2" style="margin:0 0 16px;"></div>
+          <div id="errCommit2" class="alert-box alert-error" style="display:none; margin-bottom:12px;"></div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button type="button" class="btn-secondary" onclick="backToUpload('avi')">← Retour</button>
+            <button type="button" class="btn-success" id="btnCommit2" onclick="doCommit('avi')">Importer</button>
+            <span id="hintCommit2" class="muted" style="font-size:13px; display:none;">Import en cours…</span>
+          </div>
+          <div id="progressCommit2" style="display:none; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+              <span id="progressPhase2" style="font-size:12px; color:#2563eb; font-weight:700;"></span>
+              <span id="progressText2" style="font-size:12px; color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+            </div>
+            <div style="background:#e5e7eb; border-radius:99px; height:7px; overflow:hidden;">
+              <div id="progressBar2" style="background:#2563eb; height:100%; width:0%; transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div style="display:none">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Résultat avis -->
+    <div id="step2Result" style="display:none;">
+      <div class="result-inline">
+        <div class="kpi-grid" id="kpis2"></div>
+        <div id="alertesResult2"></div>
+        <div class="log-area" id="log2"></div>
+      </div>
+    </div><!-- fin step2 -->
+    </div><!-- fin sub-bloc-body 5.3 -->
+    </div><!-- fin sub-bloc-collapsible 5.3 -->
+  </div><!-- fin sub-bloc 5.3 -->
+
+  <!-- 5.4 Calcul des risques -->
+  <div class="sub-bloc" id="subbloc54">
+    <div class="sub-bloc-header" onclick="toggleSubBloc('subbloc54_body')" style="cursor:pointer;">
+      <div class="block-header-left">
+        <div class="sub-bloc-num">5.4</div>
+        <div>
+          <p class="sub-bloc-title">Calcul des risques</p>
+          <p class="sub-bloc-desc">SRRI &amp; SRI — après import des inventaires et mouvements</p>
+        </div>
+      </div>
+      <button class="block-toggle collapsed" id="toggle-subbloc54_body">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="sub-bloc-collapsible" id="subbloc54_body" style="max-height:0;opacity:0;">
+    <div class="sub-bloc-body">
+  <div id="step3">
     <div class="icard">
       <div class="icard-header">
         <div>
-          <p class="muted" style="font-size:12px; margin:0 0 2px;">Étape 3 / 3</p>
+          <p class="muted" style="font-size:12px; margin:0 0 2px;">5.4 — Calcul des risques</p>
           <h3 style="margin:0;">Calcul des risques — SRRI &amp; SRI</h3>
         </div>
       </div>
@@ -574,17 +1534,64 @@
           Cette opération peut prendre une à deux minutes.
         </p>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <button type="button" class="btn-secondary" onclick="goToStep(1)">← Retour aux mouvements</button>
           <button type="button" class="btn-primary" id="btnRisques" onclick="doRecalculRisques()">Calculer SRRI &amp; SRI</button>
-          <span id="risquesHint" class="muted" style="font-size:13px; display:none;">Calcul en cours…</span>
+          <button type="button" id="btnReconstructHistorique2" onclick="doReconstructHistoriqueFrom54()"
+                  style="padding:8px 16px; background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer;">
+            Reconstruire l'historique
+          </button>
         </div>
+
+        <!-- Reconstruction depuis 5.4 -->
+        <div id="panelReconstructHistorique2" style="display:none; margin-top:14px; padding:14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <span id="progressPhaseReconstruct2" style="font-size:12px; color:#16a34a; font-weight:700;"></span>
+            <span id="progressTextReconstruct2" style="font-size:12px; color:#6b7280; font-variant-numeric:tabular-nums;"></span>
+          </div>
+          <div style="background:#d1fae5; border-radius:99px; height:7px; overflow:hidden;">
+            <div id="progressBarReconstruct2" style="background:#16a34a; height:100%; width:0%; transition:width .2s ease;"></div>
+          </div>
+          <div id="resultReconstruct2" style="display:none; margin-top:10px; font-size:13px; color:#166534;"></div>
+          <div id="errReconstruct2" class="alert-box alert-error" style="display:none; margin-top:10px;"></div>
+        </div>
+
+        <!-- Barre de progression pipeline risques -->
+        <div id="risquesProgress" style="display:none; margin-top:16px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
+            <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-size:12px; font-weight:700; color:#374151;">SRRI clients</span>
+                <span id="rq_clients_badge" style="font-size:11px; color:#6b7280;"></span>
+              </div>
+              <div style="background:#e5e7eb; border-radius:99px; height:6px; overflow:hidden; margin-bottom:5px;">
+                <div id="rq_clients_bar" style="background:#2563eb; height:100%; width:0%; transition:width .3s ease;"></div>
+              </div>
+              <span id="rq_clients_text" style="font-size:11px; color:#9ca3af;">En attente…</span>
+            </div>
+
+            <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-size:12px; font-weight:700; color:#374151;">SRRI affaires</span>
+                <span id="rq_affaires_badge" style="font-size:11px; color:#6b7280;"></span>
+              </div>
+              <div style="background:#e5e7eb; border-radius:99px; height:6px; overflow:hidden; margin-bottom:5px;">
+                <div id="rq_affaires_bar" style="background:#2563eb; height:100%; width:0%; transition:width .3s ease;"></div>
+              </div>
+              <span id="rq_affaires_text" style="font-size:11px; color:#9ca3af;">En attente…</span>
+            </div>
+
+          </div>
+        </div>
+
         <div id="risquesResult" style="display:none; margin-top:16px;"></div>
         <div style="margin-top:20px; display:none;" id="risquesDone">
           <a href="/dashboard/superadmin#outils-import" class="btn-secondary">Retour à la Superadministration</a>
         </div>
       </div>
-    </div>
-  </div>
+    </div><!-- fin step3 -->
+    </div><!-- fin sub-bloc-body 5.4 -->
+    </div><!-- fin sub-bloc-collapsible 5.4 -->
+  </div><!-- fin sub-bloc 5.4 -->
 
     </div><!-- fin block-body -->
   </div><!-- fin block-collapsible bloc5 -->
@@ -628,33 +1635,408 @@ function toggleBlock(id) {
   if (isOpen) closeBloc(id); else openBloc(id);
 }
 
-// initialiser tous les panneaux fermés
+// initialiser les blocs principaux fermés
 document.querySelectorAll('.block-collapsible').forEach(p => {
   p.style.maxHeight = '0px';
   p.style.opacity   = '0';
 });
-document.querySelectorAll('.block-toggle').forEach(b => b.classList.add('collapsed'));
+document.querySelectorAll('.block-toggle:not([id^="toggle-subbloc"])').forEach(b => b.classList.add('collapsed'));
+
+// ─── Sous-blocs exclusifs (5.1-5.4) ──────────────────────────────────────────
+// Un seul sous-bloc ouvert à la fois.
+const SUB_BLOCS = ['subbloc51_body','subbloc52_body','subbloc53_body','subbloc54_body'];
+
+function _closeSubBloc(id) {
+  const panel = document.getElementById(id);
+  const btn   = document.getElementById('toggle-' + id);
+  if (!panel) return;
+  panel.style.maxHeight = panel.scrollHeight + 'px';
+  requestAnimationFrame(() => {
+    panel.style.maxHeight = '0px';
+    panel.style.opacity   = '0';
+  });
+  if (btn) btn.classList.add('collapsed');
+}
+
+function toggleSubBloc(id) {
+  const panel  = document.getElementById(id);
+  const btn    = document.getElementById('toggle-' + id);
+  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  SUB_BLOCS.forEach(b => { if (b !== id) _closeSubBloc(b); });
+  if (isOpen) {
+    _closeSubBloc(id);
+  } else {
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+    panel.style.opacity   = '1';
+    if (btn) btn.classList.remove('collapsed');
+    panel.addEventListener('transitionend', function h() {
+      if (panel.style.maxHeight !== '0px') panel.style.maxHeight = 'none';
+      panel.removeEventListener('transitionend', h);
+    });
+  }
+}
+
+// ─── Téléchargement modèles CSV ───────────────────────────────────────────────
+const _TEMPLATES = {
+  inventaire: {
+    filename: 'modele_inventaire.csv',
+    content: 'date,ref_affaire,id_client_fournisseur,code_isin,nbuc,vl,nom_support\r\n2024-01-01,REF-001,,FR0000000001,100.00,25.50,Nom du support'
+  },
+  mouvements: {
+    filename: 'modele_mouvements.csv',
+    content: 'date,ref_affaire,id_client_fournisseur,code_isin,code_mouvement,nbuc,vl,montant_ope,frais\r\n2024-01-01,REF-001,,FR0000000001,VIR,100.00,25.50,2550.00,0.00'
+  },
+  avis: {
+    filename: 'modele_avis.csv',
+    content: 'date,ref_affaire,id_client_fournisseur,reference,entree,sortie,commentaire\r\n2024-01-01,REF-001,,AVI-001,2550.00,,Versement initial'
+  }
+};
+
+function downloadTemplate(type) {
+  const tpl  = _TEMPLATES[type];
+  const blob = new Blob([tpl.content], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = tpl.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 200);
+}
 
 // ─── État ─────────────────────────────────────────────────────────────────────
 const st = {
   inv: { file: null, preview: null },
   mov: { file: null, preview: null },
+  avi: { file: null, preview: null },
 };
 
-// ─── Navigation ───────────────────────────────────────────────────────────────
-function goToStep(n) {
-  document.querySelectorAll('.import-step').forEach(el => el.classList.remove('active'));
-  document.getElementById('step' + n).classList.add('active');
-  for (let i = 0; i < 3; i++) {
-    const b = document.getElementById('bar' + i);
-    b.classList.remove('active', 'done');
-    if (i < n) b.classList.add('done');
-    else if (i === n) b.classList.add('active');
+// ─── Config mapping par type ───────────────────────────────────────────────────
+function _mkCfg() {
+  return { enabled: false, profilId: null, profilNom: '', mapping: {}, transformations: {}, valeursFixees: {}, sessionId: null, fournisseur: '' };
+}
+function _mkNw() {
+  return { file: null, sessionId: null, colonnes: [], echantillon: [], mapping: {}, valeursFixees: {}, validated: false, separateurDecimal: ',', formatDate: 'auto' };
+}
+const cfgByType = { inv: _mkCfg(), mov: _mkCfg(), avi: _mkCfg() };
+const nwByType  = { inv: _mkNw(),  mov: _mkNw(),  avi: _mkNw()  };
+
+
+// ─── Mode import par type ──────────────────────────────────────────────────────
+function setModeImport_t(t, mode) {
+  cfgByType[t].enabled = mode === 'normalisation';
+  document.getElementById('panelStd_'  + t).style.display = mode === 'standard'     ? 'block' : 'none';
+  document.getElementById('panelNorm_' + t).style.display = mode === 'normalisation' ? 'block' : 'none';
+  document.getElementById('modeStdCard_'  + t).style.borderColor = mode === 'standard'     ? '#2563eb' : '#d1d5db';
+  document.getElementById('modeNormCard_' + t).style.borderColor = mode === 'normalisation' ? '#2563eb' : '#d1d5db';
+  if (mode === 'normalisation') chargerListeProfilsNorm_t(t);
+  _updateBtnAnalyse(t);
+}
+
+function _updateBtnAnalyse(t) {
+  const k = t === 'inv' ? 'Inv' : t === 'mov' ? 'Mov' : 'Avi';
+  const cfg = cfgByType[t];
+  const nw  = nwByType[t];
+  const fileOk    = !!st[t].file;
+  const mappingOk = !cfg.enabled || cfg.profilId != null || nw.validated;
+  document.getElementById('btnAnalyse' + k).disabled = !(fileOk && mappingOk);
+}
+
+async function chargerListeProfilsNorm_t(t) {
+  const apiType = t === 'inv' ? 'inventaire' : t === 'mov' ? 'mouvements' : 'avis';
+  try {
+    const r = await fetch(`/import/mapping/profils?type_import=${apiType}`, { credentials: 'include' });
+    const profils = await r.json();
+    const sel = document.getElementById('normSelProfil_' + t);
+    sel.innerHTML = '<option value="">— Choisir un profil sauvegardé —</option>';
+    if (!profils.length) {
+      sel.innerHTML += '<option disabled>Aucun profil enregistré pour ce type</option>';
+      return;
+    }
+    profils.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.dataset.profil = JSON.stringify(p);
+      opt.textContent = `${p.nom}${p.fournisseur ? ' · ' + p.fournisseur : ''}`;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function chargerProfilNorm_t(t, id) {
+  const cfg = cfgByType[t];
+  if (!id) {
+    document.getElementById('normProfilActif_' + t).style.display = 'none';
+    cfg.profilId = null;
+    _updateBtnAnalyse(t);
+    return;
+  }
+  const sel = document.getElementById('normSelProfil_' + t);
+  const opt = sel.options[sel.selectedIndex];
+  const p = JSON.parse(opt.dataset.profil);
+  cfg.profilId        = p.id;
+  cfg.profilNom       = p.nom;
+  cfg.mapping         = p.mapping || {};
+  cfg.transformations = p.transformations || {};
+  cfg.valeursFixees   = p.valeurs_fixes || {};
+  const resume = Object.entries(p.mapping || {}).filter(([,v]) => v)
+    .map(([k,v]) => `${k} ← ${v}`).join('\n');
+  document.getElementById('normProfilNom_'    + t).textContent = p.nom;
+  document.getElementById('normProfilResume_' + t).textContent = resume || '(aucun champ mappé)';
+  document.getElementById('normProfilActif_'  + t).style.display = 'block';
+  _updateBtnAnalyse(t);
+}
+
+function deselectionnerProfil_t(t) {
+  const cfg = cfgByType[t];
+  document.getElementById('normSelProfil_'   + t).value = '';
+  document.getElementById('normProfilActif_' + t).style.display = 'none';
+  cfg.profilId = null; cfg.profilNom = '';
+  cfg.mapping = {}; cfg.transformations = {}; cfg.valeursFixees = {};
+  nwByType[t].validated = false;
+  _updateBtnAnalyse(t);
+}
+
+// ─── Mini-wizard de mapping (par type) ────────────────────────────────────────
+
+const CHAMPS_ATTENDUS_NORM = {
+  inventaire: {
+    date:                  {label:'Date', requis:true},
+    code_isin:             {label:'Code ISIN', requis:true},
+    nbuc:                  {label:'Nb parts (UC)', requis:true},
+    vl:                    {label:'Valeur liquidative', requis:true},
+    ref_affaire:           {label:'Réf. contrat', requis:false},
+    id_client_fournisseur: {label:'Réf. client externe', requis:false},
+    nom_support:           {label:'Nom du support', requis:false},
+  },
+  mouvements: {
+    date:                  {label:'Date', requis:true},
+    code_isin:             {label:'Code ISIN', requis:true},
+    code_mouvement:        {label:'Type de mouvement', requis:true},
+    nbuc:                  {label:'Nb parts (UC)', requis:true},
+    vl:                    {label:'Valeur liquidative', requis:true},
+    ref_affaire:           {label:'Réf. contrat', requis:false},
+    id_client_fournisseur: {label:'Réf. client externe', requis:false},
+    montant_ope:           {label:'Montant opération', requis:false},
+    frais:                 {label:'Frais', requis:false},
+  },
+  avis: {
+    date:                  {label:'Date', requis:true},
+    ref_affaire:           {label:'Réf. contrat', requis:true},
+    id_client_fournisseur: {label:'Réf. client externe', requis:false},
+    reference:             {label:'Référence avis', requis:false},
+    entree:                {label:'Description entrée', requis:false},
+    sortie:                {label:'Description sortie', requis:false},
+    commentaire:           {label:'Commentaire', requis:false},
+  },
+};
+
+const _NW_FLOAT_CHAMPS = {
+  inventaire: ['nbuc', 'vl'],
+  mouvements: ['nbuc', 'vl', 'montant_ope', 'frais'],
+};
+const _NW_DATE_CHAMPS = ['date'];
+const _NW_API_TYPE = { inv: 'inventaire', mov: 'mouvements', avi: 'avis' };
+
+['inv', 'mov', 'avi'].forEach(t => {
+  const zone = document.getElementById('nwDrop_' + t);
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = '#2563eb'; });
+  zone.addEventListener('dragleave', () => { zone.style.borderColor = '#d1d5db'; });
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.style.borderColor = '#d1d5db';
+    if (e.dataTransfer.files[0]) nwOnFile(t, e.dataTransfer.files[0]);
+  });
+});
+
+function nwOnFile(t, f) {
+  nwByType[t].file = f;
+  document.getElementById('nwDropLabel_' + t).innerHTML =
+    `<strong>${nwEsc(f.name)}</strong> — ${(f.size/1024).toFixed(1)} Ko`;
+  document.getElementById('nwBtnAnalyse_' + t).disabled = false;
+}
+
+async function nwAnalyse(t) {
+  const nw = nwByType[t];
+  if (!nw.file) return;
+  const btn = document.getElementById('nwBtnAnalyse_' + t);
+  btn.disabled = true; btn.textContent = 'Analyse…';
+  document.getElementById('nwHintA_' + t).textContent = '';
+  const fd = new FormData();
+  fd.append('file', nw.file);
+  try {
+    const r = await fetch(
+      `/import/mapping/analyser?type_import=${_NW_API_TYPE[t]}`,
+      { method: 'POST', body: fd, credentials: 'include' }
+    );
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    nw.sessionId   = d.session_id;
+    nw.colonnes    = d.colonnes;
+    nw.echantillon = d.echantillon || [];
+    const champs = Object.keys(CHAMPS_ATTENDUS_NORM[_NW_API_TYPE[t]] || {});
+    if (!champs.some(k => nw.mapping[k])) {
+      champs.forEach(k => { nw.mapping[k] = d.suggestions[k] || ''; });
+    }
+    nwRendreTableau(t);
+    nwRendreValeursFixees(t);
+    document.getElementById('nwInfoFichier_' + t).textContent =
+      `${nw.file.name} — ${d.nb_lignes} lignes — ${d.colonnes.length} colonnes détectées`;
+    document.getElementById('nwA_' + t).style.display = 'none';
+    document.getElementById('nwB_' + t).style.display = 'block';
+    document.getElementById('nwC_' + t).style.display = 'none';
+  } catch(e) {
+    document.getElementById('nwHintA_' + t).textContent = 'Erreur : ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Détecter les colonnes →';
   }
 }
 
+function nwRendreTableau(t) {
+  const nw     = nwByType[t];
+  const champs = CHAMPS_ATTENDUS_NORM[_NW_API_TYPE[t]] || {};
+  const tbody  = document.getElementById('nwMappingBody_' + t);
+  tbody.innerHTML = '';
+  for (const [champ, info] of Object.entries(champs)) {
+    const mapped = nw.mapping[champ] || '';
+    const badge = info.requis
+      ? '<span style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:3px;font-size:10px;font-weight:700;padding:1px 5px;margin-left:4px;">Requis</span>'
+      : '';
+    const sample = mapped
+      ? nwEsc(String(nw.echantillon.map(r => r[mapped]).find(v => v) || '—').substring(0,30))
+      : '—';
+    const opts = nw.colonnes.map(c =>
+      `<option value="${nwEsc(c)}" ${c === mapped ? 'selected' : ''}>${nwEsc(c)}</option>`
+    ).join('');
+    tbody.insertAdjacentHTML('beforeend', `<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #f3f4f6;">
+        <span style="font-weight:600;">${nwEsc(info.label)}</span>${badge}
+        <div style="font-size:10px;font-family:monospace;color:#9ca3af;">${champ}</div>
+      </td>
+      <td style="padding:6px 10px;border-bottom:1px solid #f3f4f6;">
+        <select style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;max-width:250px;width:100%;"
+          id="nwmap_${t}_${champ}"
+          onchange="nwByType['${t}'].mapping['${champ}']=this.value;document.getElementById('nwsamp_${t}_${champ}').textContent=nwSampleOf('${t}',this.value)">
+          <option value="">— Ignorer —</option>
+          ${opts}
+        </select>
+      </td>
+      <td style="padding:6px 10px;border-bottom:1px solid #f3f4f6;font-size:11px;font-family:monospace;color:#374151;" id="nwsamp_${t}_${champ}">${sample}</td>
+    </tr>`);
+  }
+}
+
+function nwRendreValeursFixees(t) {
+  const nw   = nwByType[t];
+  const cont = document.getElementById('nwValeursFixees_' + t);
+  cont.innerHTML = '';
+  const champs = CHAMPS_ATTENDUS_NORM[_NW_API_TYPE[t]] || {};
+  Object.entries(champs).filter(([,i]) => !i.requis).forEach(([champ, info]) => {
+    const val = nw.valeursFixees[champ] || '';
+    cont.insertAdjacentHTML('beforeend', `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:5px;">
+        <span style="font-size:12px;min-width:175px;color:#374151;">${nwEsc(info.label)}
+          <span style="font-family:monospace;font-size:10px;color:#9ca3af;">(${champ})</span></span>
+        <input style="padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;max-width:200px;width:100%;"
+          type="text" placeholder="Valeur fixe (optionnel)" value="${nwEsc(val)}"
+          oninput="nwByType['${t}'].valeursFixees['${champ}']=this.value">
+      </div>`);
+  });
+}
+
+function nwSampleOf(t, col) {
+  if (!col) return '—';
+  const v = nwByType[t].echantillon.map(r => r[col]).find(v => v);
+  return v ? String(v).substring(0, 30) : '—';
+}
+
+function nwGoA(t) {
+  document.getElementById('nwB_' + t).style.display = 'none';
+  document.getElementById('nwC_' + t).style.display = 'none';
+  document.getElementById('nwA_' + t).style.display = 'block';
+}
+
+function nwGoB(t) {
+  document.getElementById('nwC_' + t).style.display = 'none';
+  document.getElementById('nwB_' + t).style.display = 'block';
+}
+
+function nwValider(t) {
+  const nw     = nwByType[t];
+  const cfg    = cfgByType[t];
+  const apiT   = _NW_API_TYPE[t];
+  const champs = CHAMPS_ATTENDUS_NORM[apiT] || {};
+  Object.keys(champs).forEach(champ => {
+    const sel = document.getElementById('nwmap_' + t + '_' + champ);
+    if (sel) nw.mapping[champ] = sel.value;
+  });
+  const mapped = Object.entries(nw.mapping).filter(([,v]) => v);
+  const resume = mapped.map(([k,v]) => `${k} ← ${v}`).join('\n');
+  document.getElementById('nwNbChamps_' + t).textContent = `${mapped.length} / ${Object.keys(champs).length}`;
+  document.getElementById('nwResume_'   + t).textContent = resume || '(aucun champ mappé)';
+  // Transformations automatiques selon les formats choisis
+  const transfoAuto = {};
+  (_NW_FLOAT_CHAMPS[apiT] || []).forEach(f => {
+    if (nw.mapping[f])
+      transfoAuto[f] = { type: nw.separateurDecimal === ',' ? 'float_virgule' : 'float_point' };
+  });
+  _NW_DATE_CHAMPS.forEach(f => {
+    if (nw.mapping[f] && nw.formatDate !== 'auto')
+      transfoAuto[f] = { type: 'date', format: nw.formatDate };
+  });
+  cfg.profilId        = null;
+  cfg.profilNom       = '(mapping à la volée)';
+  cfg.mapping         = { ...nw.mapping };
+  cfg.transformations = transfoAuto;
+  cfg.valeursFixees   = { ...nw.valeursFixees };
+  nw.validated        = true;
+  document.getElementById('nwB_' + t).style.display = 'none';
+  document.getElementById('nwC_' + t).style.display = 'block';
+  _updateBtnAnalyse(t);
+}
+
+async function nwSauver(t) {
+  const nw  = nwByType[t];
+  const cfg = cfgByType[t];
+  const nom = document.getElementById('nwNomProfil_' + t).value.trim();
+  if (!nom) { document.getElementById('nwMsgSauve_' + t).textContent = 'Saisissez un nom.'; return; }
+  const btn = document.getElementById('nwBtnSauver_' + t);
+  btn.disabled = true;
+  try {
+    const fournisseur = document.getElementById('normFournisseur_' + t)?.value.trim() || null;
+    const r = await fetch('/import/mapping/profils', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        nom,
+        type_import: _NW_API_TYPE[t],
+        fournisseur: fournisseur || null,
+        mapping: cfg.mapping,
+        transformations: cfg.transformations,
+        valeurs_fixes: cfg.valeursFixees,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    cfg.profilId  = d.id;
+    cfg.profilNom = nom;
+    const msg = document.getElementById('nwMsgSauve_' + t);
+    msg.textContent = '✅ Profil sauvegardé.'; msg.style.color = '#15803d';
+    chargerListeProfilsNorm_t(t);
+  } catch(e) {
+    const msg = document.getElementById('nwMsgSauve_' + t);
+    msg.textContent = 'Erreur : ' + e.message; msg.style.color = '#dc2626';
+  } finally { btn.disabled = false; }
+}
+
+function nwEsc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function backToUpload(type) {
-  const idx = type === 'inv' ? 0 : 1;
+  const idx = type === 'inv' ? 0 : type === 'mov' ? 1 : 2;
   document.getElementById('step' + idx + 'Apercu').style.display = 'none';
   document.getElementById('step' + idx + 'Upload').style.display = 'block';
 }
@@ -747,23 +2129,34 @@ function renderTablePaged(key, rows, renderRow, headHtml, bodyEl, pagerEl) {
   _pagers[key].render();
 }
 
-// ─── Drop zone ────────────────────────────────────────────────────────────────
-['Inv','Mov'].forEach(k => {
+// ─── Drop zones (standard + norm) ─────────────────────────────────────────────
+['Inv','Mov','Avi'].forEach(k => {
+  const t = k === 'Inv' ? 'inv' : k === 'Mov' ? 'mov' : 'avi';
+  // standard drop zone
   const zone = document.getElementById('drop' + k);
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
   zone.addEventListener('drop', e => {
     e.preventDefault(); zone.classList.remove('drag');
     const f = e.dataTransfer.files[0];
-    if (f) onFile(k === 'Inv' ? 'inv' : 'mov', f);
+    if (f) onFile(t, f);
+  });
+  // norm drop zone (fichier à importer)
+  const zoneN = document.getElementById('dropNorm' + k);
+  zoneN.addEventListener('dragover', e => { e.preventDefault(); zoneN.classList.add('drag'); });
+  zoneN.addEventListener('dragleave', () => zoneN.classList.remove('drag'));
+  zoneN.addEventListener('drop', e => {
+    e.preventDefault(); zoneN.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(t, f);
   });
 });
 
 function onFile(type, f) {
-  const k = type === 'inv' ? 'Inv' : 'Mov';
+  const k = type === 'inv' ? 'Inv' : type === 'mov' ? 'Mov' : 'Avi';
   st[type].file = f || null;
   document.getElementById('err' + k).style.display = 'none';
-  document.getElementById('btnAnalyse' + k).disabled = !f;
+  // Update standard drop zone label
   if (f) {
     document.getElementById('icon' + k).textContent = '📄';
     document.getElementById('label' + k).innerHTML = `<strong>${f.name}</strong>`;
@@ -773,27 +2166,70 @@ function onFile(type, f) {
     document.getElementById('label' + k).textContent = 'Glissez un fichier CSV ou JSON ici';
     document.getElementById('sub' + k).textContent = 'ou cliquez pour parcourir';
   }
+  // Update norm drop zone label
+  if (f) {
+    document.getElementById('iconNorm' + k).textContent = '📄';
+    document.getElementById('labelNorm' + k).innerHTML = `<strong>${f.name}</strong>`;
+    document.getElementById('subNorm' + k).textContent = `${(f.size/1024).toFixed(1)} Ko`;
+  } else {
+    document.getElementById('iconNorm' + k).textContent = '📂';
+    document.getElementById('labelNorm' + k).textContent = 'Glissez un fichier CSV / XLSX / JSON ici';
+    document.getElementById('subNorm' + k).textContent = 'ou cliquez pour parcourir';
+  }
+  _updateBtnAnalyse(type);
 }
 
 // ─── Preview ──────────────────────────────────────────────────────────────────
 const COLS = {
   inv: ['ref_affaire','date','code_isin','nom_support','nbuc','vl','valo'],
   mov: ['ref_affaire','date','code_isin','code_mouvement','nbuc','vl','montant_ope'],
+  avi: ['ref_affaire','date','reference','entree','sortie','commentaire'],
 };
 
 async function doPreview(type) {
-  const k = type === 'inv' ? 'Inv' : 'Mov';
-  const idx = type === 'inv' ? 0 : 1;
+  const k       = type === 'inv' ? 'Inv' : type === 'mov' ? 'Mov' : 'Avi';
+  const idx     = type === 'inv' ? 0     : type === 'mov' ? 1     : 2;
+  const apiType = type === 'inv' ? 'inventaire' : type === 'mov' ? 'mouvements' : 'avis';
   const btn = document.getElementById('btnAnalyse' + k);
   btn.disabled = true; btn.textContent = 'Analyse…';
   document.getElementById('err' + k).style.display = 'none';
+  const cfg = cfgByType[type];
+
   try {
-    const form = new FormData();
-    form.append('file', st[type].file);
-    const apiType = type === 'inv' ? 'inventaire' : 'mouvements';
-    const res = await fetch(`/import/${apiType}/preview`, { method: 'POST', body: form });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
-    st[type].preview = await res.json();
+    if (!st[type].file) throw new Error('Aucun fichier sélectionné.');
+    let previewData;
+    if (cfg.enabled) {
+      // Lire le fournisseur depuis le panel norm
+      cfg.fournisseur = document.getElementById('normFournisseur_' + type)?.value.trim() || '';
+      // 1. Analyser le fichier pour obtenir un session_id
+      const analyseForm = new FormData();
+      analyseForm.append('file', st[type].file);
+      const ar = await fetch(`/import/mapping/analyser?type_import=${apiType}`,
+        { method: 'POST', body: analyseForm, credentials: 'include' });
+      if (!ar.ok) { const e = await ar.json(); throw new Error(e.detail || `Erreur analyse ${ar.status}`); }
+      const ad = await ar.json();
+      cfg.sessionId = ad.session_id;
+
+      // 2. Preview via profil de mapping
+      const qp = new URLSearchParams({ session_id: ad.session_id });
+      if (cfg.fournisseur) qp.set('fournisseur', cfg.fournisseur);
+      const pr = await fetch(`/import/mapping/appliquer/${apiType}/preview?${qp}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ mapping: cfg.mapping, transformations: cfg.transformations, valeurs_fixes: cfg.valeursFixees }),
+      });
+      if (!pr.ok) { const e = await pr.json(); throw new Error(e.detail || `Erreur ${pr.status}`); }
+      previewData = await pr.json();
+    } else {
+      // Flow standard
+      const form = new FormData();
+      form.append('file', st[type].file);
+      const res = await fetch(`/import/${apiType}/preview`, { method: 'POST', body: form, credentials: 'include' });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+      previewData = await res.json();
+    }
+    st[type].preview = previewData;
     renderApercu(type, idx);
     document.getElementById('step' + idx + 'Upload').style.display = 'none';
     document.getElementById('step' + idx + 'Apercu').style.display = 'block';
@@ -808,7 +2244,7 @@ async function doPreview(type) {
 function renderApercu(type, idx) {
   const p = st[type].preview;
   const cols = COLS[type];
-  const label = type === 'inv' ? 'Inventaire' : 'Mouvements';
+  const label = type === 'inv' ? 'Inventaire' : type === 'mov' ? 'Mouvements' : 'Avis d\'opérations';
 
   document.getElementById('titreApercu' + idx).textContent =
     `${label} — ${st[type].file.name}`;
@@ -841,28 +2277,103 @@ function renderApercu(type, idx) {
 }
 
 // ─── Commit ───────────────────────────────────────────────────────────────────
+const _PHASE_LABELS = {
+  'résolution': 'Résolution des affaires',
+  'avis':       'Génération des avis',
+  'import':     'Insertion des mouvements',
+  'prmp':       'Calcul PRMP',
+  'pipeline':   'Pipeline de recalcul',
+};
+
+function _showProgress(idx, phase, current, total) {
+  const box   = document.getElementById('progressCommit' + idx);
+  const bar   = document.getElementById('progressBar'    + idx);
+  const text  = document.getElementById('progressText'   + idx);
+  const label = document.getElementById('progressPhase'  + idx);
+  box.style.display  = 'block';
+  label.textContent  = _PHASE_LABELS[phase] || phase;
+  const pct = total > 0 ? Math.round(current / total * 100) : 0;
+  bar.style.width    = pct + '%';
+  text.textContent   = total > 0
+    ? `${current.toLocaleString('fr-FR')} / ${total.toLocaleString('fr-FR')} lignes (${pct} %)`
+    : '…';
+}
+
+function _hideProgress(idx) {
+  document.getElementById('progressCommit' + idx).style.display = 'none';
+}
+
 async function doCommit(type) {
-  const idx = type === 'inv' ? 0 : 1;
-  const sgId = document.getElementById('sg' + (type==='inv'?'Inv':'Mov')).value;
+  const idx     = type === 'inv' ? 0 : type === 'mov' ? 1 : 2;
+  const sgKey   = type === 'inv' ? 'Inv' : type === 'mov' ? 'Mov' : 'Avi';
+  const apiType = type === 'inv' ? 'inventaire' : type === 'mov' ? 'mouvements' : 'avis';
+  const sgId = document.getElementById('sg' + sgKey).value;
   const btn  = document.getElementById('btnCommit' + idx);
   const hint = document.getElementById('hintCommit' + idx);
   btn.disabled = true; hint.style.display = 'inline';
   document.getElementById('errCommit' + idx).style.display = 'none';
-  const params = new URLSearchParams();
-  if (sgId) params.set('id_societe_gestion', sgId);
-  const apiType = type === 'inv' ? 'inventaire' : 'mouvements';
+  _hideProgress(idx);
+  const cfg = cfgByType[type];
+
   try {
-    const form = new FormData();
-    form.append('file', st[type].file);
-    const res = await fetch(`/import/${apiType}/commit${params.toString()?'?'+params:''}`, {
-      method: 'POST', body: form,
-    });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
-    const result = await res.json();
+    let result;
+    if (cfg.enabled) {
+      // ── Mode normalisation → stream-commit SSE ──────────────────────────
+      if (!cfg.sessionId) throw new Error('Session expirée — relancez l\'analyse du fichier.');
+      const qp = new URLSearchParams({ session_id: cfg.sessionId });
+      if (sgId) qp.set('id_societe_gestion', sgId);
+      if (cfg.fournisseur) qp.set('fournisseur', cfg.fournisseur);
+      const res = await fetch(`/import/mapping/appliquer/${apiType}/stream-commit?${qp}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ mapping: cfg.mapping, transformations: cfg.transformations, valeurs_fixes: cfg.valeursFixees }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+
+      hint.style.display = 'none';
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === 'progress') {
+            _showProgress(idx, evt.phase, evt.current, evt.total);
+          } else if (evt.type === 'done') {
+            result = evt;
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message);
+          }
+        }
+      }
+    } else {
+      // ── Mode standard → commit classique ────────────────────────────────
+      const params = new URLSearchParams();
+      if (sgId) params.set('id_societe_gestion', sgId);
+      const form = new FormData();
+      form.append('file', st[type].file);
+      const res = await fetch(`/import/${apiType}/commit${params.toString()?'?'+params:''}`, {
+        method: 'POST', body: form, credentials: 'include',
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+      result = await res.json();
+    }
+    _hideProgress(idx);
     renderResult(type, idx, result);
     document.getElementById('step' + idx + 'Apercu').style.display = 'none';
     document.getElementById('step' + idx + 'Result').style.display = 'block';
+    if (type === 'mov') {
+      document.getElementById('panelReconstructHistorique').style.display = 'block';
+    }
   } catch(e) {
+    _hideProgress(idx);
     const box = document.getElementById('errCommit' + idx);
     box.textContent = e.message; box.style.display = 'block';
     btn.disabled = false;
@@ -873,7 +2384,7 @@ async function doCommit(type) {
 
 // ─── Résultat ─────────────────────────────────────────────────────────────────
 function renderResult(type, idx, r) {
-  const label = type === 'inv' ? 'Inventaire' : 'Mouvements';
+  const label = type === 'inv' ? 'Inventaire' : type === 'mov' ? 'Mouvements' : 'Avis d\'opérations';
   const kpis = [
     { label:'Lignes insérées', val:r.insere },
     { label:'Mises à jour',    val:r.mis_a_jour },
@@ -900,6 +2411,133 @@ function renderResult(type, idx, r) {
   r.alertes.filter(a => ['conflict_date','recalcul_error','code_mouvement_inconnu'].includes(a.code))
     .forEach(a => lines.push(`<span class="log-err">  [ALERTE] ${a.code} — ${a.message}</span>`));
   document.getElementById('log' + idx).innerHTML = lines.join('\n');
+}
+
+// ─── Reconstruction historique ────────────────────────────────────────────────
+async function doReconstructHistorique() {
+  const btn       = document.getElementById('btnReconstructHistorique');
+  const hint      = document.getElementById('hintReconstruct');
+  const progress  = document.getElementById('progressReconstruct');
+  const phaseEl   = document.getElementById('progressPhaseReconstruct');
+  const textEl    = document.getElementById('progressTextReconstruct');
+  const barEl     = document.getElementById('progressBarReconstruct');
+  const resultEl  = document.getElementById('resultReconstruct');
+  const errEl     = document.getElementById('errReconstruct');
+
+  btn.disabled = true; hint.style.display = 'inline';
+  progress.style.display = 'none'; resultEl.style.display = 'none'; errEl.style.display = 'none';
+
+  const _PHASE = { snapshots: 'Reconstruction des snapshots', prmp: 'Calcul PRMP', pipeline: 'Pipeline de recalcul' };
+
+  try {
+    const res = await fetch('/dashboard/superadmin/import-fournisseurs/stream-reconstruct-historique', {
+      method: 'POST', credentials: 'include',
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+
+    hint.style.display = 'none';
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === 'progress') {
+          progress.style.display = 'block';
+          phaseEl.textContent = _PHASE[evt.phase] || evt.phase;
+          const pct = evt.total > 0 ? Math.round(evt.current / evt.total * 100) : 0;
+          barEl.style.width = pct + '%';
+          textEl.textContent = evt.total > 0
+            ? `${evt.current.toLocaleString('fr-FR')} / ${evt.total.toLocaleString('fr-FR')} (${pct} %)`
+            : '…';
+        } else if (evt.type === 'done') {
+          progress.style.display = 'none';
+          resultEl.style.display = 'block';
+          resultEl.innerHTML = `
+            Reconstruction terminée en <strong>${evt.duree_s} s</strong> —
+            <strong>${evt.nb_affaires.toLocaleString('fr-FR')}</strong> affaire(s) mises à jour,
+            <strong>${evt.nb_snapshots.toLocaleString('fr-FR')}</strong> snapshots créés.
+            Les graphiques clients sont maintenant disponibles.`;
+          btn.disabled = false;
+        } else if (evt.type === 'error') {
+          throw new Error(evt.message);
+        }
+      }
+    }
+  } catch(e) {
+    hint.style.display = 'none';
+    progress.style.display = 'none';
+    errEl.textContent = e.message; errEl.style.display = 'block';
+    btn.disabled = false;
+  }
+}
+
+async function doReconstructHistoriqueFrom54() {
+  const btn2      = document.getElementById('btnReconstructHistorique2');
+  const panel2    = document.getElementById('panelReconstructHistorique2');
+  const phaseEl2  = document.getElementById('progressPhaseReconstruct2');
+  const textEl2   = document.getElementById('progressTextReconstruct2');
+  const barEl2    = document.getElementById('progressBarReconstruct2');
+  const resultEl2 = document.getElementById('resultReconstruct2');
+  const errEl2    = document.getElementById('errReconstruct2');
+
+  btn2.disabled = true;
+  panel2.style.display = 'block';
+  resultEl2.style.display = 'none'; errEl2.style.display = 'none';
+  barEl2.style.width = '0%'; phaseEl2.textContent = ''; textEl2.textContent = '';
+
+  const _PHASE = { snapshots: 'Reconstruction des snapshots', prmp: 'Calcul PRMP', pipeline: 'Pipeline de recalcul' };
+
+  try {
+    const res = await fetch('/dashboard/superadmin/import-fournisseurs/stream-reconstruct-historique', {
+      method: 'POST', credentials: 'include',
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === 'progress') {
+          phaseEl2.textContent = _PHASE[evt.phase] || evt.phase;
+          const pct = evt.total > 0 ? Math.round(evt.current / evt.total * 100) : 0;
+          barEl2.style.width = pct + '%';
+          textEl2.textContent = evt.total > 0
+            ? `${evt.current.toLocaleString('fr-FR')} / ${evt.total.toLocaleString('fr-FR')} (${pct} %)`
+            : '…';
+        } else if (evt.type === 'done') {
+          barEl2.style.width = '100%';
+          phaseEl2.textContent = 'Terminé';
+          textEl2.textContent = '';
+          resultEl2.style.display = 'block';
+          resultEl2.innerHTML = `
+            Terminé en <strong>${evt.duree_s} s</strong> —
+            <strong>${evt.nb_affaires.toLocaleString('fr-FR')}</strong> affaire(s),
+            <strong>${evt.nb_snapshots.toLocaleString('fr-FR')}</strong> snapshots créés.`;
+          btn2.disabled = false;
+        } else if (evt.type === 'error') {
+          throw new Error(evt.message);
+        }
+      }
+    }
+  } catch(e) {
+    errEl2.textContent = e.message; errEl2.style.display = 'block';
+    btn2.disabled = false;
+  }
 }
 
 // ─── Import Clients ───────────────────────────────────────────────────────────
@@ -1072,25 +2710,665 @@ function cliReset() {
   document.getElementById('cliUpload').style.display = 'block';
 }
 
+// ─── Bloc 2 : Produits ────────────────────────────────────────────────────────
+const prodSt = { file: null, preview: null };
+
+function onFileProd(f) {
+  prodSt.file = f || null;
+  document.getElementById('iconProd').textContent = f ? '📄' : '📂';
+  document.getElementById('labelProd').textContent = f ? f.name : 'Glissez un fichier CSV ici';
+  document.getElementById('subProd').textContent = f ? (f.size / 1024).toFixed(1) + ' Ko' : 'ou cliquez pour parcourir';
+  document.getElementById('btnAnalyseProd').disabled = !f;
+  document.getElementById('errProd').style.display = 'none';
+}
+
+(function() {
+  const dz = document.getElementById('dropProd');
+  if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', e => { dz.classList.remove('drag'); });
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); onFileProd(e.dataTransfer.files[0]); });
+})();
+
+async function doPreviewProd() {
+  const fd = new FormData();
+  fd.append('file', prodSt.file);
+
+  document.getElementById('btnAnalyseProd').disabled = true;
+  document.getElementById('errProd').style.display = 'none';
+  try {
+    const r = await fetch('/import/produits/preview', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      document.getElementById('errProd').textContent = data.detail || 'Erreur lors de l\'analyse.';
+      document.getElementById('errProd').style.display = '';
+      document.getElementById('btnAnalyseProd').disabled = false;
+      return;
+    }
+    prodSt.preview = data;
+    renderPreviewProd(data);
+  } catch(e) {
+    document.getElementById('errProd').textContent = 'Erreur réseau.';
+    document.getElementById('errProd').style.display = '';
+    document.getElementById('btnAnalyseProd').disabled = false;
+  }
+}
+
+function renderPreviewProd(data) {
+  document.getElementById('prodApercuTitre').textContent = data.rows.length + ' produit(s) détecté(s)';
+
+  const pills = document.getElementById('prodPills');
+  pills.innerHTML = '';
+  if (data.nb_nouveaux) pills.innerHTML += `<span class="badge" style="background:#16a34a;">${data.nb_nouveaux} nouveau(x)</span>`;
+  if (data.nb_existants) pills.innerHTML += `<span class="badge badge-muted">${data.nb_existants} existant(s)</span>`;
+
+  const tbody = document.getElementById('prodTableBody');
+  tbody.innerHTML = '';
+  for (const row of data.rows) {
+    const isNew = row.statut === 'nouveau';
+    tbody.innerHTML += `<tr>
+      <td><code>${row.code}</code></td>
+      <td>${row.nom}</td>
+      <td style="${isNew ? 'color:#16a34a;font-weight:600;' : 'color:#6b7280;'}">${isNew ? '✚ Nouveau' : '— Existant'}</td>
+    </tr>`;
+  }
+
+  document.getElementById('btnCommitProd').disabled = data.nb_nouveaux === 0;
+  document.getElementById('prodUpload').style.display = 'none';
+  document.getElementById('prodApercu').style.display = '';
+}
+
+function prodBackToUpload() {
+  document.getElementById('prodApercu').style.display = 'none';
+  document.getElementById('prodUpload').style.display = '';
+  document.getElementById('btnAnalyseProd').disabled = false;
+}
+
+async function doCommitProd() {
+  const fd = new FormData();
+  fd.append('file', prodSt.file);
+
+  document.getElementById('btnCommitProd').disabled = true;
+  document.getElementById('hintCommitProd').style.display = '';
+  document.getElementById('errCommitProd').style.display = 'none';
+  try {
+    const r = await fetch('/import/produits/commit', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      document.getElementById('errCommitProd').textContent = data.detail || 'Erreur lors de l\'import.';
+      document.getElementById('errCommitProd').style.display = '';
+      document.getElementById('btnCommitProd').disabled = false;
+      document.getElementById('hintCommitProd').style.display = 'none';
+      return;
+    }
+    renderResultProd(data);
+  } catch(e) {
+    document.getElementById('errCommitProd').textContent = 'Erreur réseau.';
+    document.getElementById('errCommitProd').style.display = '';
+    document.getElementById('btnCommitProd').disabled = false;
+    document.getElementById('hintCommitProd').style.display = 'none';
+  }
+}
+
+function renderResultProd(data) {
+  document.getElementById('prodKpis').innerHTML = `
+    <div class="kpi-item"><span class="kpi-val" style="color:#16a34a;">${data.inserted}</span><span class="kpi-label">Importé(s)</span></div>
+    <div class="kpi-item"><span class="kpi-val" style="color:#6b7280;">${data.skipped}</span><span class="kpi-label">Ignoré(s) (existant)</span></div>
+  `;
+  document.getElementById('prodLog').textContent =
+    `Import terminé. ${data.inserted} produit(s) créé(s), ${data.skipped} déjà existant(s).`;
+  document.getElementById('prodApercu').style.display = 'none';
+  document.getElementById('prodResult').style.display = '';
+}
+
+function prodReset() {
+  prodSt.file = null; prodSt.preview = null;
+  document.getElementById('fileProd').value = '';
+  onFileProd(null);
+  document.getElementById('prodResult').style.display = 'none';
+  document.getElementById('prodUpload').style.display = '';
+}
+
+// ─── Bloc 3 : Supports ───────────────────────────────────────────────────────
+const supSt = { file: null, detect: null, preview: null };
+
+function onFileSup(f) {
+  supSt.file = f || null;
+  document.getElementById('iconSup').textContent = f ? '📄' : '📂';
+  document.getElementById('labelSup').textContent = f ? f.name : 'Glissez un fichier CSV ici';
+  document.getElementById('subSup').textContent = f ? (f.size / 1024).toFixed(1) + ' Ko' : 'ou cliquez pour parcourir';
+  document.getElementById('btnDetectSup').disabled = !f;
+  document.getElementById('errSup').style.display = 'none';
+}
+
+(function() {
+  const dz = document.getElementById('dropSup');
+  if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); onFileSup(e.dataTransfer.files[0]); });
+})();
+
+async function doDetectSup() {
+  const btn = document.getElementById('btnDetectSup');
+  btn.disabled = true; btn.textContent = 'Analyse…';
+  document.getElementById('errSup').style.display = 'none';
+  try {
+    const fd = new FormData();
+    fd.append('file', supSt.file);
+    const res = await fetch('/import/supports/detect', { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    supSt.detect = await res.json();
+    renderSupMapping();
+    document.getElementById('supUpload').style.display = 'none';
+    document.getElementById('supMapping').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('errSup');
+    box.textContent = e.message; box.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analyser →';
+  }
+}
+
+function renderSupMapping() {
+  const d = supSt.detect;
+  document.getElementById('supMappingTitre').textContent =
+    `${supSt.file.name} — ${d.total} support(s) détecté(s)`;
+
+  // Tableau aperçu 5 lignes
+  const head = document.getElementById('supSampleHead');
+  const body = document.getElementById('supSampleBody');
+  head.innerHTML = '<tr>' + d.columns.map(c =>
+    `<th style="font-size:12px;">${c.label}<br><span style="font-weight:400;color:#9ca3af;">${c.example}</span></th>`
+  ).join('') + '</tr>';
+  body.innerHTML = d.sample.map(row =>
+    '<tr>' + row.map(v => `<td style="font-size:12px;">${v || '<span style="color:#d1d5db;">—</span>'}</td>`).join('') + '</tr>'
+  ).join('');
+
+  // Remplir les dropdowns
+  const optionsHtml = `<option value="">— Ignorer —</option>` +
+    d.columns.map(c => `<option value="${c.index}">${c.label} (ex: ${c.example})</option>`).join('');
+  const optionsReqHtml = `<option value="">— Sélectionner —</option>` +
+    d.columns.map(c => `<option value="${c.index}">${c.label} (ex: ${c.example})</option>`).join('');
+
+  document.getElementById('supColHex').innerHTML = optionsHtml;
+  document.getElementById('supColIsin').innerHTML = optionsReqHtml;
+  document.getElementById('supColLibelle').innerHTML = optionsReqHtml;
+
+  // Pré-remplir avec la détection automatique
+  const det = d.detected;
+  if (det.hex != null) document.getElementById('supColHex').value = det.hex;
+  if (det.isin != null) document.getElementById('supColIsin').value = det.isin;
+  if (det.libelle != null) document.getElementById('supColLibelle').value = det.libelle;
+}
+
+function supBackToUpload() {
+  document.getElementById('supMapping').style.display = 'none';
+  document.getElementById('supUpload').style.display = 'block';
+}
+
+function supBackToMapping() {
+  document.getElementById('supApercu').style.display = 'none';
+  document.getElementById('supMapping').style.display = 'block';
+}
+
+async function doPreviewSup() {
+  const colIsin = document.getElementById('supColIsin').value;
+  const colLibelle = document.getElementById('supColLibelle').value;
+  const errBox = document.getElementById('errSupMapping');
+  if (!colIsin || !colLibelle) {
+    errBox.textContent = 'Veuillez sélectionner au minimum les colonnes ISIN et Libellé.';
+    errBox.style.display = 'block';
+    return;
+  }
+  errBox.style.display = 'none';
+  const btn = document.getElementById('btnPreviewSup');
+  btn.disabled = true; btn.textContent = 'Chargement…';
+  try {
+    const fd = new FormData();
+    fd.append('file', supSt.file);
+    fd.append('col_isin', colIsin);
+    fd.append('col_libelle', colLibelle);
+    const res = await fetch('/import/supports/preview', { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    supSt.preview = await res.json();
+    renderSupApercu();
+    document.getElementById('supMapping').style.display = 'none';
+    document.getElementById('supApercu').style.display = 'block';
+  } catch(e) {
+    errBox.textContent = e.message; errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Confirmer le mapping →';
+  }
+}
+
+function renderSupApercu() {
+  const p = supSt.preview;
+  document.getElementById('supApercuTitre').textContent =
+    `${supSt.file.name} — ${p.total} supports`;
+
+  const pillBox = document.getElementById('supPills');
+  const pills = [];
+  if (p.nb_nouveaux > 0) pills.push(`<span class="badge badge-ok" style="font-size:13px;padding:4px 10px;">${p.nb_nouveaux} nouveau(x)</span>`);
+  if (p.nb_existants > 0) pills.push(`<span class="badge badge-muted" style="font-size:13px;padding:4px 10px;">${p.nb_existants} existant(s)</span>`);
+  if (p.nb_ignores > 0) pills.push(`<span class="badge badge-warn" style="font-size:13px;padding:4px 10px;">${p.nb_ignores} ignoré(s)</span>`);
+  pillBox.innerHTML = pills.join('');
+
+  const bodyEl = document.getElementById('supTableBody');
+  const pagerEl = document.getElementById('supMore');
+  renderTablePaged('supApercu', p.rows, row => {
+    const isNew = row.statut === 'nouveau';
+    return `<tr>
+      <td style="color:#9ca3af;font-size:12px;">${row.ligne}</td>
+      <td><code style="font-size:12px;">${row.code_isin}</code></td>
+      <td>${row.nom}</td>
+      <td style="${isNew ? 'color:#16a34a;font-weight:600;' : 'color:#6b7280;'}">${isNew ? '✚ Nouveau' : '— Existant'}</td>
+    </tr>`;
+  }, null, bodyEl, pagerEl);
+
+  const importables = p.nb_nouveaux + p.nb_existants;
+  const btn = document.getElementById('btnCommitSup');
+  btn.textContent = `Importer ${importables} support${importables > 1 ? 's' : ''}`;
+  btn.disabled = importables === 0;
+}
+
+async function doCommitSup() {
+  const colIsin = document.getElementById('supColIsin').value;
+  const colLibelle = document.getElementById('supColLibelle').value;
+  const btn = document.getElementById('btnCommitSup');
+  const hint = document.getElementById('hintCommitSup');
+  btn.disabled = true; hint.style.display = 'inline';
+  document.getElementById('errCommitSup').style.display = 'none';
+  try {
+    const fd = new FormData();
+    fd.append('file', supSt.file);
+    fd.append('col_isin', colIsin);
+    fd.append('col_libelle', colLibelle);
+    const res = await fetch('/import/supports/commit', { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+    const result = await res.json();
+    renderResultSup(result);
+    document.getElementById('supApercu').style.display = 'none';
+    document.getElementById('supResult').style.display = 'block';
+  } catch(e) {
+    const box = document.getElementById('errCommitSup');
+    box.textContent = e.message; box.style.display = 'block';
+    btn.disabled = false;
+  } finally {
+    hint.style.display = 'none';
+  }
+}
+
+function renderResultSup(r) {
+  document.getElementById('supKpis').innerHTML = `
+    <div class="kpi-card"><div class="kpi-val" style="color:#16a34a;">${r.inserted}</div><div class="kpi-lbl">Créé(s)</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#2563eb;">${r.updated}</div><div class="kpi-lbl">Mis à jour</div></div>
+    <div class="kpi-card"><div class="kpi-val" style="color:#6b7280;">${r.ignored}</div><div class="kpi-lbl">Ignoré(s)</div></div>
+  `;
+  document.getElementById('supLog').innerHTML =
+    `<span class="log-ok">✓ Import supports terminé</span>\n` +
+    `  Fichier    : ${supSt.file.name}\n` +
+    `  Créés      : ${r.inserted}\n` +
+    `  Mis à jour : ${r.updated}\n` +
+    (r.ignored ? `<span class="log-warn">  Ignorés    : ${r.ignored}</span>` : '');
+}
+
+function supReset() {
+  supSt.file = null; supSt.detect = null; supSt.preview = null;
+  document.getElementById('fileSup').value = '';
+  onFileSup(null);
+  document.getElementById('supResult').style.display = 'none';
+  document.getElementById('supUpload').style.display = 'block';
+}
+
+// ─── Bloc 4 : Souscriptions ──────────────────────────────────────────────────
+const sousSt = { file: null, preview: null };
+
+function onFileSous(f) {
+  sousSt.file = f || null;
+  document.getElementById('iconSous').textContent = f ? '📄' : '📂';
+  document.getElementById('labelSous').textContent = f ? f.name : 'Glissez un fichier CSV ici';
+  document.getElementById('subSous').textContent = f ? (f.size / 1024).toFixed(1) + ' Ko' : 'ou cliquez pour parcourir';
+  document.getElementById('btnAnalyseSous').disabled = !f;
+  document.getElementById('errSous').style.display = 'none';
+}
+
+(function() {
+  const dz = document.getElementById('dropSous');
+  if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); onFileSous(e.dataTransfer.files[0]); });
+})();
+
+const _SOUS_STATUT = {
+  nouveau:         { label: '✚ Nouveau',           style: 'color:#16a34a;font-weight:600;' },
+  existant:        { label: '— Existant',           style: 'color:#6b7280;' },
+  client_inconnu:  { label: '⚠ Client introuvable', style: 'color:#f59e0b;font-weight:600;' },
+  produit_inconnu: { label: '⚠ Produit introuvable',style: 'color:#f59e0b;font-weight:600;' },
+};
+
+async function doPreviewSous() {
+  const btn = document.getElementById('btnAnalyseSous');
+  btn.disabled = true;
+  document.getElementById('errSous').style.display = 'none';
+  try {
+    const fd = new FormData();
+    fd.append('file', sousSt.file);
+    const r = await fetch('/import/souscriptions/preview', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      document.getElementById('errSous').textContent = data.detail || 'Erreur lors de l\'analyse.';
+      document.getElementById('errSous').style.display = '';
+      btn.disabled = false;
+      return;
+    }
+    sousSt.preview = data;
+    renderPreviewSous(data);
+  } catch(e) {
+    document.getElementById('errSous').textContent = 'Erreur réseau : ' + e.message;
+    document.getElementById('errSous').style.display = '';
+    console.error('doPreviewSous:', e);
+    btn.disabled = false;
+  }
+}
+
+function renderPreviewSous(data) {
+  document.getElementById('sousApercuTitre').textContent =
+    `${data.total} souscription(s) dans le fichier`;
+
+  const pills = document.getElementById('sousPills');
+  pills.innerHTML = '';
+  if (data.nb_nouveau)        pills.innerHTML += `<span class="badge" style="background:#16a34a;">${data.nb_nouveau} nouveau(x)</span>`;
+  if (data.nb_existant)       pills.innerHTML += `<span class="badge badge-muted">${data.nb_existant} existant(s)</span>`;
+  if (data.nb_client_inconnu) pills.innerHTML += `<span class="badge badge-warn">${data.nb_client_inconnu} client(s) introuvable(s)</span>`;
+  if (data.nb_produit_inconnu)pills.innerHTML += `<span class="badge badge-warn">${data.nb_produit_inconnu} produit(s) introuvable(s)</span>`;
+
+  const tbody = document.getElementById('sousTableBody');
+  tbody.innerHTML = '';
+  for (const row of data.sample) {
+    const s = _SOUS_STATUT[row.statut] || { label: row.statut, style: '' };
+    tbody.innerHTML += `<tr>
+      <td><code>${row.ref_sous}</code></td>
+      <td>${row.nom_contrat}</td>
+      <td><code>${row.ref_contrat}</code></td>
+      <td>${row.date_affichee}</td>
+      <td style="${s.style}">${s.label}</td>
+    </tr>`;
+  }
+
+  // Produits introuvables
+  const pb = data.problemes || [];
+  const produits = [...new Map(
+    pb.filter(r => r.statut === 'produit_inconnu').map(r => [r.nom_contrat, r])
+  ).values()];
+  const clients  = pb.filter(r => r.statut === 'client_inconnu');
+
+  const prodBlock = document.getElementById('sousProdManquants');
+  const prodList  = document.getElementById('sousProdManquantsList');
+  if (produits.length > 0) {
+    prodList.innerHTML = '';
+    produits.forEach((row, i) => {
+      const code = row.nom_contrat;
+      prodList.innerHTML += `
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;" id="sous-prod-row-${i}">
+          <code style="min-width:100px; font-size:13px; color:#92400e;">${code}</code>
+          <input type="text" placeholder="Intitulé long du produit…"
+            id="sous-prod-nom-${i}"
+            style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:7px; font-size:13px;"
+            onkeydown="if(event.key==='Enter') creerProduitSous(${i}, '${code.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">
+          <button type="button" class="btn-primary" style="white-space:nowrap;"
+            onclick="creerProduitSous(${i}, '${code.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">
+            Créer ce produit
+          </button>
+          <span id="sous-prod-status-${i}" style="font-size:12px;"></span>
+        </div>`;
+    });
+    prodBlock.style.display = '';
+  } else {
+    prodBlock.style.display = 'none';
+  }
+
+  // Clients introuvables
+  const cliBlock = document.getElementById('sousCliManquants');
+  const cliList  = document.getElementById('sousCliManquantsList');
+  const cliTitle = document.getElementById('sousCliManquantsTitle');
+  if (clients.length > 0) {
+    cliTitle.textContent = `${clients.length} client(s) introuvable(s) — ${clients.length} contrat(s) ignoré(s)`;
+    cliList.innerHTML = clients.map(r => `<tr>
+      <td><code>${r.ref_sous}</code></td>
+      <td>${r.nom_contrat}</td>
+      <td><code>${r.ref_contrat}</code></td>
+    </tr>`).join('');
+    cliBlock.style.display = '';
+  } else {
+    cliBlock.style.display = 'none';
+  }
+
+  document.getElementById('btnCommitSous').disabled = data.nb_nouveau === 0;
+  document.getElementById('sousUpload').style.display = 'none';
+  document.getElementById('sousApercu').style.display = '';
+}
+
+function sousBackToUpload() {
+  document.getElementById('sousApercu').style.display = 'none';
+  document.getElementById('sousUpload').style.display = '';
+  document.getElementById('btnAnalyseSous').disabled = false;
+}
+
+async function reanalyseSous() {
+  if (!sousSt.file) {
+    document.getElementById('errReanalyseSous').textContent = 'Fichier manquant — retournez à l\'étape précédente.';
+    document.getElementById('errReanalyseSous').style.display = '';
+    return;
+  }
+  const hint = document.getElementById('hintReanalyseSous');
+  const err  = document.getElementById('errReanalyseSous');
+  hint.style.display = '';
+  err.style.display  = 'none';
+
+  const fd = new FormData();
+  fd.append('file', sousSt.file);
+  try {
+    const r = await fetch('/import/souscriptions/preview', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      err.textContent = data.detail || 'Erreur lors de l\'analyse.';
+      err.style.display = '';
+      hint.style.display = 'none';
+      return;
+    }
+    sousSt.preview = data;
+    renderPreviewSous(data);
+  } catch(e) {
+    err.textContent = 'Erreur réseau (' + e.message + ')';
+    err.style.display = '';
+    console.error('reanalyseSous:', e);
+  } finally {
+    hint.style.display = 'none';
+  }
+}
+
+async function creerProduitSous(idx, code) {
+  const nomInput  = document.getElementById(`sous-prod-nom-${idx}`);
+  const statusEl  = document.getElementById(`sous-prod-status-${idx}`);
+  const nom = (nomInput ? nomInput.value : '').trim();
+  if (!nom) { if (nomInput) nomInput.focus(); return; }
+
+  if (nomInput) nomInput.disabled = true;
+  if (statusEl) statusEl.textContent = 'Création…';
+
+  const fd = new FormData();
+  fd.append('code', code);
+  fd.append('nom', nom);
+  try {
+    const r = await fetch('/import/souscriptions/creer-produit', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      if (nomInput) nomInput.disabled = false;
+      if (statusEl) statusEl.innerHTML = `<span style="color:#dc2626;">${data.detail || 'Erreur'}</span>`;
+      return;
+    }
+    const row = document.getElementById(`sous-prod-row-${idx}`);
+    if (row) row.innerHTML = `
+      <code style="min-width:100px; font-size:13px; color:#15803d;">${code}</code>
+      <span style="font-size:13px; color:#15803d; font-weight:600;">✓ ${data.message}</span>`;
+  } catch(e) {
+    if (nomInput) nomInput.disabled = false;
+    if (statusEl) statusEl.innerHTML = `<span style="color:#dc2626;">Erreur réseau — vérifiez la console</span>`;
+    console.error('creerProduitSous error:', e);
+  }
+}
+
+async function doCommitSous() {
+  const btn = document.getElementById('btnCommitSous');
+  btn.disabled = true;
+  document.getElementById('hintCommitSous').style.display = '';
+  document.getElementById('errCommitSous').style.display = 'none';
+  try {
+    const fd = new FormData();
+    fd.append('file', sousSt.file);
+    const r = await fetch('/import/souscriptions/commit', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) {
+      document.getElementById('errCommitSous').textContent = data.detail || 'Erreur lors de l\'import.';
+      document.getElementById('errCommitSous').style.display = '';
+      btn.disabled = false;
+      document.getElementById('hintCommitSous').style.display = 'none';
+      return;
+    }
+    renderResultSous(data);
+  } catch(e) {
+    document.getElementById('errCommitSous').textContent = 'Erreur réseau : ' + e.message;
+    document.getElementById('errCommitSous').style.display = '';
+    console.error('doCommitSous:', e);
+    btn.disabled = false;
+    document.getElementById('hintCommitSous').style.display = 'none';
+  }
+}
+
+function renderResultSous(data) {
+  document.getElementById('sousKpis').innerHTML = `
+    <div class="kpi-item"><span class="kpi-val" style="color:#16a34a;">${data.inserted}</span><span class="kpi-label">Importé(s)</span></div>
+    <div class="kpi-item"><span class="kpi-val" style="color:#6b7280;">${data.skipped}</span><span class="kpi-label">Ignoré(s) (existant)</span></div>
+    <div class="kpi-item"><span class="kpi-val" style="color:#f59e0b;">${data.erreurs}</span><span class="kpi-label">Erreur(s)</span></div>
+  `;
+  document.getElementById('sousLog').textContent =
+    `Import terminé. ${data.inserted} contrat(s) créé(s), ${data.skipped} déjà existant(s), ${data.erreurs} ignoré(s) (client ou produit introuvable).`;
+  document.getElementById('sousApercu').style.display = 'none';
+  document.getElementById('sousResult').style.display = '';
+}
+
+function sousReset() {
+  sousSt.file = null; sousSt.preview = null;
+  document.getElementById('fileSous').value = '';
+  onFileSous(null);
+  document.getElementById('sousResult').style.display = 'none';
+  document.getElementById('sousUpload').style.display = '';
+}
+
 // ─── Calcul des risques ───────────────────────────────────────────────────────
+function _rqSet(entity, state) {
+  // state: 'waiting' | 'running' | 'ok' | 'error'
+  const bar    = document.getElementById('rq_' + entity + '_bar');
+  const text   = document.getElementById('rq_' + entity + '_text');
+  const badge  = document.getElementById('rq_' + entity + '_badge');
+  const colors = { waiting:'#9ca3af', running:'#2563eb', ok:'#16a34a', error:'#dc2626' };
+  bar.style.background = colors[state] || colors.waiting;
+  if (state === 'running') {
+    bar.style.width = '40%';
+    text.textContent = 'Calcul en cours…';
+    text.style.color = '#2563eb';
+    badge.textContent = '';
+  } else if (state === 'waiting') {
+    bar.style.width = '0%';
+    text.textContent = 'En attente…';
+    text.style.color = '#9ca3af';
+    badge.textContent = '';
+  }
+}
+
+function _rqDone(entity, total, duree) {
+  const bar   = document.getElementById('rq_' + entity + '_bar');
+  const text  = document.getElementById('rq_' + entity + '_text');
+  const badge = document.getElementById('rq_' + entity + '_badge');
+  bar.style.width = '100%';
+  bar.style.background = '#16a34a';
+  text.textContent = total.toLocaleString('fr-FR') + ' entités traitées';
+  text.style.color = '#15803d';
+  badge.textContent = duree != null ? duree + ' s' : '';
+  badge.style.color = '#6b7280';
+}
+
+function _rqError(entity, msg) {
+  const bar  = document.getElementById('rq_' + entity + '_bar');
+  const text = document.getElementById('rq_' + entity + '_text');
+  bar.style.width = '100%';
+  bar.style.background = '#ef4444';
+  text.textContent = msg;
+  text.style.color = '#dc2626';
+}
+
 async function doRecalculRisques() {
   const btn  = document.getElementById('btnRisques');
-  const hint = document.getElementById('risquesHint');
   const box  = document.getElementById('risquesResult');
-  btn.disabled = true; hint.style.display = 'inline'; box.style.display = 'none';
+  const prog = document.getElementById('risquesProgress');
+  btn.disabled = true;
+  box.style.display = 'none';
+  prog.style.display = 'block';
+  _rqSet('clients',  'waiting');
+  _rqSet('affaires', 'waiting');
+
+  let errors = [];
+  let done   = null;
+
   try {
-    const res  = await fetch('/dashboard/superadmin/import-fournisseurs/recalcul-risques', { method: 'POST' });
-    const data = await res.json();
+    const res = await fetch(
+      '/dashboard/superadmin/import-fournisseurs/stream-recalcul-risques',
+      { method: 'POST', credentials: 'include' }
+    );
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done: d, value } = await reader.read();
+      if (d) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === 'progress') {
+          const entity = evt.phase === 'srri_clients' ? 'clients' : 'affaires';
+          if (evt.current === 0) {
+            _rqSet(entity, 'running');
+            document.getElementById('rq_' + entity + '_text').textContent =
+              evt.total.toLocaleString('fr-FR') + ' entités à traiter…';
+          } else {
+            _rqDone(entity, evt.total, evt.duree_s ?? null);
+          }
+        } else if (evt.type === 'step_error') {
+          const entity = evt.phase === 'srri_clients' ? 'clients' : 'affaires';
+          _rqError(entity, evt.message);
+          errors.push(evt.message);
+        } else if (evt.type === 'done') {
+          done = evt;
+        } else if (evt.type === 'error') {
+          throw new Error(evt.message);
+        }
+      }
+    }
+
     const lines = [];
-    if (data.srri_clients !== undefined)
-      lines.push(`<span class="log-ok">✓ SRRI + SRI clients</span>   ${data.srri_clients}s`);
-    if (data.srri_clients_error)
-      lines.push(`<span class="log-err">✗ SRRI clients : ${data.srri_clients_error}</span>`);
-    if (data.srri_affaires !== undefined)
-      lines.push(`<span class="log-ok">✓ SRRI + SRI affaires</span>  ${data.srri_affaires}s`);
-    if (data.srri_affaires_error)
-      lines.push(`<span class="log-err">✗ SRRI affaires : ${data.srri_affaires_error}</span>`);
-    const hasError = data.srri_clients_error || data.srri_affaires_error;
+    if (done?.srri_clients != null)
+      lines.push(`<span class="log-ok">✓ SRRI + SRI clients</span>   ${done.srri_clients} s — ${(done.nb_clients||0).toLocaleString('fr-FR')} entités`);
+    if (done?.srri_affaires != null)
+      lines.push(`<span class="log-ok">✓ SRRI + SRI affaires</span>  ${done.srri_affaires} s — ${(done.nb_affaires||0).toLocaleString('fr-FR')} entités`);
+    errors.forEach(m => lines.push(`<span class="log-err">✗ ${m}</span>`));
+    const hasError = errors.length > 0;
     box.innerHTML = `<div class="log-area">${lines.join('\n')}</div>
       <p style="margin:10px 0 0; font-size:14px; font-weight:600; color:${hasError?'#dc2626':'#16a34a'}">
         ${hasError ? 'Calcul terminé avec des erreurs.' : 'SRRI &amp; SRI mis à jour avec succès.'}
@@ -1101,7 +3379,7 @@ async function doRecalculRisques() {
     box.innerHTML = `<div class="alert-box alert-error">${e.message}</div>`;
     box.style.display = 'block';
   } finally {
-    btn.disabled = false; hint.style.display = 'none';
+    btn.disabled = false;
   }
 }
 </script>

@@ -15,8 +15,11 @@ import csv
 import io
 import json
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime
+from itertools import count as _icount
+from typing import Generator
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -104,21 +107,13 @@ def _validate_rows(raw_rows: list[dict]) -> tuple[list[MouvementRow], list[Impor
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _load_mouvement_regle(db: Session) -> dict[str, dict]:
-    """Retourne {code: {id, sens, investi, prmp, titre}} pour tous les codes."""
     rows = db.execute(
         text("SELECT id, code, titre, sens, investi, prmp FROM mouvement_regle")
     ).fetchall()
     return {
-        r[1].strip().upper(): {
-            "id": r[0],
-            "code": r[1],
-            "titre": r[2],
-            "sens": r[3],
-            "investi": r[4],
-            "prmp": r[5],
-        }
-        for r in rows
-        if r[1]
+        r[1].strip().upper(): {"id": r[0], "code": r[1], "titre": r[2],
+                                "sens": r[3], "investi": r[4], "prmp": r[5]}
+        for r in rows if r[1]
     }
 
 
@@ -130,121 +125,30 @@ def _get_affaire_societe(db: Session, id_affaire: int) -> int | None:
     return row[0] if row else None
 
 
-def _create_avis(
-    db: Session,
-    id_affaire: int,
-    snap_date: datetime,
-    entree_lines: list[str],
-    sortie_lines: list[str],
-) -> int:
-    """Crée un avis d'opération et retourne son id."""
-    next_id = db.execute(
-        text("SELECT COALESCE(MAX(id), 0) + 1 FROM avis")
-    ).scalar()
-    ref = f"IMP-{id_affaire}-{snap_date.strftime('%Y%m%d')}"
-    entree_txt = "\n".join(entree_lines) if entree_lines else None
-    sortie_txt = "\n".join(sortie_lines) if sortie_lines else None
-    db.execute(
-        text(
-            """
-            INSERT INTO avis (id, reference, `date`, id_affaire, id_etape, etat, entree, sortie, commentaire)
-            VALUES (:id, :ref, :dt, :aff, 5, 5, :entree, :sortie, 'Import automatique')
-            """
-        ),
-        {
-            "id": int(next_id),
-            "ref": ref,
-            "dt": snap_date,
-            "aff": id_affaire,
-            "entree": entree_txt,
-            "sortie": sortie_txt,
-        },
-    )
-    db.flush()
-    return int(next_id)
-
-
-def _insert_mouvement(
-    db: Session,
-    id_affaire: int,
-    id_mouvement_regle: int,
-    id_support: int,
-    id_avis: int,
-    snap_date: datetime,
-    montant_ope: float,
-    frais: float,
-    vl: float,
-    nb_uc: float,
-    id_societe_gestion: int | None,
-) -> int:
-    next_id = db.execute(
-        text("SELECT COALESCE(MAX(id), 0) + 1 FROM mouvement")
-    ).scalar()
-    db.execute(
-        text(
-            """
-            INSERT INTO mouvement
-              (id, modif_quand, id_affaire, id_mouvement_regle, id_support, id_avis,
-               montant_ope, frais, vl_date, date_sp, vl, nb_uc, etat)
-            VALUES
-              (:id, :now, :aff, :regle, :sup, :avis,
-               :montant, :frais, :dt, :dt, :vl, :nbuc, 5)
-            """
-        ),
-        {
-            "id": int(next_id),
-            "now": datetime.utcnow(),
-            "aff": id_affaire,
-            "regle": id_mouvement_regle,
-            "sup": id_support,
-            "avis": id_avis,
-            "montant": str(montant_ope),
-            "frais": str(frais),
-            "dt": snap_date,
-            "vl": str(vl),
-            "nbuc": str(nb_uc),
-        },
-    )
-    db.flush()
-    return int(next_id)
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # PRMP recomputation (CUMP)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _recompute_prmp(
-    db: Session,
-    id_affaire: int,
-    id_support: int,
-) -> None:
-    """
-    Recompute PRMP (CUMP) pour (id_affaire, id_support) depuis l'historique complet
-    de mouvement, puis met à jour mariadb_historique_support_w.prmp.
-    """
-    # Charge tous les mouvements pour cette paire, ordonnés par date
+def _recompute_prmp(db: Session, id_affaire: int, id_support: int) -> None:
     movements = db.execute(
         text(
             """
             SELECT m.vl_date, m.nb_uc, m.vl, r.sens, r.prmp AS affects_prmp
             FROM mouvement m
             JOIN mouvement_regle r ON r.id = m.id_mouvement_regle
-            WHERE m.id_affaire = :aff
-              AND m.id_support = :sup
+            WHERE m.id_affaire = :aff AND m.id_support = :sup
               AND (m.etat IS NULL OR m.etat != 8)
             ORDER BY m.vl_date ASC
             """
         ),
         {"aff": id_affaire, "sup": id_support},
     ).fetchall()
-
     if not movements:
         return
 
-    # Calcul CUMP en Python
     nbuc_cur = 0.0
     prmp_cur = 0.0
-    cump_series: list[tuple[datetime, float]] = []  # (date, prmp_after)
+    cump_series: list[tuple[datetime, float]] = []
 
     for m in movements:
         vl_date, nb_uc, vl_str, sens, affects_prmp = m
@@ -266,8 +170,6 @@ def _recompute_prmp(
 
         cump_series.append((vl_date, prmp_cur))
 
-    # Met à jour historique_support.prmp pour chaque snapshot :
-    # prmp = CUMP au dernier mouvement <= date du snapshot
     snapshots = db.execute(
         text(
             """
@@ -279,13 +181,10 @@ def _recompute_prmp(
         ),
         {"aff": id_affaire, "sup": id_support},
     ).fetchall()
-
     if not snapshots:
         return
 
-    # Build lookup: for each snapshot date, find PRMP at latest movement <= date
     cump_sorted = sorted(cump_series, key=lambda x: x[0])
-
     for snap_id, snap_date in snapshots:
         prmp_val = 0.0
         for mv_date, mv_prmp in cump_sorted:
@@ -362,10 +261,10 @@ def preview_mouvements(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Commit
+# Commit — générateur de progression
 # ──────────────────────────────────────────────────────────────────────────────
 
-def commit_mouvements(
+def iter_commit_mouvements(
     db: Session,
     raw_rows: list[dict],
     id_societe_gestion: int | None = None,
@@ -373,19 +272,27 @@ def commit_mouvements(
     fournisseur: str | None = None,
     identifiant_societe_externe: str | None = None,
     run_pipeline: bool = True,
-) -> ImportCommitResult:
-    # Résolution automatique de la société via le mapping fournisseur
+) -> Generator[dict, None, None]:
+    """
+    Générateur qui produit des événements de progression :
+      {'type': 'progress', 'phase': str, 'current': int, 'total': int}
+    puis un événement final :
+      {'type': 'done', 'insere': int, 'mis_a_jour': int, 'alertes': [...], ...}
+    """
+    t0 = time.perf_counter()
+
     if id_societe_gestion is None and fournisseur and identifiant_societe_externe:
         resolved = _resolve_societe_by_fournisseur(db, fournisseur, identifiant_societe_externe)
         if resolved is not None:
             id_societe_gestion = resolved
         else:
             logger.warning(
-                "IMPORT – société '%s' inconnue chez '%s' – id_societe_gestion non résolu",
+                "IMPORT – société '%s' inconnue chez '%s'",
                 identifiant_societe_externe, fournisseur,
             )
 
     rows, alertes = _validate_rows(raw_rows)
+    total = len(rows)
     regle_map = _load_mouvement_regle(db)
 
     insere = 0
@@ -393,15 +300,16 @@ def commit_mouvements(
     avis_generes = 0
     affaires_creees = 0
     affected_affaire_ids: set[int] = set()
-    affected_pairs: set[tuple[int, int]] = set()  # (id_affaire, id_support)
-
-    # Group rows by (id_affaire, snap_date) for avis generation
-    # Key: (id_affaire, date_str) → list of (row, resolved)
+    affected_pairs: set[tuple[int, int]] = set()
     avis_groups: dict[tuple[int, str], list[dict]] = defaultdict(list)
+    resolved_rows: list[tuple] = []
 
-    # First pass: resolve and validate each row
-    resolved_rows: list[tuple[MouvementRow, int, int, int, datetime, float, float]] = []
-    for i, row in enumerate(rows, start=1):
+    # ── Phase 1 : résolution ────────────────────────────────────────────────
+    yield {'type': 'progress', 'phase': 'résolution', 'current': 0, 'total': total}
+    for i, row in enumerate(rows, 1):
+        if i % 200 == 0:
+            yield {'type': 'progress', 'phase': 'résolution', 'current': i, 'total': total}
+
         id_affaire, was_created = _resolve_or_create_affaire(
             db, row, id_societe_gestion, create_if_missing=True,
             id_personne=id_personne, fournisseur=fournisseur,
@@ -416,10 +324,7 @@ def commit_mouvements(
             affaires_creees += 1
             alertes.append(ImportAlerte(
                 ligne=i, code="affaire_creee",
-                message=(
-                    f"Affaire '{row.ref_affaire}' créée à vide (id={id_affaire}) – "
-                    "tâche de finalisation générée"
-                ),
+                message=f"Affaire '{row.ref_affaire}' créée à vide (id={id_affaire})",
             ))
 
         regle = regle_map.get(row.code_mouvement.upper())
@@ -431,6 +336,12 @@ def commit_mouvements(
             continue
 
         id_support, created = _resolve_or_create_support(db, row.code_isin, None)
+        if id_support is None:
+            alertes.append(ImportAlerte(
+                ligne=i, code="isin_error",
+                message=f"Support introuvable ou sans id pour ISIN {row.code_isin}",
+            ))
+            continue
         if created:
             alertes.append(ImportAlerte(
                 ligne=i, code="unknown_isin",
@@ -442,120 +353,181 @@ def commit_mouvements(
         frais = row.frais or 0.0
 
         avis_groups[(id_affaire, row.date)].append({
-            "libelle": regle["titre"],
-            "code": regle["code"],
-            "sens": regle["sens"],
-            "nbuc": row.nbuc,
-            "vl": row.vl,
-            "montant": montant,
+            "libelle": regle["titre"], "code": regle["code"], "sens": regle["sens"],
+            "nbuc": row.nbuc, "vl": row.vl, "montant": montant,
         })
-
         resolved_rows.append((row, id_affaire, id_support, regle["id"], snap_date, montant, frais))
         affected_affaire_ids.add(id_affaire)
         affected_pairs.add((id_affaire, id_support))
 
+    yield {'type': 'progress', 'phase': 'résolution', 'current': total, 'total': total}
     db.commit()
 
-    # UPSERT avis pour chaque groupe (id_affaire, date) — évite les doublons sur re-import
+    # ── Phase 2 : avis (pré-allocation d'IDs — un seul MAX) ────────────────
+    total_avis = len(avis_groups)
+    next_avis_id = _icount(
+        int(db.execute(text("SELECT COALESCE(MAX(id),0)+1 FROM avis")).scalar())
+    )
     avis_id_map: dict[tuple[int, str], int] = {}
-    for (id_affaire, date_str), lines_data in avis_groups.items():
-        entree = [f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
-                  for d in lines_data if (d["sens"] or 0) > 0]
-        sortie = [f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
-                  for d in lines_data if (d["sens"] or 0) < 0]
+
+    yield {'type': 'progress', 'phase': 'avis', 'current': 0, 'total': total_avis}
+    for ai, ((id_affaire, date_str), lines_data) in enumerate(avis_groups.items(), 1):
+        if ai % 50 == 0:
+            yield {'type': 'progress', 'phase': 'avis', 'current': ai, 'total': total_avis}
+
+        entree = [
+            f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
+            for d in lines_data if (d["sens"] or 0) > 0
+        ]
+        sortie = [
+            f"{d['libelle']} – {d['nbuc']} UC × {d['vl']} = {d['montant']:.2f}€"
+            for d in lines_data if (d["sens"] or 0) < 0
+        ]
         snap_date = _parse_date(date_str)
         ref = f"IMP-{id_affaire}-{snap_date.strftime('%Y%m%d')}"
-        existing_avis = db.execute(
+
+        existing = db.execute(
             text("SELECT id FROM avis WHERE reference = :ref AND id_affaire = :aff LIMIT 1"),
             {"ref": ref, "aff": id_affaire},
         ).fetchone()
-        if existing_avis:
-            avis_id = existing_avis[0]
-            entree_txt = "\n".join(entree) if entree else None
-            sortie_txt = "\n".join(sortie) if sortie else None
+        if existing:
+            avis_id = existing[0]
             db.execute(
                 text("UPDATE avis SET entree = :e, sortie = :s WHERE id = :id"),
-                {"e": entree_txt, "s": sortie_txt, "id": avis_id},
+                {"e": "\n".join(entree) or None, "s": "\n".join(sortie) or None, "id": avis_id},
             )
         else:
-            avis_id = _create_avis(db, id_affaire, snap_date, entree, sortie)
+            avis_id = next(next_avis_id)
+            db.execute(
+                text(
+                    "INSERT INTO avis (id, reference, `date`, id_affaire, id_etape, etat,"
+                    " entree, sortie, commentaire)"
+                    " VALUES (:id, :ref, :dt, :aff, 5, 5, :e, :s, 'Import automatique')"
+                ),
+                {
+                    "id": avis_id, "ref": ref, "dt": snap_date, "aff": id_affaire,
+                    "e": "\n".join(entree) or None, "s": "\n".join(sortie) or None,
+                },
+            )
             avis_generes += 1
         avis_id_map[(id_affaire, date_str)] = avis_id
 
+    yield {'type': 'progress', 'phase': 'avis', 'current': total_avis, 'total': total_avis}
     db.flush()
 
-    # UPSERT mouvements : UPDATE si (affaire, support, regle, date) existe, INSERT sinon
-    for row, id_affaire, id_support, id_regle, snap_date, montant, frais in resolved_rows:
+    # ── Phase 3 : mouvements (pré-allocation d'IDs — un seul MAX) ──────────
+    total_mouv = len(resolved_rows)
+    next_mouv_id = _icount(
+        int(db.execute(text("SELECT COALESCE(MAX(id),0)+1 FROM mouvement")).scalar())
+    )
+
+    yield {'type': 'progress', 'phase': 'import', 'current': 0, 'total': total_mouv}
+    for i, (row, id_affaire, id_support, id_regle, snap_date, montant, frais) in enumerate(resolved_rows, 1):
+        if i % 200 == 0:
+            yield {'type': 'progress', 'phase': 'import', 'current': i, 'total': total_mouv}
+
         existing = db.execute(
             text(
-                """
-                SELECT id FROM mouvement
-                WHERE id_affaire = :aff
-                  AND id_support = :sup
-                  AND id_mouvement_regle = :regle
-                  AND vl_date = :dt
-                LIMIT 1
-                """
+                "SELECT id FROM mouvement"
+                " WHERE id_affaire = :aff AND id_support = :sup"
+                "   AND id_mouvement_regle = :regle AND vl_date = :dt LIMIT 1"
             ),
             {"aff": id_affaire, "sup": id_support, "regle": id_regle, "dt": snap_date},
         ).fetchone()
         if existing:
             db.execute(
                 text(
-                    """
-                    UPDATE mouvement
-                    SET montant_ope = :montant, frais = :frais, vl = :vl, nb_uc = :nbuc,
-                        modif_quand = :now
-                    WHERE id = :id
-                    """
+                    "UPDATE mouvement SET montant_ope=:m, frais=:f, vl=:v, nb_uc=:n,"
+                    " modif_quand=:now WHERE id=:id"
                 ),
-                {"montant": str(montant), "frais": str(frais), "vl": str(row.vl),
-                 "nbuc": str(row.nbuc), "now": datetime.utcnow(), "id": existing[0]},
+                {"m": str(montant), "f": str(frais), "v": str(row.vl), "n": str(row.nbuc),
+                 "now": datetime.utcnow(), "id": existing[0]},
             )
             mis_a_jour += 1
             alertes.append(ImportAlerte(
                 code="doublon_mouvement",
-                message=(
-                    f"Mouvement mis à jour : affaire {id_affaire}, "
-                    f"ISIN {row.code_isin}, date {row.date}, montant {montant}"
-                ),
+                message=f"Mouvement mis à jour : affaire {id_affaire}, ISIN {row.code_isin}, date {row.date}",
             ))
         else:
+            mid = next(next_mouv_id)
             id_avis = avis_id_map.get((id_affaire, row.date), 0)
             sg = id_societe_gestion or _get_affaire_societe(db, id_affaire)
-            _insert_mouvement(
-                db, id_affaire, id_regle, id_support, id_avis,
-                snap_date, montant, frais, row.vl, row.nbuc, sg,
+            db.execute(
+                text(
+                    "INSERT INTO mouvement"
+                    " (id, modif_quand, id_affaire, id_mouvement_regle, id_support, id_avis,"
+                    "  montant_ope, frais, vl_date, date_sp, vl, nb_uc, etat)"
+                    " VALUES (:id, :now, :aff, :regle, :sup, :avis,"
+                    "  :m, :f, :dt, :dt, :v, :n, 5)"
+                ),
+                {"id": mid, "now": datetime.utcnow(), "aff": id_affaire, "regle": id_regle,
+                 "sup": id_support, "avis": id_avis, "m": str(montant), "f": str(frais),
+                 "dt": snap_date, "v": str(row.vl), "n": str(row.nbuc)},
             )
             insere += 1
 
+    yield {'type': 'progress', 'phase': 'import', 'current': total_mouv, 'total': total_mouv}
     db.commit()
 
-    # Recompute PRMP (CUMP) for affected (affaire, support) pairs
-    for id_affaire, id_support in affected_pairs:
+    # ── Phase 4 : PRMP ─────────────────────────────────────────────────────
+    pairs = list(affected_pairs)
+    yield {'type': 'progress', 'phase': 'prmp', 'current': 0, 'total': len(pairs)}
+    for pi, (id_affaire, id_support) in enumerate(pairs, 1):
+        if pi % 10 == 0:
+            yield {'type': 'progress', 'phase': 'prmp', 'current': pi, 'total': len(pairs)}
         try:
             _recompute_prmp(db, id_affaire, id_support)
         except Exception as exc:
             logger.warning("PRMP recompute failed (%s,%s): %s", id_affaire, id_support, exc)
+    yield {'type': 'progress', 'phase': 'prmp', 'current': len(pairs), 'total': len(pairs)}
     db.commit()
 
-    # Full recalcul pipeline
+    # ── Phase 5 : pipeline ──────────────────────────────────────────────────
     duree = 0.0
     if run_pipeline and affected_affaire_ids:
+        yield {'type': 'progress', 'phase': 'pipeline', 'current': 0,
+               'total': len(affected_affaire_ids)}
         try:
             duree = run_full_pipeline(db, list(affected_affaire_ids))
         except Exception as exc:
             logger.error("Erreur pipeline recalcul : %s", exc)
-            alertes.append(ImportAlerte(
-                code="recalcul_error",
-                message=f"Pipeline recalcul partiel : {exc}",
-            ))
+            alertes.append(ImportAlerte(code="recalcul_error", message=f"Pipeline : {exc}"))
 
-    return ImportCommitResult(
-        insere=insere,
-        mis_a_jour=mis_a_jour,
-        alertes=alertes,
-        avis_generes=avis_generes,
-        affaires_creees=affaires_creees,
-        duree_recalcul_s=round(duree, 2),
-    )
+    yield {
+        'type': 'done',
+        'insere': insere,
+        'mis_a_jour': mis_a_jour,
+        'alertes': [a.model_dump() for a in alertes],
+        'avis_generes': avis_generes,
+        'affaires_creees': affaires_creees,
+        'duree_recalcul_s': round(time.perf_counter() - t0, 2),
+    }
+
+
+def commit_mouvements(
+    db: Session,
+    raw_rows: list[dict],
+    id_societe_gestion: int | None = None,
+    id_personne: int | None = None,
+    fournisseur: str | None = None,
+    identifiant_societe_externe: str | None = None,
+    run_pipeline: bool = True,
+) -> dict:
+    for event in iter_commit_mouvements(
+        db, raw_rows,
+        id_societe_gestion=id_societe_gestion,
+        id_personne=id_personne,
+        fournisseur=fournisseur,
+        identifiant_societe_externe=identifiant_societe_externe,
+        run_pipeline=run_pipeline,
+    ):
+        if event.get('type') == 'done':
+            return ImportCommitResult(
+                insere=event['insere'],
+                mis_a_jour=event['mis_a_jour'],
+                alertes=[ImportAlerte(**a) for a in event['alertes']],
+                avis_generes=event['avis_generes'],
+                affaires_creees=event['affaires_creees'],
+                duree_recalcul_s=event['duree_recalcul_s'],
+            ).model_dump()
+    return ImportCommitResult(insere=0, mis_a_jour=0, alertes=[]).model_dump()

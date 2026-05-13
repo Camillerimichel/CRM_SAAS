@@ -22891,6 +22891,24 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     except Exception:
         pass
 
+    # Compagnie d'assurance (via produit générique)
+    compagnie_assurance_nom = None
+    try:
+        gid = getattr(affaire, "id_affaire_generique", None)
+        if gid:
+            row_compagnie = db.execute(
+                text(
+                    "SELECT s.nom FROM mariadb_affaires_generique g "
+                    "JOIN mariadb_societe s ON s.id = g.id_societe "
+                    "WHERE g.id = :gid LIMIT 1"
+                ),
+                {"gid": gid},
+            ).fetchone()
+            if row_compagnie:
+                compagnie_assurance_nom = row_compagnie._mapping.get("nom") if hasattr(row_compagnie, "_mapping") else row_compagnie[0]
+    except Exception:
+        compagnie_assurance_nom = None
+
     # Historique complet
     hist = (
         db.query(HistoriqueAffaire.date, HistoriqueAffaire.valo, HistoriqueAffaire.mouvement, HistoriqueAffaire.volat, HistoriqueAffaire.perf_sicav_52, HistoriqueAffaire.sicav, HistoriqueAffaire.annee)
@@ -23716,6 +23734,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "esg_field_labels": esg_field_labels,
             "societe_gestion_nom": societe_gestion_nom,
             "societe_gestion_role": societe_gestion_role,
+            "compagnie_assurance_nom": compagnie_assurance_nom,
         }
     )
 
@@ -26142,6 +26161,114 @@ def dashboard_import_recalcul_risques(request: Request, db: Session = Depends(ge
         logger.error("recalcul_risques srri_affaires: %s", traceback.format_exc())
         result["srri_affaires_error"] = str(exc)
     return JSONResponse(content=result)
+
+
+@router.post("/superadmin/import-fournisseurs/stream-recalcul-risques")
+def dashboard_import_stream_recalcul(request: Request, db: Session = Depends(get_db)):
+    """Même pipeline que recalcul-risques, mais en SSE avec compteurs d'entités par étape."""
+    _require_superadmin_access(request, db)
+
+    from src.database import SessionLocal as _SL
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            # ── Compter les entités avant de démarrer ──────────────────────
+            nb_clients = _db.execute(
+                text("SELECT COUNT(DISTINCT id) FROM mariadb_historique_personne_w WHERE id IS NOT NULL")
+            ).scalar() or 0
+            nb_affaires = _db.execute(
+                text("SELECT COUNT(DISTINCT id) FROM mariadb_historique_affaire_w WHERE id IS NOT NULL")
+            ).scalar() or 0
+
+            # ── Étape 1 : SRRI clients ─────────────────────────────────────
+            yield _sse({'type': 'progress', 'phase': 'srri_clients',
+                        'label': 'Calcul SRRI clients', 'current': 0, 'total': nb_clients})
+            try:
+                t0 = perf_counter()
+                _recompute_srri_clients(_db)
+                dur_c = round(perf_counter() - t0, 2)
+                _store_sri_metrics(_db, entity_type="client",
+                                   tempo_table="tempo_hist_personne_w", source="vev")
+                _update_sri_current(_db, entity_type="client")
+                yield _sse({'type': 'progress', 'phase': 'srri_clients',
+                            'label': 'Calcul SRRI clients', 'current': nb_clients,
+                            'total': nb_clients, 'duree_s': dur_c})
+            except Exception as exc:
+                _db.rollback()
+                logger.error("stream_recalcul srri_clients: %s", traceback.format_exc())
+                yield _sse({'type': 'step_error', 'phase': 'srri_clients', 'message': str(exc)})
+                dur_c = None
+
+            # ── Étape 2 : SRRI affaires ────────────────────────────────────
+            yield _sse({'type': 'progress', 'phase': 'srri_affaires',
+                        'label': 'Calcul SRRI affaires', 'current': 0, 'total': nb_affaires})
+            try:
+                t0 = perf_counter()
+                _recompute_srri_affaires(_db)
+                dur_a = round(perf_counter() - t0, 2)
+                _store_sri_metrics(_db, entity_type="affaire",
+                                   tempo_table="tempo_hist_affaire_w", source="vev")
+                _update_sri_current(_db, entity_type="affaire")
+                yield _sse({'type': 'progress', 'phase': 'srri_affaires',
+                            'label': 'Calcul SRRI affaires', 'current': nb_affaires,
+                            'total': nb_affaires, 'duree_s': dur_a})
+            except Exception as exc:
+                _db.rollback()
+                logger.error("stream_recalcul srri_affaires: %s", traceback.format_exc())
+                yield _sse({'type': 'step_error', 'phase': 'srri_affaires', 'message': str(exc)})
+                dur_a = None
+
+            yield _sse({
+                'type': 'done',
+                'nb_clients':  nb_clients,
+                'nb_affaires': nb_affaires,
+                'srri_clients':  dur_c,
+                'srri_affaires': dur_a,
+            })
+        except Exception as exc:
+            yield _sse({'type': 'error', 'message': str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/superadmin/import-fournisseurs/stream-reconstruct-historique")
+def dashboard_stream_reconstruct_historique(request: Request, db: Session = Depends(get_db)):
+    """SSE : reconstruit mariadb_historique_support_w depuis les mouvements pour toutes
+    les affaires n'ayant qu'une seule date de snapshot."""
+    _require_superadmin_access(request, db)
+
+    from src.database import SessionLocal as _SL
+    from src.services.reconstruct_historique import iter_reconstruct_historique
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            for event in iter_reconstruct_historique(_db):
+                yield _sse(event)
+        except Exception as exc:
+            logger.error("stream_reconstruct_historique: %s", traceback.format_exc())
+            yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/superadmin/import-fournisseurs/sample/{filename}", response_class=FileResponse)
@@ -29902,6 +30029,15 @@ def dashboard_mouvements(
             tot_neg_montant += montant_val
             tot_neg_frais += frais_val
 
+    avis_reference = None
+    if avis_id is not None:
+        row_ref = db.execute(
+            _text("SELECT reference FROM avis WHERE id = :id LIMIT 1"),
+            {"id": avis_id},
+        ).fetchone()
+        if row_ref:
+            avis_reference = row_ref[0]
+
     return templates.TemplateResponse(
         "dashboard_mouvements.html",
         {
@@ -29914,6 +30050,7 @@ def dashboard_mouvements(
             "tot_neg_frais": _fmt2(tot_neg_frais),
             "affaire_id": affaire_id,
             "avis_id": avis_id,
+            "avis_reference": avis_reference,
         },
     )
 
@@ -31432,6 +31569,28 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         .filter(Affaire.id_personne == client_id)
         .all()
     )
+
+    affaires_avec_hist_ids = {r.id for r in affaires_rows}
+    contrats_sans_historique_rows = db.execute(
+        text(
+            "SELECT a.id, a.ref, a.date_debut, g.nom_contrat "
+            "FROM mariadb_affaires a "
+            "LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique "
+            "WHERE a.id_personne = :cid "
+            "ORDER BY a.date_debut ASC"
+        ),
+        {"cid": client_id},
+    ).fetchall()
+    contrats_sans_historique = [
+        {
+            "id":          r._mapping["id"] if hasattr(r, "_mapping") else r[0],
+            "ref":         r._mapping["ref"] if hasattr(r, "_mapping") else r[1],
+            "date_debut":  str(r._mapping["date_debut"] if hasattr(r, "_mapping") else r[2] or "")[:10],
+            "nom_contrat": r._mapping["nom_contrat"] if hasattr(r, "_mapping") else r[3],
+        }
+        for r in contrats_sans_historique_rows
+        if (r._mapping["id"] if hasattr(r, "_mapping") else r[0]) not in affaires_avec_hist_ids
+    ]
 
     def _srri_from_vol(v):
         if v is None:
@@ -33269,6 +33428,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "serie_mov_cum": chart_mov_cum,
             "serie_mov_raw": chart_mov_raw,
             "client_affaires": client_affaires,
+            "contrats_sans_historique": contrats_sans_historique,
 
             # KPIs
             "last_valo_str": last_valo_str,

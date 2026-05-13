@@ -269,11 +269,11 @@ def _resolve_or_create_support(
 ) -> tuple[int, bool]:
     """Retourne (id_support, created). Crée le support si ISIN inconnu."""
     row = db.execute(
-        text("SELECT id FROM mariadb_support WHERE code_isin = :isin LIMIT 1"),
+        text("SELECT id FROM mariadb_support WHERE code_isin = :isin AND id IS NOT NULL LIMIT 1"),
         {"isin": code_isin},
     ).fetchone()
     if row:
-        return row[0], False
+        return int(row[0]), False
 
     # Créer à la volée
     next_id = db.execute(
@@ -478,6 +478,12 @@ def commit_inventaire(
             ))
 
         id_support, created = _resolve_or_create_support(db, row.code_isin, row.nom_support)
+        if id_support is None:
+            alertes.append(ImportAlerte(
+                ligne=i, code="isin_error",
+                message=f"Support introuvable ou sans id pour ISIN {row.code_isin}",
+            ))
+            continue
         if created:
             alertes.append(ImportAlerte(
                 ligne=i,

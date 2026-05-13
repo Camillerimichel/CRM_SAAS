@@ -9,8 +9,12 @@
       <button type="button" class="btn" onclick="try{window.close()}catch(e){window.history.back()}"><i class="fa-solid fa-xmark" style="margin-right:6px;"></i>Fermer</button>
     </div>
     <div class="muted" style="margin-bottom:8px; font-size:.9rem;">
-      {% if affaire_id %}<span>Affaire: #{{ affaire_id }}</span>{% endif %}
-      {% if avis_id %}<span style="margin-left:8px;">Avis: #{{ avis_id }}</span>{% endif %}
+      {% if affaire_id %}<span>Affaire : #{{ affaire_id }}</span>{% endif %}
+      {% if avis_reference %}
+        <span style="margin-left:8px; font-weight:600; color:#1e293b;">{{ avis_reference }}</span>
+      {% elif avis_id %}
+        <span style="margin-left:8px;">Avis : #{{ avis_id }}</span>
+      {% endif %}
     </div>
     <div class="table-wrap"><table id="mvTablePos" class="display" style="width:100%">
       <thead>

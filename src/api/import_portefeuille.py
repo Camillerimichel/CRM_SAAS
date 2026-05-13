@@ -37,6 +37,12 @@ from src.services.import_mouvements import (
     parse_mouvements_json,
     preview_mouvements,
 )
+from src.services.import_avis import (
+    commit_avis,
+    parse_avis_csv,
+    parse_avis_json,
+    preview_avis,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/import", tags=["import"])
@@ -190,3 +196,42 @@ async def mouvements_commit(
         identifiant_societe_externe=identifiant_societe_externe,
         run_pipeline=False,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Avis d'opérations
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/avis/preview",
+    response_model=ImportPreviewResult,
+    summary="Aperçu import avis d'opérations (sans écriture)",
+)
+async def avis_preview(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    format: Optional[str] = Query(None),
+    fournisseur: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+) -> ImportPreviewResult:
+    raw_rows = await _read_raw_rows(request, file, format, parse_avis_csv, parse_avis_json)
+    return preview_avis(db, raw_rows, fournisseur=fournisseur)
+
+
+@router.post(
+    "/avis/commit",
+    response_model=ImportCommitResult,
+    summary="Import avis d'opérations (écriture effective)",
+)
+async def avis_commit(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    format: Optional[str] = Query(None),
+    id_societe_gestion: Optional[int] = Query(None),
+    fournisseur: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+) -> ImportCommitResult:
+    raw_rows = await _read_raw_rows(request, file, format, parse_avis_csv, parse_avis_json)
+    if not raw_rows:
+        raise HTTPException(status_code=400, detail="Fichier vide ou non parseable.")
+    return commit_avis(db, raw_rows, id_societe_gestion=id_societe_gestion, fournisseur=fournisseur)
