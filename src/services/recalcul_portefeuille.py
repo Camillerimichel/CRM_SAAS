@@ -254,53 +254,10 @@ END
 """
 
 
-def recompute_dietz_affaires(
-    db: Session,
-    affaire_ids: list[int] | None = None,
-) -> float:
-    """
-    Recalcule Modified Dietz, perf_sicav_52, volat_52, SRRI pour les affaires.
-    Met à jour mariadb_historique_affaire_w et mariadb_affaires.SRI.
-    Retourne la durée en secondes.
-    """
-    t0 = perf_counter()
-
-    scope_filter = ""
-    params: dict = {}
-    if affaire_ids:
-        scope_filter = "WHERE id IN :ids"
-        params["ids"] = tuple(affaire_ids)
-
-    db.execute(text("DROP TABLE IF EXISTS tempo_hist_affaire_import_w"))
-    db.execute(
-        text(
-            """
-            CREATE TABLE tempo_hist_affaire_import_w (
-              id                INT,
-              `date`            DATETIME,
-              valo              DECIMAL(38,18),
-              mouvement         DECIMAL(38,18),
-              valorisation_suiv DECIMAL(38,18),
-              r                 DECIMAL(38,18),
-              dietz             DECIMAL(38,18),
-              perf_dietz        DECIMAL(38,18),
-              perf_52           DECIMAL(38,18),
-              volat_52          DECIMAL(38,18),
-              srri              INT,
-              rn                INT,
-              PRIMARY KEY (id, rn)
-            )
-            """
-        )
-    )
-
-    db.execute(
-        text(
-            f"""
-            INSERT INTO tempo_hist_affaire_import_w (
-              id, `date`, valo, mouvement, valorisation_suiv,
-              r, dietz, perf_dietz, perf_52, volat_52, srri, rn
-            )
+def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_historique_affaire_w") -> str:
+    """Génère le SELECT CTE Dietz+SRRI pour une fenêtre et un filtre d'IDs donnés."""
+    w = win - 1
+    return f"""
             WITH ordered AS (
               SELECT
                 id,
@@ -309,8 +266,8 @@ def recompute_dietz_affaires(
                 COALESCE(mouvement, 0)                                 AS mouvement,
                 LAG(valo) OVER (PARTITION BY id ORDER BY `date`)       AS prev_valo,
                 ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`)    AS rn
-              FROM mariadb_historique_affaire_w
-              {scope_filter}
+              FROM {source_table}
+              WHERE id IN ({id_filter_sql})
             ),
             base AS (
               SELECT
@@ -346,8 +303,8 @@ def recompute_dietz_affaires(
               SELECT *,
                 STDDEV_SAMP(perf_dietz) OVER (
                   PARTITION BY id ORDER BY `date`
-                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
-                ) * SQRT(52) AS volat_raw
+                  ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
+                ) * SQRT({float(win)}) AS volat_raw
               FROM perf
             )
             SELECT
@@ -359,12 +316,12 @@ def recompute_dietz_affaires(
               dietz,
               perf_dietz,
               CASE
-                WHEN LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                ELSE (dietz - LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`))
-                     / NULLIF(LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`), 0)
+                WHEN LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                ELSE (dietz - LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`))
+                     / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0)
               END                                                AS perf_52,
-              CASE WHEN rn < 52 THEN 0 ELSE COALESCE(volat_raw, 0) END AS volat_52,
-              CASE WHEN rn < 52 THEN 0
+              CASE WHEN rn < {win} THEN 0 ELSE COALESCE(volat_raw, 0) END AS volat_52,
+              CASE WHEN rn < {win} THEN 0
                 WHEN COALESCE(volat_raw, 0) < 0.005 THEN 1
                 WHEN COALESCE(volat_raw, 0) < 0.02  THEN 2
                 WHEN COALESCE(volat_raw, 0) < 0.05  THEN 3
@@ -375,11 +332,121 @@ def recompute_dietz_affaires(
               END                                                AS srri,
               rn
             FROM vola
+            WHERE id IS NOT NULL
             ORDER BY id, `date`
+    """
+
+
+def _build_freq_map(db: Session, source_table: str, id_filter_sql: str | None = None) -> dict[int, str]:
+    """
+    Classifie chaque entité (id) par fréquence moyenne de données.
+    Retourne {win: 'id1,id2,...'} avec win ∈ {52, 12, 4}.
+    """
+    where = f"WHERE id IN ({id_filter_sql})" if id_filter_sql else ""
+    db.execute(text("DROP TABLE IF EXISTS tmp_dietz_freq"))
+    db.execute(
+        text(
+            f"""
+            CREATE TEMPORARY TABLE tmp_dietz_freq AS
+            SELECT
+                id,
+                COALESCE(ROUND(AVG(days_gap)), 7) AS avg_days,
+                CASE
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 10 THEN 52
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 40 THEN 12
+                  ELSE 4
+                END AS win
+            FROM (
+                SELECT id,
+                       DATEDIFF(`date`,
+                           LAG(`date`) OVER (PARTITION BY id ORDER BY `date`)
+                       ) AS days_gap
+                FROM {source_table}
+                {where}
+            ) t
+            WHERE days_gap IS NOT NULL AND days_gap > 0
+            GROUP BY id
             """
-        ),
-        params,
+        )
     )
+    rows = db.execute(text("SELECT win, GROUP_CONCAT(id ORDER BY id) AS ids FROM tmp_dietz_freq GROUP BY win")).fetchall()
+    freq_map: dict[int, str] = {}
+    for row in rows:
+        m = row._mapping if hasattr(row, "_mapping") else {}
+        win = int(m.get("win") or row[0])
+        ids_str = str(m.get("ids") or row[1] or "")
+        if ids_str:
+            freq_map[win] = ids_str
+
+    # Entités sans données de fréquence → fenêtre 52 par défaut
+    all_ids_row = db.execute(
+        text(f"SELECT GROUP_CONCAT(DISTINCT id ORDER BY id) FROM {source_table} {where}")
+    ).scalar() or ""
+    classified: set[int] = set()
+    for ids_str in freq_map.values():
+        classified.update(int(i) for i in ids_str.split(",") if i.strip())
+    unclassified = [str(i) for i in (int(x) for x in all_ids_row.split(",") if x.strip()) if i not in classified]
+    if unclassified:
+        existing = freq_map.get(52, "")
+        freq_map[52] = ",".join(filter(None, [existing] + unclassified))
+
+    return freq_map
+
+
+def recompute_dietz_affaires(
+    db: Session,
+    affaire_ids: list[int] | None = None,
+) -> float:
+    """
+    Recalcule Modified Dietz, perf_sicav_52, volat_52, SRRI pour les affaires.
+    Met à jour mariadb_historique_affaire_w et mariadb_affaires.SRI.
+    Adapte la fenêtre à la fréquence des données (hebdo/mensuel/trimestriel).
+    Retourne la durée en secondes.
+    """
+    t0 = perf_counter()
+
+    id_filter = ",".join(str(i) for i in affaire_ids) if affaire_ids else None
+
+    freq_map = _build_freq_map(db, "mariadb_historique_affaire_w", id_filter)
+
+    db.execute(text("DROP TABLE IF EXISTS tempo_hist_affaire_import_w"))
+    db.execute(
+        text(
+            """
+            CREATE TABLE tempo_hist_affaire_import_w (
+              id                INT,
+              `date`            DATETIME,
+              valo              DECIMAL(38,18),
+              mouvement         DECIMAL(38,18),
+              valorisation_suiv DECIMAL(38,18),
+              r                 DECIMAL(38,18),
+              dietz             DECIMAL(38,18),
+              perf_dietz        DECIMAL(38,18),
+              perf_52           DECIMAL(38,18),
+              volat_52          DECIMAL(38,18),
+              srri              INT,
+              rn                INT,
+              PRIMARY KEY (id, rn)
+            )
+            """
+        )
+    )
+
+    for win, ids_str in freq_map.items():
+        if not ids_str:
+            continue
+        cte_sql = _dietz_cte_sql(win, ids_str, "mariadb_historique_affaire_w")
+        db.execute(
+            text(
+                f"""
+                INSERT INTO tempo_hist_affaire_import_w (
+                  id, `date`, valo, mouvement, valorisation_suiv,
+                  r, dietz, perf_dietz, perf_52, volat_52, srri, rn
+                )
+                {cte_sql}
+                """
+            )
+        )
 
     # Update historique_affaire
     db.execute(
@@ -434,15 +501,14 @@ def recompute_dietz_clients(
     """
     Recalcule Modified Dietz, perf_sicav_52, volat_52, SRRI pour les clients.
     Met à jour mariadb_historique_personne_w et mariadb_clients.SRI.
+    Adapte la fenêtre à la fréquence des données (hebdo/mensuel/trimestriel).
     Retourne la durée en secondes.
     """
     t0 = perf_counter()
 
-    scope_filter = ""
-    params: dict = {}
-    if client_ids:
-        scope_filter = "AND id IN :ids"
-        params["ids"] = tuple(client_ids)
+    id_filter = ",".join(str(i) for i in client_ids) if client_ids else None
+
+    freq_map = _build_freq_map(db, "mariadb_historique_personne_w", id_filter)
 
     db.execute(text("DROP TABLE IF EXISTS tempo_hist_personne_import_w"))
     db.execute(
@@ -467,92 +533,21 @@ def recompute_dietz_clients(
         )
     )
 
-    db.execute(
-        text(
-            f"""
-            INSERT INTO tempo_hist_personne_import_w (
-              id, `date`, valo, mouvement, valorisation_suiv,
-              r, dietz, perf_dietz, perf_52, volat_52, srri, rn
+    for win, ids_str in freq_map.items():
+        if not ids_str:
+            continue
+        cte_sql = _dietz_cte_sql(win, ids_str, "mariadb_historique_personne_w")
+        db.execute(
+            text(
+                f"""
+                INSERT INTO tempo_hist_personne_import_w (
+                  id, `date`, valo, mouvement, valorisation_suiv,
+                  r, dietz, perf_dietz, perf_52, volat_52, srri, rn
+                )
+                {cte_sql}
+                """
             )
-            WITH ordered AS (
-              SELECT
-                id,
-                `date`,
-                valo                                                   AS valorisation_suiv,
-                COALESCE(mouvement, 0)                                 AS mouvement,
-                LAG(valo) OVER (PARTITION BY id ORDER BY `date`)       AS prev_valo,
-                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`)    AS rn
-              FROM mariadb_historique_personne_w
-              WHERE id IS NOT NULL {scope_filter}
-            ),
-            base AS (
-              SELECT
-                id, `date`, rn,
-                COALESCE(prev_valo, 0)  AS valo,
-                mouvement,
-                valorisation_suiv,
-                CASE
-                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
-                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
-                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
-                END AS r
-              FROM ordered
-            ),
-            dietz_calc AS (
-              SELECT *,
-                1 + SUM(COALESCE(r, 0)) OVER (
-                  PARTITION BY id ORDER BY `date`
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ) AS dietz
-              FROM base
-            ),
-            perf AS (
-              SELECT *,
-                CASE
-                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
-                END AS perf_dietz
-              FROM dietz_calc
-            ),
-            vola AS (
-              SELECT *,
-                STDDEV_SAMP(perf_dietz) OVER (
-                  PARTITION BY id ORDER BY `date`
-                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
-                ) * SQRT(52) AS volat_raw
-              FROM perf
-            )
-            SELECT
-              id, `date`,
-              valo,
-              mouvement,
-              valorisation_suiv,
-              r,
-              dietz,
-              perf_dietz,
-              CASE
-                WHEN LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                ELSE (dietz - LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`))
-                     / NULLIF(LAG(dietz, 52) OVER (PARTITION BY id ORDER BY `date`), 0)
-              END                                                AS perf_52,
-              CASE WHEN rn < 52 THEN 0 ELSE COALESCE(volat_raw, 0) END AS volat_52,
-              CASE WHEN rn < 52 THEN 0
-                WHEN COALESCE(volat_raw, 0) < 0.005 THEN 1
-                WHEN COALESCE(volat_raw, 0) < 0.02  THEN 2
-                WHEN COALESCE(volat_raw, 0) < 0.05  THEN 3
-                WHEN COALESCE(volat_raw, 0) < 0.10  THEN 4
-                WHEN COALESCE(volat_raw, 0) < 0.15  THEN 5
-                WHEN COALESCE(volat_raw, 0) < 0.25  THEN 6
-                ELSE 7
-              END                                                AS srri,
-              rn
-            FROM vola
-            ORDER BY id, `date`
-            """
-        ),
-        params,
-    )
+        )
 
     db.execute(
         text(

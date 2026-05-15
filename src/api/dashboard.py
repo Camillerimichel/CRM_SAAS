@@ -24523,8 +24523,50 @@ def _ensure_allocation_sri_columns(db: Session) -> tuple[bool, bool]:
 
 
 def _recompute_srri_clients(db: Session) -> float:
-    """Recalcule SRRI/volat pour les clients et alimente sri_metrics."""
+    """Recalcule SRRI/volat pour les clients et alimente sri_metrics.
+
+    Adapte la fenêtre à la fréquence des données (hebdo/mensuel/trimestriel).
+    """
     started = perf_counter()
+
+    # ── Étape 1 : classifier chaque client par fréquence ─────────────────────
+    db.execute(text("DROP TABLE IF EXISTS tmp_srri_freq"))
+    db.execute(
+        text(
+            """
+            CREATE TEMPORARY TABLE tmp_srri_freq AS
+            SELECT
+                id,
+                COALESCE(ROUND(AVG(days_gap)), 7) AS avg_days,
+                CASE
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 10 THEN 52
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 40 THEN 12
+                  ELSE 4
+                END AS win
+            FROM (
+                SELECT id,
+                       DATEDIFF(`date`,
+                           LAG(`date`) OVER (PARTITION BY id ORDER BY `date`)
+                       ) AS days_gap
+                FROM mariadb_historique_personne_w
+                WHERE id IS NOT NULL
+            ) t
+            WHERE days_gap IS NOT NULL AND days_gap > 0
+            GROUP BY id
+            """
+        )
+    )
+
+    rows_freq = db.execute(text("SELECT win, GROUP_CONCAT(id ORDER BY id) AS ids FROM tmp_srri_freq GROUP BY win")).fetchall()
+    freq_map: dict[int, str] = {}
+    for row in rows_freq:
+        m = row._mapping if hasattr(row, "_mapping") else {}
+        win = int(m.get("win") or row[0])
+        ids_str = str(m.get("ids") or row[1] or "")
+        if ids_str:
+            freq_map[win] = ids_str
+
+    # ── Étape 2 : créer la table tempo ────────────────────────────────────────
     db.execute(text("DROP TABLE IF EXISTS tempo_hist_personne_w"))
     db.execute(
         text(
@@ -24546,112 +24588,93 @@ def _recompute_srri_clients(db: Session) -> float:
             """
         )
     )
-    db.execute(
-        text(
-            """
-            INSERT INTO tempo_hist_personne_w (
-              id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+
+    # ── Étape 3 : insérer par classe de fréquence ─────────────────────────────
+    _WIN_SQRT = {52: 52.0, 12: 12.0, 4: 4.0}
+    for win, ids_str in freq_map.items():
+        if not ids_str:
+            continue
+        sqrt_factor = _WIN_SQRT.get(win, float(win))
+        w = win - 1
+        db.execute(
+            text(
+                f"""
+                INSERT INTO tempo_hist_personne_w (
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                )
+                WITH ordered AS (
+                  SELECT id, `date`, valo AS valorisation_suiv, mouvement,
+                         LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                         ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+                  FROM mariadb_historique_personne_w
+                  WHERE id IS NOT NULL AND id IN ({ids_str})
+                ),
+                base AS (
+                  SELECT id, `date`, COALESCE(prev_valo, 0) AS valo,
+                         mouvement, valorisation_suiv, rn,
+                         CASE
+                           WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                           ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                                / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                         END AS r
+                  FROM ordered
+                ),
+                dietz_calc AS (
+                  SELECT *,
+                    1 + SUM(COALESCE(r, 0)) OVER (
+                      PARTITION BY id ORDER BY `date`
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ) AS dietz
+                  FROM base
+                ),
+                perf AS (
+                  SELECT id, `date`, valo, mouvement, valorisation_suiv,
+                         LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`) AS valo_prev,
+                         r, dietz, rn,
+                         CASE
+                           WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                           ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                                / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                         END AS perf_dietz
+                  FROM dietz_calc
+                ),
+                vola AS (
+                  SELECT *,
+                    STDDEV_SAMP(perf_dietz) OVER (
+                      PARTITION BY id ORDER BY `date`
+                      ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
+                    ) * SQRT({sqrt_factor}) AS volat_raw
+                  FROM perf
+                )
+                SELECT id, `date`,
+                       COALESCE(valo_prev, 0) AS valo,
+                       mouvement, valorisation_suiv, r, dietz, perf_dietz,
+                       CASE WHEN rn < {win} THEN 0 ELSE volat_raw END AS volat_52,
+                       CASE
+                         WHEN rn < {win}      THEN 0
+                         WHEN volat_raw < 0.005 THEN 1
+                         WHEN volat_raw < 0.02  THEN 2
+                         WHEN volat_raw < 0.05  THEN 3
+                         WHEN volat_raw < 0.10  THEN 4
+                         WHEN volat_raw < 0.15  THEN 5
+                         WHEN volat_raw < 0.25  THEN 6
+                         ELSE 7
+                       END AS srri,
+                       rn
+                FROM vola
+                WHERE id IS NOT NULL
+                ORDER BY id, `date`
+                """
             )
-            WITH ordered AS (
-              SELECT
-                id,
-                `date`,
-                valo AS valorisation_suiv,
-                mouvement,
-                LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
-                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
-              FROM mariadb_historique_personne_w
-              WHERE id IS NOT NULL
-            ),
-            base AS (
-              SELECT
-                id,
-                `date`,
-                COALESCE(prev_valo, 0) AS valo,
-                mouvement,
-                valorisation_suiv,
-                rn,
-                CASE
-                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
-                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
-                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
-                END AS r
-              FROM ordered
-            ),
-            dietz_calc AS (
-              SELECT
-                *,
-                1 + SUM(COALESCE(r, 0)) OVER (
-                  PARTITION BY id
-                  ORDER BY `date`
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ) AS dietz
-              FROM base
-            ),
-            perf AS (
-              SELECT
-                id,
-                `date`,
-                valo,
-                mouvement,
-                valorisation_suiv,
-                LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`) AS valo_prev,
-                r,
-                dietz,
-                rn,
-                CASE
-                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
-                END AS perf_dietz
-              FROM dietz_calc
-            ),
-            vola AS (
-              SELECT
-                *,
-                STDDEV_SAMP(perf_dietz) OVER (
-                  PARTITION BY id
-                  ORDER BY `date`
-                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
-                ) * SQRT(52) AS volat_raw
-              FROM perf
-            )
-            SELECT
-              id,
-              `date`,
-              COALESCE(valo_prev, 0) AS valo,
-              mouvement,
-              valorisation_suiv,
-              r,
-              dietz,
-              perf_dietz,
-              CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
-              CASE
-                WHEN rn < 52 THEN 0
-                WHEN volat_raw < 0.005 THEN 1
-                WHEN volat_raw < 0.02  THEN 2
-                WHEN volat_raw < 0.05  THEN 3
-                WHEN volat_raw < 0.10  THEN 4
-                WHEN volat_raw < 0.15 THEN 5
-                WHEN volat_raw < 0.25 THEN 6
-                ELSE 7
-              END AS srri,
-              rn
-            FROM vola
-            ORDER BY id, `date`
-            """
         )
-    )
+
     db.execute(
         text(
             """
             UPDATE mariadb_historique_personne_w AS m
             JOIN tempo_hist_personne_w AS t
-              ON m.id = t.id
-             AND m.`date` = t.`date`
-            SET
-              m.volat = t.volat_52,
-              m.SRRI  = t.srri
+              ON m.id = t.id AND m.`date` = t.`date`
+            SET m.volat = t.volat_52, m.SRRI = t.srri
             """
         )
     )
@@ -24660,15 +24683,13 @@ def _recompute_srri_clients(db: Session) -> float:
             """
             UPDATE mariadb_clients AS c
             JOIN (
-              SELECT id, srri
-              FROM (
+              SELECT id, srri FROM (
                 SELECT id, srri,
                        ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date` DESC) AS rk
                 FROM tempo_hist_personne_w
               ) AS ordered
               WHERE rk = 1
-            ) AS t
-              ON c.id = t.id
+            ) AS t ON c.id = t.id
             SET c.SRI = t.srri
             """
         )
@@ -24678,9 +24699,141 @@ def _recompute_srri_clients(db: Session) -> float:
     return perf_counter() - started
 
 
+def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) -> str:
+    """Génère le bloc CTE + SELECT pour le calcul SRRI avec une fenêtre donnée."""
+    w = window - 1  # ROWS BETWEEN w PRECEDING AND CURRENT ROW
+    return f"""
+            WITH ordered AS (
+              SELECT
+                id,
+                `date`,
+                valo AS valorisation_suiv,
+                mouvement,
+                LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
+                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
+              FROM mariadb_historique_affaire_w
+              WHERE id IN ({id_filter_sql})
+            ),
+            base AS (
+              SELECT
+                id, `date`,
+                COALESCE(prev_valo, 0) AS valo,
+                mouvement, valorisation_suiv, rn,
+                CASE
+                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
+                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
+                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
+                END AS r
+              FROM ordered
+            ),
+            dietz_calc AS (
+              SELECT *,
+                1 + SUM(COALESCE(r, 0)) OVER (
+                  PARTITION BY id ORDER BY `date`
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) AS dietz
+              FROM base
+            ),
+            perf AS (
+              SELECT
+                id, `date`,
+                COALESCE(LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`), 0) AS valo_prev,
+                mouvement, valorisation_suiv, r, dietz, rn,
+                CASE
+                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
+                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                END AS perf_dietz
+              FROM dietz_calc
+            ),
+            vola AS (
+              SELECT *,
+                STDDEV_SAMP(perf_dietz) OVER (
+                  PARTITION BY id ORDER BY `date`
+                  ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
+                ) * SQRT({sqrt_factor}) AS volat_raw
+              FROM perf
+            )
+            SELECT
+              id, `date`,
+              valo_prev AS valo,
+              mouvement, valorisation_suiv, r, dietz, perf_dietz,
+              CASE WHEN rn < {window} THEN 0 ELSE volat_raw END AS volat_52,
+              CASE
+                WHEN rn < {window}    THEN 0
+                WHEN volat_raw < 0.005 THEN 1
+                WHEN volat_raw < 0.02  THEN 2
+                WHEN volat_raw < 0.05  THEN 3
+                WHEN volat_raw < 0.10  THEN 4
+                WHEN volat_raw < 0.15  THEN 5
+                WHEN volat_raw < 0.25  THEN 6
+                ELSE 7
+              END AS srri,
+              rn
+            FROM vola
+            WHERE id IS NOT NULL
+            ORDER BY id, `date`
+    """
+
+
 def _recompute_srri_affaires(db: Session) -> float:
-    """Recalcule SRRI/volat pour les affaires et alimente sri_metrics."""
+    """Recalcule SRRI/volat pour les affaires et alimente sri_metrics.
+
+    Adapte la fenêtre de volatilité à la fréquence des données :
+    - hebdomadaire (intervalle moyen ≤10 j) : fenêtre 52, √52
+    - mensuelle    (11–40 j)                : fenêtre 12, √12
+    - trimestrielle (>40 j)                 : fenêtre 4,  √4
+    """
     started = perf_counter()
+
+    # ── Étape 1 : classifier chaque affaire par fréquence de données ──────────
+    db.execute(text("DROP TABLE IF EXISTS tmp_srri_freq"))
+    db.execute(
+        text(
+            """
+            CREATE TEMPORARY TABLE tmp_srri_freq AS
+            SELECT
+                id,
+                COALESCE(ROUND(AVG(days_gap)), 7) AS avg_days,
+                CASE
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 10 THEN 52
+                  WHEN COALESCE(ROUND(AVG(days_gap)), 7) <= 40 THEN 12
+                  ELSE 4
+                END AS win
+            FROM (
+                SELECT id,
+                       DATEDIFF(`date`,
+                           LAG(`date`) OVER (PARTITION BY id ORDER BY `date`)
+                       ) AS days_gap
+                FROM mariadb_historique_affaire_w
+            ) t
+            WHERE days_gap IS NOT NULL AND days_gap > 0
+            GROUP BY id
+            """
+        )
+    )
+
+    # Récupérer les listes d'IDs par classe
+    rows_freq = db.execute(text("SELECT win, GROUP_CONCAT(id ORDER BY id) AS ids FROM tmp_srri_freq GROUP BY win")).fetchall()
+    freq_map: dict[int, str] = {}
+    for row in rows_freq:
+        m = row._mapping if hasattr(row, "_mapping") else {}
+        win = int(m.get("win") or row[0])
+        ids_str = str(m.get("ids") or row[1] or "")
+        if ids_str:
+            freq_map[win] = ids_str
+
+    # Affaires sans historique → fenêtre 52 par défaut
+    all_ids_str = db.execute(text("SELECT GROUP_CONCAT(DISTINCT id ORDER BY id) FROM mariadb_historique_affaire_w")).scalar() or ""
+    classified_ids = set()
+    for ids_str in freq_map.values():
+        classified_ids.update(int(i) for i in ids_str.split(",") if i.strip())
+    unclassified = [str(i) for i in (int(x) for x in all_ids_str.split(",") if x.strip()) if i not in classified_ids]
+    if unclassified:
+        freq_map.setdefault(52, "")
+        freq_map[52] = ",".join(filter(None, [freq_map[52]] + unclassified))
+
+    # ── Étape 2 : créer la table tempo ────────────────────────────────────────
     db.execute(text("DROP TABLE IF EXISTS tempo_hist_affaire_w"))
     db.execute(
         text(
@@ -24702,100 +24855,24 @@ def _recompute_srri_affaires(db: Session) -> float:
             """
         )
     )
-    db.execute(
-        text(
-            """
-            INSERT INTO tempo_hist_affaire_w (
-              id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+
+    # ── Étape 3 : insérer par classe de fréquence ─────────────────────────────
+    _WIN_SQRT = {52: 52.0, 12: 12.0, 4: 4.0}
+    for win, ids_str in freq_map.items():
+        if not ids_str:
+            continue
+        sqrt_factor = _WIN_SQRT.get(win, float(win))
+        cte_sql = _srri_cte_for_window(win, sqrt_factor, ids_str)
+        db.execute(
+            text(
+                f"""
+                INSERT INTO tempo_hist_affaire_w (
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                )
+                {cte_sql}
+                """
             )
-            WITH ordered AS (
-              SELECT
-                id,
-                `date`,
-                valo AS valorisation_suiv,
-                mouvement,
-                LAG(valo) OVER (PARTITION BY id ORDER BY `date`) AS prev_valo,
-                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`) AS rn
-              FROM mariadb_historique_affaire_w
-            ),
-            base AS (
-              SELECT
-                id,
-                `date`,
-                COALESCE(prev_valo, 0) AS valo,
-                mouvement,
-                valorisation_suiv,
-                rn,
-                CASE
-                  WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
-                  ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
-                       / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)
-                END AS r
-              FROM ordered
-            ),
-            dietz_calc AS (
-              SELECT
-                *,
-                1 + SUM(COALESCE(r, 0)) OVER (
-                  PARTITION BY id
-                  ORDER BY `date`
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ) AS dietz
-              FROM base
-            ),
-            perf AS (
-              SELECT
-                id,
-                `date`,
-                COALESCE(LAG(valorisation_suiv) OVER (PARTITION BY id ORDER BY `date`), 0) AS valo_prev,
-                mouvement,
-                valorisation_suiv,
-                r,
-                dietz,
-                rn,
-                CASE
-                  WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
-                END AS perf_dietz
-              FROM dietz_calc
-            ),
-            vola AS (
-              SELECT
-                *,
-                STDDEV_SAMP(perf_dietz) OVER (
-                  PARTITION BY id
-                  ORDER BY `date`
-                  ROWS BETWEEN 51 PRECEDING AND CURRENT ROW
-                ) * SQRT(52) AS volat_raw
-              FROM perf
-            )
-            SELECT
-              id,
-              `date`,
-              valo_prev AS valo,
-              mouvement,
-              valorisation_suiv,
-              r,
-              dietz,
-              perf_dietz,
-              CASE WHEN rn < 52 THEN 0 ELSE volat_raw END AS volat_52,
-              CASE
-                WHEN rn < 52 THEN 0
-                WHEN volat_raw < 0.005 THEN 1
-                WHEN volat_raw < 0.02  THEN 2
-                WHEN volat_raw < 0.05  THEN 3
-                WHEN volat_raw < 0.10  THEN 4
-                WHEN volat_raw < 0.15 THEN 5
-                WHEN volat_raw < 0.25 THEN 6
-                ELSE 7
-              END AS srri,
-              rn
-            FROM vola
-            ORDER BY id, `date`
-            """
         )
-    )
     db.execute(
         text(
             """
@@ -25177,7 +25254,23 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
         except Exception:
             selected_societe_id = None
     search_term = request.query_params.get("q") or None
-    per_page = 25
+    filter_niveau = request.query_params.get("qniveau") or None
+    filter_parent_id: int | None = None
+    raw_qparent = request.query_params.get("qparent")
+    if raw_qparent not in (None, ""):
+        try:
+            filter_parent_id = int(raw_qparent)
+        except Exception:
+            filter_parent_id = None
+    _SORT_MAP = {
+        "nom": "sg.nom", "niveau": "sg.organisation_level",
+        "parent": "parent.nom", "clients": "clients_actifs",
+        "affaires": "affaires_actives", "contact": "sg.contact",
+    }
+    sort_col = request.query_params.get("sort") or "nom"
+    sort_order = "DESC" if request.query_params.get("order") == "desc" else "ASC"
+    sort_expr = _SORT_MAP.get(sort_col, "sg.nom")
+    per_page = 10
     user_per_page = 25
     client_per_page = 25
     log_per_page = 60
@@ -25271,120 +25364,73 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
     societes_gestion: list[dict] = []
     total_societes = 0
     try:
-        params = {"q": search_term, "pat": f"%{search_term}%" if search_term else None, "lim": per_page, "off": offset}
+        params = {
+            "q": search_term, "pat": f"%{search_term}%" if search_term else None,
+            "niveau": filter_niveau, "parent_id": filter_parent_id,
+            "lim": per_page, "off": offset,
+        }
+        _select_fields = """
+                    SELECT
+                        sg.id, sg.nom, sg.nature, sg.organisation_level,
+                        sg.parent_societe_id, parent.nom AS parent_societe_nom,
+                        sg.contact, sg.telephone, sg.email, sg.adresse,
+                        sg.actif, sg.created_at, sg.updated_at,
+                        (SELECT COUNT(DISTINCT c.id) FROM mariadb_clients c
+                         WHERE c.id_societe_gestion IN (
+                             SELECT h.descendant_societe_id FROM mariadb_societe_hierarchy h
+                             WHERE h.ancestor_societe_id = sg.id)
+                        ) AS clients_actifs,
+                        (SELECT COUNT(DISTINCT a.id) FROM mariadb_affaires a
+                         JOIN mariadb_clients c2 ON c2.id = a.id_personne
+                         WHERE c2.id_societe_gestion IN (
+                             SELECT h.descendant_societe_id FROM mariadb_societe_hierarchy h
+                             WHERE h.ancestor_societe_id = sg.id)
+                        ) AS affaires_actives
+                    FROM mariadb_societe_gestion sg
+                    LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
+        """
+        _where_extra = (
+            "AND (:niveau IS NULL OR sg.organisation_level = :niveau)\n"
+            "AND (:parent_id IS NULL OR sg.parent_societe_id = :parent_id)\n"
+        )
         if access_scope_ids:
             params["scope_ids"] = access_scope_ids
             rows = db.execute(
                 text(
-                    """
-                    SELECT
-                        sg.id,
-                        sg.nom,
-                        sg.nature,
-                        sg.organisation_level,
-                        sg.parent_societe_id,
-                        parent.nom AS parent_societe_nom,
-                        sg.contact,
-                        sg.telephone,
-                        sg.email,
-                        sg.adresse,
-                        sg.actif,
-                        sg.created_at,
-                        sg.updated_at,
-                        (
-                            SELECT COUNT(DISTINCT c.id)
-                            FROM mariadb_clients c
-                            WHERE c.id_societe_gestion IN (
-                                SELECT h.descendant_societe_id
-                                FROM mariadb_societe_hierarchy h
-                                WHERE h.ancestor_societe_id = sg.id
-                            )
-                        ) AS clients_actifs,
-                        (
-                            SELECT COUNT(DISTINCT afs.affaire_id)
-                            FROM mariadb_affaire_societe afs
-                            WHERE afs.societe_id IN (
-                                SELECT h.descendant_societe_id
-                                FROM mariadb_societe_hierarchy h
-                                WHERE h.ancestor_societe_id = sg.id
-                            )
-                            AND afs.date_fin IS NULL
-                        ) AS affaires_actives
-                    FROM mariadb_societe_gestion sg
-                    LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
-                    WHERE sg.id IN :scope_ids
-                      AND (:q IS NULL OR sg.nom LIKE :pat)
-                    ORDER BY sg.nom
-                    LIMIT :lim OFFSET :off
-                    """
+                    _select_fields +
+                    "WHERE sg.id IN :scope_ids AND (:q IS NULL OR sg.nom LIKE :pat)\n" +
+                    _where_extra +
+                    f"ORDER BY {sort_expr} {sort_order} LIMIT :lim OFFSET :off"
                 ).bindparams(bindparam("scope_ids", expanding=True)),
                 params,
             ).fetchall()
             total_societes = db.execute(
                 text(
-                    """
-                    SELECT COUNT(*)
-                    FROM mariadb_societe_gestion sg
-                    WHERE sg.id IN :scope_ids
-                      AND (:q IS NULL OR sg.nom LIKE :pat)
-                    """
+                    "SELECT COUNT(*) FROM mariadb_societe_gestion sg "
+                    "LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id "
+                    "WHERE sg.id IN :scope_ids AND (:q IS NULL OR sg.nom LIKE :pat)\n" +
+                    _where_extra
                 ).bindparams(bindparam("scope_ids", expanding=True)),
-                {"scope_ids": access_scope_ids, "q": search_term, "pat": f"%{search_term}%" if search_term else None},
+                {k: v for k, v in params.items() if k != "lim" and k != "off"},
             ).scalar() or 0
         else:
             rows = db.execute(
                 text(
-                    """
-                    SELECT
-                        sg.id,
-                        sg.nom,
-                        sg.nature,
-                        sg.organisation_level,
-                        sg.parent_societe_id,
-                        parent.nom AS parent_societe_nom,
-                        sg.contact,
-                        sg.telephone,
-                        sg.email,
-                        sg.adresse,
-                        sg.actif,
-                        sg.created_at,
-                        sg.updated_at,
-                        (
-                            SELECT COUNT(DISTINCT c.id)
-                            FROM mariadb_clients c
-                            WHERE c.id_societe_gestion IN (
-                                SELECT h.descendant_societe_id
-                                FROM mariadb_societe_hierarchy h
-                                WHERE h.ancestor_societe_id = sg.id
-                            )
-                        ) AS clients_actifs,
-                        (
-                            SELECT COUNT(DISTINCT afs.affaire_id)
-                            FROM mariadb_affaire_societe afs
-                            WHERE afs.societe_id IN (
-                                SELECT h.descendant_societe_id
-                                FROM mariadb_societe_hierarchy h
-                                WHERE h.ancestor_societe_id = sg.id
-                            )
-                            AND afs.date_fin IS NULL
-                        ) AS affaires_actives
-                    FROM mariadb_societe_gestion sg
-                    LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
-                    WHERE (:q IS NULL OR sg.nom LIKE :pat)
-                    ORDER BY sg.nom
-                    LIMIT :lim OFFSET :off
-                    """
+                    _select_fields +
+                    "WHERE (:q IS NULL OR sg.nom LIKE :pat)\n" +
+                    _where_extra +
+                    f"ORDER BY {sort_expr} {sort_order} LIMIT :lim OFFSET :off"
                 ),
                 params,
             ).fetchall()
             total_societes = db.execute(
                 text(
-                    """
-                    SELECT COUNT(*) FROM mariadb_societe_gestion sg
-                    WHERE (:q IS NULL OR sg.nom LIKE :pat)
-                    """
+                    "SELECT COUNT(*) FROM mariadb_societe_gestion sg "
+                    "LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id "
+                    "WHERE (:q IS NULL OR sg.nom LIKE :pat)\n" +
+                    _where_extra
                 ),
-                {"q": search_term, "pat": f"%{search_term}%" if search_term else None},
+                {k: v for k, v in params.items() if k != "lim" and k != "off"},
             ).scalar() or 0
         societes_gestion = [dict(r._mapping) for r in rows]
     except Exception:
@@ -25430,14 +25476,14 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
                                 )
                             ) AS clients_actifs,
                             (
-                                SELECT COUNT(DISTINCT afs.affaire_id)
-                                FROM mariadb_affaire_societe afs
-                                WHERE afs.societe_id IN (
+                                SELECT COUNT(DISTINCT a.id)
+                                FROM mariadb_affaires a
+                                JOIN mariadb_clients c2 ON c2.id = a.id_personne
+                                WHERE c2.id_societe_gestion IN (
                                     SELECT h.descendant_societe_id
                                     FROM mariadb_societe_hierarchy h
                                     WHERE h.ancestor_societe_id = sg.id
                                 )
-                                AND afs.date_fin IS NULL
                             ) AS affaires_actives
                         FROM mariadb_societe_gestion sg
                         LEFT JOIN mariadb_societe_gestion parent ON parent.id = sg.parent_societe_id
@@ -26061,6 +26107,10 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             "page_count": page_count,
             "total_societes": total_societes,
             "per_page": per_page,
+            "filter_niveau": filter_niveau,
+            "filter_parent_id": filter_parent_id,
+            "sort_col": sort_col,
+            "sort_order": "desc" if sort_order == "DESC" else "asc",
             "organisation_level_choices": _organisation_level_choices(),
             "organisation_level_labels": _ORG_LEVEL_LABELS,
             "societe_management_choices": societe_management_choices,
@@ -26350,6 +26400,60 @@ def dashboard_superadmin_create_societe_gestion(
             },
         )
         _rebuild_societe_hierarchy(db)
+        db.commit()
+        return _superadmin_redirect(request=request, saved=True)
+    except HTTPException as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc.detail))
+    except Exception as exc:
+        db.rollback()
+        return _superadmin_redirect(request=request, error=str(exc))
+
+
+@router.post("/superadmin/utilisateurs", response_class=RedirectResponse)
+async def superadmin_create_utilisateur(
+    request: Request,
+    db: Session = Depends(get_db),
+    nom: str = Form(""),
+    prenom: str = Form(""),
+    mail: str | None = Form(None),
+    telephone: str | None = Form(None),
+    niveau_poste: str = Form("commercial"),
+    societe_gestion_id: str | None = Form(None),
+):
+    try:
+        _require_superadmin_access(request, db)
+        nom = nom.strip()
+        prenom = prenom.strip()
+        mail = (mail or "").strip() or None
+        telephone = (telephone or "").strip() or None
+        niveau_poste = _normalize_admin_rh_level(niveau_poste) or "commercial"
+        soc_id = _as_int(societe_gestion_id)
+        if not nom:
+            return _superadmin_redirect(request=request, error="Le nom est requis.")
+        if not prenom:
+            return _superadmin_redirect(request=request, error="Le prénom est requis.")
+        row = db.execute(text("SELECT COALESCE(MAX(id), 0) AS max_id FROM administration_RH")).fetchone()
+        next_id = int((row._mapping.get("max_id") if hasattr(row, "_mapping") else row[0]) or 0) + 1
+        db.execute(
+            text(
+                """
+                INSERT INTO administration_RH
+                    (id, nom, prenom, telephone, mail, niveau_poste, commentaire, superadmin, societe_gestion_id)
+                VALUES
+                    (:id, :nom, :prenom, :telephone, :mail, :niveau_poste, NULL, 0, :soc_id)
+                """
+            ),
+            {
+                "id": next_id,
+                "nom": nom,
+                "prenom": prenom,
+                "telephone": telephone,
+                "mail": mail,
+                "niveau_poste": niveau_poste,
+                "soc_id": soc_id,
+            },
+        )
         db.commit()
         return _superadmin_redirect(request=request, saved=True)
     except HTTPException as exc:

@@ -322,11 +322,12 @@ def _upsert_historique_support(
             text(
                 """
                 UPDATE mariadb_historique_support_w
-                SET nbuc = :nbuc, vl = :vl, valo = :valo, modif_quand = :now
+                SET nbuc = :nbuc, vl = :vl, valo = :valo, modif_quand = :now,
+                    id_societe_gestion = COALESCE(id_societe_gestion, :sg)
                 WHERE id = :id
                 """
             ),
-            {"nbuc": nbuc, "vl": vl, "valo": valo, "now": now, "id": existing[0]},
+            {"nbuc": nbuc, "vl": vl, "valo": valo, "now": now, "sg": id_societe_gestion, "id": existing[0]},
         )
         return True
     else:

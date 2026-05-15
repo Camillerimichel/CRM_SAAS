@@ -469,8 +469,17 @@
       <div id="supportEsgUnmatched" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
       <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Support = (Support / Indice) × 100.</div>
     </div>
-    <div id="supportSrriSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+    <div id="supportSrriSection" style="display:none; margin-top:6px; border:1px solid #e2e8f0; border-radius:10px; padding:12px; background:#f8fafc;">
+      <!-- Indicateur SRRI -->
+      <div id="supportSrriIndicator" style="margin-bottom:12px;"></div>
+      <!-- Graphique VL -->
+      <div class="support-modal__chart" id="supportSrriPerfContainer" style="display:none; margin-bottom:12px;">
+        <div style="font-size:0.78rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">Valeur liquidative</div>
+        <canvas id="supportSrriPerfChart"></canvas>
+      </div>
+      <!-- Trajectoire volatilité / SRRI -->
       <div class="support-modal__chart" id="supportSrriChartContainer" style="display:none; margin-bottom:8px;">
+        <div style="font-size:0.78rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">Trajectoire volatilité & SRRI (3 ans)</div>
         <canvas id="supportSrriChart"></canvas>
       </div>
       <div class="support-modal__series" id="supportSrriTable" style="display:none;"></div>
@@ -748,29 +757,124 @@ $(document).ready(function () {
         }
     }
 
+    function renderSupportSrriIndicator(srriValue){
+        var el = document.getElementById('supportSrriIndicator');
+        if (!el) return;
+        var colors = ['','#1d9f3c','#7bc142','#c8d62b','#f5c518','#f5852b','#e8431c','#b00000'];
+        var labels = ['','Très faible','Faible','Modérément faible','Modéré','Modérément élevé','Élevé','Très élevé'];
+        var val = parseInt(srriValue) || null;
+        var html = '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">';
+        html += '<span style="font-size:0.78rem; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.06em;">SRRI</span>';
+        html += '<div style="display:flex; gap:3px; align-items:flex-end;">';
+        for (var i = 1; i <= 7; i++){
+            var h = 14 + (i-1)*4;
+            var active = (val === i);
+            var bg = active ? colors[i] : '#e2e8f0';
+            var border = active ? ('2px solid ' + colors[i]) : '2px solid transparent';
+            html += '<div style="width:22px; height:' + h + 'px; background:' + bg + '; border:' + border +
+                    '; border-radius:3px 3px 0 0; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1px; cursor:default;" title="SRRI ' + i + '">' +
+                    '<span style="font-size:9px; font-weight:700; color:' + (active ? '#fff' : '#94a3b8') + ';">' + i + '</span></div>';
+        }
+        html += '</div>';
+        if (val){
+            html += '<span style="font-size:0.88rem; font-weight:700; color:' + colors[val] + ';">' + labels[val] + '</span>';
+        } else {
+            html += '<span style="font-size:0.88rem; color:#94a3b8;">Non renseigné</span>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    function renderSupportSrriPerfChart(valuations){
+        var canvas = document.getElementById('supportSrriPerfChart');
+        if (!canvas) return;
+        if (supportSrriPerfChartInstance){ supportSrriPerfChartInstance.destroy(); supportSrriPerfChartInstance = null; }
+        if (!valuations || !valuations.length){
+            $('#supportSrriPerfContainer').hide(); return;
+        }
+        var sorted = valuations.slice().sort(function(a,b){ return (a.date||'') < (b.date||'') ? -1 : 1; });
+        var labels = sorted.map(function(v){ return v.date; });
+        var values = sorted.map(function(v){ return v.valeur != null ? parseFloat(v.valeur) : null; });
+        supportSrriPerfChartInstance = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'VL (€)',
+                    data: values,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37,99,235,0.08)',
+                    borderWidth: 1.5,
+                    tension: 0.2,
+                    pointRadius: 0,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx){
+                                var v = ctx.parsed.y;
+                                if (v == null) return '';
+                                return 'VL : ' + v.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:4}) + ' €';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { maxTicksLimit: 8, font: {size:11} },
+                        grid: { display: false }
+                    },
+                    y: {
+                        ticks: { font: {size:11} },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    }
+                }
+            }
+        });
+        $('#supportSrriPerfContainer').show();
+    }
+
     function toggleSupportSrri(){
         $('#supportSrriSection').find('.series-empty').remove();
         if ($supportSrriSection && $supportSrriSection.is(':visible')){
             if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+            if (supportSrriPerfChartInstance){ supportSrriPerfChartInstance.destroy(); supportSrriPerfChartInstance = null; }
             $supportSrriChartContainer.hide();
+            $('#supportSrriPerfContainer').hide();
             $supportSrriTable.hide().empty();
             $supportSrriSection.hide();
             setSrriButtonActive(false);
             return;
         }
-        var series = computeSrriSeries();
-        if (!series || !series.labels.length){
-            $supportSrriChartContainer.hide();
-            $supportSrriTable.hide().empty();
-            $supportSrriSection.show().append('<div class="series-empty">Données insuffisantes pour calculer la trajectoire SRRI.</div>');
-            setSrriButtonActive(false);
-            return;
-        }
+        // Toujours afficher : indicateur SRRI + graphique VL
+        var srriVal = null;
+        try {
+            var metaEl = document.querySelector('#supportModalMeta .support-meta-srri .support-meta-btn span');
+            if (metaEl) srriVal = parseInt(metaEl.textContent) || null;
+        } catch(e){}
+        renderSupportSrriIndicator(srriVal);
+        $supportSrriSection.show();
+        setSrriButtonActive(true);
         ensureChartJs(function(){
-            renderSupportSrriChart(series);
-            renderSupportSrriTable(series);
-            $supportSrriSection.show();
-            setSrriButtonActive(true);
+            renderSupportSrriPerfChart(supportModalValuations);
+            var series = computeSrriSeries();
+            if (series && series.labels.length){
+                renderSupportSrriChart(series);
+                renderSupportSrriTable(series);
+            } else {
+                $supportSrriChartContainer.hide();
+                $supportSrriTable.hide().empty();
+                if (supportModalValuations && supportModalValuations.length < 60){
+                    $supportSrriSection.append('<div class="series-empty muted" style="font-size:0.82rem; margin-top:6px;">Trajectoire SRRI non disponible (historique insuffisant pour 52 semaines glissantes).</div>');
+                }
+            }
         });
     }
     function saveSupportsState(){
@@ -943,6 +1047,7 @@ $(document).ready(function () {
     var supportCompareChartInstance = null;
     var supportEsgChartInstance = null;
     var supportSrriChartInstance = null;
+    var supportSrriPerfChartInstance = null;
     var chartJsLoaded = false;
 
     function setCompareButtonActive(active){
@@ -1729,10 +1834,16 @@ $(document).ready(function () {
         if (supportCompareChartInstance){ supportCompareChartInstance.destroy(); supportCompareChartInstance = null; }
         if ($supportCompareChartContainer.length){ $supportCompareChartContainer.hide(); }
         if (supportEsgChartInstance){ supportEsgChartInstance.destroy(); supportEsgChartInstance = null; }
+        if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        if (supportSrriPerfChartInstance){ supportSrriPerfChartInstance.destroy(); supportSrriPerfChartInstance = null; }
         $('#supportEsgChart').hide().empty();
         $('#supportEsgUnmatched').hide().text('');
         $('#supportEsgSection').hide();
+        $('#supportSrriSection').hide();
+        $('#supportSrriPerfContainer').hide();
+        $('#supportSrriChartContainer').hide();
         setEsgButtonActive(false);
+        setSrriButtonActive(false);
         if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
         $('#supportCompareStatus').text('');
         if ($supportCompareSection.length){ $supportCompareSection.hide(); }
@@ -1770,8 +1881,10 @@ $(document).ready(function () {
         if ($supportEsgAlloc && $supportEsgAlloc.length){ $supportEsgAlloc.val(''); }
         $('#supportEsgFields').empty();
         if (supportSrriChartInstance){ supportSrriChartInstance.destroy(); supportSrriChartInstance = null; }
+        if (supportSrriPerfChartInstance){ supportSrriPerfChartInstance.destroy(); supportSrriPerfChartInstance = null; }
         $('#supportSrriTable').hide().empty();
         $('#supportSrriChartContainer').hide();
+        $('#supportSrriPerfContainer').hide();
         $('#supportSrriSection').hide();
         if ($supportModalSeries.length){ $supportModalSeries.hide().empty(); }
         $('#supportCompareStatus').text('');

@@ -349,8 +349,9 @@
   <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
     <h3 style="margin:0; flex:1; text-align:center;">Gestion des droits d'accès des sociétés et de leurs clients</h3>
   </div>
-  <div style="margin-bottom:12px; padding:12px; border:1px solid #e5e7eb; border-radius:12px; background:#f9fafb;">
-    <div style="font-weight:600; margin-bottom:10px;">Créer une société de gestion</div>
+  <div style="margin-bottom:12px;">
+    <button type="button" id="toggle-create-societe" class="btn btn-secondary" aria-expanded="false" style="margin-bottom:8px;">+ Créer une société de gestion</button>
+    <div id="create-societe-panel" hidden style="padding:12px; border:1px solid #e5e7eb; border-radius:12px; background:#f9fafb;">
     <form method="post" action="/dashboard/superadmin/societes-gestion#utilisateurs" style="display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
       <label style="display:flex; flex-direction:column; gap:4px;">
         <span>Nom</span>
@@ -401,46 +402,81 @@
         <button type="submit" class="btn btn-primary">Créer</button>
       </div>
     </form>
+    </div>
   </div>
-  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-    <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
-      <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher une société..." style="min-width:220px;">
+  {# ── Macro pour construire les paramètres de filtre/tri persistants ── #}
+  {% set fp %}{% if search_term %}&q={{ search_term }}{% endif %}{% if filter_niveau %}&qniveau={{ filter_niveau }}{% endif %}{% if filter_parent_id %}&qparent={{ filter_parent_id }}{% endif %}{% if sort_col and sort_col != 'nom' %}&sort={{ sort_col }}{% endif %}{% if sort_order == 'desc' %}&order=desc{% endif %}{% endset %}
+
+  <form method="get" action="/dashboard/superadmin#utilisateurs" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;">
+    {% if selected_user %}<input type="hidden" name="user_id" value="{{ selected_user.id }}">{% endif %}
+    <label style="display:flex; flex-direction:column; gap:2px; font-size:0.85rem; font-weight:600;">
+      Nom
+      <input class="form-control" type="text" name="q" value="{{ search_term or '' }}" placeholder="Rechercher…" style="min-width:180px;">
+    </label>
+    <label style="display:flex; flex-direction:column; gap:2px; font-size:0.85rem; font-weight:600;">
+      Niveau
+      <select class="form-control" name="qniveau" style="min-width:130px;">
+        <option value="">Tous</option>
+        {% for level in organisation_level_choices %}
+          <option value="{{ level.value }}"{% if filter_niveau == level.value %} selected{% endif %}>{{ level.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="display:flex; flex-direction:column; gap:2px; font-size:0.85rem; font-weight:600;">
+      Parent
+      <select class="form-control" name="qparent" style="min-width:160px;">
+        <option value="">Tous</option>
+        {% for sg in societe_management_choices %}
+          <option value="{{ sg.id }}"{% if filter_parent_id == sg.id %} selected{% endif %}>{{ sg.nom }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div style="display:flex; gap:6px; align-items:flex-end;">
       <button type="submit" class="btn btn-secondary">Filtrer</button>
-    </form>
-  </div>
+      <a class="btn btn-secondary" href="/dashboard/superadmin#utilisateurs">Réinitialiser</a>
+    </div>
+  </form>
+
   {% if societes_gestion %}
+    {# ── Helper macro tri ── #}
+    {% macro sort_link(col, label) %}
+      {% set next_order = 'desc' if (sort_col == col and sort_order == 'asc') else 'asc' %}
+      {% set base %}{% if search_term %}&q={{ search_term }}{% endif %}{% if filter_niveau %}&qniveau={{ filter_niveau }}{% endif %}{% if filter_parent_id %}&qparent={{ filter_parent_id }}{% endif %}{% endset %}
+      <a href="/dashboard/superadmin?sort={{ col }}&order={{ next_order }}{{ base }}#utilisateurs" style="color:inherit; text-decoration:none; white-space:nowrap;">
+        {{ label }}{% if sort_col == col %} {{ '▲' if sort_order == 'asc' else '▼' }}{% else %} ⇅{% endif %}
+      </a>
+    {% endmacro %}
     <div style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
         <thead>
-          <tr style="text-align:left; border-bottom:1px solid var(--border);">
-            <th style="padding:6px 4px;">Nom</th>
-            <th style="padding:6px 4px;">Niveau</th>
-            <th style="padding:6px 4px;">Parent</th>
-            <th style="padding:6px 4px;">Contact</th>
-            <th style="padding:6px 4px;">Téléphone</th>
-            <th style="padding:6px 4px;">Courriel</th>
-            <th style="padding:6px 4px; text-align:center;">Clients</th>
-            <th style="padding:6px 4px; text-align:center;">Affaires</th>
-            <th style="padding:6px 4px; text-align:center;">Actions</th>
+          <tr style="text-align:left; border-bottom:2px solid var(--border); background:#f8fafc;">
+            <th style="padding:7px 6px;">{{ sort_link('nom', 'Nom') }}</th>
+            <th style="padding:7px 6px;">{{ sort_link('niveau', 'Niveau') }}</th>
+            <th style="padding:7px 6px;">{{ sort_link('parent', 'Parent') }}</th>
+            <th style="padding:7px 6px;">{{ sort_link('contact', 'Contact') }}</th>
+            <th style="padding:7px 6px;">Téléphone</th>
+            <th style="padding:7px 6px;">Courriel</th>
+            <th style="padding:7px 6px; text-align:center;">{{ sort_link('clients', 'Clients') }}</th>
+            <th style="padding:7px 6px; text-align:center;">{{ sort_link('affaires', 'Affaires') }}</th>
+            <th style="padding:7px 6px; text-align:center;">Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for s in societes_gestion %}
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:6px 4px;">
+            <td style="padding:6px 6px;">
               <div style="font-weight:600;">{{ s.nom }}</div>
-              <div class="muted" style="font-size:0.85rem;">{{ s.nature or '—' }}</div>
+              <div class="muted" style="font-size:0.82rem;">{{ s.nature or '' }}</div>
             </td>
-            <td style="padding:6px 4px;">{{ organisation_level_labels.get(s.organisation_level, s.organisation_level or '—') }}</td>
-            <td style="padding:6px 4px;">{{ s.parent_societe_nom or '—' }}</td>
-            <td style="padding:6px 4px;">{{ s.contact or '—' }}</td>
-            <td style="padding:6px 4px;">{{ s.telephone or '—' }}</td>
-            <td style="padding:6px 4px;">{{ s.email or '—' }}</td>
-            <td style="padding:6px 4px; text-align:center;">{{ s.clients_actifs if s.clients_actifs is not none else 0 }}</td>
-            <td style="padding:6px 4px; text-align:center;">{{ s.affaires_actives if s.affaires_actives is not none else 0 }}</td>
-            <td style="padding:6px 4px; text-align:center;">
-              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{% if search_term %}&q={{ search_term }}{% endif %}{% if page %}&page={{ page }}{% endif %}#utilisateurs" title="Modifier / gérer">
+            <td style="padding:6px 6px;">{{ organisation_level_labels.get(s.organisation_level, s.organisation_level or '—') }}</td>
+            <td style="padding:6px 6px;">{{ s.parent_societe_nom or '—' }}</td>
+            <td style="padding:6px 6px;">{{ s.contact or '—' }}</td>
+            <td style="padding:6px 6px;">{{ s.telephone or '—' }}</td>
+            <td style="padding:6px 6px;">{{ s.email or '—' }}</td>
+            <td style="padding:6px 6px; text-align:center;">{{ s.clients_actifs if s.clients_actifs is not none else 0 }}</td>
+            <td style="padding:6px 6px; text-align:center;">{{ s.affaires_actives if s.affaires_actives is not none else 0 }}</td>
+            <td style="padding:6px 6px; text-align:center;">
+              <a class="btn btn-secondary" href="/dashboard/superadmin?societe_id={{ s.id }}{{ fp }}#utilisateurs" title="Modifier / gérer">
                 <i class="fa-regular fa-pen-to-square"></i>
               </a>
             </td>
@@ -452,12 +488,11 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
       <div class="muted" style="font-size:0.9rem;">{{ total_societes }} sociétés — page {{ page }} / {{ page_count }}</div>
       <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        {% set qparam = '&q=' ~ search_term if search_term else '' %}
         {% if page > 1 %}
-          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ qparam }}#utilisateurs">Précédent</a>
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page - 1 }}{{ fp }}#utilisateurs">Précédent</a>
         {% endif %}
         {% if page < page_count %}
-          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ qparam }}#utilisateurs">Suivant</a>
+          <a class="btn btn-secondary" href="/dashboard/superadmin?page={{ page + 1 }}{{ fp }}#utilisateurs">Suivant</a>
         {% endif %}
       </div>
     </div>
@@ -465,189 +500,6 @@
     <p class="muted" style="margin:0;">Aucune société de gestion/courtage définie.</p>
   {% endif %}
 
-  <!-- ── Identifiants assureurs ───────────────────────────────────────────── -->
-  <hr style="margin:20px 0 14px; border:0; border-top:1px solid #e5e7eb;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-    <div style="font-weight:600; font-size:1rem;">Identifiants assureurs</div>
-    <button class="btn btn-secondary" onclick="iaAddRow()" style="white-space:nowrap;">+ Ajouter</button>
-  </div>
-  <div style="overflow-x:auto;">
-    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-      <thead>
-        <tr style="text-align:left; border-bottom:1px solid var(--border);">
-          <th style="padding:6px 4px;">Société de gestion</th>
-          <th style="padding:6px 4px;">Identifiant</th>
-          <th style="padding:6px 4px; text-align:center;">Actif</th>
-          <th style="padding:6px 4px; text-align:center;">Clients</th>
-          <th style="padding:6px 4px; text-align:center;">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="tbody-ia">
-        {% for ia in identifiants_assureurs %}
-        {% set ia_clients = clients_par_sif.get(ia.id, []) %}
-        <tr data-ia-id="{{ ia.id }}">
-          <td style="padding:4px;">
-            <select class="form-control ia-societe" style="min-width:160px;">
-              {% for sg in toutes_societes_gestion %}
-              <option value="{{ sg.id }}"{% if sg.id == ia.societe_id %} selected{% endif %}>{{ sg.nom }}</option>
-              {% endfor %}
-            </select>
-          </td>
-          <td style="padding:4px;">
-            <input class="form-control ia-identifiant" type="text" value="{{ ia.identifiant_externe }}" style="min-width:120px;">
-          </td>
-          <td style="padding:4px; text-align:center;">
-            <input type="checkbox" class="ia-actif"{% if ia.actif %} checked{% endif %}>
-          </td>
-          <td style="padding:4px; text-align:center;">
-            {% if ia.nb_clients > 0 %}
-            <button class="btn btn-secondary" data-ia-parent="{{ ia.id }}"
-                    onclick="iaToggleClients(this)"
-                    title="Afficher / masquer les clients"
-                    style="font-size:0.8rem; padding:2px 8px;">
-              {{ ia.nb_clients }} client{% if ia.nb_clients > 1 %}s{% endif %} ▶
-            </button>
-            {% else %}
-            <span class="muted" style="font-size:0.85rem;">0</span>
-            {% endif %}
-          </td>
-          <td style="padding:4px; text-align:center; white-space:nowrap;">
-            <button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>
-            <button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>
-          </td>
-        </tr>
-        {% if ia_clients %}
-        <tr class="ia-clients-row" data-ia-parent="{{ ia.id }}" style="display:none;">
-          <td colspan="5" style="padding:8px 12px; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
-            <div style="font-size:0.85rem; max-height:220px; overflow-y:auto;">
-              <table style="width:100%; border-collapse:collapse;">
-                <thead>
-                  <tr style="border-bottom:1px solid #e5e7eb; text-align:left;">
-                    <th style="padding:4px 6px; font-weight:600;">Nom</th>
-                    <th style="padding:4px 6px; font-weight:600;">Prénom</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for cli in ia_clients %}
-                  <tr style="border-bottom:1px solid #f0f0f0;">
-                    <td style="padding:3px 6px;">{{ cli.nom or '—' }}</td>
-                    <td style="padding:3px 6px;">{{ cli.prenom or '—' }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
-        {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div id="ia-msg" style="margin-top:8px; font-size:0.88rem; min-height:1.2em;"></div>
-
-  <script>
-  (function() {
-    const IA_SOCIETES = {{ toutes_societes_gestion | tojson }};
-
-    function buildSocieteSelect(selectedId) {
-      let html = '<select class="form-control ia-societe" style="min-width:160px;">';
-      IA_SOCIETES.forEach(function(sg) {
-        html += '<option value="' + sg.id + '"' + (sg.id === selectedId ? ' selected' : '') + '>' + sg.nom + '</option>';
-      });
-      html += '</select>';
-      return html;
-    }
-
-    window.iaToggleClients = function(btn) {
-      const id = btn.dataset.iaParent;
-      const subRow = document.querySelector('tr.ia-clients-row[data-ia-parent="' + id + '"]');
-      if (!subRow) return;
-      const open = subRow.style.display !== 'none';
-      subRow.style.display = open ? 'none' : '';
-      btn.textContent = btn.textContent.replace(open ? '▼' : '▶', open ? '▶' : '▼');
-    };
-
-    window.iaAddRow = function() {
-      const tbody = document.getElementById('tbody-ia');
-      const tr = document.createElement('tr');
-      tr.dataset.iaId = '';
-      tr.innerHTML =
-        '<td style="padding:4px;">' + buildSocieteSelect(null) + '</td>' +
-        '<td style="padding:4px;"><input class="form-control ia-identifiant" type="text" placeholder="Identifiant" style="min-width:120px;"></td>' +
-        '<td style="padding:4px; text-align:center;"><input type="checkbox" class="ia-actif" checked></td>' +
-        '<td style="padding:4px; text-align:center;"><span class="muted" style="font-size:0.85rem;">0</span></td>' +
-        '<td style="padding:4px; text-align:center; white-space:nowrap;">' +
-          '<button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>' +
-          '<button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>' +
-        '</td>';
-      tbody.appendChild(tr);
-      tr.querySelector('.ia-identifiant').focus();
-    };
-
-    window.iaSave = async function(btn) {
-      const tr = btn.closest('tr');
-      const id = tr.dataset.iaId;
-      const societe_id = parseInt(tr.querySelector('.ia-societe').value, 10);
-      const identifiant_externe = tr.querySelector('.ia-identifiant').value.trim();
-      const actif = tr.querySelector('.ia-actif').checked ? 1 : 0;
-      const msgEl = document.getElementById('ia-msg');
-
-      if (!identifiant_externe) {
-        msgEl.textContent = 'L\'identifiant est requis.';
-        msgEl.style.color = 'var(--danger, red)';
-        return;
-      }
-
-      try {
-        const url = id ? '/societes/identifiants-fournisseur/' + id : '/societes/identifiants-fournisseur';
-        const resp = await fetch(url, {
-          method: id ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ societe_id, identifiant_externe, actif }),
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(function() { return {}; });
-          msgEl.textContent = err.detail || 'Erreur lors de l\'enregistrement.';
-          msgEl.style.color = 'var(--danger, red)';
-          return;
-        }
-        const data = await resp.json();
-        tr.dataset.iaId = String(data.id);
-        msgEl.textContent = id ? 'Mis à jour.' : 'Créé avec succès.';
-        msgEl.style.color = 'green';
-        setTimeout(function() { msgEl.textContent = ''; }, 3000);
-      } catch(e) {
-        msgEl.textContent = 'Erreur réseau.';
-        msgEl.style.color = 'var(--danger, red)';
-      }
-    };
-
-    window.iaDelete = async function(btn) {
-      const tr = btn.closest('tr');
-      const id = tr.dataset.iaId;
-      if (!id) { tr.remove(); return; }
-      if (!confirm('Supprimer cet identifiant ?')) return;
-      const msgEl = document.getElementById('ia-msg');
-      try {
-        const resp = await fetch('/societes/identifiants-fournisseur/' + id, { method: 'DELETE' });
-        if (!resp.ok) {
-          const err = await resp.json().catch(function() { return {}; });
-          msgEl.textContent = err.detail || 'Erreur lors de la suppression.';
-          msgEl.style.color = 'var(--danger, red)';
-          return;
-        }
-        tr.remove();
-        msgEl.textContent = 'Supprimé.';
-        msgEl.style.color = 'green';
-        setTimeout(function() { msgEl.textContent = ''; }, 3000);
-      } catch(e) {
-        msgEl.textContent = 'Erreur réseau.';
-        msgEl.style.color = 'var(--danger, red)';
-      }
-    };
-  })();
-  </script>
 </div>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
@@ -817,8 +669,45 @@
   </div>
 
   <div class="card" style="margin-bottom:1rem;">
-    <h2 style="margin:0 0 6px 0; font-size:1.2rem;">Utilisateurs de la société</h2>
-    <div class="muted" style="margin-bottom:8px; font-size:0.9rem;">Gestion des comptes (création, rôles, activation) à venir. Bouton ci-dessous pour préparer la gestion des droits.</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+      <h2 style="margin:0; font-size:1.2rem;">Utilisateurs de la société</h2>
+      <button type="button" id="toggle-create-utilisateur" class="btn btn-secondary" aria-expanded="false">+ Créer un utilisateur</button>
+    </div>
+    <div id="create-utilisateur-panel" hidden style="padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; margin-bottom:12px;">
+      <form method="post" action="/dashboard/superadmin/utilisateurs?societe_id={{ selected_societe.id }}#utilisateurs" style="display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));">
+        <input type="hidden" name="societe_gestion_id" value="{{ selected_societe.id }}">
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span>Nom <span style="color:#dc2626;">*</span></span>
+          <input class="form-control" type="text" name="nom" required placeholder="Nom">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span>Prénom <span style="color:#dc2626;">*</span></span>
+          <input class="form-control" type="text" name="prenom" required placeholder="Prénom">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span>Email</span>
+          <input class="form-control" type="email" name="mail" placeholder="email@exemple.com">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span>Téléphone</span>
+          <input class="form-control" type="text" name="telephone" placeholder="0600000000">
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span>Niveau</span>
+          <select class="form-control" name="niveau_poste">
+            <option value="commercial">Commercial</option>
+            <option value="back_office">Back office</option>
+            <option value="responsable_service">Responsable de service</option>
+            <option value="directeur_commercial">Directeur commercial</option>
+            <option value="dirigeant">Dirigeant</option>
+          </select>
+        </label>
+        <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
+          <button type="submit" class="btn btn-primary">Créer</button>
+          <button type="button" onclick="document.getElementById('create-utilisateur-panel').hidden=true; document.getElementById('toggle-create-utilisateur').setAttribute('aria-expanded','false');" class="btn btn-secondary">Annuler</button>
+        </div>
+      </form>
+    </div>
     <form method="get" action="/dashboard/superadmin" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
       <input type="hidden" name="societe_id" value="{{ selected_societe.id }}">
       {% if search_term %}<input type="hidden" name="q" value="{{ search_term }}">{% endif %}
@@ -1187,6 +1076,174 @@
       </div>
     </div>
   {% endif %}
+
+  <!-- ── Identifiants assureurs ───────────────────────────────────────────── -->
+  <div class="card" style="margin-bottom:1rem; margin-top:1rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+      <div style="font-weight:600; font-size:1rem;">Identifiants assureurs</div>
+      <button class="btn btn-secondary" onclick="iaAddRow()" style="white-space:nowrap;">+ Ajouter</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+        <thead>
+          <tr style="text-align:left; border-bottom:1px solid var(--border);">
+            <th style="padding:6px 4px;">Identifiant</th>
+            <th style="padding:6px 4px; text-align:center;">Actif</th>
+            <th style="padding:6px 4px; text-align:center;">Clients</th>
+            <th style="padding:6px 4px; text-align:center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-ia">
+          {% for ia in identifiants_assureurs if ia.societe_id == selected_societe.id %}
+          {% set ia_clients = clients_par_sif.get(ia.id, []) %}
+          <tr data-ia-id="{{ ia.id }}">
+            <td style="padding:4px;">
+              <input class="form-control ia-identifiant" type="text" value="{{ ia.identifiant_externe }}" style="min-width:120px;">
+            </td>
+            <td style="padding:4px; text-align:center;">
+              <input type="checkbox" class="ia-actif"{% if ia.actif %} checked{% endif %}>
+            </td>
+            <td style="padding:4px; text-align:center;">
+              {% if ia.nb_clients > 0 %}
+              <button class="btn btn-secondary" data-ia-parent="{{ ia.id }}"
+                      onclick="iaToggleClients(this)"
+                      title="Afficher / masquer les clients"
+                      style="font-size:0.8rem; padding:2px 8px;">
+                {{ ia.nb_clients }} client{% if ia.nb_clients > 1 %}s{% endif %} ▶
+              </button>
+              {% else %}
+              <span class="muted" style="font-size:0.85rem;">0</span>
+              {% endif %}
+            </td>
+            <td style="padding:4px; text-align:center; white-space:nowrap;">
+              <button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>
+              <button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>
+            </td>
+          </tr>
+          {% if ia_clients %}
+          <tr class="ia-clients-row" data-ia-parent="{{ ia.id }}" style="display:none;">
+            <td colspan="4" style="padding:8px 12px; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+              <div style="font-size:0.85rem; max-height:220px; overflow-y:auto;">
+                <table style="width:100%; border-collapse:collapse;">
+                  <thead>
+                    <tr style="border-bottom:1px solid #e5e7eb; text-align:left;">
+                      <th style="padding:4px 6px; font-weight:600;">Nom</th>
+                      <th style="padding:4px 6px; font-weight:600;">Prénom</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for cli in ia_clients %}
+                    <tr style="border-bottom:1px solid #f0f0f0;">
+                      <td style="padding:3px 6px;">{{ cli.nom or '—' }}</td>
+                      <td style="padding:3px 6px;">{{ cli.prenom or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="ia-msg" style="margin-top:8px; font-size:0.88rem; min-height:1.2em;"></div>
+
+    <script>
+    (function() {
+      const IA_SOC_ID = {{ selected_societe.id }};
+
+      window.iaToggleClients = function(btn) {
+        const id = btn.dataset.iaParent;
+        const subRow = document.querySelector('tr.ia-clients-row[data-ia-parent="' + id + '"]');
+        if (!subRow) return;
+        const open = subRow.style.display !== 'none';
+        subRow.style.display = open ? 'none' : '';
+        btn.textContent = btn.textContent.replace(open ? '▼' : '▶', open ? '▶' : '▼');
+      };
+
+      window.iaAddRow = function() {
+        const tbody = document.getElementById('tbody-ia');
+        const tr = document.createElement('tr');
+        tr.dataset.iaId = '';
+        tr.innerHTML =
+          '<td style="padding:4px;"><input class="form-control ia-identifiant" type="text" placeholder="Identifiant" style="min-width:120px;"></td>' +
+          '<td style="padding:4px; text-align:center;"><input type="checkbox" class="ia-actif" checked></td>' +
+          '<td style="padding:4px; text-align:center;"><span class="muted" style="font-size:0.85rem;">0</span></td>' +
+          '<td style="padding:4px; text-align:center; white-space:nowrap;">' +
+            '<button class="btn btn-secondary" onclick="iaSave(this)" title="Enregistrer">💾</button>' +
+            '<button class="btn btn-secondary" onclick="iaDelete(this)" title="Supprimer" style="margin-left:4px;">🗑</button>' +
+          '</td>';
+        tbody.appendChild(tr);
+        tr.querySelector('.ia-identifiant').focus();
+      };
+
+      window.iaSave = async function(btn) {
+        const tr = btn.closest('tr');
+        const id = tr.dataset.iaId;
+        const societe_id = IA_SOC_ID;
+        const identifiant_externe = tr.querySelector('.ia-identifiant').value.trim();
+        const actif = tr.querySelector('.ia-actif').checked ? 1 : 0;
+        const msgEl = document.getElementById('ia-msg');
+
+        if (!identifiant_externe) {
+          msgEl.textContent = 'L\'identifiant est requis.';
+          msgEl.style.color = 'var(--danger, red)';
+          return;
+        }
+
+        try {
+          const url = id ? '/societes/identifiants-fournisseur/' + id : '/societes/identifiants-fournisseur';
+          const resp = await fetch(url, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ societe_id, identifiant_externe, actif }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(function() { return {}; });
+            msgEl.textContent = err.detail || 'Erreur lors de l\'enregistrement.';
+            msgEl.style.color = 'var(--danger, red)';
+            return;
+          }
+          const data = await resp.json();
+          tr.dataset.iaId = String(data.id);
+          msgEl.textContent = id ? 'Mis à jour.' : 'Créé avec succès.';
+          msgEl.style.color = 'green';
+          setTimeout(function() { msgEl.textContent = ''; }, 3000);
+        } catch(e) {
+          msgEl.textContent = 'Erreur réseau.';
+          msgEl.style.color = 'var(--danger, red)';
+        }
+      };
+
+      window.iaDelete = async function(btn) {
+        const tr = btn.closest('tr');
+        const id = tr.dataset.iaId;
+        if (!id) { tr.remove(); return; }
+        if (!confirm('Supprimer cet identifiant ?')) return;
+        const msgEl = document.getElementById('ia-msg');
+        try {
+          const resp = await fetch('/societes/identifiants-fournisseur/' + id, { method: 'DELETE' });
+          if (!resp.ok) {
+            const err = await resp.json().catch(function() { return {}; });
+            msgEl.textContent = err.detail || 'Erreur lors de la suppression.';
+            msgEl.style.color = 'var(--danger, red)';
+            return;
+          }
+          tr.remove();
+          msgEl.textContent = 'Supprimé.';
+          msgEl.style.color = 'green';
+          setTimeout(function() { msgEl.textContent = ''; }, 3000);
+        } catch(e) {
+          msgEl.textContent = 'Erreur réseau.';
+          msgEl.style.color = 'var(--danger, red)';
+        }
+      };
+    })();
+    </script>
+  </div>
+
 </div>
 {% endif %}
 
@@ -1562,10 +1619,15 @@
     const sections = Array.from(document.querySelectorAll('[data-section]'));
     if (!sections.length || !buttons.length) return;
 
+    const socRelated = Array.from(document.querySelectorAll('[data-soc-related]'));
+
     const setActive = (hash) => {
       const targetId = (hash || '').replace('#', '');
       sections.forEach(sec => {
         sec.style.display = sec.id === targetId ? '' : 'none';
+      });
+      socRelated.forEach(el => {
+        el.style.display = targetId === 'utilisateurs' ? '' : 'none';
       });
       buttons.forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('href') === `#${targetId}`);
@@ -1577,6 +1639,7 @@
       setActive(initialHash);
     } else {
       sections.forEach(sec => { sec.style.display = 'none'; });
+      socRelated.forEach(el => { el.style.display = 'none'; });
       buttons.forEach(btn => btn.classList.remove('active'));
     }
 
@@ -1588,6 +1651,28 @@
         history.replaceState(null, '', hash);
         setActive(hash);
       });
+    });
+  })();
+</script>
+<script>
+  (function() {
+    const btn = document.getElementById('toggle-create-societe');
+    const panel = document.getElementById('create-societe-panel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function() {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  })();
+  (function() {
+    const btn = document.getElementById('toggle-create-utilisateur');
+    const panel = document.getElementById('create-utilisateur-panel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function() {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   })();
 </script>
