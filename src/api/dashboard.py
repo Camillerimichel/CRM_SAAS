@@ -26404,6 +26404,23 @@ async def dashboard_stream_controle_valorisations(request: Request, db: Session 
     )
 
 
+@router.post("/superadmin/delete-taches-variation", response_class=JSONResponse)
+def dashboard_delete_taches_variation(request: Request, db: Session = Depends(get_db)):
+    """Supprime toutes les tâches 'Variation de cours importante' pour la société courante."""
+    _require_superadmin_access(request, db)
+    societe_id = request.session.get("id_societe_gestion")
+    result = db.execute(text("""
+        DELETE e FROM mariadb_evenement e
+        JOIN mariadb_type_evenement te ON te.id = e.type_id
+        JOIN mariadb_clients c ON c.id = e.client_id
+        WHERE LOWER(te.libelle) = LOWER('Variation de cours importante')
+          AND c.id_societe_gestion = :societe_id
+    """), {"societe_id": societe_id})
+    db.commit()
+    nb = result.rowcount
+    return {"deleted": nb}
+
+
 @router.get("/superadmin/import-fournisseurs/sample/{filename}", response_class=FileResponse)
 def dashboard_import_sample(filename: str, request: Request, db: Session = Depends(get_db)):
     """Téléchargement des fichiers CSV de test."""

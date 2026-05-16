@@ -183,33 +183,81 @@ CREATE TABLE mariadb_correction_historique (
 
 | Fichier | Rôle |
 |---|---|
-| `src/services/detect_variation_cours.py` | Orchestrateur principal — générateur SSE, boucle de détection |
-| `src/services/module_nbuc.py` | Détection et correction des décalages de parts |
-| `src/services/module_vl.py` | Détection et correction des VL manquantes ou aberrantes |
-| `src/services/module_recalcul.py` | Recalcul post-correction, décision tâche ou résolu |
-| `src/api/???` | Route API (à confirmer) |
-| `src/api/templates/???` | Interface log interactif (à confirmer) |
+| `src/services/detect_variation_cours.py` | Orchestrateur principal — générateur SSE, boucle de détection et corrections |
+| `src/api/dashboard.py` | Routes : `/superadmin/controle-valo/clients`, `/superadmin/stream-controle-valorisations`, `/superadmin/delete-taches-variation` |
+| `src/api/templates/dashboard_superadmin.html` | Interface log interactif, panneau de paramètres, bouton suppression |
 
 ---
 
-## 9. Logique de décision synthétique
+## 9. Logique de décision synthétique (implémentée)
 
 ```
 Pour chaque affaire avec variation > seuil :
-  ├── module_vl    → VL NULL / aberrante ?
-  │     └── Oui : corriger (hiérarchie support_val → forward-fill → interpolation) + recalcul
-  ├── module_nbuc  → nbuc incohérent vs mouvements ?
-  │     └── Oui : corriger nbuc dans fenêtre ±2 semaines + recalcul
-  └── module_recalcul → variation post-correction ?
-        ├── ≤ seuil → log "auto-résolu [motif]"
-        └── > seuil → log "non résolu" + tâche Réglementaire / Variation de cours importante
+  ├── _try_fix_vl       → VL NULL / aberrante ?
+  │     └── Oui : forward-fill depuis semaine précédente + recalcul
+  │           ├── ≤ seuil → "auto-résolu (VL forward-fill)"
+  │           └── > seuil → avertissement, on continue
+  ├── _verify_mouvement → mouvement stocké ≠ mouvement réel (table mouvement) ?
+  │     └── Oui : recalcul variation avec mouvement réel
+  │           ├── ≤ seuil → "auto-résolu (mouvement recalculé)"
+  │           └── > seuil → avertissement, on continue avec mouvement corrigé
+  ├── _try_fix_nbuc     → nbuc stocké ≠ nbuc attendu (nbuc_prev + Σ nb_uc × sens) ?
+  │     └── Oui : recalcul valo = expected_nbuc × vl par support
+  │           ├── ≤ seuil → "auto-résolu (nbuc reconstruit)"
+  │           └── > seuil → avertissement, on continue
+  └── Anomalie persistante → tâche Réglementaire / Variation de cours importante (une par client)
 ```
 
 ---
 
-## 10. Points ouverts
+## 10. Implémentation des modules de correction
 
-- Emplacement de la route API et du template HTML (à confirmer avant développement)
-- Déclenchement : manuel uniquement ou aussi automatique (cron hebdomadaire) ?
-- Que faire si aucune VL n'est récupérable (priorité 4) : bloquer la correction ou créer la tâche immédiatement ?
+### 10.1 Vérification du mouvement (`_verify_mouvement`)
+
+Cross-check du champ `mouvement` stocké dans `mariadb_historique_affaire_w` contre le montant réel calculé :
+
+```sql
+SELECT COALESCE(SUM(CAST(m.montant_ope AS DECIMAL(18,4)) * mr.sens), 0)
+FROM mouvement m
+JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+WHERE m.id_affaire = :id
+  AND mr.investi != 0
+  AND m.etat != 8
+  AND m.vl_date > :prev_date
+  AND m.vl_date <= :curr_date
+```
+
+Si l'écart est ≥ 1 € : recalcul de la variation avec le mouvement réel. Si la variation corrigée passe sous le seuil → auto-résolu, sinon le mouvement corrigé est utilisé pour les étapes suivantes.
+
+### 10.2 Correction nbuc (`_try_fix_nbuc`)
+
+Pour chaque support de l'affaire à la date anomale :
+
+```
+nbuc_attendu = nbuc(prev_date) + Σ(nb_uc × sens) pour mouvements en parts sur (prev_date, curr_date]
+```
+
+```sql
+SELECT m.id_support, SUM(CAST(m.nb_uc AS DECIMAL(18,6)) * mr.sens) AS delta_nbuc
+FROM mouvement m
+JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+WHERE m.id_affaire = :id
+  AND m.nb_uc IS NOT NULL AND CAST(m.nb_uc AS DECIMAL(18,6)) != 0
+  AND m.etat != 8
+  AND m.vl_date > :prev_date AND m.vl_date <= :curr_date
+GROUP BY m.id_support
+```
+
+Si `|nbuc_attendu - nbuc_stocké| > 0.001` sur au moins un support : recalcul `valo = Σ(expected_nbuc × vl)`. Si la variation corrigée passe sous le seuil → auto-résolu.
+
+### 10.3 Suppression des tâches Variation de cours
+
+Route `POST /superadmin/delete-taches-variation` : supprime toutes les tâches de type "Variation de cours importante" pour la société courante (filtrée via `mariadb_clients.id_societe_gestion`). Accessible depuis le panneau de paramètres du contrôle, avec confirmation JS avant exécution.
+
+---
+
+## 11. Points ouverts
+
+- Déclenchement automatique (cron hebdomadaire) ?
 - Seuil configurable par société de gestion ou global ?
+- Table `mariadb_correction_historique` (traçabilité des corrections) : non encore créée — les corrections sont actuellement calculées à la volée sans persistance.
