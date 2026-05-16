@@ -103,6 +103,7 @@ def _detect_nbuc_decalage(
 def iter_controle_valorisations(
     db: Session,
     seuil: float = 0.10,
+    valo_min: float = 100.0,   # en dessous de cette valeur absolue, le % n'a pas de sens
 ) -> Generator[dict, None, None]:
     t0 = time.time()
 
@@ -170,7 +171,7 @@ def iter_controle_valorisations(
 
         for j in range(1, len(rows)):
             prev, curr = rows[j - 1], rows[j]
-            if not prev.valo or prev.valo == 0:
+            if not prev.valo or abs(prev.valo) < valo_min:
                 continue
             mouvement = curr.mouvement or 0.0
             variation_nette = (curr.valo - prev.valo - mouvement) / prev.valo
