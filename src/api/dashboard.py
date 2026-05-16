@@ -26350,10 +26350,30 @@ def dashboard_stream_fill_weekly_historique(request: Request, db: Session = Depe
     )
 
 
+@router.get("/superadmin/controle-valo/clients", response_class=JSONResponse)
+def dashboard_controle_valo_clients(request: Request, db: Session = Depends(get_db)):
+    """Liste des clients ayant un historique affaire, pour le filtre du contrôle de valorisation."""
+    _require_superadmin_access(request, db)
+    rows = db.execute(text("""
+        SELECT DISTINCT c.id, c.nom, c.prenom
+        FROM mariadb_clients c
+        JOIN mariadb_affaires a ON a.id_personne = c.id
+        JOIN mariadb_historique_affaire_w h ON h.id = a.id
+        WHERE c.id IS NOT NULL
+        ORDER BY c.nom, c.prenom
+    """)).fetchall()
+    return [{"id": r.id, "nom": r.nom or "", "prenom": r.prenom or ""} for r in rows]
+
+
 @router.post("/superadmin/stream-controle-valorisations")
-def dashboard_stream_controle_valorisations(request: Request, db: Session = Depends(get_db)):
+async def dashboard_stream_controle_valorisations(request: Request, db: Session = Depends(get_db)):
     """SSE : détection des variations de valorisation > 10% et création des tâches réglementaires."""
     _require_superadmin_access(request, db)
+
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    client_ids = body.get("client_ids") or None          # list[int] | None
+    date_debut = body.get("date_debut") or None           # "YYYY-MM-DD" | None
+    date_fin   = body.get("date_fin")   or None           # "YYYY-MM-DD" | None
 
     from src.database import SessionLocal as _SL
     from src.services.detect_variation_cours import iter_controle_valorisations
@@ -26364,7 +26384,12 @@ def dashboard_stream_controle_valorisations(request: Request, db: Session = Depe
     def generate():
         _db = _SL()
         try:
-            for event in iter_controle_valorisations(_db):
+            for event in iter_controle_valorisations(
+                _db,
+                client_ids=client_ids,
+                date_debut=date_debut,
+                date_fin=date_fin,
+            ):
                 yield _sse(event)
         except Exception as exc:
             logger.error("stream_controle_valorisations: %s", traceback.format_exc())

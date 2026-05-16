@@ -103,17 +103,35 @@ def _detect_nbuc_decalage(
 def iter_controle_valorisations(
     db: Session,
     seuil: float = 0.10,
-    valo_min: float = 100.0,   # en dessous de cette valeur absolue, le % n'a pas de sens
+    valo_min: float = 100.0,
+    client_ids: list[int] | None = None,
+    date_debut: str | None = None,
+    date_fin: str | None = None,
 ) -> Generator[dict, None, None]:
     t0 = time.time()
 
-    # Dans la live DB, la colonne affaire s'appelle `id` (pas `id_affaire`)
-    # On ne conserve que les vendredis (DAYOFWEEK = 6)
+    # Construction de la requête avec filtres optionnels
+    filters = ["h.id IS NOT NULL", "DAYOFWEEK(h.date) = 6"]
+    params: dict = {}
+
+    if client_ids:
+        placeholders = ", ".join(f":cid_{i}" for i in range(len(client_ids)))
+        filters.append(f"a.id_personne IN ({placeholders})")
+        params.update({f"cid_{i}": v for i, v in enumerate(client_ids)})
+
+    if date_debut:
+        filters.append("h.date >= :date_debut")
+        params["date_debut"] = date_debut
+
+    if date_fin:
+        filters.append("h.date <= :date_fin")
+        params["date_fin"] = date_fin
+
+    join_clause = "JOIN mariadb_affaires a ON a.id = h.id" if client_ids else ""
+    where = " AND ".join(filters)
     ids_raw = db.execute(
-        text(
-            "SELECT DISTINCT id FROM mariadb_historique_affaire_w "
-            "WHERE id IS NOT NULL AND DAYOFWEEK(date) = 6 ORDER BY id"
-        )
+        text(f"SELECT DISTINCT h.id FROM mariadb_historique_affaire_w h {join_clause} WHERE {where} ORDER BY h.id"),
+        params,
     ).fetchall()
     affaire_ids = [r[0] for r in ids_raw]
     total = len(affaire_ids)
@@ -134,12 +152,18 @@ def iter_controle_valorisations(
     for i, id_affaire in enumerate(affaire_ids):
         yield {"type": "progress", "current": i + 1, "total": total}
 
-        rows = db.execute(text("""
-            SELECT id, date, valo, mouvement
-            FROM mariadb_historique_affaire_w
-            WHERE id = :id_affaire AND DAYOFWEEK(date) = 6
-            ORDER BY date
-        """), {"id_affaire": id_affaire}).fetchall()
+        row_filters = ["id = :id_affaire", "DAYOFWEEK(date) = 6"]
+        row_params: dict = {"id_affaire": id_affaire}
+        if date_debut:
+            row_filters.append("date >= :date_debut")
+            row_params["date_debut"] = date_debut
+        if date_fin:
+            row_filters.append("date <= :date_fin")
+            row_params["date_fin"] = date_fin
+        rows = db.execute(
+            text(f"SELECT id, date, valo, mouvement FROM mariadb_historique_affaire_w WHERE {' AND '.join(row_filters)} ORDER BY date"),
+            row_params,
+        ).fetchall()
 
         if not rows:
             continue

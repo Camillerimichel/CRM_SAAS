@@ -1566,12 +1566,58 @@
       <div class="tool-error"  id="controleValoError"></div>
     </div>
 
-    <!-- Ligne 4 : log interactif contrôle valorisations (pleine largeur) -->
-    <div style="grid-column: 1 / -1; display:none;" id="controleValoLogWrap">
-      <div id="controleValoLog"
-           style="max-height:200px; overflow-y:auto; font-size:0.72rem; font-family:monospace;
-                  background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px;
-                  padding:6px 10px; line-height:1.6;">
+    <!-- Ligne 4 : paramètres + log interactif contrôle valorisations (pleine largeur) -->
+    <div style="grid-column: 1 / -1;">
+      <details id="controleValoParams" style="margin-bottom:6px;">
+        <summary style="font-size:0.82rem; color:#6b7280; cursor:pointer; user-select:none; padding:2px 0;"
+                 onclick="controleValoLoadClients()">
+          ▸ Paramètres (optionnels)
+        </summary>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; padding:10px 12px;
+                    background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px;">
+
+          <!-- Sélection clients -->
+          <div>
+            <div style="font-size:0.78rem; font-weight:600; margin-bottom:4px;">Clients (défaut : tous)</div>
+            <input type="text" id="controleValoClientSearch" placeholder="Rechercher par nom…"
+                   oninput="controleValoFilterClients()"
+                   style="width:100%; padding:5px 8px; border:1px solid #d1d5db; border-radius:6px;
+                          font-size:0.8rem; box-sizing:border-box; margin-bottom:4px;">
+            <div id="controleValoClientSuggestions"
+                 style="display:none; max-height:140px; overflow-y:auto; border:1px solid #d1d5db;
+                        border-radius:6px; background:#fff; font-size:0.78rem; margin-bottom:6px;">
+            </div>
+            <div id="controleValoClientChips" style="display:flex; flex-wrap:wrap; gap:4px; min-height:20px;"></div>
+            <div style="font-size:0.7rem; color:#9ca3af; margin-top:3px;">
+              Laisser vide = tous les clients
+            </div>
+          </div>
+
+          <!-- Période -->
+          <div>
+            <div style="font-size:0.78rem; font-weight:600; margin-bottom:4px;">Période (défaut : toutes)</div>
+            <label style="font-size:0.75rem; color:#6b7280;">Du</label>
+            <input type="date" id="controleValoDateDebut"
+                   style="width:100%; padding:5px 8px; border:1px solid #d1d5db; border-radius:6px;
+                          font-size:0.8rem; box-sizing:border-box; margin-bottom:6px;">
+            <label style="font-size:0.75rem; color:#6b7280;">Au</label>
+            <input type="date" id="controleValoDateFin"
+                   style="width:100%; padding:5px 8px; border:1px solid #d1d5db; border-radius:6px;
+                          font-size:0.8rem; box-sizing:border-box;">
+            <div id="controleValoDateError" style="font-size:0.7rem; color:#dc2626; margin-top:3px; display:none;">
+              La date de fin doit être postérieure à la date de début.
+            </div>
+          </div>
+
+        </div>
+      </details>
+
+      <div style="display:none;" id="controleValoLogWrap">
+        <div id="controleValoLog"
+             style="max-height:200px; overflow-y:auto; font-size:0.72rem; font-family:monospace;
+                    background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px;
+                    padding:6px 10px; line-height:1.6;">
+        </div>
       </div>
     </div>
 
@@ -1834,6 +1880,80 @@
     });
   });
 
+  // --- Gestion des clients pour le contrôle de valorisation ---
+  let _controleValoClients = [];       // [{id, nom, prenom}]
+  let _controleValoSelected = new Map(); // id → {id, nom, prenom}
+  let _controleValoLoaded = false;
+
+  async function controleValoLoadClients() {
+    if (_controleValoLoaded) return;
+    _controleValoLoaded = true;
+    try {
+      const res = await fetch('/dashboard/superadmin/controle-valo/clients', { credentials: 'include' });
+      if (res.ok) _controleValoClients = await res.json();
+    } catch (_) {}
+  }
+
+  function controleValoFilterClients() {
+    const q = document.getElementById('controleValoClientSearch').value.trim().toLowerCase();
+    const box = document.getElementById('controleValoClientSuggestions');
+    if (!q) { box.style.display = 'none'; return; }
+    const matches = _controleValoClients
+      .filter(c => !_controleValoSelected.has(c.id))
+      .filter(c => (c.nom + ' ' + c.prenom).toLowerCase().includes(q))
+      .slice(0, 20);
+    if (!matches.length) { box.style.display = 'none'; return; }
+    box.innerHTML = matches.map(c =>
+      `<div onclick="controleValoSelectClient(${c.id})"
+            style="padding:4px 8px; cursor:pointer; border-bottom:1px solid #f3f4f6;"
+            onmouseenter="this.style.background='#eff6ff'" onmouseleave="this.style.background=''">
+        ${c.nom} ${c.prenom}
+      </div>`
+    ).join('');
+    box.style.display = 'block';
+  }
+
+  function controleValoSelectClient(id) {
+    const client = _controleValoClients.find(c => c.id === id);
+    if (!client) return;
+    _controleValoSelected.set(id, client);
+    document.getElementById('controleValoClientSearch').value = '';
+    document.getElementById('controleValoClientSuggestions').style.display = 'none';
+    controleValoRenderChips();
+  }
+
+  function controleValoRemoveClient(id) {
+    _controleValoSelected.delete(id);
+    controleValoRenderChips();
+  }
+
+  function controleValoRenderChips() {
+    const box = document.getElementById('controleValoClientChips');
+    box.innerHTML = [..._controleValoSelected.values()].map(c =>
+      `<span style="display:inline-flex; align-items:center; gap:4px; background:#dbeafe;
+                    color:#1d4ed8; border-radius:12px; padding:2px 8px; font-size:0.73rem;">
+        ${c.nom} ${c.prenom}
+        <span onclick="controleValoRemoveClient(${c.id})"
+              style="cursor:pointer; font-size:0.85rem; line-height:1;">×</span>
+      </span>`
+    ).join('');
+  }
+
+  function controleValoValidateDates() {
+    const d1 = document.getElementById('controleValoDateDebut').value;
+    const d2 = document.getElementById('controleValoDateFin').value;
+    const errEl = document.getElementById('controleValoDateError');
+    if (d1 && d2 && d2 <= d1) {
+      errEl.style.display = 'block';
+      return false;
+    }
+    errEl.style.display = 'none';
+    return true;
+  }
+
+  document.getElementById('controleValoDateDebut').addEventListener('change', controleValoValidateDates);
+  document.getElementById('controleValoDateFin').addEventListener('change', controleValoValidateDates);
+
   async function runControleValorisations() {
     const btn      = document.getElementById('btnControleValo');
     const progress = document.getElementById('controleValoProgress');
@@ -1844,6 +1964,8 @@
     const resultEl = document.getElementById('controleValoResult');
     const errEl    = document.getElementById('controleValoError');
 
+    if (!controleValoValidateDates()) return;
+
     btn.disabled = true;
     btn.classList.add('active');
     progress.style.display = 'none';
@@ -1851,6 +1973,12 @@
     logEl.innerHTML = '';
     resultEl.style.display = 'none';
     errEl.style.display = 'none';
+
+    const payload = {
+      client_ids: _controleValoSelected.size ? [..._controleValoSelected.keys()] : null,
+      date_debut:  document.getElementById('controleValoDateDebut').value || null,
+      date_fin:    document.getElementById('controleValoDateFin').value   || null,
+    };
 
     const _COLORS = {
       info:     '#6b7280',
@@ -1873,6 +2001,8 @@
     try {
       const res = await fetch('/dashboard/superadmin/stream-controle-valorisations', {
         method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
 
