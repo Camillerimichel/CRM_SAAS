@@ -18,8 +18,6 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from src.models.evenement import Evenement
-from src.models.historique_affaire import HistoriqueAffaire
-from src.models.historique_support import HistoriqueSupport
 from src.models.type_evenement import TypeEvenement
 
 _CATEGORIE = "Réglementaire"
@@ -48,14 +46,12 @@ def _try_fix_vl(
     db: Session, id_affaire: int, date_semaine: datetime
 ) -> tuple[float | None, str | None]:
     """Tente de corriger la valo en remplaçant les VL NULL/0 par forward-fill depuis la semaine précédente."""
-    supports = (
-        db.query(HistoriqueSupport)
-        .filter(
-            HistoriqueSupport.id_source == id_affaire,
-            HistoriqueSupport.date == date_semaine,
-        )
-        .all()
-    )
+    supports = db.execute(text("""
+        SELECT id_support, nbuc, vl
+        FROM mariadb_historique_support_w
+        WHERE id_source = :id_affaire AND date = :date
+    """), {"id_affaire": id_affaire, "date": date_semaine}).fetchall()
+
     if not supports:
         return None, None
 
@@ -67,17 +63,14 @@ def _try_fix_vl(
         if s.vl and s.vl > 0:
             corrected_valo += nbuc * s.vl
         else:
-            prev = (
-                db.query(HistoriqueSupport)
-                .filter(
-                    HistoriqueSupport.id_source == id_affaire,
-                    HistoriqueSupport.id_support == s.id_support,
-                    HistoriqueSupport.date < date_semaine,
-                    HistoriqueSupport.vl > 0,
-                )
-                .order_by(HistoriqueSupport.date.desc())
-                .first()
-            )
+            prev = db.execute(text("""
+                SELECT vl FROM mariadb_historique_support_w
+                WHERE id_source = :id_affaire
+                  AND id_support = :id_support
+                  AND date < :date
+                  AND vl IS NOT NULL AND vl > 0
+                ORDER BY date DESC LIMIT 1
+            """), {"id_affaire": id_affaire, "id_support": s.id_support, "date": date_semaine}).fetchone()
             if prev:
                 corrected_valo += nbuc * prev.vl
                 any_fix = True
@@ -113,10 +106,11 @@ def iter_controle_valorisations(
 ) -> Generator[dict, None, None]:
     t0 = time.time()
 
+    # Dans la live DB, la colonne affaire s'appelle `id` (pas `id_affaire`)
     ids_raw = db.execute(
         text(
-            "SELECT DISTINCT id_affaire FROM mariadb_historique_affaire_w "
-            "WHERE id_affaire IS NOT NULL ORDER BY id_affaire"
+            "SELECT DISTINCT id FROM mariadb_historique_affaire_w "
+            "WHERE id IS NOT NULL ORDER BY id"
         )
     ).fetchall()
     affaire_ids = [r[0] for r in ids_raw]
@@ -137,12 +131,12 @@ def iter_controle_valorisations(
     for i, id_affaire in enumerate(affaire_ids):
         yield {"type": "progress", "current": i + 1, "total": total}
 
-        rows = (
-            db.query(HistoriqueAffaire)
-            .filter(HistoriqueAffaire.id_affaire == id_affaire)
-            .order_by(HistoriqueAffaire.date)
-            .all()
-        )
+        rows = db.execute(text("""
+            SELECT id, date, valo, mouvement
+            FROM mariadb_historique_affaire_w
+            WHERE id = :id_affaire
+            ORDER BY date
+        """), {"id_affaire": id_affaire}).fetchall()
 
         for j in range(1, len(rows)):
             prev, curr = rows[j - 1], rows[j]
