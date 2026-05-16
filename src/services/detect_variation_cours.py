@@ -107,10 +107,11 @@ def iter_controle_valorisations(
     t0 = time.time()
 
     # Dans la live DB, la colonne affaire s'appelle `id` (pas `id_affaire`)
+    # On ne conserve que les vendredis (DAYOFWEEK = 6)
     ids_raw = db.execute(
         text(
             "SELECT DISTINCT id FROM mariadb_historique_affaire_w "
-            "WHERE id IS NOT NULL ORDER BY id"
+            "WHERE id IS NOT NULL AND DAYOFWEEK(date) = 6 ORDER BY id"
         )
     ).fetchall()
     affaire_ids = [r[0] for r in ids_raw]
@@ -134,7 +135,7 @@ def iter_controle_valorisations(
         rows = db.execute(text("""
             SELECT id, date, valo, mouvement
             FROM mariadb_historique_affaire_w
-            WHERE id = :id_affaire
+            WHERE id = :id_affaire AND DAYOFWEEK(date) = 6
             ORDER BY date
         """), {"id_affaire": id_affaire}).fetchall()
 
