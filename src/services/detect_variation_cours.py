@@ -232,25 +232,42 @@ def iter_controle_valorisations(
             if not causes:
                 causes.append("cause non identifiée automatiquement")
 
-            client_anomalies.setdefault(client_id, []).append({
-                "ref": ref,
-                "date": date_str,
-                "variation": f"{signe}{variation_nette:.1%}",
-                "valo_avant": f"{prev.valo:,.0f}",
-                "valo_apres": f"{curr.valo:,.0f}",
-                "cause": ", ".join(causes),
-            })
+            # Regroupement par affaire (pas par semaine) pour éviter les doublons dans la tâche
+            aff_key = (client_id, id_affaire)
+            if aff_key not in client_anomalies:
+                client_anomalies[aff_key] = {
+                    "client_id": client_id,
+                    "ref": ref,
+                    "semaines": [],
+                    "pire_variation": 0.0,
+                    "cause": set(),
+                }
+            entry = client_anomalies[aff_key]
+            entry["semaines"].append(date_str)
+            if abs(variation_nette) > abs(entry["pire_variation"]):
+                entry["pire_variation"] = variation_nette
+            entry["cause"].update(causes)
 
-    # Création des tâches (une par client)
+    # Regroupement des anomalies par client (une tâche par client)
+    par_client: dict[int, list[dict]] = {}
+    for entry in client_anomalies.values():
+        par_client.setdefault(entry["client_id"], []).append(entry)
+
     nb_taches = 0
-    if client_anomalies:
+    if par_client:
         type_ev = _ensure_type(db)
-        for client_id, details in client_anomalies.items():
-            lignes = [
-                f"- [{d['ref']}] Semaine {d['date']} : {d['variation']} "
-                f"({d['valo_avant']} → {d['valo_apres']} €) — {d['cause']}"
-                for d in details
-            ]
+        for client_id, affaires in par_client.items():
+            lignes = []
+            for a in affaires:
+                pire = a["pire_variation"]
+                signe = "+" if pire > 0 else ""
+                nb_sem = len(a["semaines"])
+                sem_detail = a["semaines"][0] if nb_sem == 1 else f"{a['semaines'][0]} … {a['semaines'][-1]}"
+                causes_str = ", ".join(a["cause"])
+                lignes.append(
+                    f"- [{a['ref']}] {nb_sem} semaine(s) — pire variation : "
+                    f"{signe}{pire:.1%} ({sem_detail}) — {causes_str}"
+                )
             commentaire = (
                 "Variation de cours détectée > 10% sur les affaires suivantes :\n"
                 + "\n".join(lignes)
@@ -267,7 +284,7 @@ def iter_controle_valorisations(
             yield _log(
                 "tache",
                 f"  Tâche créée pour client #{client_id} "
-                f"({len(details)} affaire(s) concernée(s))",
+                f"({len(affaires)} affaire(s) concernée(s))",
             )
 
         db.commit()
