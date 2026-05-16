@@ -1858,6 +1858,7 @@
       warn:     '#d97706',
       resolu:   '#16a34a',
       tache:    '#2563eb',
+      cloture:  '#7c3aed',
     };
 
     function _appendLog(level, message) {
@@ -1902,6 +1903,7 @@
             resultEl.innerHTML =
               `Terminé en <strong>${evt.duree_s} s</strong> — `
               + `<strong>${evt.nb_affaires.toLocaleString('fr-FR')}</strong> affaire(s) scannée(s), `
+              + `<strong>${evt.nb_clotures || 0}</strong> clôturée(s), `
               + `<strong>${evt.nb_anomalies}</strong> anomalie(s) détectée(s), `
               + `<strong>${evt.nb_resolus}</strong> auto-résolue(s), `
               + `<strong>${evt.nb_taches}</strong> tâche(s) réglementaire(s) créée(s).`;
