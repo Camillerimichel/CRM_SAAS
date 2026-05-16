@@ -1552,6 +1552,15 @@
       </div>
     </div>
 
+    <!-- Ligne 4 : contrôles de cohérence et de volatilité -->
+    <div class="tool-cell">
+      <button type="button" class="btn base-action-btn" onclick="openVolatiliteSeuilModal()">
+        Contrôle de volatilités<br><small>(2 dern. semaines)</small>
+      </button>
+      <div class="tool-result" id="volatiliteToolResult"></div>
+      <div class="tool-error"  id="volatiliteToolError"></div>
+    </div>
+
     <div class="tool-cell">
       <button id="btnControleValo" type="button" class="btn base-action-btn"
               onclick="controleValoLoadClients(); document.getElementById('controleValoParams').style.display='block'; document.getElementById('controleValoParams').scrollIntoView({behavior:'smooth', block:'nearest'});">
@@ -1567,15 +1576,7 @@
       <div class="tool-error"  id="controleValoError"></div>
     </div>
 
-    <div class="tool-cell">
-      <button type="button" class="btn base-action-btn" onclick="openVolatiliteSeuilModal()">
-        Contrôle de volatilités<br><small>(2 dern. semaines)</small>
-      </button>
-      <div class="tool-result" id="volatiliteToolResult"></div>
-      <div class="tool-error"  id="volatiliteToolError"></div>
-    </div>
-
-    <!-- Ligne 4 : paramètres + log interactif contrôle valorisations (pleine largeur) -->
+    <!-- Ligne 5 : paramètres pleine largeur -->
     <div style="grid-column: 1 / -1;">
       <div id="controleValoParams" style="display:none; margin-bottom:6px;">
         <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
@@ -2195,9 +2196,9 @@
     <select id="volatiliteSeuilSelect"
             style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px;
                    font-size:0.88rem; margin-bottom:20px; box-sizing:border-box;">
-      <option value="0.10">≥ 10 %</option>
-      <option value="0.25">≥ 25 %</option>
-      <option value="0.50">&gt; 25 % — extrêmes (≥ 50 %)</option>
+      <option value="10">≥ 10 points</option>
+      <option value="25">≥ 25 points</option>
+      <option value="50">&gt; 25 points — extrêmes (≥ 50 pts)</option>
     </select>
     <div style="display:flex; justify-content:flex-end; gap:8px;">
       <button type="button" onclick="closeVolatiliteSeuilModal()"
@@ -2256,10 +2257,10 @@
             <th>Client</th>
             <th>Semaine préc.</th>
             <th>Semaine curr.</th>
-            <th style="text-align:right;">Valo préc. (€)</th>
-            <th style="text-align:right;">Valo curr. (€)</th>
-            <th style="text-align:right;">Mouvement (€)</th>
-            <th style="text-align:right;">Variation nette</th>
+            <th style="text-align:right;">Volat. préc. (pts)</th>
+            <th style="text-align:right;">Volat. curr. (pts)</th>
+            <th style="text-align:right;">Δ Volatilité</th>
+            <th style="text-align:center;">SRRI préc. → curr.</th>
           </tr>
         </thead>
         <tbody id="volatiliteTableBody">
@@ -2286,15 +2287,14 @@
     let _responsables = [];
     let _lastAnchor  = null;
 
-    const fmt = n => (n == null ? '—' : Number(n).toLocaleString('fr-FR', {minimumFractionDigits:0, maximumFractionDigits:0}));
-    const fmtPct = v => { const s = v >= 0 ? '+' : ''; return s + v.toFixed(2).replace('.', ',') + ' %'; };
+    const fmtPts = v => (v == null ? '—' : v.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' pts');
+    const fmtDelta = v => { const s = v >= 0 ? '+' : ''; return s + v.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' pts'; };
 
-    function colorVar(v) {
+    function colorDelta(v) {
       const abs = Math.abs(v);
       if (abs >= 50) return '#7c3aed';
       if (abs >= 25) return '#dc2626';
-      if (abs >= 10) return '#d97706';
-      return '#374151';
+      return '#d97706';
     }
 
     // --- Modales ---
@@ -2344,12 +2344,11 @@
     };
 
     function _renderResults(seuil) {
-      const pct = Math.round(seuil * 100);
-      const label = seuil >= 0.5 ? `> 25 % — extrêmes (≥ 50 %)` : `≥ ${pct} %`;
+      const label = seuil >= 50 ? `> 25 pts — extrêmes (≥ 50 pts)` : `≥ ${seuil} pts`;
       document.getElementById('volatiliteResultTitle').textContent =
         `Contrôle de volatilités — seuil ${label}`;
       document.getElementById('volatiliteResultSubtitle').textContent =
-        `${_data.length} affaire(s) avec variation nette anormale entre les 2 derniers vendredis`;
+        `${_data.length} affaire(s) avec variation de volatilité anormale entre les 2 derniers vendredis`;
       _renderTable();
       _updateSelBar();
       const backdrop = document.getElementById('volatiliteResultBackdrop');
@@ -2364,17 +2363,23 @@
       }
       tbody.innerHTML = _data.map((r, idx) => {
         const sel = _selected.has(r.id_affaire);
-        const color = colorVar(r.variation_nette);
+        const color = colorDelta(r.delta_pts);
+        const sens = r.sens === 'hausse' ? '▲' : '▼';
+        const sensColor = r.sens === 'hausse' ? '#dc2626' : '#2563eb';
+        const srri = (r.srri_prev != null && r.srri_curr != null)
+          ? `${r.srri_prev} → ${r.srri_curr}` : '—';
         return `<tr class="${sel ? 'vol-row-selected' : ''}" data-idx="${idx}" data-id="${r.id_affaire}">
           <td><a href="/dashboard/affaires/${r.id_affaire}" onclick="event.stopPropagation()"
                  style="color:#2563eb; text-decoration:none;">${r.ref}</a></td>
           <td>${r.client_prenom} ${r.client_nom}</td>
           <td>${r.date_prev}</td>
           <td>${r.date_curr}</td>
-          <td style="text-align:right;">${fmt(r.valo_prev)}</td>
-          <td style="text-align:right;">${fmt(r.valo_curr)}</td>
-          <td style="text-align:right;">${fmt(r.mouvement)}</td>
-          <td style="text-align:right; font-weight:700; color:${color};">${fmtPct(r.variation_nette)}</td>
+          <td style="text-align:right;">${fmtPts(r.volat_prev_pts)}</td>
+          <td style="text-align:right;">${fmtPts(r.volat_curr_pts)}</td>
+          <td style="text-align:right; font-weight:700; color:${color};">
+            <span style="color:${sensColor};">${sens}</span> ${fmtDelta(r.delta_pts)}
+          </td>
+          <td style="text-align:center; color:#6b7280;">${srri}</td>
         </tr>`;
       }).join('');
 
