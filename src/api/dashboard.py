@@ -4248,7 +4248,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         year_count += 1
         cum_perf_pct = (cum_factor - 1.0) * 100.0
         try:
-            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0
+            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0 if cum_factor > 0 else None
         except Exception:
             ann_perf_pct = None
         vols_pct = [_to_pct(v) for v in info.get("vols", []) if _to_pct(v) is not None]
@@ -5459,7 +5459,7 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
         year_count += 1
         cum_perf_pct = (cum_factor - 1.0) * 100.0
         try:
-            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0
+            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0 if cum_factor > 0 else None
         except Exception:
             ann_perf_pct = None
         vols_pct = [_to_pct(info.get("vol"))] if info.get("vol") is not None else []
@@ -23082,7 +23082,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         cum_perf_pct = (cum_factor_aff - 1.0) * 100.0
         n_years += 1
         try:
-            ann_perf_pct = ((cum_factor_aff ** (1.0 / max(1, n_years))) - 1.0) * 100.0
+            ann_perf_pct = ((cum_factor_aff ** (1.0 / max(1, n_years))) - 1.0) * 100.0 if cum_factor_aff > 0 else None
         except Exception:
             ann_perf_pct = None
 
@@ -24621,7 +24621,7 @@ def _recompute_srri_clients(db: Session) -> float:
                 ),
                 dietz_calc AS (
                   SELECT *,
-                    1 + SUM(COALESCE(r, 0)) OVER (
+                    1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
                       PARTITION BY id ORDER BY `date`
                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                     ) AS dietz
@@ -24640,7 +24640,7 @@ def _recompute_srri_clients(db: Session) -> float:
                 ),
                 vola AS (
                   SELECT *,
-                    STDDEV_SAMP(perf_dietz) OVER (
+                    STDDEV_SAMP(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END) OVER (
                       PARTITION BY id ORDER BY `date`
                       ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
                     ) * SQRT({sqrt_factor}) AS volat_raw
@@ -24728,7 +24728,7 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
             ),
             dietz_calc AS (
               SELECT *,
-                1 + SUM(COALESCE(r, 0)) OVER (
+                1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
                   PARTITION BY id ORDER BY `date`
                   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                 ) AS dietz
@@ -24748,7 +24748,7 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
             ),
             vola AS (
               SELECT *,
-                STDDEV_SAMP(perf_dietz) OVER (
+                STDDEV_SAMP(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END) OVER (
                   PARTITION BY id ORDER BY `date`
                   ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
                 ) * SQRT({sqrt_factor}) AS volat_raw
@@ -26310,6 +26310,64 @@ def dashboard_stream_reconstruct_historique(request: Request, db: Session = Depe
                 yield _sse(event)
         except Exception as exc:
             logger.error("stream_reconstruct_historique: %s", traceback.format_exc())
+            yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/superadmin/stream-fill-weekly-historique")
+def dashboard_stream_fill_weekly_historique(request: Request, db: Session = Depends(get_db)):
+    """SSE : comble mariadb_historique_affaire_w en hebdomadaire pour toutes les affaires."""
+    _require_superadmin_access(request, db)
+
+    from src.database import SessionLocal as _SL
+    from src.services.fill_weekly_historique import iter_fill_weekly_historique
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            for event in iter_fill_weekly_historique(_db):
+                yield _sse(event)
+        except Exception as exc:
+            logger.error("stream_fill_weekly_historique: %s", traceback.format_exc())
+            yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/superadmin/stream-controle-valorisations")
+def dashboard_stream_controle_valorisations(request: Request, db: Session = Depends(get_db)):
+    """SSE : détection des variations de valorisation > 10% et création des tâches réglementaires."""
+    _require_superadmin_access(request, db)
+
+    from src.database import SessionLocal as _SL
+    from src.services.detect_variation_cours import iter_controle_valorisations
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False, default=str)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            for event in iter_controle_valorisations(_db):
+                yield _sse(event)
+        except Exception as exc:
+            logger.error("stream_controle_valorisations: %s", traceback.format_exc())
             yield _sse({"type": "error", "message": str(exc)})
         finally:
             _db.close()
@@ -31511,7 +31569,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         # performance annualisée (CAGR) sur n années depuis le début
         year_idx += 1
         try:
-            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_idx))) - 1.0) * 100.0
+            ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_idx))) - 1.0) * 100.0 if cum_factor > 0 else None
         except Exception:
             ann_perf_pct = None
 
