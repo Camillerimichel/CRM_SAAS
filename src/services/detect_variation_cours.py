@@ -3,8 +3,11 @@ Détection et traitement des variations de valorisation > seuil sur les historiq
 
 Algorithme :
   1. Pour chaque affaire : calcul variation nette semaine sur semaine (mouvements neutralisés)
-  2. Si variation > seuil : tentative de correction VL (forward-fill) puis détection décalage nbuc
-  3. Recalcul post-correction — si toujours > seuil : tâche Réglementaire créée (une par client)
+  2. Si variation > seuil : tentatives de correction dans l'ordre :
+       a) VL forward-fill (VL NULL / aberrante)
+       b) Vérification du mouvement stocké vs mouvement réel (table mouvement)
+       c) Reconstruction du nbuc depuis les mouvements en parts
+  3. Si toujours > seuil après corrections : tâche Réglementaire créée (une par client)
 
 Flux SSE (dicts) : progress | log | done | error
 """
@@ -78,26 +81,105 @@ def _try_fix_vl(
     return (corrected_valo, "vl_forward_fill") if any_fix else (None, None)
 
 
-def _detect_nbuc_decalage(
-    db: Session, id_affaire: int, date_semaine: datetime
-) -> bool:
-    """Retourne True si un mouvement avec nb_uc existe dans la fenêtre ±2 semaines autour de la date."""
-    date_min = date_semaine - timedelta(weeks=2)
-    date_max = date_semaine + timedelta(weeks=2)
-    row = db.execute(
-        text("""
-            SELECT COUNT(*) AS nb
-            FROM mouvement
-            WHERE id_affaire = :id_affaire
-              AND nb_uc IS NOT NULL AND nb_uc != 0
-              AND (
-                (vl_date BETWEEN :date_min AND :date_max)
-                OR (date_sp BETWEEN :date_min AND :date_max)
-              )
-        """),
-        {"id_affaire": id_affaire, "date_min": date_min, "date_max": date_max},
-    ).fetchone()
-    return bool(row and row.nb > 0)
+def _verify_mouvement(
+    db: Session,
+    id_affaire: int,
+    prev_date: datetime,
+    curr_date: datetime,
+    prev_valo: float,
+    curr_valo: float,
+    stored_mouvement: float,
+) -> tuple[float, float] | None:
+    """
+    Recalcule le mouvement réel depuis la table mouvement et retourne (variation_corrigée, mvt_reel).
+    Retourne None si la différence est négligeable (< 1 €).
+    """
+    row = db.execute(text("""
+        SELECT COALESCE(SUM(CAST(m.montant_ope AS DECIMAL(18,4)) * mr.sens), 0) AS mvt_reel
+        FROM mouvement m
+        JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+        WHERE m.id_affaire = :id_affaire
+          AND mr.investi != 0
+          AND m.etat != 8
+          AND m.vl_date > :prev_date
+          AND m.vl_date <= :curr_date
+    """), {"id_affaire": id_affaire, "prev_date": prev_date, "curr_date": curr_date}).fetchone()
+
+    mvt_reel = float(row.mvt_reel or 0.0)
+    if abs(mvt_reel - stored_mouvement) < 1.0:
+        return None
+
+    new_var = (curr_valo - prev_valo - mvt_reel) / prev_valo
+    return new_var, mvt_reel
+
+
+def _try_fix_nbuc(
+    db: Session,
+    id_affaire: int,
+    curr_date: datetime,
+    prev_date: datetime,
+    prev_valo: float,
+    curr_mouvement: float,
+) -> tuple[float | None, str | None]:
+    """
+    Reconstruit le nbuc attendu pour chaque support depuis les mouvements en parts.
+    Retourne (valo_corrigée, motif) si un écart est détecté, sinon (None, None).
+    """
+    curr_supports = db.execute(text("""
+        SELECT id_support, nbuc, vl
+        FROM mariadb_historique_support_w
+        WHERE id_source = :id_affaire AND date = :date
+    """), {"id_affaire": id_affaire, "date": curr_date}).fetchall()
+
+    if not curr_supports:
+        return None, None
+
+    prev_supports = {
+        s.id_support: float(s.nbuc or 0.0)
+        for s in db.execute(text("""
+            SELECT id_support, nbuc
+            FROM mariadb_historique_support_w
+            WHERE id_source = :id_affaire AND date = :prev_date
+        """), {"id_affaire": id_affaire, "prev_date": prev_date}).fetchall()
+    }
+
+    # Delta nbuc par support sur la période (prev_date, curr_date]
+    mvt_rows = db.execute(text("""
+        SELECT m.id_support,
+               SUM(CAST(m.nb_uc AS DECIMAL(18,6)) * mr.sens) AS delta_nbuc
+        FROM mouvement m
+        JOIN mouvement_regle mr ON mr.id = m.id_mouvement_regle
+        WHERE m.id_affaire = :id_affaire
+          AND m.nb_uc IS NOT NULL
+          AND CAST(m.nb_uc AS DECIMAL(18,6)) != 0
+          AND m.etat != 8
+          AND m.vl_date > :prev_date
+          AND m.vl_date <= :curr_date
+        GROUP BY m.id_support
+    """), {"id_affaire": id_affaire, "prev_date": prev_date, "curr_date": curr_date}).fetchall()
+
+    delta_by_support = {r.id_support: float(r.delta_nbuc or 0.0) for r in mvt_rows}
+
+    any_diff = False
+    corrected_valo = 0.0
+
+    for s in curr_supports:
+        vl = float(s.vl or 0.0)
+        stored_nbuc = float(s.nbuc or 0.0)
+        prev_nbuc = prev_supports.get(s.id_support, 0.0)
+        delta = delta_by_support.get(s.id_support, 0.0)
+        expected_nbuc = prev_nbuc + delta
+
+        if vl > 0 and abs(expected_nbuc - stored_nbuc) > 0.001 and expected_nbuc >= 0:
+            corrected_valo += expected_nbuc * vl
+            any_diff = True
+        else:
+            corrected_valo += stored_nbuc * vl
+
+    if not any_diff:
+        return None, None
+
+    return corrected_valo, "nbuc_reconstruit"
 
 
 def iter_controle_valorisations(
@@ -147,7 +229,7 @@ def iter_controle_valorisations(
     nb_anomalies = 0
     nb_resolus = 0
     nb_clotures = 0
-    client_anomalies: dict[int, list[dict]] = {}
+    client_anomalies: dict[tuple, dict] = {}
 
     for i, id_affaire in enumerate(affaire_ids):
         yield {"type": "progress", "current": i + 1, "total": total}
@@ -191,13 +273,13 @@ def iter_controle_valorisations(
                 f"Affaire #{id_affaire} — dernier point valo=0 supprimé, "
                 f"date de clôture fixée au {date_str}",
             )
-            rows = rows[:-1]  # on retire le dernier point de la liste courante
+            rows = rows[:-1]
 
         for j in range(1, len(rows)):
             prev, curr = rows[j - 1], rows[j]
             if not prev.valo or abs(prev.valo) < valo_min:
                 continue
-            mouvement = curr.mouvement or 0.0
+            mouvement = float(curr.mouvement or 0.0)
             variation_nette = (curr.valo - prev.valo - mouvement) / prev.valo
 
             if abs(variation_nette) <= seuil:
@@ -213,10 +295,14 @@ def iter_controle_valorisations(
                 f"({prev.valo:,.0f} → {curr.valo:,.0f} €, mvt {mouvement:+,.0f} €)",
             )
 
-            # Tentative correction VL
-            corrected_valo, motif_vl = _try_fix_vl(db, id_affaire, curr.date)
-            if corrected_valo is not None:
-                new_var = (corrected_valo - prev.valo - mouvement) / prev.valo
+            motif_vl = None
+            motif_mvt = None
+            motif_nbuc = None
+
+            # 1. Tentative correction VL (forward-fill)
+            corrected_valo_vl, motif_vl = _try_fix_vl(db, id_affaire, curr.date)
+            if corrected_valo_vl is not None:
+                new_var = (corrected_valo_vl - prev.valo - mouvement) / prev.valo
                 if abs(new_var) <= seuil:
                     nb_resolus += 1
                     yield _log(
@@ -231,10 +317,49 @@ def iter_controle_valorisations(
                     f"{'+' if new_var > 0 else ''}{new_var:.1%}",
                 )
 
-            # Détection décalage nbuc
-            nbuc_suspect = _detect_nbuc_decalage(db, id_affaire, curr.date)
-            if nbuc_suspect:
-                yield _log("warn", "  → Décalage nbuc suspect (mouvement ±2 sem.) — vérification manuelle requise")
+            # 2. Vérification du mouvement stocké vs mouvement réel
+            mvt_result = _verify_mouvement(
+                db, id_affaire, prev.date, curr.date,
+                float(prev.valo), float(curr.valo), mouvement,
+            )
+            if mvt_result is not None:
+                new_var, mvt_reel = mvt_result
+                if abs(new_var) <= seuil:
+                    nb_resolus += 1
+                    yield _log(
+                        "resolu",
+                        f"  → Auto-résolu (mouvement recalculé {mvt_reel:+,.0f} € "
+                        f"vs stocké {mouvement:+,.0f} €) : variation corrigée "
+                        f"{'+' if new_var > 0 else ''}{new_var:.1%}",
+                    )
+                    continue
+                motif_mvt = "mouvement_recalcule"
+                mouvement = mvt_reel  # mouvement corrigé pour la suite
+                yield _log(
+                    "warn",
+                    f"  → Mouvement recalculé ({mvt_reel:+,.0f} €) : "
+                    f"variation toujours {'+' if new_var > 0 else ''}{new_var:.1%}",
+                )
+
+            # 3. Correction nbuc depuis les mouvements en parts
+            corrected_valo_nbuc, motif_nbuc = _try_fix_nbuc(
+                db, id_affaire, curr.date, prev.date, float(prev.valo), mouvement,
+            )
+            if corrected_valo_nbuc is not None:
+                new_var = (corrected_valo_nbuc - prev.valo - mouvement) / prev.valo
+                if abs(new_var) <= seuil:
+                    nb_resolus += 1
+                    yield _log(
+                        "resolu",
+                        f"  → Auto-résolu (nbuc reconstruit) : variation corrigée "
+                        f"{'+' if new_var > 0 else ''}{new_var:.1%}",
+                    )
+                    continue
+                yield _log(
+                    "warn",
+                    f"  → Correction nbuc insuffisante : variation toujours "
+                    f"{'+' if new_var > 0 else ''}{new_var:.1%}",
+                )
 
             # Anomalie persistante : rattachement au client
             affaire_row = db.execute(
@@ -252,12 +377,13 @@ def iter_controle_valorisations(
             causes = []
             if motif_vl:
                 causes.append("VL manquante / aberrante (correction insuffisante)")
-            if nbuc_suspect:
-                causes.append("décalage de parts suspect")
+            if motif_mvt:
+                causes.append("mouvement recalculé (écart persistant)")
+            if motif_nbuc:
+                causes.append("décalage de parts (correction insuffisante)")
             if not causes:
                 causes.append("cause non identifiée automatiquement")
 
-            # Regroupement par affaire (pas par semaine) pour éviter les doublons dans la tâche
             aff_key = (client_id, id_affaire)
             if aff_key not in client_anomalies:
                 client_anomalies[aff_key] = {
