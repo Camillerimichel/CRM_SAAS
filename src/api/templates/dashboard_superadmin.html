@@ -1554,7 +1554,7 @@
 
     <div class="tool-cell">
       <button id="btnControleValo" type="button" class="btn base-action-btn"
-              onclick="controleValoLoadClients(); document.getElementById('controleValoParams').open = true; document.getElementById('controleValoParams').scrollIntoView({behavior:'smooth', block:'nearest'});">
+              onclick="controleValoLoadClients(); document.getElementById('controleValoParams').style.display='block'; document.getElementById('controleValoParams').scrollIntoView({behavior:'smooth', block:'nearest'});">
         Contrôle de cohérences<br><small>des valorisations</small>
       </button>
       <div class="tool-progress" id="controleValoProgress">
@@ -1569,11 +1569,14 @@
 
     <!-- Ligne 4 : paramètres + log interactif contrôle valorisations (pleine largeur) -->
     <div style="grid-column: 1 / -1;">
-      <details id="controleValoParams" style="margin-bottom:6px;">
-        <summary style="font-size:0.82rem; color:#6b7280; cursor:pointer; user-select:none; padding:2px 0;">
-          ▸ Paramètres (optionnels)
-        </summary>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; padding:10px 12px;
+      <div id="controleValoParams" style="display:none; margin-bottom:6px;">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
+          <button type="button" onclick="document.getElementById('controleValoParams').style.display='none';"
+                  style="background:none; border:none; font-size:0.78rem; color:#9ca3af; cursor:pointer; padding:0;">
+            ✕ Fermer
+          </button>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:10px 12px;
                     background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px;">
 
           <!-- Sélection clients -->
@@ -1625,7 +1628,7 @@
             Lancer le contrôle
           </button>
         </div>
-      </details>
+      </div>
 
       <div style="display:none;" id="controleValoLogWrap">
         <div id="controleValoLog"
