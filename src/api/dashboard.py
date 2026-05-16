@@ -26407,18 +26407,26 @@ async def dashboard_stream_controle_valorisations(request: Request, db: Session 
 @router.post("/superadmin/delete-taches-variation", response_class=JSONResponse)
 def dashboard_delete_taches_variation(request: Request, db: Session = Depends(get_db)):
     """Supprime toutes les tâches 'Variation de cours importante' pour la société courante."""
-    _require_superadmin_access(request, db)
-    societe_id = request.session.get("id_societe_gestion")
-    result = db.execute(text("""
-        DELETE e FROM mariadb_evenement e
-        JOIN mariadb_type_evenement te ON te.id = e.type_id
-        JOIN mariadb_clients c ON c.id = e.client_id
-        WHERE LOWER(te.libelle) = LOWER('Variation de cours importante')
-          AND c.id_societe_gestion = :societe_id
-    """), {"societe_id": societe_id})
+    access, current_scope = _require_superadmin_access(request, db)
+    scope_ids = _scope_ids_for_access(access, current_scope)
+    if scope_ids:
+        placeholders = ", ".join(f":sid_{i}" for i in range(len(scope_ids)))
+        params = {f"sid_{i}": v for i, v in enumerate(scope_ids)}
+        result = db.execute(text(f"""
+            DELETE e FROM mariadb_evenement e
+            JOIN mariadb_type_evenement te ON te.id = e.type_id
+            JOIN mariadb_clients c ON c.id = e.client_id
+            WHERE LOWER(te.libelle) = LOWER('Variation de cours importante')
+              AND c.id_societe_gestion IN ({placeholders})
+        """), params)
+    else:
+        result = db.execute(text("""
+            DELETE e FROM mariadb_evenement e
+            JOIN mariadb_type_evenement te ON te.id = e.type_id
+            WHERE LOWER(te.libelle) = LOWER('Variation de cours importante')
+        """))
     db.commit()
-    nb = result.rowcount
-    return {"deleted": nb}
+    return {"deleted": result.rowcount}
 
 
 @router.get("/superadmin/import-fournisseurs/sample/{filename}", response_class=FileResponse)
