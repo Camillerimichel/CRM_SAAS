@@ -107,11 +107,11 @@ def iter_controle_valorisations(
     t0 = time.time()
 
     # Dans la live DB, la colonne affaire s'appelle `id` (pas `id_affaire`)
-    # On ne conserve que les vendredis (DAYOFWEEK = 6)
+    # On ne conserve que les vendredis (DAYOFWEEK = 6) — limité à 20 pour les tests
     ids_raw = db.execute(
         text(
             "SELECT DISTINCT id FROM mariadb_historique_affaire_w "
-            "WHERE id IS NOT NULL AND DAYOFWEEK(date) = 6 ORDER BY id"
+            "WHERE id IS NOT NULL AND DAYOFWEEK(date) = 6 ORDER BY id LIMIT 20"
         )
     ).fetchall()
     affaire_ids = [r[0] for r in ids_raw]
@@ -127,6 +127,7 @@ def iter_controle_valorisations(
 
     nb_anomalies = 0
     nb_resolus = 0
+    nb_clotures = 0
     client_anomalies: dict[int, list[dict]] = {}
 
     for i, id_affaire in enumerate(affaire_ids):
@@ -138,6 +139,34 @@ def iter_controle_valorisations(
             WHERE id = :id_affaire AND DAYOFWEEK(date) = 6
             ORDER BY date
         """), {"id_affaire": id_affaire}).fetchall()
+
+        if not rows:
+            continue
+
+        # Suppression du dernier point si valo = 0 ou NULL → clôture du contrat
+        last = rows[-1]
+        if not last.valo or last.valo == 0:
+            date_cloture = last.date
+            date_str = date_cloture.strftime("%Y-%m-%d") if date_cloture else "?"
+            db.execute(text("""
+                UPDATE mariadb_affaires SET date_cle = :date_cle WHERE id = :id
+            """), {"date_cle": date_cloture, "id": id_affaire})
+            db.execute(text("""
+                DELETE FROM mariadb_historique_affaire_w
+                WHERE id = :id_affaire AND date = :date
+            """), {"id_affaire": id_affaire, "date": date_cloture})
+            db.execute(text("""
+                DELETE FROM mariadb_historique_support_w
+                WHERE id_source = :id_affaire AND date = :date
+            """), {"id_affaire": id_affaire, "date": date_cloture})
+            db.commit()
+            nb_clotures += 1
+            yield _log(
+                "cloture",
+                f"Affaire #{id_affaire} — dernier point valo=0 supprimé, "
+                f"date de clôture fixée au {date_str}",
+            )
+            rows = rows[:-1]  # on retire le dernier point de la liste courante
 
         for j in range(1, len(rows)):
             prev, curr = rows[j - 1], rows[j]
@@ -248,6 +277,7 @@ def iter_controle_valorisations(
         "type": "done",
         "duree_s": duree,
         "nb_affaires": total,
+        "nb_clotures": nb_clotures,
         "nb_anomalies": nb_anomalies,
         "nb_resolus": nb_resolus,
         "nb_taches": nb_taches,

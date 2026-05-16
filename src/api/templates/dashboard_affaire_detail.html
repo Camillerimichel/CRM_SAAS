@@ -551,9 +551,9 @@
         <div class="kpi-heading">Synthèse</div>
         <div class="kpi-mini"><strong>Statut:</strong>
           {% if affaire and affaire.date_cle %}
-            Clôturé (<span class="js-local-dt" data-iso="{{ affaire.date_cle }}">{{ affaire.date_cle }}</span>)
+            <span style="color:#7c3aed; font-weight:600;">Clôturé</span>
           {% else %}
-            Ouvert
+            <span style="color:#16a34a; font-weight:600;">Ouvert</span>
           {% endif %}
         </div>
         <div class="kpi-mini"><strong>Date de souscription:</strong>
@@ -563,6 +563,11 @@
             —
           {% endif %}
         </div>
+        {% if affaire and affaire.date_cle %}
+        <div class="kpi-mini"><strong>Date de clôture:</strong>
+          {{ affaire.date_cle.strftime('%d/%m/%Y') }}
+        </div>
+        {% endif %}
         <div class="kpi-mini"><strong>Compagnie d'assurance:</strong>
           {{ compagnie_assurance_nom if compagnie_assurance_nom else '—' }}
         </div>
