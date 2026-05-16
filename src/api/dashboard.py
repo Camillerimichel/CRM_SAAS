@@ -26378,27 +26378,30 @@ def dashboard_grouped_tasks_config(request: Request, db: Session = Depends(get_d
 @router.post("/superadmin/controle-volatilite", response_class=JSONResponse)
 def dashboard_controle_volatilite(request: Request, body: dict, db: Session = Depends(get_db)):
     """
-    Détecte les affaires dont la variation nette entre les 2 derniers vendredis
-    dépasse le seuil fourni. Exclut les affaires avec valo=0 en dernière semaine.
+    Détecte les affaires dont la variation de volatilité (colonne volat)
+    entre les 2 derniers vendredis dépasse le seuil en points de pourcentage.
+    seuil = 10 → delta absolu de volat > 0.10 (10 pts de vol. annualisée).
     """
     _require_superadmin_access(request, db)
     try:
-        seuil = float(body.get("seuil", 0.10))
+        seuil_pts = float(body.get("seuil", 10.0))
     except (TypeError, ValueError):
-        seuil = 0.10
+        seuil_pts = 10.0
+    seuil_dec = seuil_pts / 100.0
 
     rows = db.execute(text("""
         WITH ranked AS (
             SELECT
-                h.id          AS id_affaire,
-                h.date        AS date_sem,
-                h.valo,
-                COALESCE(h.mouvement, 0) AS mouvement,
+                h.id    AS id_affaire,
+                h.date  AS date_sem,
+                h.volat,
+                h.SRRI,
                 ROW_NUMBER() OVER (PARTITION BY h.id ORDER BY h.date DESC) AS rn
             FROM mariadb_historique_affaire_w h
             WHERE DAYOFWEEK(h.date) = 6
-              AND h.valo IS NOT NULL
-              AND h.valo > 0
+              AND h.volat IS NOT NULL
+              AND h.volat > 0
+              AND h.volat < 2
         )
         SELECT
             curr.id_affaire,
@@ -26407,26 +26410,28 @@ def dashboard_controle_volatilite(request: Request, body: dict, db: Session = De
             c.nom           AS client_nom,
             c.prenom        AS client_prenom,
             curr.date_sem   AS date_curr,
-            curr.valo       AS valo_curr,
-            curr.mouvement  AS mouvement_curr,
+            curr.volat      AS volat_curr,
+            curr.SRRI       AS srri_curr,
             prev.date_sem   AS date_prev,
-            prev.valo       AS valo_prev,
-            (curr.valo - prev.valo - curr.mouvement) / prev.valo AS variation_nette
+            prev.volat      AS volat_prev,
+            prev.SRRI       AS srri_prev,
+            ABS(curr.volat - prev.volat) AS delta_volat
         FROM ranked curr
         JOIN ranked prev
           ON prev.id_affaire = curr.id_affaire AND prev.rn = 2
         JOIN mariadb_affaires af ON af.id = curr.id_affaire
         JOIN mariadb_clients  c  ON c.id  = af.id_personne
         WHERE curr.rn = 1
-          AND prev.valo > 100
-          AND ABS((curr.valo - prev.valo - curr.mouvement) / prev.valo) > :seuil
-        ORDER BY ABS((curr.valo - prev.valo - curr.mouvement) / prev.valo) DESC
-    """), {"seuil": seuil}).fetchall()
+          AND ABS(curr.volat - prev.volat) > :seuil_dec
+        ORDER BY ABS(curr.volat - prev.volat) DESC
+    """), {"seuil_dec": seuil_dec}).fetchall()
 
     result = []
     for r in rows:
         m = r._mapping if hasattr(r, "_mapping") else {}
-        vn = float(m.get("variation_nette") or 0)
+        dv = float(m.get("delta_volat") or 0)
+        vc = float(m.get("volat_curr") or 0)
+        vp = float(m.get("volat_prev") or 0)
         result.append({
             "id_affaire":    m.get("id_affaire"),
             "ref":           m.get("ref") or f"#{m.get('id_affaire')}",
@@ -26435,10 +26440,12 @@ def dashboard_controle_volatilite(request: Request, body: dict, db: Session = De
             "client_prenom": m.get("client_prenom") or "",
             "date_curr":     m.get("date_curr").strftime("%Y-%m-%d") if m.get("date_curr") else "",
             "date_prev":     m.get("date_prev").strftime("%Y-%m-%d") if m.get("date_prev") else "",
-            "valo_curr":     float(m.get("valo_curr") or 0),
-            "valo_prev":     float(m.get("valo_prev") or 0),
-            "mouvement":     float(m.get("mouvement_curr") or 0),
-            "variation_nette": round(vn * 100, 2),
+            "volat_prev_pts": round(vp * 100, 2),
+            "volat_curr_pts": round(vc * 100, 2),
+            "delta_pts":     round(dv * 100, 2),
+            "sens":          "hausse" if vc > vp else "baisse",
+            "srri_prev":     m.get("srri_prev"),
+            "srri_curr":     m.get("srri_curr"),
         })
     return result
 
