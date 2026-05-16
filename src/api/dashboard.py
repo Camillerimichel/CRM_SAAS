@@ -26350,6 +26350,99 @@ def dashboard_stream_fill_weekly_historique(request: Request, db: Session = Depe
     )
 
 
+@router.get("/superadmin/grouped-tasks-config", response_class=JSONResponse)
+def dashboard_grouped_tasks_config(request: Request, db: Session = Depends(get_db)):
+    """Renvoie taskTypes et responsables pour GroupedTasksModal dans les pages superadmin."""
+    _require_superadmin_access(request, db)
+    task_types_map = _fetch_task_types(db)
+    task_types = [
+        {"label": t["libelle"], "categorie": cat}
+        for cat, types in task_types_map.items()
+        for t in types
+    ]
+    rh_entries = fetch_rh_list(db)
+    responsables = []
+    for rh in rh_entries or []:
+        try:
+            rid = int(rh.get("id"))
+        except Exception:
+            continue
+        prenom = (rh.get("prenom") or "").strip()
+        nom = (rh.get("nom") or "").strip()
+        label = " ".join(p for p in [prenom, nom] if p) or f"RH #{rid}"
+        responsables.append({"id": rid, "label": label})
+    responsables.sort(key=lambda x: x["label"].lower())
+    return {"taskTypes": task_types, "responsables": responsables}
+
+
+@router.post("/superadmin/controle-volatilite", response_class=JSONResponse)
+def dashboard_controle_volatilite(request: Request, body: dict, db: Session = Depends(get_db)):
+    """
+    Détecte les affaires dont la variation nette entre les 2 derniers vendredis
+    dépasse le seuil fourni. Exclut les affaires avec valo=0 en dernière semaine.
+    """
+    _require_superadmin_access(request, db)
+    try:
+        seuil = float(body.get("seuil", 0.10))
+    except (TypeError, ValueError):
+        seuil = 0.10
+
+    rows = db.execute(text("""
+        WITH ranked AS (
+            SELECT
+                h.id          AS id_affaire,
+                h.date        AS date_sem,
+                h.valo,
+                COALESCE(h.mouvement, 0) AS mouvement,
+                ROW_NUMBER() OVER (PARTITION BY h.id ORDER BY h.date DESC) AS rn
+            FROM mariadb_historique_affaire_w h
+            WHERE DAYOFWEEK(h.date) = 6
+              AND h.valo IS NOT NULL
+              AND h.valo > 0
+        )
+        SELECT
+            curr.id_affaire,
+            af.ref,
+            c.id            AS client_id,
+            c.nom           AS client_nom,
+            c.prenom        AS client_prenom,
+            curr.date_sem   AS date_curr,
+            curr.valo       AS valo_curr,
+            curr.mouvement  AS mouvement_curr,
+            prev.date_sem   AS date_prev,
+            prev.valo       AS valo_prev,
+            (curr.valo - prev.valo - curr.mouvement) / prev.valo AS variation_nette
+        FROM ranked curr
+        JOIN ranked prev
+          ON prev.id_affaire = curr.id_affaire AND prev.rn = 2
+        JOIN mariadb_affaires af ON af.id = curr.id_affaire
+        JOIN mariadb_clients  c  ON c.id  = af.id_personne
+        WHERE curr.rn = 1
+          AND prev.valo > 100
+          AND ABS((curr.valo - prev.valo - curr.mouvement) / prev.valo) > :seuil
+        ORDER BY ABS((curr.valo - prev.valo - curr.mouvement) / prev.valo) DESC
+    """), {"seuil": seuil}).fetchall()
+
+    result = []
+    for r in rows:
+        m = r._mapping if hasattr(r, "_mapping") else {}
+        vn = float(m.get("variation_nette") or 0)
+        result.append({
+            "id_affaire":    m.get("id_affaire"),
+            "ref":           m.get("ref") or f"#{m.get('id_affaire')}",
+            "client_id":     m.get("client_id"),
+            "client_nom":    m.get("client_nom") or "",
+            "client_prenom": m.get("client_prenom") or "",
+            "date_curr":     m.get("date_curr").strftime("%Y-%m-%d") if m.get("date_curr") else "",
+            "date_prev":     m.get("date_prev").strftime("%Y-%m-%d") if m.get("date_prev") else "",
+            "valo_curr":     float(m.get("valo_curr") or 0),
+            "valo_prev":     float(m.get("valo_prev") or 0),
+            "mouvement":     float(m.get("mouvement_curr") or 0),
+            "variation_nette": round(vn * 100, 2),
+        })
+    return result
+
+
 @router.get("/superadmin/controle-valo/clients", response_class=JSONResponse)
 def dashboard_controle_valo_clients(request: Request, db: Session = Depends(get_db)):
     """Liste des clients ayant un historique affaire, pour le filtre du contrôle de valorisation."""

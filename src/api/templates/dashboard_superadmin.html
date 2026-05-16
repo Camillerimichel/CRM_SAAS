@@ -1567,6 +1567,14 @@
       <div class="tool-error"  id="controleValoError"></div>
     </div>
 
+    <div class="tool-cell">
+      <button type="button" class="btn base-action-btn" onclick="openVolatiliteSeuilModal()">
+        Contrôle de volatilités<br><small>(2 dern. semaines)</small>
+      </button>
+      <div class="tool-result" id="volatiliteToolResult"></div>
+      <div class="tool-error"  id="volatiliteToolError"></div>
+    </div>
+
     <!-- Ligne 4 : paramètres + log interactif contrôle valorisations (pleine largeur) -->
     <div style="grid-column: 1 / -1;">
       <div id="controleValoParams" style="display:none; margin-bottom:6px;">
@@ -2154,5 +2162,318 @@
       btn.disabled = false;
     }
   }
+
+
+</script>
+
+<style>
+  .vol-row-selected td { background:#dbeafe !important; }
+  .vol-row-selected:hover td { background:#bfdbfe !important; }
+  .vol-table tr { cursor:pointer; }
+  .vol-table tr:hover td { background:#f8fafc; }
+  .vol-table td, .vol-table th { padding:6px 10px; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
+  .vol-table th { color:#6b7280; font-weight:600; font-size:0.78rem; border-bottom:2px solid #e5e7eb; background:#f8fafc; position:sticky; top:0; }
+  .vol-sel-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 16px;
+                 background:#eff6ff; border-bottom:1px solid #bfdbfe; font-size:0.82rem; }
+  .vol-sel-bar select { padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:0.82rem; }
+  .vol-sel-bar button { padding:4px 12px; border-radius:6px; font-size:0.8rem; cursor:pointer; border:1px solid transparent; }
+  .vol-btn-primary   { background:#2563eb; color:#fff; border-color:#2563eb; }
+  .vol-btn-danger    { background:#dc2626; color:#fff; border-color:#dc2626; }
+  .vol-btn-secondary { background:#fff; color:#374151; border-color:#d1d5db; }
+</style>
+
+<!-- Modale choix seuil volatilité -->
+<div id="volatiliteSeuilBackdrop"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1100;
+            align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:12px; padding:28px 24px; width:360px;
+              box-shadow:0 8px 32px rgba(0,0,0,.22); font-family:inherit;">
+    <h3 style="margin:0 0 18px; font-size:1rem; color:#111827;">Contrôle de volatilités</h3>
+    <label style="font-size:0.82rem; font-weight:600; display:block; margin-bottom:6px; color:#374151;">
+      Seuil de variation nette
+    </label>
+    <select id="volatiliteSeuilSelect"
+            style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px;
+                   font-size:0.88rem; margin-bottom:20px; box-sizing:border-box;">
+      <option value="0.10">≥ 10 %</option>
+      <option value="0.25">≥ 25 %</option>
+      <option value="0.50">&gt; 25 % — extrêmes (≥ 50 %)</option>
+    </select>
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button type="button" onclick="closeVolatiliteSeuilModal()"
+              style="padding:7px 16px; border-radius:6px; border:1px solid #d1d5db;
+                     background:#fff; color:#374151; font-size:0.85rem; cursor:pointer;">
+        Annuler
+      </button>
+      <button type="button" id="btnLancerVolatilite" onclick="runControleVolatilite()"
+              style="padding:7px 18px; border-radius:6px; border:none;
+                     background:#2563eb; color:#fff; font-size:0.85rem; cursor:pointer;">
+        Lancer
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale résultats volatilité -->
+<div id="volatiliteResultBackdrop"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1100;
+            align-items:flex-start; justify-content:center; overflow-y:auto; padding:32px 16px;">
+  <div style="background:#fff; border-radius:12px; width:100%; max-width:1140px;
+              box-shadow:0 8px 40px rgba(0,0,0,.25); font-family:inherit; margin:auto;">
+
+    <!-- En-tête -->
+    <div style="display:flex; justify-content:space-between; align-items:flex-start;
+                padding:16px 20px; border-bottom:1px solid #e5e7eb;">
+      <div>
+        <h3 id="volatiliteResultTitle" style="margin:0; font-size:1rem; color:#111827;"></h3>
+        <div id="volatiliteResultSubtitle" style="font-size:0.78rem; color:#6b7280; margin-top:3px;"></div>
+      </div>
+      <button onclick="closeVolatiliteResultModal()"
+              style="background:none; border:none; font-size:1.3rem; color:#9ca3af; cursor:pointer; padding:0 4px;">✕</button>
+    </div>
+
+    <!-- Barre de sélection -->
+    <div id="volatiliteSelBar" class="vol-sel-bar" style="display:none;">
+      <span id="volatiliteSelCount" style="font-weight:700; color:#1d4ed8; min-width:140px;">0 sélectionnée</span>
+      <button class="vol-btn-secondary" onclick="volatiliteSelectAll()">Tout sélectionner</button>
+      <span style="color:#d1d5db;">|</span>
+      <label style="color:#6b7280;">Groupe :</label>
+      <select id="volatiliteGroupSelect" style="min-width:160px;"><option value="">Chargement…</option></select>
+      <button class="vol-btn-primary" onclick="volatiliteBatchGroup('add')">Ajouter</button>
+      <button class="vol-btn-danger"  onclick="volatiliteBatchGroup('remove')">Retirer</button>
+      <span style="color:#d1d5db;">|</span>
+      <button class="vol-btn-primary" onclick="volatiliteOpenTasks()">Tâches</button>
+      <button class="vol-btn-secondary" onclick="volatilitePurge()">Purge</button>
+      <span id="volatiliteSelStatus" style="font-size:0.78rem; color:#6b7280; margin-left:4px;"></span>
+    </div>
+
+    <!-- Tableau -->
+    <div style="padding:16px 20px; overflow-x:auto; max-height:65vh; overflow-y:auto;">
+      <table class="vol-table" style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+        <thead>
+          <tr>
+            <th>Affaire</th>
+            <th>Client</th>
+            <th>Semaine préc.</th>
+            <th>Semaine curr.</th>
+            <th style="text-align:right;">Valo préc. (€)</th>
+            <th style="text-align:right;">Valo curr. (€)</th>
+            <th style="text-align:right;">Mouvement (€)</th>
+            <th style="text-align:right;">Variation nette</th>
+          </tr>
+        </thead>
+        <tbody id="volatiliteTableBody">
+          <tr><td colspan="8" style="text-align:center; color:#9ca3af; padding:24px;">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:10px 20px 16px; text-align:right; font-size:0.78rem; color:#9ca3af;">
+      Cliquez sur une ligne pour la sélectionner · Maj+clic pour une plage
+    </div>
+  </div>
+</div>
+
+{% include "fragments/grouped_tasks_modal.html" %}
+
+<script>
+  // ========== Contrôle de volatilités ==========
+  (function(){
+    let _data        = [];          // résultats bruts [{id_affaire, ref, ...}]
+    let _selected    = new Set();   // id_affaire sélectionnés (Number)
+    let _groups      = [];
+    let _taskTypes   = [];
+    let _responsables = [];
+    let _lastAnchor  = null;
+
+    const fmt = n => (n == null ? '—' : Number(n).toLocaleString('fr-FR', {minimumFractionDigits:0, maximumFractionDigits:0}));
+    const fmtPct = v => { const s = v >= 0 ? '+' : ''; return s + v.toFixed(2).replace('.', ',') + ' %'; };
+
+    function colorVar(v) {
+      const abs = Math.abs(v);
+      if (abs >= 50) return '#7c3aed';
+      if (abs >= 25) return '#dc2626';
+      if (abs >= 10) return '#d97706';
+      return '#374151';
+    }
+
+    // --- Modales ---
+    window.openVolatiliteSeuilModal = function() {
+      const el = document.getElementById('volatiliteSeuilBackdrop');
+      el.style.display = 'flex';
+    };
+    window.closeVolatiliteSeuilModal = function() {
+      document.getElementById('volatiliteSeuilBackdrop').style.display = 'none';
+    };
+    window.closeVolatiliteResultModal = function() {
+      document.getElementById('volatiliteResultBackdrop').style.display = 'none';
+    };
+
+    // --- Lancement ---
+    window.runControleVolatilite = async function() {
+      const seuil = parseFloat(document.getElementById('volatiliteSeuilSelect').value) || 0.10;
+      const btn   = document.getElementById('btnLancerVolatilite');
+      const errEl = document.getElementById('volatiliteToolError');
+      const resEl = document.getElementById('volatiliteToolResult');
+      btn.disabled = true;
+      btn.textContent = 'Chargement…';
+      errEl.style.display = 'none';
+      resEl.style.display = 'none';
+      try {
+        const resp = await fetch('/dashboard/superadmin/controle-volatilite', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seuil }),
+        });
+        if (!resp.ok) throw new Error(`Erreur ${resp.status}`);
+        _data = await resp.json();
+        _selected.clear();
+        closeVolatiliteSeuilModal();
+        _renderResults(seuil);
+        resEl.textContent = `${_data.length} anomalie(s) détectée(s)`;
+        resEl.style.display = 'block';
+        volatiliteLoadGroups();
+        _loadTaskConfig();
+      } catch(e) {
+        errEl.textContent = 'Erreur : ' + e.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Lancer';
+      }
+    };
+
+    function _renderResults(seuil) {
+      const pct = Math.round(seuil * 100);
+      const label = seuil >= 0.5 ? `> 25 % — extrêmes (≥ 50 %)` : `≥ ${pct} %`;
+      document.getElementById('volatiliteResultTitle').textContent =
+        `Contrôle de volatilités — seuil ${label}`;
+      document.getElementById('volatiliteResultSubtitle').textContent =
+        `${_data.length} affaire(s) avec variation nette anormale entre les 2 derniers vendredis`;
+      _renderTable();
+      _updateSelBar();
+      const backdrop = document.getElementById('volatiliteResultBackdrop');
+      backdrop.style.display = 'flex';
+    }
+
+    function _renderTable() {
+      const tbody = document.getElementById('volatiliteTableBody');
+      if (!_data.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#16a34a;padding:24px;">Aucune anomalie détectée ✓</td></tr>';
+        return;
+      }
+      tbody.innerHTML = _data.map((r, idx) => {
+        const sel = _selected.has(r.id_affaire);
+        const color = colorVar(r.variation_nette);
+        return `<tr class="${sel ? 'vol-row-selected' : ''}" data-idx="${idx}" data-id="${r.id_affaire}">
+          <td><a href="/dashboard/affaires/${r.id_affaire}" onclick="event.stopPropagation()"
+                 style="color:#2563eb; text-decoration:none;">${r.ref}</a></td>
+          <td>${r.client_prenom} ${r.client_nom}</td>
+          <td>${r.date_prev}</td>
+          <td>${r.date_curr}</td>
+          <td style="text-align:right;">${fmt(r.valo_prev)}</td>
+          <td style="text-align:right;">${fmt(r.valo_curr)}</td>
+          <td style="text-align:right;">${fmt(r.mouvement)}</td>
+          <td style="text-align:right; font-weight:700; color:${color};">${fmtPct(r.variation_nette)}</td>
+        </tr>`;
+      }).join('');
+
+      // Sélection par clic
+      tbody.querySelectorAll('tr').forEach(tr => {
+        tr.addEventListener('click', function(ev) {
+          if (ev.target.tagName === 'A') return;
+          const id  = Number(tr.dataset.id);
+          const idx = Number(tr.dataset.idx);
+          if (ev.shiftKey && _lastAnchor !== null) {
+            const lo = Math.min(_lastAnchor, idx), hi = Math.max(_lastAnchor, idx);
+            _data.slice(lo, hi + 1).forEach(r => _selected.add(r.id_affaire));
+          } else {
+            _selected.has(id) ? _selected.delete(id) : _selected.add(id);
+            _lastAnchor = idx;
+          }
+          _renderTable();
+          _updateSelBar();
+        });
+      });
+    }
+
+    function _updateSelBar() {
+      const bar   = document.getElementById('volatiliteSelBar');
+      const count = document.getElementById('volatiliteSelCount');
+      const n = _selected.size;
+      bar.style.display  = _data.length ? 'flex' : 'none';
+      count.textContent  = `${n} affaire${n > 1 ? 's' : ''} sélectionnée${n > 1 ? 's' : ''}`;
+    }
+
+    window.volatiliteSelectAll = function() {
+      _data.forEach(r => _selected.add(r.id_affaire));
+      _renderTable();
+      _updateSelBar();
+    };
+    window.volatilitePurge = function() {
+      _selected.clear();
+      _renderTable();
+      _updateSelBar();
+    };
+
+    // --- Groupes ---
+    window.volatiliteLoadGroups = async function() {
+      try {
+        const resp = await fetch('/api/groupes/details?type=affaire&actifs_only=true', { credentials: 'include' });
+        if (!resp.ok) return;
+        _groups = await resp.json();
+        const sel = document.getElementById('volatiliteGroupSelect');
+        sel.innerHTML = '<option value="">Choisir un groupe…</option>'
+          + _groups.map(g => `<option value="${g.id}">${g.nom}</option>`).join('');
+      } catch(e) { console.error('volatiliteLoadGroups', e); }
+    };
+
+    window.volatiliteBatchGroup = async function(action) {
+      const groupId = Number(document.getElementById('volatiliteGroupSelect').value);
+      if (!groupId) { alert('Veuillez sélectionner un groupe.'); return; }
+      const ids = [..._selected];
+      if (!ids.length) { alert('Aucune affaire sélectionnée.'); return; }
+      const status = document.getElementById('volatiliteSelStatus');
+      status.textContent = 'En cours…';
+      try {
+        const resp = await fetch('/api/groupes/memberships/batch', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, groupe_id: groupId, affaire_ids: ids }),
+        });
+        if (!resp.ok) throw new Error(`Erreur ${resp.status}`);
+        const data = await resp.json();
+        status.textContent = `${data.affected || 0} affaire(s) ${action === 'add' ? 'ajoutée(s)' : 'retirée(s)'}.`;
+      } catch(e) {
+        status.textContent = 'Erreur : ' + e.message;
+      }
+    };
+
+    // --- Tâches groupées ---
+    async function _loadTaskConfig() {
+      try {
+        const resp = await fetch('/dashboard/superadmin/grouped-tasks-config', { credentials: 'include' });
+        if (!resp.ok) return;
+        const cfg = await resp.json();
+        _taskTypes    = cfg.taskTypes || [];
+        _responsables = cfg.responsables || [];
+      } catch(e) { console.error('_loadTaskConfig', e); }
+    }
+
+    window.volatiliteOpenTasks = function() {
+      const ids = [..._selected];
+      if (!ids.length) { alert('Aucune affaire sélectionnée.'); return; }
+      if (!window.GroupedTasksModal) { alert('Module tâches groupées non chargé.'); return; }
+      window.GroupedTasksModal.open({
+        scope: 'affaires',
+        ids,
+        taskTypes:    _taskTypes,
+        responsables: _responsables,
+        filtersSummary: `Sélection manuelle — ${ids.length} affaire(s) anomalie de volatilité`,
+        title: 'Créer des tâches groupées (volatilités)',
+        defaultComment: `Anomalie de volatilité détectée — `,
+      });
+    };
+  })();
 </script>
 {% endblock %}
