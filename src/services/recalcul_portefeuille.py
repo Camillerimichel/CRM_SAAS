@@ -284,7 +284,7 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
             ),
             dietz_calc AS (
               SELECT *,
-                1 + SUM(COALESCE(r, 0)) OVER (
+                1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
                   PARTITION BY id ORDER BY `date`
                   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                 ) AS dietz
@@ -301,7 +301,7 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
             ),
             vola AS (
               SELECT *,
-                STDDEV_SAMP(perf_dietz) OVER (
+                STDDEV_SAMP(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END) OVER (
                   PARTITION BY id ORDER BY `date`
                   ROWS BETWEEN {w} PRECEDING AND CURRENT ROW
                 ) * SQRT({float(win)}) AS volat_raw
