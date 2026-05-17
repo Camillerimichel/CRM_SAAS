@@ -26452,66 +26452,40 @@ def dashboard_controle_volatilite(request: Request, body: dict, db: Session = De
 
 @router.get("/superadmin/affaire-detail-historique/{id_affaire}", response_class=JSONResponse)
 def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: Session = Depends(get_db)):
-    """Historique 52 semaines d'une affaire : valo, VL composite, perf hebdo, volat, SRRI."""
+    """Historique complet d'une affaire : valo, VL SICAV, perf hebdo, volat, SRRI."""
     _require_superadmin_access(request, db)
 
     hist_rows = db.execute(text("""
-        SELECT h.date, h.valo, h.mouvement, h.volat, h.SRRI
+        SELECT h.date, h.valo, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
         FROM mariadb_historique_affaire_w h
         WHERE h.id = :id
-          AND h.date >= DATE_SUB(CURDATE(), INTERVAL 52 WEEK)
-        ORDER BY h.date ASC
+        ORDER BY h.date DESC
     """), {"id": id_affaire}).fetchall()
-
-    vl_rows = db.execute(text("""
-        SELECT DATE(h.date) AS date_key,
-               CASE WHEN SUM(h.nbuc) > 0 THEN SUM(h.valo) / SUM(h.nbuc) ELSE NULL END AS vl_c
-        FROM mariadb_historique_support_w h
-        WHERE h.id_source = :id
-          AND h.date >= DATE_SUB(CURDATE(), INTERVAL 52 WEEK)
-        GROUP BY DATE(h.date)
-    """), {"id": id_affaire}).fetchall()
-
-    vl_map = {}
-    for r in vl_rows:
-        m = r._mapping if hasattr(r, "_mapping") else {}
-        dk = m.get("date_key")
-        vl = m.get("vl_c")
-        if dk and vl is not None:
-            vl_map[str(dk)] = round(float(vl), 6)
 
     result = []
-    prev_valo = None
     for r in hist_rows:
         m = r._mapping if hasattr(r, "_mapping") else {}
-        valo = float(m.get("valo") or 0)
-        mouvement = float(m.get("mouvement") or 0)
+        valo = m.get("valo")
+        sicav = m.get("sicav")
+        perf = m.get("perf_sicav_hebdo")
         volat = m.get("volat")
         srri = m.get("SRRI")
         date_val = m.get("date")
         date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
-
-        perf_hebdo = None
-        if prev_valo is not None and prev_valo > 0:
-            perf_hebdo = round((valo - prev_valo - mouvement) / prev_valo * 100, 2)
-        prev_valo = valo
-
         result.append({
             "date": date_str,
-            "valo": round(valo, 2),
-            "vl_composite": vl_map.get(date_str),
-            "perf_hebdo": perf_hebdo,
+            "valo": round(float(valo), 2) if valo is not None else None,
+            "vl_sicav": round(float(sicav), 6) if sicav is not None else None,
+            "perf_hebdo": round(float(perf) * 100, 4) if perf is not None else None,
             "volat_pct": round(float(volat) * 100, 2) if volat is not None else None,
             "srri": srri,
         })
-
-    result.reverse()
     return result
 
 
 @router.get("/superadmin/affaire-detail-historique/{id_affaire}/export")
 def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Request = None, db: Session = Depends(get_db)):
-    """Export Excel de l'historique 52 semaines d'une affaire."""
+    """Export Excel de l'historique complet d'une affaire."""
     import io
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -26520,29 +26494,11 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
     _require_superadmin_access(request, db)
 
     hist_rows = db.execute(text("""
-        SELECT h.date, h.valo, h.mouvement, h.volat, h.SRRI
+        SELECT h.date, h.valo, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
         FROM mariadb_historique_affaire_w h
         WHERE h.id = :id
-          AND h.date >= DATE_SUB(CURDATE(), INTERVAL 52 WEEK)
         ORDER BY h.date DESC
     """), {"id": id_affaire}).fetchall()
-
-    vl_rows = db.execute(text("""
-        SELECT DATE(h.date) AS date_key,
-               CASE WHEN SUM(h.nbuc) > 0 THEN SUM(h.valo) / SUM(h.nbuc) ELSE NULL END AS vl_c
-        FROM mariadb_historique_support_w h
-        WHERE h.id_source = :id
-          AND h.date >= DATE_SUB(CURDATE(), INTERVAL 52 WEEK)
-        GROUP BY DATE(h.date)
-    """), {"id": id_affaire}).fetchall()
-
-    vl_map = {}
-    for r in vl_rows:
-        m = r._mapping if hasattr(r, "_mapping") else {}
-        dk = m.get("date_key")
-        vl = m.get("vl_c")
-        if dk and vl is not None:
-            vl_map[str(dk)] = float(vl)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -26550,38 +26506,27 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
 
     header_fill = PatternFill("solid", fgColor="1D4ED8")
     header_font = Font(bold=True, color="FFFFFF")
-    headers = ["Date", "Valorisation (€)", "VL composite", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
+    headers = ["Date", "Valorisation (€)", "VL SICAV", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
 
-    prev_valo = None
-    rows_data = list(hist_rows)
-    rows_data.reverse()
-    computed = []
-    for r in rows_data:
+    for row_idx, r in enumerate(hist_rows, 2):
         m = r._mapping if hasattr(r, "_mapping") else {}
-        valo = float(m.get("valo") or 0)
-        mouvement = float(m.get("mouvement") or 0)
+        valo = m.get("valo")
+        sicav = m.get("sicav")
+        perf = m.get("perf_sicav_hebdo")
         volat = m.get("volat")
         date_val = m.get("date")
         date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
-        perf = None
-        if prev_valo is not None and prev_valo > 0:
-            perf = round((valo - prev_valo - mouvement) / prev_valo * 100, 2)
-        prev_valo = valo
-        computed.append((date_str, valo, vl_map.get(date_str), perf, float(volat) * 100 if volat is not None else None, m.get("SRRI")))
-    computed.reverse()
-
-    for row_idx, (date_str, valo, vl_c, perf, volat_pct, srri) in enumerate(computed, 2):
         ws.cell(row=row_idx, column=1, value=date_str)
-        ws.cell(row=row_idx, column=2, value=round(valo, 2) if valo else None)
-        ws.cell(row=row_idx, column=3, value=round(vl_c, 6) if vl_c else None)
-        ws.cell(row=row_idx, column=4, value=round(perf, 2) if perf is not None else None)
-        ws.cell(row=row_idx, column=5, value=round(volat_pct, 2) if volat_pct is not None else None)
-        ws.cell(row=row_idx, column=6, value=srri)
+        ws.cell(row=row_idx, column=2, value=round(float(valo), 2) if valo is not None else None)
+        ws.cell(row=row_idx, column=3, value=round(float(sicav), 6) if sicav is not None else None)
+        ws.cell(row=row_idx, column=4, value=round(float(perf) * 100, 4) if perf is not None else None)
+        ws.cell(row=row_idx, column=5, value=round(float(volat) * 100, 2) if volat is not None else None)
+        ws.cell(row=row_idx, column=6, value=m.get("SRRI"))
 
     for col in range(1, 7):
         ws.column_dimensions[get_column_letter(col)].width = 18

@@ -2281,9 +2281,9 @@
 <!-- Modale détail historique affaire -->
 <div id="affaireDetailBackdrop"
      style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1100;
-            align-items:center; justify-content:center; padding:16px;">
-  <div style="background:#fff; border-radius:10px; width:min(960px,95vw); max-height:90vh;
-              display:flex; flex-direction:column; box-shadow:0 8px 40px rgba(0,0,0,.25);">
+            align-items:flex-start; justify-content:center; padding:20px; overflow-y:auto;">
+  <div style="background:#fff; border-radius:10px; width:min(1100px,98vw); min-height:70vh;
+              display:flex; flex-direction:column; box-shadow:0 8px 40px rgba(0,0,0,.25); margin:auto;">
     <!-- Header -->
     <div style="display:flex; align-items:center; padding:16px 20px; border-bottom:1px solid #e5e7eb; gap:12px; flex-shrink:0;">
       <div style="flex:1; min-width:0;">
@@ -2305,7 +2305,7 @@
               title="Fermer">✕</button>
     </div>
     <!-- Table -->
-    <div style="overflow:auto; flex:1; padding:0 4px 4px;">
+    <div style="overflow-x:auto; overflow-y:auto; flex:1; padding:0 4px 16px;">
       <table style="width:100%; border-collapse:collapse; font-size:.82rem;">
         <thead>
           <tr style="position:sticky; top:0;">
@@ -2575,15 +2575,15 @@
       tbody.innerHTML = rows.map(r => {
         const perfColor = r.perf_hebdo == null ? '#6b7280' : r.perf_hebdo > 0 ? '#16a34a' : r.perf_hebdo < 0 ? '#dc2626' : '#6b7280';
         const volatColor = r.volat_pct == null ? '#6b7280' : r.volat_pct >= 15 ? '#dc2626' : r.volat_pct >= 10 ? '#d97706' : '#374151';
-        const srriColor = ['#16a34a','#16a34a','#d97706','#d97706','#f59e0b','#dc2626','#7c3aed'];
-        const sc = r.srri != null && r.srri >= 1 && r.srri <= 7 ? srriColor[r.srri - 1] : '#6b7280';
+        const srriColors = ['#16a34a','#16a34a','#d97706','#d97706','#f59e0b','#dc2626','#7c3aed'];
+        const sc = r.srri != null && r.srri >= 1 && r.srri <= 7 ? srriColors[r.srri - 1] : '#6b7280';
         return `<tr style="border-bottom:1px solid #f1f5f9;">
-          <td style="padding:6px 12px; white-space:nowrap;">${r.date}</td>
-          <td style="padding:6px 12px; text-align:right; font-weight:600;">${fmtValo(r.valo)}</td>
-          <td style="padding:6px 12px; text-align:right; color:#4b5563;">${fmtVL(r.vl_composite)}</td>
-          <td style="padding:6px 12px; text-align:right; font-weight:600; color:${perfColor};">${r.perf_hebdo == null ? '—' : fmtPct(r.perf_hebdo)}</td>
-          <td style="padding:6px 12px; text-align:right; color:${volatColor};">${r.volat_pct == null ? '—' : r.volat_pct.toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2}) + ' %'}</td>
-          <td style="padding:6px 12px; text-align:center; font-weight:700; color:${sc};">${r.srri ?? '—'}</td>
+          <td style="padding:7px 14px; white-space:nowrap;">${r.date}</td>
+          <td style="padding:7px 14px; text-align:right; font-weight:600;">${fmtValo(r.valo)}</td>
+          <td style="padding:7px 14px; text-align:right; color:#4b5563; font-variant-numeric:tabular-nums;">${fmtVL(r.vl_sicav)}</td>
+          <td style="padding:7px 14px; text-align:right; font-weight:600; color:${perfColor}; font-variant-numeric:tabular-nums;">${r.perf_hebdo == null ? '—' : fmtPct(r.perf_hebdo, 4)}</td>
+          <td style="padding:7px 14px; text-align:right; color:${volatColor}; font-variant-numeric:tabular-nums;">${r.volat_pct == null ? '—' : r.volat_pct.toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2}) + ' %'}</td>
+          <td style="padding:7px 14px; text-align:center; font-weight:700; font-size:.95rem; color:${sc};">${r.srri ?? '—'}</td>
         </tr>`;
       }).join('');
     }
