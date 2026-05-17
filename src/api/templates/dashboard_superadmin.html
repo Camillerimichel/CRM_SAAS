@@ -2311,7 +2311,7 @@
           <tr style="position:sticky; top:0;">
             <th style="padding:8px 12px; text-align:left; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Date</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Valorisation</th>
-            <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">VL SICAV</th>
+            <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">VL SICAV (base 1 000)</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Perf. hebdo</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Volat. 52 sem.</th>
             <th style="padding:8px 12px; text-align:center; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb;">SRRI</th>
@@ -2541,7 +2541,7 @@
   (function(){
     const fmtValo = v => v == null ? '—' : v.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
     const fmtPct  = (v, dec=2) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toLocaleString('fr-FR', {minimumFractionDigits:dec, maximumFractionDigits:dec}) + ' %';
-    const fmtVL   = v => v == null ? '—' : v.toLocaleString('fr-FR', {minimumFractionDigits:4, maximumFractionDigits:4});
+    const fmtVL   = v => v == null ? '—' : v.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2});
 
     window.openAffaireDetailModal = async function(id, ref, client, ev) {
       if (ev) ev.stopPropagation();
