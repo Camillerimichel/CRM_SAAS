@@ -1443,76 +1443,82 @@
     </div>
 
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-srri-affaires">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques de toutes les affaires">
-          Calcul des niveaux de risques<br><small>de toutes les affaires</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-srri-affaires', this)">
+        Calcul des niveaux de risques<br><small>de toutes les affaires</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-srri">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques de tous les clients">
-          Calcul des niveaux de risques<br><small>de tous les clients</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-srri-clients', this)">
+        Calcul des niveaux de risques<br><small>de tous les clients</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <!-- Ligne 2 : SRI Contrats + SRI Clients + SRRI allocations + SRI allocations -->
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-sri-affaires">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des SRI Contrats">
-          Calcul des SRI<br><small>Contrats</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-sri-affaires', this)">
+        Calcul des SRI<br><small>Contrats</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-sri-clients">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des SRI Clients">
-          Calcul des SRI<br><small>Clients</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-sri-clients', this)">
+        Calcul des SRI<br><small>Clients</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-srri-allocations">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul des niveaux de risques des allocations">
-          Calcul des niveaux de risques<br><small>des allocations</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-srri-allocations', this)">
+        Calcul des niveaux de risques<br><small>des allocations</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <div class="tool-cell">
-      <form method="post" action="/dashboard/superadmin/recompute-sri-allocations">
-        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Calcul SRI des allocations">
-          Calcul SRI<br><small>des allocations</small>
-        </button>
-      </form>
-      <div class="tool-progress tool-form-progress">
-        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
-        <div class="tool-progress-text">Traitement en cours…</div>
+      <button type="button" class="btn base-action-btn"
+              onclick="runStream('/dashboard/superadmin/stream-recompute-sri-allocations', this)">
+        Calcul SRI<br><small>des allocations</small>
+      </button>
+      <div class="tool-progress" style="display:none;">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
+        <div class="tool-progress-text"></div>
       </div>
+      <div class="tool-result"></div>
+      <div class="tool-error"></div>
     </div>
 
     <!-- Ligne 3 : Import ESG + Migration ESG Legacy + Recalcul notes ESG + Contrôle valorisations -->
@@ -1906,6 +1912,69 @@
       });
     });
   });
+
+  // --- runStream : jauge SSE générique pour les boutons de calcul ---
+  async function runStream(url, btn) {
+    const cell      = btn.closest('.tool-cell');
+    const progressEl = cell.querySelector('.tool-progress');
+    const barEl      = progressEl ? progressEl.querySelector('.tool-progress-bar-fill') : null;
+    const textEl     = progressEl ? progressEl.querySelector('.tool-progress-text') : null;
+    const resultEl   = cell.querySelector('.tool-result');
+    const errorEl    = cell.querySelector('.tool-error');
+
+    btn.disabled = true;
+    if (progressEl) { progressEl.style.display = 'block'; }
+    if (barEl)      { barEl.style.width = '0%'; barEl.classList.remove('indeterminate'); }
+    if (textEl)     { textEl.textContent = 'Initialisation…'; }
+    if (resultEl)   { resultEl.style.display = 'none'; resultEl.textContent = ''; }
+    if (errorEl)    { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+
+    try {
+      const resp = await fetch(url, { method: 'POST', credentials: 'include' });
+      if (!resp.ok) throw new Error(`Erreur HTTP ${resp.status}`);
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === 'progress') {
+            if (!progressEl) continue;
+            progressEl.style.display = 'block';
+            const pct = evt.total > 0 ? Math.round(evt.current / evt.total * 100) : 0;
+            if (barEl) barEl.style.width = pct + '%';
+            if (textEl) {
+              const lbl = evt.label ? evt.label + ' — ' : '';
+              textEl.textContent = evt.total > 0
+                ? `${lbl}${evt.current.toLocaleString('fr-FR')} / ${evt.total.toLocaleString('fr-FR')} (${pct} %)`
+                : `${lbl}En cours …`;
+            }
+          } else if (evt.type === 'done') {
+            if (progressEl) progressEl.style.display = 'none';
+            if (resultEl) {
+              resultEl.style.display = 'block';
+              const lbl = evt.label || 'élément(s)';
+              resultEl.innerHTML = `Terminé en <strong>${evt.duree_s} s</strong>`
+                + ` — <strong>${(evt.nb || 0).toLocaleString('fr-FR')}</strong> ${lbl} traité(s).`;
+            }
+            btn.disabled = false;
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message);
+          }
+        }
+      }
+    } catch (e) {
+      if (progressEl) progressEl.style.display = 'none';
+      if (errorEl)  { errorEl.style.display = 'block'; errorEl.textContent = 'Erreur : ' + e.message; }
+      btn.disabled = false;
+    }
+  }
 
   // --- Gestion des clients pour le contrôle de valorisation ---
   let _controleValoClients = [];       // [{id, nom, prenom}]
