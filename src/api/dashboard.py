@@ -26452,16 +26452,19 @@ def dashboard_controle_volatilite(request: Request, body: dict, db: Session = De
 
 @router.get("/superadmin/affaire-detail-historique/{id_affaire}", response_class=JSONResponse)
 def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: Session = Depends(get_db)):
-    """Historique complet d'une affaire : valo, VL SICAV, perf hebdo, volat, SRRI."""
+    """Historique complet d'une affaire : valo, VL SICAV base-1000, perf hebdo, volat, SRRI."""
     _require_superadmin_access(request, db)
 
     hist_rows = db.execute(text("""
         SELECT h.date, h.valo, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
         FROM mariadb_historique_affaire_w h
         WHERE h.id = :id
-        ORDER BY h.date DESC
+        ORDER BY h.date ASC
     """), {"id": id_affaire}).fetchall()
 
+    # La colonne sicav est un index cumulatif partant de 1.0 à la première semaine réelle.
+    # On rebase en base 1000 : vl_1000 = sicav * 1000.
+    # La toute première ligne a sicav=NULL (ligne d'ouverture, mouvement=valo) → on l'affiche à 1000.
     result = []
     for r in hist_rows:
         m = r._mapping if hasattr(r, "_mapping") else {}
@@ -26472,14 +26475,17 @@ def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: S
         srri = m.get("SRRI")
         date_val = m.get("date")
         date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        vl_1000 = round(float(sicav) * 1000, 2) if sicav is not None else 1000.0
         result.append({
             "date": date_str,
             "valo": round(float(valo), 2) if valo is not None else None,
-            "vl_sicav": round(float(sicav), 6) if sicav is not None else None,
+            "vl_sicav": vl_1000,
             "perf_hebdo": round(float(perf) * 100, 4) if perf is not None else None,
             "volat_pct": round(float(volat) * 100, 2) if volat is not None else None,
             "srri": srri,
         })
+
+    result.reverse()
     return result
 
 
@@ -26506,7 +26512,7 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
 
     header_fill = PatternFill("solid", fgColor="1D4ED8")
     header_font = Font(bold=True, color="FFFFFF")
-    headers = ["Date", "Valorisation (€)", "VL SICAV", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
+    headers = ["Date", "Valorisation (€)", "VL SICAV (base 1 000)", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
@@ -26521,9 +26527,10 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
         volat = m.get("volat")
         date_val = m.get("date")
         date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        vl_1000 = round(float(sicav) * 1000, 2) if sicav is not None else 1000.0
         ws.cell(row=row_idx, column=1, value=date_str)
         ws.cell(row=row_idx, column=2, value=round(float(valo), 2) if valo is not None else None)
-        ws.cell(row=row_idx, column=3, value=round(float(sicav), 6) if sicav is not None else None)
+        ws.cell(row=row_idx, column=3, value=vl_1000)
         ws.cell(row=row_idx, column=4, value=round(float(perf) * 100, 4) if perf is not None else None)
         ws.cell(row=row_idx, column=5, value=round(float(volat) * 100, 2) if volat is not None else None)
         ws.cell(row=row_idx, column=6, value=m.get("SRRI"))
