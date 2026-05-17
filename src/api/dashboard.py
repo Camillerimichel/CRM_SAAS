@@ -27873,6 +27873,125 @@ def dashboard_superadmin_recompute_sri_clients(
     return RedirectResponse(url=target_url, status_code=303)
 
 
+def _mk_stream_risk(request: Request, db: Session, count_sql: str, operations: list, label: str):
+    """Fabrique une StreamingResponse SSE pour les recalculs de risques.
+    count_sql : requête COUNT retournant un scalaire.
+    operations : liste de callables(db) à exécuter dans l'ordre.
+    """
+    _require_superadmin_access(request, db)
+    from src.database import SessionLocal as _SL
+
+    def _sse(o: dict) -> str:
+        return f"data: {json.dumps(o, ensure_ascii=False)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            try:
+                nb = _db.execute(text(count_sql)).scalar() or 0
+            except Exception:
+                nb = 0
+            yield _sse({"type": "progress", "current": 0, "total": nb, "label": label})
+            t0 = perf_counter()
+            for op in operations:
+                op(_db)
+            dur = round(perf_counter() - t0, 2)
+            yield _sse({"type": "progress", "current": nb, "total": nb, "label": label})
+            yield _sse({"type": "done", "nb": nb, "duree_s": dur, "label": label})
+        except Exception as exc:
+            logger.error("stream_risk %s: %s", label, traceback.format_exc())
+            yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/superadmin/stream-recompute-srri-affaires")
+def stream_recompute_srri_affaires(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM mariadb_historique_affaire_w WHERE id IS NOT NULL",
+        operations=[
+            _recompute_srri_affaires,
+            lambda d: _store_sri_metrics(d, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="srri"),
+            lambda d: _update_sri_current(d, entity_type="affaire"),
+        ],
+        label="affaires",
+    )
+
+
+@router.post("/superadmin/stream-recompute-srri-clients")
+def stream_recompute_srri_clients(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM mariadb_historique_personne_w WHERE id IS NOT NULL",
+        operations=[
+            _recompute_srri_clients,
+            lambda d: _store_sri_metrics(d, entity_type="client", tempo_table="tempo_hist_personne_w", source="srri"),
+            lambda d: _update_sri_current(d, entity_type="client"),
+        ],
+        label="clients",
+    )
+
+
+@router.post("/superadmin/stream-recompute-sri-affaires")
+def stream_recompute_sri_affaires(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM tempo_hist_affaire_w",
+        operations=[
+            lambda d: _store_sri_metrics(d, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="vev"),
+            lambda d: _update_sri_current(d, entity_type="affaire"),
+        ],
+        label="affaires (SRI)",
+    )
+
+
+@router.post("/superadmin/stream-recompute-sri-clients")
+def stream_recompute_sri_clients(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM tempo_hist_personne_w",
+        operations=[
+            lambda d: _store_sri_metrics(d, entity_type="client", tempo_table="tempo_hist_personne_w", source="vev"),
+            lambda d: _update_sri_current(d, entity_type="client"),
+        ],
+        label="clients (SRI)",
+    )
+
+
+@router.post("/superadmin/stream-recompute-srri-allocations")
+def stream_recompute_srri_allocations(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM allocations",
+        operations=[
+            _recompute_srri_allocations,
+            lambda d: _update_sri_current(d, entity_type="allocation"),
+        ],
+        label="allocations (SRRI)",
+    )
+
+
+@router.post("/superadmin/stream-recompute-sri-allocations")
+def stream_recompute_sri_allocations(request: Request, db: Session = Depends(get_db)):
+    return _mk_stream_risk(
+        request, db,
+        count_sql="SELECT COUNT(DISTINCT id) FROM allocations",
+        operations=[
+            _ensure_allocation_sri_columns,
+            lambda d: _recompute_srri_allocations(d, source="srri"),
+            lambda d: _update_sri_current(d, entity_type="allocation"),
+        ],
+        label="allocations (SRI)",
+    )
+
+
 @router.post("/superadmin/recompute-srri-affaires", response_class=RedirectResponse)
 def dashboard_superadmin_recompute_srri_affaires(
     request: Request,
