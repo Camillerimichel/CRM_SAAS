@@ -21,10 +21,16 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None) -> int:
+def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None, force_recalc: bool = False) -> int:
     """
-    Insère les points hebdomadaires manquants dans historique_affaire_w
-    pour une affaire. Retourne le nombre de lignes insérées.
+    Insère (ou recalcule si force_recalc=True) les points hebdomadaires dans
+    historique_affaire_w pour une affaire. Retourne le nombre de lignes touchées.
+
+    Quand force_recalc=True :
+    - Met à jour la colonne valo des lignes existantes avec la valeur recalculée
+    - Inclut les dates snapshot comme dates d'ancrage supplémentaires
+    Toujours : injecte dans mariadb_support_val les VL présentes dans les snapshots
+    mais absentes de la table de cours, pour enrichir le suivi futur.
     """
     # Support positions sorted by date
     pos_rows = db.execute(
@@ -103,12 +109,32 @@ def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None) -> int:
         except (TypeError, ValueError):
             pass
 
-    # Collect all weekly dates — even if support_val has no entry, we still want the date
-    # driven by the fallback supports. Use support_val dates plus any existing date.
-    # If there are no primary VL rows at all we still need dates; build from fallback below.
+    # Inject snapshot VLs into mariadb_support_val when absent, and add snapshot
+    # dates as additional anchor dates for the weekly fill.
+    to_inject: list[dict] = []
+    for d_snap, id_s, vl_snap in fallback_rows:
+        try:
+            vl_f = float(vl_snap)
+        except (TypeError, ValueError):
+            continue
+        if vl_f <= 0:
+            continue
+        if id_s not in vl_by_date.get(d_snap, {}):
+            to_inject.append({"id_support": id_s, "date": d_snap, "valeur": vl_f})
+            vl_by_date[d_snap][id_s] = vl_f  # also use it locally
+
+    if to_inject:
+        db.execute(
+            text("""
+                INSERT IGNORE INTO mariadb_support_val (id_support, date, valeur)
+                VALUES (:id_support, :date, :valeur)
+            """),
+            to_inject,
+        )
+
+    # all_weekly_dates = support_val dates + snapshot dates (anchors for recalc)
     all_weekly_dates: set = set(vl_by_date.keys())
 
-    # If no support_val data at all, nothing to iterate (we can't invent dates)
     if not all_weekly_dates and not fallback_rows:
         return 0
 
@@ -120,6 +146,7 @@ def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None) -> int:
     pos_idx = 0
     fb_idx = 0
     to_insert: list[dict] = []
+    to_update: list[dict] = []
 
     for vl_date in sorted(all_weekly_dates):
         # Advance fallback VL forward-fill pointer
@@ -138,7 +165,7 @@ def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None) -> int:
             current_nbuc.update(positions_by_date[pos_dates[pos_idx]])
             pos_idx += 1
 
-        if not current_nbuc or vl_date in existing:
+        if not current_nbuc:
             continue
 
         vl_on_date = vl_by_date.get(vl_date, {})
@@ -153,29 +180,41 @@ def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None) -> int:
 
         d = vl_date
         anne = d.year if hasattr(d, "year") else int(str(d)[:4])
-        to_insert.append(
-            {"id": aff_id, "date": d, "valo": valo, "anne": anne, "sg": sg}
+
+        if vl_date in existing:
+            if force_recalc:
+                to_update.append({"valo": valo, "id": aff_id, "date": d})
+        else:
+            to_insert.append({"id": aff_id, "date": d, "valo": valo, "anne": anne, "sg": sg})
+
+    if to_insert:
+        db.execute(
+            text("""
+                INSERT INTO mariadb_historique_affaire_w
+                  (id, `date`, valo, mouvement, sicav, perf_sicav_hebdo, perf_sicav_52,
+                   volat, SRRI, anne, id_societe_gestion)
+                VALUES (:id, :date, :valo, 0, 0, 0, 0, 0, 0, :anne, :sg)
+            """),
+            to_insert,
         )
 
-    if not to_insert:
-        return 0
+    if to_update:
+        db.execute(
+            text("""
+                UPDATE mariadb_historique_affaire_w
+                SET valo = :valo
+                WHERE id = :id AND `date` = :date
+            """),
+            to_update,
+        )
 
-    db.execute(
-        text("""
-            INSERT INTO mariadb_historique_affaire_w
-              (id, `date`, valo, mouvement, sicav, perf_sicav_hebdo, perf_sicav_52,
-               volat, SRRI, anne, id_societe_gestion)
-            VALUES (:id, :date, :valo, 0, 0, 0, 0, 0, 0, :anne, :sg)
-        """),
-        to_insert,
-    )
-
-    return len(to_insert)
+    return len(to_insert) + len(to_update)
 
 
 def iter_fill_weekly_historique(
     db: Session,
     affaire_ids: list[int] | None = None,
+    force_recalc: bool = False,
 ) -> Generator[dict, None, None]:
     """
     Comble mariadb_historique_affaire_w en hebdomadaire pour toutes les affaires
@@ -218,7 +257,7 @@ def iter_fill_weekly_historique(
     for i, aff_id in enumerate(candidates, 1):
         sg = sg_map.get(aff_id)
         try:
-            inserted = _fill_affaire_weekly(db, aff_id, sg)
+            inserted = _fill_affaire_weekly(db, aff_id, sg, force_recalc=force_recalc)
         except Exception as exc:
             logger.warning("fill_weekly affaire %s: %s", aff_id, exc)
             inserted = 0

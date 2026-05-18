@@ -234,6 +234,18 @@ def iter_controle_valorisations(
     for i, id_affaire in enumerate(affaire_ids):
         yield {"type": "progress", "current": i + 1, "total": total}
 
+        # Exclure les affaires dont le dernier SRRI a augmenté (effet de bord rachat total)
+        srri_tail = db.execute(
+            text("""
+                SELECT SRRI FROM mariadb_historique_affaire_w
+                WHERE id = :id AND SRRI > 0
+                ORDER BY date DESC LIMIT 2
+            """),
+            {"id": id_affaire},
+        ).fetchall()
+        if len(srri_tail) >= 2 and srri_tail[0][0] > srri_tail[1][0]:
+            continue
+
         row_filters = ["id = :id_affaire", "DAYOFWEEK(date) = 6"]
         row_params: dict = {"id_affaire": id_affaire}
         if date_debut:
