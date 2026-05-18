@@ -953,9 +953,6 @@
       </td>
     </tr>
     {% endfor %}
-    {% if not supports %}
-    <tr><td colspan="10" class="muted">Aucun support trouvé pour ce contrat.</td></tr>
-    {% endif %}
     </tbody>
   </table>
   <div id="affSupportMovementsModal" class="modal-overlay aff-fees-hidden" onclick="if(event.target===this) closeAffSupportMovementsModal()">
@@ -2495,6 +2492,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   $(function(){
     var table = $('#supportsTableContract').DataTable({
         searching: false,
+      language: { emptyTable: 'Aucun support trouvé pour ce contrat.' },
       dom: 'Bfrtip',
       buttons: [ { extend: 'csvHtml5', text: 'Exporter CSV', title: 'supports_affaire_{{ affaire.ref }}' } ],
       order: [[6, 'desc']],
@@ -2619,7 +2617,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     #avisModal .modal-body { flex:1; overflow:auto; padding: 12px 14px; }
     #avisModal #avisModalTable { table-layout: fixed; width: 100%; border-collapse: collapse; }
     #avisModal #avisModalTable th, #avisModal #avisModalTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; }
-    #avisModal #avisModalTable th:nth-child(1), #avisModal #avisModalTable td:nth-child(1) { width: 9ch; }
+    #avisModal #avisModalTable th:nth-child(1), #avisModal #avisModalTable td:nth-child(1) { width: 13ch; overflow: visible; }
     #avisModal #avisModalTable th:nth-child(2), #avisModal #avisModalTable td:nth-child(2) { width: 20ch; }
     #avisModal #avisModalTable th:nth-child(3), #avisModal #avisModalTable td:nth-child(3) { width: 10ch; }
     #avisModal #avisModalTable th:nth-child(4), #avisModal #avisModalTable td:nth-child(4) { width: auto; text-align: right; }

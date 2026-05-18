@@ -1423,13 +1423,13 @@
     <!-- Ligne 1 : import + fill weekly + SRRI affaires + SRRI clients -->
     <div class="tool-cell">
       <a href="/dashboard/superadmin/import-fournisseurs" class="btn base-action-btn" style="text-decoration:none;">
-        Import fournisseurs<br><small>(inventaires &amp; mouvements)</small>
+        1. Import fournisseurs<br><small>(inventaires &amp; mouvements)</small>
       </a>
     </div>
 
     <div class="tool-cell">
       <button id="btnFillWeekly" type="button" class="btn base-action-btn" onclick="runFillWeekly()">
-        Compléter historiques hebdomadaires<br><small>(VL → affaires)</small>
+        2. Compléter historiques hebdomadaires<br><small>(VL → affaires)</small>
       </button>
       <div class="tool-progress" id="fillWeeklyProgress">
         <div style="font-size:0.73rem;color:#6b7280;margin-bottom:2px;" id="fillWeeklyPhase"></div>
@@ -1443,9 +1443,24 @@
     </div>
 
     <div class="tool-cell">
+      <button id="btnRecalcValo" type="button" class="btn base-action-btn" onclick="runRecalcValo()">
+        2b. Recalculer valorisations<br><small>(correctif — snapshots → affaires → clients)</small>
+      </button>
+      <div class="tool-progress" id="recalcValoProgress">
+        <div style="font-size:0.73rem;color:#6b7280;margin-bottom:2px;" id="recalcValoPhase"></div>
+        <div class="tool-progress-bar-track">
+          <div class="tool-progress-bar-fill" id="recalcValoBar"></div>
+        </div>
+        <div class="tool-progress-text" id="recalcValoText"></div>
+      </div>
+      <div class="tool-result" id="recalcValoResult"></div>
+      <div class="tool-error"  id="recalcValoError"></div>
+    </div>
+
+    <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-srri-affaires', this)">
-        Calcul des niveaux de risques<br><small>de toutes les affaires</small>
+        3. Calcul SRRI<br><small>toutes les affaires</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1458,7 +1473,7 @@
     <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-srri-clients', this)">
-        Calcul des niveaux de risques<br><small>de tous les clients</small>
+        4. Calcul SRRI<br><small>tous les clients</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1472,7 +1487,7 @@
     <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-sri-affaires', this)">
-        Calcul des SRI<br><small>Contrats</small>
+        5. Calcul des SRI<br><small>Contrats</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1485,7 +1500,7 @@
     <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-sri-clients', this)">
-        Calcul des SRI<br><small>Clients</small>
+        6. Calcul des SRI<br><small>Clients</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1498,7 +1513,7 @@
     <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-srri-allocations', this)">
-        Calcul des niveaux de risques<br><small>des allocations</small>
+        7. Calcul SRRI<br><small>allocations</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1511,7 +1526,7 @@
     <div class="tool-cell">
       <button type="button" class="btn base-action-btn"
               onclick="runStream('/dashboard/superadmin/stream-recompute-sri-allocations', this)">
-        Calcul SRI<br><small>des allocations</small>
+        8. Calcul SRI<br><small>allocations</small>
       </button>
       <div class="tool-progress" style="display:none;">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill"></div></div>
@@ -1521,11 +1536,45 @@
       <div class="tool-error"></div>
     </div>
 
-    <!-- Ligne 3 : Import ESG + Migration ESG Legacy + Recalcul notes ESG + Contrôle valorisations -->
+    <!-- Séparateur Contrôles -->
+    <div style="grid-column:1/-1; margin:8px 0 2px; padding:6px 10px; background:#eff6ff; border-left:3px solid #2563eb; border-radius:4px; font-size:0.75rem; font-weight:700; color:#1d4ed8; letter-spacing:0.04em;">
+      Contrôles — à lancer après chaque pipeline complet
+    </div>
+
+    <!-- Ligne 4 : contrôles de cohérence et de volatilité -->
+    <div class="tool-cell">
+      <button type="button" class="btn base-action-btn" onclick="openVolatiliteSeuilModal()">
+        9. Contrôle de volatilités<br><small>(2 dern. semaines)</small>
+      </button>
+      <div class="tool-result" id="volatiliteToolResult"></div>
+      <div class="tool-error"  id="volatiliteToolError"></div>
+    </div>
+
+    <div class="tool-cell">
+      <button id="btnControleValo" type="button" class="btn base-action-btn"
+              onclick="controleValoLoadClients(); document.getElementById('controleValoParams').style.display='block'; document.getElementById('controleValoParams').scrollIntoView({behavior:'smooth', block:'nearest'});">
+        10. Contrôle de cohérences<br><small>des valorisations</small>
+      </button>
+      <div class="tool-progress" id="controleValoProgress">
+        <div class="tool-progress-bar-track">
+          <div class="tool-progress-bar-fill" id="controleValoBar"></div>
+        </div>
+        <div class="tool-progress-text" id="controleValoText"></div>
+      </div>
+      <div class="tool-result" id="controleValoResult"></div>
+      <div class="tool-error"  id="controleValoError"></div>
+    </div>
+
+    <!-- Séparateur ESG -->
+    <div style="grid-column:1/-1; margin:8px 0 2px; padding:6px 10px; background:#f0fdf4; border-left:3px solid #16a34a; border-radius:4px; font-size:0.75rem; font-weight:700; color:#15803d; letter-spacing:0.04em;">
+      ESG — pipeline indépendant
+    </div>
+
+    <!-- Ligne ESG : Import ESG + Migration ESG Legacy + Recalcul notes ESG -->
     <div class="tool-cell">
       <form method="post" action="/dashboard/superadmin/import-esg">
         <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Import ESG (CRM_ESG)">
-          Import ESG<br><small>(CRM_ESG)</small>
+          ESG-1. Import ESG<br><small>(CRM_ESG)</small>
         </button>
       </form>
       <div class="tool-progress tool-form-progress">
@@ -1537,7 +1586,7 @@
     <div class="tool-cell">
       <form method="post" action="/dashboard/superadmin/esg-legacy-migrate">
         <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Migration ESG Legacy">
-          Migration ESG<br><small>Legacy</small>
+          ESG-2. Migration ESG<br><small>Legacy</small>
         </button>
       </form>
       <div class="tool-progress tool-form-progress">
@@ -1549,37 +1598,13 @@
     <div class="tool-cell">
       <form method="post" action="/dashboard/superadmin/recompute-esg-grades">
         <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Recalcul notes ESG (Septiles)">
-          Recalcul notes ESG<br><small>(Septiles)</small>
+          ESG-3. Recalcul notes ESG<br><small>(Septiles)</small>
         </button>
       </form>
       <div class="tool-progress tool-form-progress">
         <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
         <div class="tool-progress-text">Traitement en cours…</div>
       </div>
-    </div>
-
-    <!-- Ligne 4 : contrôles de cohérence et de volatilité -->
-    <div class="tool-cell">
-      <button type="button" class="btn base-action-btn" onclick="openVolatiliteSeuilModal()">
-        Contrôle de volatilités<br><small>(2 dern. semaines)</small>
-      </button>
-      <div class="tool-result" id="volatiliteToolResult"></div>
-      <div class="tool-error"  id="volatiliteToolError"></div>
-    </div>
-
-    <div class="tool-cell">
-      <button id="btnControleValo" type="button" class="btn base-action-btn"
-              onclick="controleValoLoadClients(); document.getElementById('controleValoParams').style.display='block'; document.getElementById('controleValoParams').scrollIntoView({behavior:'smooth', block:'nearest'});">
-        Contrôle de cohérences<br><small>des valorisations</small>
-      </button>
-      <div class="tool-progress" id="controleValoProgress">
-        <div class="tool-progress-bar-track">
-          <div class="tool-progress-bar-fill" id="controleValoBar"></div>
-        </div>
-        <div class="tool-progress-text" id="controleValoText"></div>
-      </div>
-      <div class="tool-result" id="controleValoResult"></div>
-      <div class="tool-error"  id="controleValoError"></div>
     </div>
 
     <!-- Ligne 5 : paramètres pleine largeur -->
@@ -2191,6 +2216,73 @@
     }
   }
 
+  async function runRecalcValo() {
+    const btn      = document.getElementById('btnRecalcValo');
+    const progress = document.getElementById('recalcValoProgress');
+    const phaseEl  = document.getElementById('recalcValoPhase');
+    const barEl    = document.getElementById('recalcValoBar');
+    const textEl   = document.getElementById('recalcValoText');
+    const resultEl = document.getElementById('recalcValoResult');
+    const errEl    = document.getElementById('recalcValoError');
+
+    btn.disabled = true;
+    progress.style.display = 'none';
+    resultEl.style.display = 'none';
+    errEl.style.display = 'none';
+
+    const _PHASE = {
+      fill: 'Recalcul valorisation affaires',
+      mouvement: 'Agrégation mouvements',
+      clients: 'Propagation vers clients',
+    };
+
+    try {
+      const res = await fetch('/dashboard/superadmin/stream-recalc-valo-affaires', {
+        method: 'POST', credentials: 'include',
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Erreur ${res.status}`); }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === 'progress') {
+            progress.style.display = 'block';
+            phaseEl.textContent = _PHASE[evt.phase] || evt.label || evt.phase || '…';
+            if (evt.total > 0) {
+              const pct = Math.round(evt.current / evt.total * 100);
+              barEl.style.width = pct + '%';
+              textEl.textContent = `${evt.current.toLocaleString('fr-FR')} / ${evt.total.toLocaleString('fr-FR')} (${pct} %)`;
+            } else {
+              barEl.style.width = '100%';
+              textEl.textContent = evt.label || '…';
+            }
+          } else if (evt.type === 'done') {
+            progress.style.display = 'none';
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = `Terminé — valorisations recalculées depuis les snapshots. `
+              + `Lancez maintenant <strong>Calcul des niveaux de risques</strong> pour mettre à jour SRRI/SRI.`;
+            btn.disabled = false;
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message);
+          }
+        }
+      }
+    } catch (e) {
+      errEl.style.display = 'block';
+      errEl.textContent = 'Erreur : ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
   async function runFillWeekly() {
     const btn      = document.getElementById('btnFillWeekly');
     const progress = document.getElementById('fillWeeklyProgress');
@@ -2262,7 +2354,7 @@
   .vol-table tr { cursor:pointer; }
   .vol-table tr:hover td { background:#f8fafc; }
   .vol-table td, .vol-table th { padding:6px 10px; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
-  .vol-table th { color:#6b7280; font-weight:600; font-size:0.78rem; border-bottom:2px solid #e5e7eb; background:#f8fafc; position:sticky; top:0; }
+  .vol-table th { color:#6b7280; font-weight:600; font-size:0.71rem; border-bottom:2px solid #e5e7eb; background:#f8fafc; position:sticky; top:0; }
   .vol-btn-detail { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border:1px solid #e5e7eb; background:#fff; border-radius:5px; cursor:pointer; color:#6366f1; transition:background .15s,color .15s; }
   .vol-btn-detail:hover { background:#6366f1; color:#fff; border-color:#6366f1; }
   .vol-sel-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 16px;
@@ -2341,15 +2433,15 @@
 
     <!-- Tableau -->
     <div style="padding:16px 20px; overflow-x:auto; max-height:65vh; overflow-y:auto;">
-      <table class="vol-table" style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+      <table class="vol-table" style="width:100%; border-collapse:collapse; font-size:0.75rem;">
         <thead>
           <tr>
             <th>Affaire</th>
             <th>Client</th>
             <th>Semaine préc.</th>
             <th>Semaine curr.</th>
-            <th style="text-align:right;">Volat. préc. (pts)</th>
-            <th style="text-align:right;">Volat. curr. (pts)</th>
+            <th style="text-align:right;">Volat. préc.</th>
+            <th style="text-align:right;">Volat. curr.</th>
             <th style="text-align:right;">Δ Volatilité</th>
             <th style="text-align:center;">SRRI préc. → curr.</th>
             <th style="text-align:center;"></th>
@@ -2400,6 +2492,7 @@
           <tr style="position:sticky; top:0;">
             <th style="padding:8px 12px; text-align:left; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Date</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Valorisation</th>
+            <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Mouvement</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">VL SICAV (base 1 000)</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Perf. hebdo</th>
             <th style="padding:8px 12px; text-align:right; color:#6b7280; font-weight:600; font-size:.77rem; background:#f8fafc; border-bottom:2px solid #e5e7eb; white-space:nowrap;">Volat. 52 sem.</th>
@@ -2407,7 +2500,7 @@
           </tr>
         </thead>
         <tbody id="affaireDetailBody">
-          <tr><td colspan="6" style="text-align:center; padding:24px; color:#9ca3af;">—</td></tr>
+          <tr><td colspan="7" style="text-align:center; padding:24px; color:#9ca3af;">—</td></tr>
         </tbody>
       </table>
     </div>
@@ -2638,7 +2731,7 @@
       document.getElementById('affaireDetailExportLink').href =
         `/dashboard/superadmin/affaire-detail-historique/${id}/export?ref=${encodeURIComponent(ref)}`;
       document.getElementById('affaireDetailBody').innerHTML =
-        '<tr><td colspan="6" style="text-align:center;padding:32px;color:#9ca3af;">Chargement…</td></tr>';
+        '<tr><td colspan="7" style="text-align:center;padding:32px;color:#9ca3af;">Chargement…</td></tr>';
       document.getElementById('affaireDetailBackdrop').style.display = 'flex';
       try {
         const resp = await fetch(`/dashboard/superadmin/affaire-detail-historique/${id}`, {credentials:'include'});
@@ -2647,7 +2740,7 @@
         _renderDetail(rows);
       } catch(e) {
         document.getElementById('affaireDetailBody').innerHTML =
-          `<tr><td colspan="6" style="text-align:center;padding:24px;color:#dc2626;">Erreur : ${e.message}</td></tr>`;
+          `<tr><td colspan="7" style="text-align:center;padding:24px;color:#dc2626;">Erreur : ${e.message}</td></tr>`;
       }
     };
 
@@ -2658,7 +2751,7 @@
     function _renderDetail(rows) {
       const tbody = document.getElementById('affaireDetailBody');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#9ca3af;">Aucune donnée disponible</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#9ca3af;">Aucune donnée disponible</td></tr>';
         return;
       }
       tbody.innerHTML = rows.map(r => {
@@ -2666,9 +2759,11 @@
         const volatColor = r.volat_pct == null ? '#6b7280' : r.volat_pct >= 15 ? '#dc2626' : r.volat_pct >= 10 ? '#d97706' : '#374151';
         const srriColors = ['#16a34a','#16a34a','#d97706','#d97706','#f59e0b','#dc2626','#7c3aed'];
         const sc = r.srri != null && r.srri >= 1 && r.srri <= 7 ? srriColors[r.srri - 1] : '#6b7280';
+        const mvtColor = r.mouvement == null || r.mouvement === 0 ? '#6b7280' : r.mouvement > 0 ? '#16a34a' : '#dc2626';
         return `<tr style="border-bottom:1px solid #f1f5f9;">
           <td style="padding:7px 14px; white-space:nowrap;">${r.date}</td>
           <td style="padding:7px 14px; text-align:right; font-weight:600;">${fmtValo(r.valo)}</td>
+          <td style="padding:7px 14px; text-align:right; color:${mvtColor}; font-variant-numeric:tabular-nums;">${r.mouvement == null || r.mouvement === 0 ? '—' : fmtValo(r.mouvement)}</td>
           <td style="padding:7px 14px; text-align:right; color:#4b5563; font-variant-numeric:tabular-nums;">${fmtVL(r.vl_sicav)}</td>
           <td style="padding:7px 14px; text-align:right; font-weight:600; color:${perfColor}; font-variant-numeric:tabular-nums;">${r.perf_hebdo == null ? '—' : fmtPct(r.perf_hebdo, 4)}</td>
           <td style="padding:7px 14px; text-align:right; color:${volatColor}; font-variant-numeric:tabular-nums;">${r.volat_pct == null ? '—' : r.volat_pct.toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2}) + ' %'}</td>

@@ -125,13 +125,13 @@ def aggregate_mouvement_to_affaire(
             JOIN (
                 SELECT
                     m.id_affaire,
-                    (
-                        SELECT hh.date
-                        FROM mariadb_historique_affaire_w hh
-                        WHERE hh.id = m.id_affaire
-                          AND hh.date >= DATE(m.vl_date)
-                        ORDER BY hh.date ASC
-                        LIMIT 1
+                    COALESCE(
+                        (SELECT hh.date FROM mariadb_historique_affaire_w hh
+                         WHERE hh.id = m.id_affaire AND hh.date >= DATE(m.vl_date)
+                         ORDER BY hh.date ASC LIMIT 1),
+                        (SELECT hh.date FROM mariadb_historique_affaire_w hh
+                         WHERE hh.id = m.id_affaire AND hh.date < DATE(m.vl_date)
+                         ORDER BY hh.date DESC LIMIT 1)
                     ) AS snap_date,
                     SUM(CAST(m.montant_ope AS DECIMAL(20,4)) * r.sens) AS net_mvt
                 FROM mouvement m
@@ -182,38 +182,17 @@ def aggregate_affaire_to_personne(
         scope_clause = "WHERE a.id_personne IS NOT NULL AND a.id_personne IN :cids"
         params["cids"] = tuple(client_ids)
 
-    # Collect (personne_id, date) pairs to replace
-    pairs = db.execute(
-        text(
-            f"""
-            SELECT DISTINCT a.id_personne, h.date
-            FROM mariadb_historique_affaire_w h
-            JOIN mariadb_affaires a ON a.id = h.id
-            {scope_clause}
-            """
-        ),
-        params,
-    ).fetchall()
-
-    if not pairs:
-        return 0
-
-    for row in pairs:
-        if row[0] is None:
-            continue
+    # Bulk DELETE for affected persons, then single INSERT SELECT — avoids per-row
+    # lock accumulation that causes deadlocks with concurrent affaire_w writers.
+    if client_ids:
+        pid_placeholder = ",".join(str(p) for p in client_ids)
         db.execute(
-            text(
-                """
-                DELETE FROM mariadb_historique_personne_w
-                WHERE id = :pid AND `date` = :dt
-                """
-            ),
-            {"pid": row[0], "dt": row[1]},
+            text(f"DELETE FROM mariadb_historique_personne_w WHERE id IN ({pid_placeholder})")
         )
+    else:
+        db.execute(text("DELETE FROM mariadb_historique_personne_w"))
 
-    db.flush()
-
-    db.execute(
+    result = db.execute(
         text(
             f"""
             INSERT INTO mariadb_historique_personne_w (id, `date`, valo, mouvement, anne, id_societe_gestion)
@@ -233,7 +212,7 @@ def aggregate_affaire_to_personne(
         params,
     )
     db.commit()
-    return len(pairs)
+    return result.rowcount
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -265,7 +244,13 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
                 valo                                                   AS valorisation_suiv,
                 COALESCE(mouvement, 0)                                 AS mouvement,
                 LAG(valo) OVER (PARTITION BY id ORDER BY `date`)       AS prev_valo,
-                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`)    AS rn
+                ROW_NUMBER() OVER (PARTITION BY id ORDER BY `date`)    AS rn,
+                CASE
+                  WHEN LEAD(valo) OVER (PARTITION BY id ORDER BY `date`) IS NULL
+                       AND valo <= 1
+                       AND COALESCE(mouvement, 0) < 0
+                  THEN 1 ELSE 0
+                END AS is_last_redemption
               FROM {source_table}
               WHERE id IN ({id_filter_sql})
             ),
@@ -276,6 +261,7 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
                 mouvement,
                 valorisation_suiv,
                 CASE
+                  WHEN is_last_redemption = 1                             THEN NULL
                   WHEN ABS(COALESCE(prev_valo, 0) + 0.5 * mouvement) < 0.01 THEN NULL
                   ELSE (valorisation_suiv - mouvement - COALESCE(prev_valo, 0))
                        / NULLIF(COALESCE(prev_valo, 0) + 0.5 * mouvement, 0)

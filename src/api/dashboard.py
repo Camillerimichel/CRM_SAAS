@@ -26350,6 +26350,44 @@ def dashboard_stream_fill_weekly_historique(request: Request, db: Session = Depe
     )
 
 
+@router.post("/superadmin/stream-recalc-valo-affaires")
+def dashboard_stream_recalc_valo_affaires(request: Request, db: Session = Depends(get_db)):
+    """SSE : recalcule valo depuis snapshots + VL injectées, puis propage aux clients."""
+    _require_superadmin_access(request, db)
+
+    from src.database import SessionLocal as _SL
+    from src.services.fill_weekly_historique import iter_fill_weekly_historique
+    from src.services.recalcul_portefeuille import aggregate_mouvement_to_affaire, aggregate_affaire_to_personne
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    def generate():
+        _db = _SL()
+        try:
+            yield _sse({"type": "progress", "phase": "fill", "current": 0, "total": 0, "label": "Recalcul valorisation affaires…"})
+            for event in iter_fill_weekly_historique(_db, force_recalc=True):
+                yield _sse(event)
+            yield _sse({"type": "progress", "phase": "mouvement", "label": "Agrégation mouvements affaires…"})
+            aggregate_mouvement_to_affaire(_db)
+            _db.commit()
+            yield _sse({"type": "progress", "phase": "clients", "label": "Propagation vers historique clients…"})
+            aggregate_affaire_to_personne(_db)
+            _db.commit()
+            yield _sse({"type": "done", "label": "Recalcul valo terminé"})
+        except Exception as exc:
+            logger.error("stream_recalc_valo_affaires: %s", traceback.format_exc())
+            yield _sse({"type": "error", "message": str(exc)})
+        finally:
+            _db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/superadmin/grouped-tasks-config", response_class=JSONResponse)
 def dashboard_grouped_tasks_config(request: Request, db: Session = Depends(get_db)):
     """Renvoie taskTypes et responsables pour GroupedTasksModal dans les pages superadmin."""
@@ -26423,6 +26461,7 @@ def dashboard_controle_volatilite(request: Request, body: dict, db: Session = De
         JOIN mariadb_clients  c  ON c.id  = af.id_personne
         WHERE curr.rn = 1
           AND ABS(curr.volat - prev.volat) > :seuil_dec
+          AND NOT (curr.SRRI > prev.SRRI)
         ORDER BY ABS(curr.volat - prev.volat) DESC
     """), {"seuil_dec": seuil_dec}).fetchall()
 
@@ -26456,7 +26495,7 @@ def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: S
     _require_superadmin_access(request, db)
 
     hist_rows = db.execute(text("""
-        SELECT h.date, h.valo, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
         FROM mariadb_historique_affaire_w h
         WHERE h.id = :id
         ORDER BY h.date ASC
@@ -26469,6 +26508,7 @@ def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: S
     for r in hist_rows:
         m = r._mapping if hasattr(r, "_mapping") else {}
         valo = m.get("valo")
+        mouvement = m.get("mouvement")
         sicav = m.get("sicav")
         perf = m.get("perf_sicav_hebdo")
         volat = m.get("volat")
@@ -26479,6 +26519,7 @@ def dashboard_affaire_detail_historique(id_affaire: int, request: Request, db: S
         result.append({
             "date": date_str,
             "valo": round(float(valo), 2) if valo is not None else None,
+            "mouvement": round(float(mouvement), 2) if mouvement is not None else None,
             "vl_sicav": vl_1000,
             "perf_hebdo": round(float(perf) * 100, 4) if perf is not None else None,
             "volat_pct": round(float(volat) * 100, 2) if volat is not None else None,
@@ -26500,7 +26541,7 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
     _require_superadmin_access(request, db)
 
     hist_rows = db.execute(text("""
-        SELECT h.date, h.valo, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.volat, h.SRRI
         FROM mariadb_historique_affaire_w h
         WHERE h.id = :id
         ORDER BY h.date DESC
@@ -26512,7 +26553,7 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
 
     header_fill = PatternFill("solid", fgColor="1D4ED8")
     header_font = Font(bold=True, color="FFFFFF")
-    headers = ["Date", "Valorisation (€)", "VL SICAV (base 1 000)", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
+    headers = ["Date", "Valorisation (€)", "Mouvement (€)", "VL SICAV (base 1 000)", "Perf. hebdo (%)", "Volat. 52 sem. (%)", "SRRI"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
@@ -26522,6 +26563,7 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
     for row_idx, r in enumerate(hist_rows, 2):
         m = r._mapping if hasattr(r, "_mapping") else {}
         valo = m.get("valo")
+        mouvement = m.get("mouvement")
         sicav = m.get("sicav")
         perf = m.get("perf_sicav_hebdo")
         volat = m.get("volat")
@@ -26530,12 +26572,13 @@ def dashboard_affaire_detail_export(id_affaire: int, ref: str = "", request: Req
         vl_1000 = round(float(sicav) * 1000, 2) if sicav is not None else 1000.0
         ws.cell(row=row_idx, column=1, value=date_str)
         ws.cell(row=row_idx, column=2, value=round(float(valo), 2) if valo is not None else None)
-        ws.cell(row=row_idx, column=3, value=vl_1000)
-        ws.cell(row=row_idx, column=4, value=round(float(perf) * 100, 4) if perf is not None else None)
-        ws.cell(row=row_idx, column=5, value=round(float(volat) * 100, 2) if volat is not None else None)
-        ws.cell(row=row_idx, column=6, value=m.get("SRRI"))
+        ws.cell(row=row_idx, column=3, value=round(float(mouvement), 2) if mouvement is not None else None)
+        ws.cell(row=row_idx, column=4, value=vl_1000)
+        ws.cell(row=row_idx, column=5, value=round(float(perf) * 100, 4) if perf is not None else None)
+        ws.cell(row=row_idx, column=6, value=round(float(volat) * 100, 2) if volat is not None else None)
+        ws.cell(row=row_idx, column=7, value=m.get("SRRI"))
 
-    for col in range(1, 7):
+    for col in range(1, 8):
         ws.column_dimensions[get_column_letter(col)].width = 18
 
     buf = io.BytesIO()
@@ -27913,10 +27956,12 @@ def _mk_stream_risk(request: Request, db: Session, count_sql: str, operations: l
 
 @router.post("/superadmin/stream-recompute-srri-affaires")
 def stream_recompute_srri_affaires(request: Request, db: Session = Depends(get_db)):
+    from src.services.recalcul_portefeuille import aggregate_mouvement_to_affaire, aggregate_affaire_to_personne
     return _mk_stream_risk(
         request, db,
         count_sql="SELECT COUNT(DISTINCT id) FROM mariadb_historique_affaire_w WHERE id IS NOT NULL",
         operations=[
+            aggregate_mouvement_to_affaire,
             _recompute_srri_affaires,
             lambda d: _store_sri_metrics(d, entity_type="affaire", tempo_table="tempo_hist_affaire_w", source="srri"),
             lambda d: _update_sri_current(d, entity_type="affaire"),
@@ -27927,10 +27972,13 @@ def stream_recompute_srri_affaires(request: Request, db: Session = Depends(get_d
 
 @router.post("/superadmin/stream-recompute-srri-clients")
 def stream_recompute_srri_clients(request: Request, db: Session = Depends(get_db)):
+    from src.services.recalcul_portefeuille import aggregate_mouvement_to_affaire, aggregate_affaire_to_personne
     return _mk_stream_risk(
         request, db,
         count_sql="SELECT COUNT(DISTINCT id) FROM mariadb_historique_personne_w WHERE id IS NOT NULL",
         operations=[
+            aggregate_mouvement_to_affaire,
+            aggregate_affaire_to_personne,
             _recompute_srri_clients,
             lambda d: _store_sri_metrics(d, entity_type="client", tempo_table="tempo_hist_personne_w", source="srri"),
             lambda d: _update_sri_current(d, entity_type="client"),
@@ -32297,6 +32345,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       FROM mariadb_affaires
                       WHERE id_personne = :cid
                     ),
+                    last_snapshot_date AS (
+                      SELECT MAX(DATE(h.date)) AS snap_date
+                      FROM mariadb_historique_support_w h
+                      WHERE h.id_source IN (SELECT id FROM client_affaires)
+                        AND DATE(h.date) <= :as_of_date
+                    ),
                     latest_supports AS (
                       SELECT
                         h.id_support,
@@ -32310,7 +32364,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       FROM mariadb_historique_support_w h
                       JOIN mariadb_support s ON s.id = h.id_support
                       WHERE h.id_source IN (SELECT id FROM client_affaires)
-                        AND DATE(h.date) = :as_of_date
+                        AND DATE(h.date) = (SELECT snap_date FROM last_snapshot_date)
                     )
                     SELECT
                       ls.code_isin,
@@ -32361,6 +32415,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       SELECT id
                       FROM mariadb_affaires
                       WHERE id_personne = :cid
+                    ),
+                    last_snapshot_date AS (
+                      SELECT MAX(DATE(h.date)) AS snap_date
+                      FROM mariadb_historique_support_w h
+                      WHERE h.id_source IN (SELECT id FROM client_affaires)
+                        AND DATE(h.date) <= :as_of_date
                     )
                     SELECT
                       s.code_isin,
@@ -32378,7 +32438,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     JOIN mariadb_affaires a ON a.id = h.id_source
                     LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
                     WHERE h.id_source IN (SELECT id FROM client_affaires)
-                      AND DATE(h.date) = :as_of_date
+                      AND DATE(h.date) = (SELECT snap_date FROM last_snapshot_date)
                     GROUP BY s.code_isin, a.ref, h.id_source, h.id_support, g.frais_gestion_assureur, g.frais_gestion_courtier
                     ORDER BY a.ref, s.code_isin
                     """
@@ -32478,6 +32538,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             rows = db.execute(
                 text(
                     """
+                    WITH last_snap AS (
+                      SELECT MAX(DATE(h2.date)) AS snap_date
+                      FROM mariadb_historique_support_w h2
+                      WHERE h2.id_source IN :ids
+                        AND DATE(h2.date) <= :as_of_date
+                    )
                     SELECT
                       h.id_source AS affaire_id,
                       h.valo AS valo,
@@ -32488,7 +32554,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     JOIN mariadb_support s ON s.id = h.id_support
                     LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
                     WHERE h.id_source IN :ids
-                      AND DATE(h.date) = :as_of_date
+                      AND DATE(h.date) = (SELECT snap_date FROM last_snap)
                     """
                 ).bindparams(bindparam("ids", expanding=True)),
                 {"ids": affaire_ids, "as_of_date": effective_support_date},
