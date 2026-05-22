@@ -6,6 +6,8 @@ from src.models.client import Client
 from src.models.document import Document
 from src.schemas.document_client import DocumentClientCreateSchema
 
+_STORAGE_COLUMNS_ENSURED: bool = False
+
 
 def canonical_document_label(label: str | None) -> str | None:
     raw = (label or "").strip()
@@ -48,6 +50,9 @@ def _document_client_payload(payload: DocumentClientCreateSchema, doc_id: int, f
         "file_size": payload.file_size,
     }
 def ensure_document_client_storage_columns(db: Session) -> bool:
+    global _STORAGE_COLUMNS_ENSURED
+    if _STORAGE_COLUMNS_ENSURED:
+        return True
     table = "Documents_client"
     desired = {
         "stored_filename": "TEXT",
@@ -88,7 +93,10 @@ def ensure_document_client_storage_columns(db: Session) -> bool:
             continue
     if added_any:
         db.commit()
-    return all(name in existing for name in desired)
+    result = all(name in existing for name in desired)
+    if result:
+        _STORAGE_COLUMNS_ENSURED = True
+    return result
 
 
 def ensure_document_base_for_label(db: Session, label: str, *, niveau: str = "généré", risque: str | None = None) -> int:

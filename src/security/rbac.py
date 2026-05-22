@@ -9,6 +9,8 @@ from fastapi import HTTPException, Request
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+_TABLE_EXISTS_CACHE: dict[str, bool] = {}
+
 
 Permission = Tuple[str, str]
 
@@ -39,6 +41,8 @@ class Access:
 
 
 def _table_exists(db: Session, table_name: str) -> bool:
+    if table_name in _TABLE_EXISTS_CACHE:
+        return _TABLE_EXISTS_CACHE[table_name]
     try:
         row = db.execute(
             text(
@@ -51,10 +55,13 @@ def _table_exists(db: Session, table_name: str) -> bool:
             {"table_name": table_name},
         ).fetchone()
         if not row:
-            return False
-        return bool(row[0] if not hasattr(row, "_mapping") else next(iter(row._mapping.values())))
+            result = False
+        else:
+            result = bool(row[0] if not hasattr(row, "_mapping") else next(iter(row._mapping.values())))
     except Exception:
-        return False
+        result = False
+    _TABLE_EXISTS_CACHE[table_name] = result
+    return result
 
 
 def expand_societe_scope(db: Session, direct_scopes: Set[int | None]) -> Set[int]:

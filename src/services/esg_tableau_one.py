@@ -1,6 +1,10 @@
 from datetime import date as _date, datetime
+from time import perf_counter
 
 from sqlalchemy import bindparam, text
+
+_TABLEAU_ONE_CACHE: dict = {}
+_TABLEAU_ONE_TTL = 600  # 10 minutes
 
 
 TABLEAU_ONE_CATEGORIES = {
@@ -191,6 +195,11 @@ def _format_number(value, decimals=2):
 
 
 def compute_tableau_one(db):
+    now_ts = perf_counter()
+    cached = _TABLEAU_ONE_CACHE.get("data")
+    if cached and (now_ts - _TABLEAU_ONE_CACHE.get("ts", 0)) < _TABLEAU_ONE_TTL:
+        return cached
+
     last_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w")).scalar()
     if not last_date:
         return {"as_of_date": None, "total_valo": 0.0, "items": [], "categories": []}
@@ -295,9 +304,12 @@ def compute_tableau_one(db):
                 "items": category_items,
             })
 
-    return {
+    result = {
         "as_of_date": last_date_str,
         "total_valo": total_valo,
         "items": items,
         "categories": categories,
     }
+    _TABLEAU_ONE_CACHE["data"] = result
+    _TABLEAU_ONE_CACHE["ts"] = perf_counter()
+    return result

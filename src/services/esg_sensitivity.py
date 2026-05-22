@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import unicodedata
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
+
+_AVERAGES_CACHE: dict = {}
+_AVERAGES_TTL = 3600.0
 
 
 QUESTION_FIELDS = (
@@ -129,8 +133,13 @@ def get_esg_top_metrics(db: Session, client_id: int, top_n: int = 5) -> list[dic
     if not scores:
         return []
 
-    stats_row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
-    stats = stats_row._mapping if stats_row is not None and hasattr(stats_row, "_mapping") else None
+    _av_entry = _AVERAGES_CACHE.get("row")
+    if _av_entry and (perf_counter() - _av_entry[1]) < _AVERAGES_TTL:
+        stats = _av_entry[0]
+    else:
+        stats_row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
+        stats = stats_row._mapping if stats_row is not None and hasattr(stats_row, "_mapping") else None
+        _AVERAGES_CACHE["row"] = (stats, perf_counter())
 
     def _metric_stats(metric_key: str) -> tuple[float | None, float | None]:
         if not stats:
