@@ -773,12 +773,69 @@ KEYWORDS_VEILLE = [
 ]
 
 FINANCE_CACHE: dict = {}
+_RESOLVE_TABLE_CACHE: dict[str, str | None] = {}
 HOME_CACHE: dict = {}
 ESG_FIELDS_CACHE: dict = {}
 ESG_GLOBAL_CACHE: dict = {}
 ESG_COLUMNS_CACHE: dict = {}
 LOAD_PROGRESS: dict = {}
 ESG_CANON_TABLE = "esg_fonds_norm"
+
+_DROPDOWN_CACHE: dict = {}
+_DROPDOWN_TTL = 60.0  # secondes
+
+ESG_AVERAGES_CACHE: dict = {}
+_ESG_AVERAGES_TTL = 3600.0  # 1 heure — la vue esg_metric_averages est lente (12s)
+
+_ESG_CHART_CACHE: dict = {}
+_ESG_CHART_TTL = 300.0  # 5 minutes par (client_id, alloc)
+
+
+def _get_clients_suggest(db: Session) -> list:
+    from time import perf_counter
+    entry = _DROPDOWN_CACHE.get("clients")
+    if entry and (perf_counter() - entry[1]) < _DROPDOWN_TTL:
+        return entry[0]
+    rows = db.query(Client.id, Client.nom, Client.prenom).order_by(Client.nom.asc(), Client.prenom.asc()).all()
+    _DROPDOWN_CACHE["clients"] = (rows, perf_counter())
+    return rows
+
+
+def _get_aff_rows(db: Session) -> list:
+    from time import perf_counter
+    entry = _DROPDOWN_CACHE.get("affaires")
+    if entry and (perf_counter() - entry[1]) < _DROPDOWN_TTL:
+        return entry[0]
+    rows = db.query(Affaire.id, Affaire.ref, Affaire.id_personne).order_by(Affaire.ref.asc()).all()
+    _DROPDOWN_CACHE["affaires"] = (rows, perf_counter())
+    return rows
+
+
+def _get_esg_averages_coverage(db: Session) -> dict:
+    """Retourne le coverage_map depuis esg_metric_averages avec cache 1h."""
+    from time import perf_counter
+    entry = ESG_AVERAGES_CACHE.get("coverage")
+    if entry and (perf_counter() - entry[1]) < _ESG_AVERAGES_TTL:
+        return entry[0]
+    coverage_map: dict = {}
+    try:
+        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
+        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
+        if stats:
+            for key, val in stats.items():
+                if not key.endswith("_coverage_pct"):
+                    continue
+                metric_key = key[: -len("_coverage_pct")]
+                try:
+                    coverage_map[metric_key] = float(val) if val is not None else None
+                except Exception:
+                    coverage_map[metric_key] = None
+    except Exception:
+        pass
+    ESG_AVERAGES_CACHE["coverage"] = (coverage_map, perf_counter())
+    return coverage_map
+
+
 ESG_FIELDS_TABLE = "esg_fonds_norm"
 ESG_TABLE_FALLBACKS = ["donnees_esg_etendu", "esg_fonds"]
 ESG_LEGACY_MODE = os.getenv("ESG_LEGACY_MODE", "warn").strip().lower()
@@ -2272,21 +2329,7 @@ def dashboard_esg_fields(db: Session = Depends(get_db)):
         alloc_names = []
     fields, debug = _get_esg_fields(db, debug=True)
     excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
-    coverage_map: dict[str, float] = {}
-    try:
-        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
-        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
-        if stats:
-            for key, val in stats.items():
-                if not key.endswith("_coverage_pct"):
-                    continue
-                metric_key = key[: -len("_coverage_pct")]
-                try:
-                    coverage_map[metric_key] = float(val) if val is not None else None
-                except Exception:
-                    coverage_map[metric_key] = None
-    except Exception:
-        coverage_map = {}
+    coverage_map = _get_esg_averages_coverage(db)
     filtered_fields: list[dict] = []
     for item in fields or []:
         col = item.get("col")
@@ -2784,7 +2827,7 @@ def _build_matplotlib_esg_bar_chart(
         ax.legend(loc="lower right")
         fig.tight_layout()
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=160)
+        fig.savefig(buf, format="png", dpi=90)
         plt.close(fig)
         return base64.b64encode(buf.getvalue()).decode("ascii")
     except Exception:
@@ -2860,33 +2903,40 @@ def _compute_client_esg_comparison(
         affaire_ids = [rid for (rid,) in db.query(Affaire.id).filter(Affaire.id_personne == client_id).all()]
         sums: dict[str, float] = {}
         total_valo = 0.0
-        params_list = []
-        weight_sql = (
-            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
-            "FROM mariadb_historique_support_w h\n"
-            "JOIN mariadb_support s ON s.id = h.id_support\n"
-            "WHERE h.id_source = :aid AND DATE(h.date) = :d\n"
-            "GROUP BY s.code_isin"
-        )
         as_of_date_only = as_of.split(" ")[0] if as_of else None
-        for aid in affaire_ids:
+        if affaire_ids:
             if as_of_date_only:
-                ref_date = as_of_date_only
+                snap_date_str = as_of_date_only
             else:
-                ref_date = db.execute(
-                    text("SELECT MAX(date) FROM mariadb_historique_support_w WHERE id_source = :aid"),
-                    {"aid": aid},
+                snap_dt = db.execute(
+                    text("SELECT MAX(h.date) FROM mariadb_historique_support_w h WHERE h.id_source IN :aids").bindparams(bindparam("aids", expanding=True)),
+                    {"aids": affaire_ids},
                 ).scalar()
-                if not ref_date:
-                    continue
-            rows = db.execute(text(weight_sql), {"aid": aid, "d": str(ref_date).split(" ")[0]}).fetchall()
-            params_list.append({"aid": aid, "d": str(ref_date) if ref_date is not None else None})
-            for r in rows or []:
-                isin = getattr(r, "isin", None)
-                v = float(getattr(r, "somme_valo", 0) or 0)
-                if isin:
-                    sums[isin] = sums.get(isin, 0.0) + v
-                    total_valo += v
+                snap_date_str = str(snap_dt).split(" ")[0] if snap_dt else None
+            if snap_date_str:
+                try:
+                    _sd = _date.fromisoformat(snap_date_str)
+                    snap_start = datetime(_sd.year, _sd.month, _sd.day, 0, 0, 0)
+                    snap_end = datetime(_sd.year, _sd.month, _sd.day, 23, 59, 59, 999999)
+                except Exception:
+                    snap_start = snap_end = None
+                if snap_start:
+                    batch_rows = db.execute(
+                        text(
+                            "SELECT s.code_isin AS isin, SUM(h.valo) AS somme_valo\n"
+                            "FROM mariadb_historique_support_w h\n"
+                            "JOIN mariadb_support s ON s.id = h.id_support\n"
+                            "WHERE h.id_source IN :aids AND h.date >= :snap_start AND h.date <= :snap_end\n"
+                            "GROUP BY s.code_isin"
+                        ).bindparams(bindparam("aids", expanding=True)),
+                        {"aids": affaire_ids, "snap_start": snap_start, "snap_end": snap_end},
+                    ).fetchall()
+                    for r in batch_rows or []:
+                        isin = getattr(r, "isin", None)
+                        v = float(getattr(r, "somme_valo", 0) or 0)
+                        if isin:
+                            sums[isin] = sums.get(isin, 0.0) + v
+                            total_valo += v
         if total_valo > 0:
             for isin, v in sums.items():
                 if v is not None:
@@ -2896,8 +2946,7 @@ def _compute_client_esg_comparison(
                 "weights_count": len(client_weights),
                 "weights_sum": sum(client_weights.values()) if client_weights else 0,
                 "affaires": affaire_ids,
-                "params": params_list,
-                "query": weight_sql,
+                "query": "batch range",
                 "as_of": as_of,
                 "isins": sorted(client_weights.keys()),
             })
@@ -3442,8 +3491,6 @@ def _build_finance_analysis(
     allow_fallback: bool = True,
 ) -> dict:
     """Compute portfolio analysis figures (supports repartition) for dashboard views."""
-    # Invalidate previous cache to ensure new params and date calculations are reflected immediately
-    FINANCE_CACHE.clear()
     cache_key = (finance_rh_id, finance_date_param or "", finance_valo_param or "")
     now_ts = perf_counter()
     cached = FINANCE_CACHE.get(cache_key)
@@ -5779,21 +5826,7 @@ def _populate_synthese_esg_context(db: Session, ctx: dict, client_id: int) -> di
         esg_fields_client = []
 
     excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
-    coverage_map: dict[str, float] = {}
-    try:
-        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
-        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
-        if stats:
-            for key, val in stats.items():
-                if not key.endswith("_coverage_pct"):
-                    continue
-                metric_key = key[: -len("_coverage_pct")]
-                try:
-                    coverage_map[metric_key] = float(val) if val is not None else None
-                except Exception:
-                    coverage_map[metric_key] = None
-    except Exception:
-        coverage_map = {}
+    coverage_map = _get_esg_averages_coverage(db)
 
     filtered_esg_fields: list[dict] = []
     for item in esg_fields_client:
@@ -11784,6 +11817,10 @@ def _fetch_ref_list(db: Session, candidates: list[str]) -> list[dict]:
 
 def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
     """Return the first existing table/view name matching one of candidates (case-insensitive)."""
+    cache_key = "|".join(c.lower() for c in candidates)
+    if cache_key in _RESOLVE_TABLE_CACHE:
+        return _RESOLVE_TABLE_CACHE[cache_key]
+
     from sqlalchemy import text as _text
 
     bind = db.get_bind()
@@ -11800,20 +11837,22 @@ def _resolve_table_name(db: Session, candidates: list[str]) -> str | None:
             "LIMIT 1"
         )
     else:
-        # Fallback: try ANSI INFORMATION_SCHEMA if available
         lookup_sql = (
             "SELECT table_name AS name FROM information_schema.tables "
             "WHERE lower(table_name) = lower(:n) LIMIT 1"
         )
 
+    result = None
     for cand in candidates:
         row = db.execute(_text(lookup_sql), {"n": cand}).fetchone()
         if row:
             try:
-                return row[0]
+                result = row[0]
             except Exception:
-                return row._mapping.get("name")
-    return None
+                result = row._mapping.get("name")
+            break
+    _RESOLVE_TABLE_CACHE[cache_key] = result
+    return result
 
 
 def _ensure_courtier_documents_columns(db: Session, table: str) -> bool:
@@ -15676,89 +15715,45 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
     la_obsolete_pct = 0.0
     try:
         total_documents = db.query(func.count(DocumentClient.id)).scalar() or 0
-        der_total = (
-            db.query(func.count(DocumentClient.id))
+
+        # Comptages par type de document : 1 requête GROUP BY au lieu de 10
+        _doc_type_keys = [
+            'der', "recueil d'informations", 'questionnaire esg',
+            'lettre de mission', "lettre d'adéquation",
+        ]
+        _doc_counts_rows = (
+            db.query(
+                func.lower(Document.documents).label("doc_type"),
+                func.count(DocumentClient.id).label("total"),
+                func.sum(case(
+                    (func.lower(func.trim(DocumentClient.obsolescence)) == 'oui', 1),
+                    else_=0
+                )).label("obsolete")
+            )
             .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == 'der')
-            .scalar()
-            or 0
+            .filter(func.lower(Document.documents).in_(_doc_type_keys))
+            .group_by(func.lower(Document.documents))
+            .all()
         )
-        der_obsolete = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == 'der')
-            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
-            .scalar()
-            or 0
-        )
+        _dc = {r.doc_type: r for r in _doc_counts_rows}
+
+        def _dc_get(key):
+            r = _dc.get(key)
+            return (int(r.total or 0), int(r.obsolete or 0)) if r else (0, 0)
+
+        der_total, der_obsolete = _dc_get('der')
         der_total_pct = (der_total / total_clients * 100.0) if total_clients else 0.0
         der_obsolete_pct = (der_obsolete / total_clients * 100.0) if total_clients else 0.0
-        cc_total = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "recueil d'informations")
-            .scalar()
-            or 0
-        )
-        cc_obsolete = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "recueil d'informations")
-            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
-            .scalar()
-            or 0
-        )
+        cc_total, cc_obsolete = _dc_get("recueil d'informations")
         cc_total_pct = (cc_total / total_clients * 100.0) if total_clients else 0.0
         cc_obsolete_pct = (cc_obsolete / total_clients * 100.0) if total_clients else 0.0
-        esg_total = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "questionnaire esg")
-            .scalar()
-            or 0
-        )
-        esg_obsolete = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "questionnaire esg")
-            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
-            .scalar()
-            or 0
-        )
+        esg_total, esg_obsolete = _dc_get('questionnaire esg')
         esg_total_pct = (esg_total / total_clients * 100.0) if total_clients else 0.0
         esg_obsolete_pct = (esg_obsolete / total_clients * 100.0) if total_clients else 0.0
-        lm_total = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "lettre de mission")
-            .scalar()
-            or 0
-        )
-        lm_obsolete = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "lettre de mission")
-            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
-            .scalar()
-            or 0
-        )
+        lm_total, lm_obsolete = _dc_get('lettre de mission')
         lm_total_pct = (lm_total / total_clients * 100.0) if total_clients else 0.0
         lm_obsolete_pct = (lm_obsolete / total_clients * 100.0) if total_clients else 0.0
-        la_total = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "lettre d'adéquation")
-            .scalar()
-            or 0
-        )
-        la_obsolete = (
-            db.query(func.count(DocumentClient.id))
-            .join(Document, Document.id_document_base == DocumentClient.id_document_base)
-            .filter(func.lower(Document.documents) == "lettre d'adéquation")
-            .filter(func.lower(func.trim(DocumentClient.obsolescence)) == 'oui')
-            .scalar()
-            or 0
-        )
+        la_total, la_obsolete = _dc_get("lettre d'adéquation")
         la_total_pct = (la_total / total_clients * 100.0) if total_clients else 0.0
         la_obsolete_pct = (la_obsolete / total_clients * 100.0) if total_clients else 0.0
         # Obsolescences par niveau
@@ -15788,350 +15783,57 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
 
         doc_table_name = _resolve_table_name(db, ["courtier_documents_officiels"])
         if doc_table_name:
-            row = db.execute(
+            # 1 seule requête agrégée au lieu de 21 requêtes séparées
+            _ca_rows = db.execute(
                 text(
                     f"""
-                    SELECT id, date_validite
+                    SELECT
+                        CASE WHEN activite_id IN (3, 10) THEN 'rcpro'
+                             ELSE CAST(activite_id AS CHAR) END AS act_key,
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN date_validite IS NULL OR TRIM(date_validite) = ''
+                                  OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
+                             THEN 1 ELSE 0 END) AS expired,
+                        MAX(CASE WHEN date_validite IS NOT NULL AND TRIM(date_validite) != ''
+                             THEN date_validite ELSE NULL END) AS best_date
                     FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 1},
-            ).fetchone()
-            if row:
-                orias_doc_found = True
-                expiry_raw = row._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    orias_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        orias_doc_valid = True
-            row_assoc = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 2},
-            ).fetchone()
-            if row_assoc:
-                assoc_doc_found = True
-                expiry_raw = row_assoc._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    assoc_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        assoc_doc_valid = True
-            rc_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id IN (3, 10)
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-            ).fetchone()
-            count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id IN (3, 10)
-                    """
-                ),
-            ).fetchone()
-            expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id IN (3, 10)
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
+                    WHERE activite_id IN (1, 2, 3, 5, 6, 7, 8, 9, 10)
+                    GROUP BY CASE WHEN activite_id IN (3, 10) THEN 'rcpro'
+                                  ELSE CAST(activite_id AS CHAR) END
                     """
                 ),
                 {"today": doc_today.isoformat()},
-            ).fetchone()
-            rcpro_doc_count = int(count_row[0]) if count_row else 0
-            rcpro_doc_expired_count = int(expired_row[0]) if expired_row else 0
-            rcpro_doc_valid_count = max(rcpro_doc_count - rcpro_doc_expired_count, 0)
-            if rc_rows:
-                expiry_raw = rc_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    rcpro_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        rcpro_doc_valid = True
-            cond_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 5},
-            ).fetchone()
-            cond_count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    """
-                ),
-                {"act": 5},
-            ).fetchone()
-            cond_expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
-                    """
-                ),
-                {"act": 5, "today": doc_today.isoformat()},
-            ).fetchone()
-            conditions_doc_count = int(cond_count_row[0]) if cond_count_row else 0
-            conditions_doc_expired_count = int(cond_expired_row[0]) if cond_expired_row else 0
-            conditions_doc_valid_count = max(conditions_doc_count - conditions_doc_expired_count, 0)
-            if cond_rows:
-                expiry_raw = cond_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    conditions_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        conditions_doc_valid = True
-            role_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 6},
-            ).fetchone()
-            role_count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    """
-                ),
-                {"act": 6},
-            ).fetchone()
-            role_expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
-                    """
-                ),
-                {"act": 6, "today": doc_today.isoformat()},
-            ).fetchone()
-            role_doc_count = int(role_count_row[0]) if role_count_row else 0
-            role_doc_expired_count = int(role_expired_row[0]) if role_expired_row else 0
-            role_doc_valid_count = max(role_doc_count - role_doc_expired_count, 0)
-            if role_rows:
-                expiry_raw = role_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    role_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        role_doc_valid = True
-            gouvernance_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 8},
-            ).fetchone()
-            gouvernance_count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    """
-                ),
-                {"act": 8},
-            ).fetchone()
-            gouvernance_expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
-                    """
-                ),
-                {"act": 8, "today": doc_today.isoformat()},
-            ).fetchone()
-            gouvernance_doc_count = int(gouvernance_count_row[0]) if gouvernance_count_row else 0
-            gouvernance_doc_expired_count = int(gouvernance_expired_row[0]) if gouvernance_expired_row else 0
-            gouvernance_doc_valid_count = max(gouvernance_doc_count - gouvernance_doc_expired_count, 0)
-            if gouvernance_rows:
-                expiry_raw = gouvernance_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    gouvernance_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        gouvernance_doc_valid = True
-            conclusion_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 9},
-            ).fetchone()
-            conclusion_count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    """
-                ),
-                {"act": 9},
-            ).fetchone()
-            conclusion_expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
-                    """
-                ),
-                {"act": 9, "today": doc_today.isoformat()},
-            ).fetchone()
-            conclusion_doc_count = int(conclusion_count_row[0]) if conclusion_count_row else 0
-            conclusion_doc_expired_count = int(conclusion_expired_row[0]) if conclusion_expired_row else 0
-            conclusion_doc_valid_count = max(conclusion_doc_count - conclusion_doc_expired_count, 0)
-            if conclusion_rows:
-                expiry_raw = conclusion_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    conclusion_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        conclusion_doc_valid = True
-            blanch_rows = db.execute(
-                text(
-                    f"""
-                    SELECT id, date_validite
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    ORDER BY
-                        CASE WHEN date_validite IS NULL OR TRIM(date_validite) = '' THEN 1 ELSE 0 END,
-                        date_validite DESC,
-                        id DESC
-                    LIMIT 1
-                    """
-                ),
-                {"act": 7},
-            ).fetchone()
-            blanch_count_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                    """
-                ),
-                {"act": 7},
-            ).fetchone()
-            blanch_expired_row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*) AS nb
-                    FROM {doc_table_name}
-                    WHERE activite_id = :act
-                      AND (
-                        date_validite IS NULL
-                        OR TRIM(date_validite) = ''
-                        OR DATE(substr(date_validite, 1, 10)) < DATE(:today)
-                      )
-                    """
-                ),
-                {"act": 7, "today": doc_today.isoformat()},
-            ).fetchone()
-            blanchiment_doc_count = int(blanch_count_row[0]) if blanch_count_row else 0
-            blanchiment_doc_expired_count = int(blanch_expired_row[0]) if blanch_expired_row else 0
-            blanchiment_doc_valid_count = max(blanchiment_doc_count - blanchiment_doc_expired_count, 0)
-            if blanch_rows:
-                expiry_raw = blanch_rows._mapping.get("date_validite")
-                expiry_date = _parse_date_safe(expiry_raw)
-                if expiry_date:
-                    blanchiment_doc_expiry_display = expiry_date.strftime("%d/%m/%Y")
-                    if expiry_date >= doc_today:
-                        blanchiment_doc_valid = True
+            ).mappings().all()
+            _ca = {r["act_key"]: r for r in _ca_rows}
+
+            def _courtier_get(act_key):
+                r = _ca.get(act_key)
+                if not r:
+                    return False, False, "", 0, 0, 0
+                total = int(r["total"] or 0)
+                expired = int(r["expired"] or 0)
+                valid_count = max(total - expired, 0)
+                found = total > 0
+                expiry_display = ""
+                is_valid = False
+                best = r.get("best_date")
+                if best:
+                    expiry_date = _parse_date_safe(best)
+                    if expiry_date:
+                        expiry_display = expiry_date.strftime("%d/%m/%Y")
+                        if expiry_date >= doc_today:
+                            is_valid = True
+                return found, is_valid, expiry_display, total, expired, valid_count
+
+            # (found, is_valid, expiry_display, total, expired, valid_count)
+            orias_doc_found, orias_doc_valid, orias_doc_expiry_display, _, _, _ = _courtier_get("1")
+            assoc_doc_found, assoc_doc_valid, assoc_doc_expiry_display, _, _, _ = _courtier_get("2")
+            _, rcpro_doc_valid, rcpro_doc_expiry_display, rcpro_doc_count, rcpro_doc_expired_count, rcpro_doc_valid_count = _courtier_get("rcpro")
+            _, conditions_doc_valid, conditions_doc_expiry_display, conditions_doc_count, conditions_doc_expired_count, conditions_doc_valid_count = _courtier_get("5")
+            _, role_doc_valid, role_doc_expiry_display, role_doc_count, role_doc_expired_count, role_doc_valid_count = _courtier_get("6")
+            _, blanchiment_doc_valid, blanchiment_doc_expiry_display, blanchiment_doc_count, blanchiment_doc_expired_count, blanchiment_doc_valid_count = _courtier_get("7")
+            _, gouvernance_doc_valid, gouvernance_doc_expiry_display, gouvernance_doc_count, gouvernance_doc_expired_count, gouvernance_doc_valid_count = _courtier_get("8")
+            _, conclusion_doc_valid, conclusion_doc_expiry_display, conclusion_doc_count, conclusion_doc_expired_count, conclusion_doc_valid_count = _courtier_get("9")
 
         distribution_obsolete_values = [
             v for v in [
@@ -23514,8 +23216,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         .order_by(EvenementStatutReclamation.is_cloture.asc(), EvenementStatutReclamation.libelle.asc())
         .all()
     )
-    clients_suggest = db.query(Client.id, Client.nom, Client.prenom).order_by(Client.nom.asc(), Client.prenom.asc()).all()
-    aff_rows = db.query(Affaire.id, Affaire.ref, Affaire.id_personne).order_by(Affaire.ref.asc()).all()
+    clients_suggest = _get_clients_suggest(db)
+    aff_rows = _get_aff_rows(db)
     _clients_map = {c.id: f"{getattr(c,'nom','') or ''} {getattr(c,'prenom','') or ''}".strip() for c in clients_suggest}
     affaires_suggest = [{"id":a.id, "ref":getattr(a,'ref',''), "client": _clients_map.get(getattr(a,'id_personne',None), '')} for a in aff_rows]
     client_fullname_default = f"{(client_nom or '')} {(client_prenom or '')}".strip() if (client_nom or client_prenom) else None
@@ -27444,6 +27146,8 @@ def dashboard_superadmin_import_esg(
         ESG_FIELDS_CACHE.clear()
         ESG_COLUMNS_CACHE.clear()
         ESG_GLOBAL_CACHE.clear()
+        ESG_AVERAGES_CACHE.clear()
+        _ESG_CHART_CACHE.clear()
         elapsed = perf_counter() - started
         missing = stats.get("missing_columns") or []
         missing_note = ""
@@ -30397,17 +30101,9 @@ def dashboard_taches(
     )
 
     # Suggestions Clients / Affaires (ergonomie création)
-    clients_suggest = (
-        db.query(Client.id, Client.nom, Client.prenom)
-        .order_by(Client.nom.asc(), Client.prenom.asc())
-        .all()
-    )
+    clients_suggest = _get_clients_suggest(db)
     # Affaires avec nom client (pour affichage dans datalist, saisie par référence)
-    aff_rows = (
-        db.query(Affaire.id, Affaire.ref, Affaire.id_personne)
-        .order_by(Affaire.ref.asc())
-        .all()
-    )
+    aff_rows = _get_aff_rows(db)
     clients_map = {c.id: f"{getattr(c, 'nom', '') or ''} {getattr(c, 'prenom', '') or ''}".strip() for c in clients_suggest}
     affaires_suggest = [
         {
@@ -31666,6 +31362,7 @@ def _compute_kyc_completion_status(db: Session, client_id: int) -> dict:
 
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 def dashboard_client_detail(client_id: int, request: Request, db: Session = Depends(get_db)):
+    _t0_total = perf_counter()
     _require_client_read(request, db, client_id)
     try:
         ensure_document_client_storage_columns(db)
@@ -31784,6 +31481,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         .all()
     )
 
+    logger.info("TIMING client_detail %s: after historique query %.3fs", client_id, perf_counter() - _t0_total)
     # Dernière ligne (stats actuelles)
     last_row = None
     if historique:
@@ -32107,6 +31805,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     retraits_str = _fmt_valo(retraits_total)
     solde_str = _fmt_valo(solde_total)
     valo_gt_solde = (last_valo is not None and last_valo > solde_total)
+    logger.info("TIMING client_detail %s: after valo calcs %.3fs", client_id, perf_counter() - _t0_total)
 
     # Affaires de ce client (ouverts et fermés) à la date effective
     if selected_dt:
@@ -32211,11 +31910,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     SELECT h.id AS id_affaire,
                            SUM(COALESCE(h.mouvement, 0)) AS total_mvt
                     FROM mariadb_historique_affaire_w h
-                    WHERE h.date <= :sel
+                    WHERE h.id IN (SELECT id FROM mariadb_affaires WHERE id_personne = :cid)
+                      AND h.date <= :sel
                     GROUP BY h.id
                     """
                 ),
-                {"sel": selected_dt},
+                {"cid": client_id, "sel": selected_dt},
             ).fetchall()
         else:
             mouvements_rows = db.execute(
@@ -32224,9 +31924,11 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     SELECT h.id AS id_affaire,
                            SUM(COALESCE(h.mouvement, 0)) AS total_mvt
                     FROM mariadb_historique_affaire_w h
+                    WHERE h.id IN (SELECT id FROM mariadb_affaires WHERE id_personne = :cid)
                     GROUP BY h.id
                     """
-                )
+                ),
+                {"cid": client_id},
             ).fetchall()
     except Exception:
         mouvements_rows = []
@@ -32247,6 +31949,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         except Exception:
             mouvements_map[rid] = 0.0
 
+    logger.info("TIMING client_detail %s: after mouvements_map %.3fs", client_id, perf_counter() - _t0_total)
     affaire_ids = [r.id for r in affaires_rows if getattr(r, "id", None) is not None]
     sri_map: dict[int, int | None] = {}
     if affaire_ids:
@@ -32322,6 +32025,35 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     consolidated_supports: list[dict] = []
     consolidated_support_contracts: dict[str, list[dict]] = {}
     consolidated_support_movements: dict[str, list[dict]] = {}
+
+    # Pré-calcul de la date snapshot une seule fois pour éviter DATE() sur chaque ligne (plein scan)
+    _snap_start: datetime | None = None
+    _snap_end: datetime | None = None
+    if effective_support_date:
+        try:
+            _snap_row = db.execute(
+                text(
+                    """
+                    SELECT DATE(MAX(h.date)) AS snap_date
+                    FROM mariadb_historique_support_w h
+                    WHERE h.id_source IN (SELECT id FROM mariadb_affaires WHERE id_personne = :cid)
+                      AND h.date < DATE_ADD(:as_of_date, INTERVAL 1 DAY)
+                    """
+                ),
+                {"cid": client_id, "as_of_date": effective_support_date},
+            ).fetchone()
+            if _snap_row and _snap_row[0]:
+                _snap_val = _snap_row[0]
+                if isinstance(_snap_val, str):
+                    _snap_val = _date.fromisoformat(_snap_val[:10])
+                elif isinstance(_snap_val, datetime):
+                    _snap_val = _snap_val.date()
+                _snap_start = datetime(_snap_val.year, _snap_val.month, _snap_val.day, 0, 0, 0)
+                _snap_end = datetime(_snap_val.year, _snap_val.month, _snap_val.day, 23, 59, 59, 999999)
+        except Exception:
+            _snap_start = None
+            _snap_end = None
+
     if effective_support_date:
         def _format_decimal(value, decimals=2):
             try:
@@ -32345,12 +32077,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       FROM mariadb_affaires
                       WHERE id_personne = :cid
                     ),
-                    last_snapshot_date AS (
-                      SELECT MAX(DATE(h.date)) AS snap_date
-                      FROM mariadb_historique_support_w h
-                      WHERE h.id_source IN (SELECT id FROM client_affaires)
-                        AND DATE(h.date) <= :as_of_date
-                    ),
                     latest_supports AS (
                       SELECT
                         h.id_support,
@@ -32364,7 +32090,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       FROM mariadb_historique_support_w h
                       JOIN mariadb_support s ON s.id = h.id_support
                       WHERE h.id_source IN (SELECT id FROM client_affaires)
-                        AND DATE(h.date) = (SELECT snap_date FROM last_snapshot_date)
+                        AND h.date >= :snap_start AND h.date <= :snap_end
                     )
                     SELECT
                       ls.code_isin,
@@ -32383,7 +32109,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     ORDER BY valo_totale DESC
                     """
                 ),
-                {"cid": client_id, "as_of_date": effective_support_date},
+                {"cid": client_id, "snap_start": _snap_start, "snap_end": _snap_end},
             ).fetchall()
             consolidated_supports = [
                 {
@@ -32415,12 +32141,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                       SELECT id
                       FROM mariadb_affaires
                       WHERE id_personne = :cid
-                    ),
-                    last_snapshot_date AS (
-                      SELECT MAX(DATE(h.date)) AS snap_date
-                      FROM mariadb_historique_support_w h
-                      WHERE h.id_source IN (SELECT id FROM client_affaires)
-                        AND DATE(h.date) <= :as_of_date
                     )
                     SELECT
                       s.code_isin,
@@ -32438,12 +32158,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     JOIN mariadb_affaires a ON a.id = h.id_source
                     LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
                     WHERE h.id_source IN (SELECT id FROM client_affaires)
-                      AND DATE(h.date) = (SELECT snap_date FROM last_snapshot_date)
+                      AND h.date >= :snap_start AND h.date <= :snap_end
                     GROUP BY s.code_isin, a.ref, h.id_source, h.id_support, g.frais_gestion_assureur, g.frais_gestion_courtier
                     ORDER BY a.ref, s.code_isin
                     """
                 ),
-                {"cid": client_id, "as_of_date": effective_support_date},
+                {"cid": client_id, "snap_start": _snap_start, "snap_end": _snap_end},
             ).fetchall()
             support_ids: set[int] = set()
             support_isins: dict[int, str] = {}
@@ -32525,6 +32245,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             consolidated_support_contracts = {}
             consolidated_support_movements = {}
 
+    logger.info("TIMING client_detail %s: after consolidated_supports %.3fs", client_id, perf_counter() - _t0_total)
     # Notes ESG par affaire (pondérées par valorisation à la date effective)
     affaire_esg_map: dict[int, dict[str, str | None]] = {}
     try:
@@ -32538,12 +32259,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             rows = db.execute(
                 text(
                     """
-                    WITH last_snap AS (
-                      SELECT MAX(DATE(h2.date)) AS snap_date
-                      FROM mariadb_historique_support_w h2
-                      WHERE h2.id_source IN :ids
-                        AND DATE(h2.date) <= :as_of_date
-                    )
                     SELECT
                       h.id_source AS affaire_id,
                       h.valo AS valo,
@@ -32554,10 +32269,10 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     JOIN mariadb_support s ON s.id = h.id_support
                     LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
                     WHERE h.id_source IN :ids
-                      AND DATE(h.date) = (SELECT snap_date FROM last_snap)
+                      AND h.date >= :snap_start AND h.date <= :snap_end
                     """
                 ).bindparams(bindparam("ids", expanding=True)),
-                {"ids": affaire_ids, "as_of_date": effective_support_date},
+                {"ids": affaire_ids, "snap_start": _snap_start, "snap_end": _snap_end},
             ).fetchall()
             stats: dict[int, dict[str, float]] = {}
             for r in rows or []:
@@ -33005,6 +32720,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception:
         alloc_series = {}
 
+    logger.info("TIMING client_detail %s: after alloc_series %.3fs", client_id, perf_counter() - _t0_total)
     # Série SICAV du client (mariadb_historique_personne_w)
     client_sicav: list[dict] = []
     client_srri_series: list[dict] = []
@@ -33096,8 +32812,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         .all()
     )
 
-    clients_suggest = db.query(Client.id, Client.nom, Client.prenom).order_by(Client.nom.asc(), Client.prenom.asc()).all()
-    aff_rows = db.query(Affaire.id, Affaire.ref, Affaire.id_personne).order_by(Affaire.ref.asc()).all()
+    clients_suggest = _get_clients_suggest(db)
+    aff_rows = _get_aff_rows(db)
     _clients_map = {c.id: f"{getattr(c,'nom','') or ''} {getattr(c,'prenom','') or ''}".strip() for c in clients_suggest}
     affaires_suggest = [{"id": a.id, "ref": getattr(a,'ref',''), "client": _clients_map.get(getattr(a,'id_personne',None), '')} for a in aff_rows]
     client_fullname_default = (f"{getattr(client,'nom','') or ''} {getattr(client,'prenom','') or ''}".strip()) if client else None
@@ -33141,6 +32857,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     except Exception as exc:
         logger.exception("client_events_open query failed", exc_info=exc)
         events_open = []
+    logger.info("TIMING client_detail %s: after events_open %.3fs", client_id, perf_counter() - _t0_total)
     # Map affaire_id -> ref
     _aff_ref = {a.id: getattr(a, 'ref', None) for a in aff_rows}
     def _norm_cat(s: str | None) -> str:
@@ -33318,6 +33035,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         pass
     fatca_today = _date.today().isoformat()
 
+    logger.info("TIMING client_detail %s: before DER context %.3fs", client_id, perf_counter() - _t0_total)
     # --- DER data for Conformité modal (client detail) ---
     der_context = _build_der_context(db)
     DER_courtier = der_context.get("DER_courtier")
@@ -33327,6 +33045,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     lm_remunerations = der_context.get("lm_remunerations") or []
     centre_mediation_lib = der_context.get("centre_mediation_lib")
     DER_activites = der_context.get("DER_activites") or []
+    logger.info("TIMING client_detail %s: after DER context %.3fs", client_id, perf_counter() - _t0_total)
 
     # Lettre de mission : objectifs client (KYC_Client_Objectifs)
     lm_objectifs: list[dict] = []
@@ -33492,27 +33211,16 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     esg_default_fields: list[str] = []
     esg_fields_max = 10
     esg_top_metric_keys: list[str] = []
+    logger.info("TIMING client_detail %s: before ESG fields %.3fs", client_id, perf_counter() - _t0_total)
     try:
         esg_fields_client, esg_fields_debug_tmp = _get_esg_fields(db, debug=False)
     except Exception:
         esg_fields_client = []
+    logger.info("TIMING client_detail %s: after _get_esg_fields (n=%d) %.3fs", client_id, len(esg_fields_client), perf_counter() - _t0_total)
 
     excluded_esg_fields = {"company_name", "evic", "mcap_usd", "revenue_usd", "sector1"}
-    coverage_map: dict[str, float] = {}
-    try:
-        row = db.execute(text("SELECT * FROM esg_metric_averages LIMIT 1")).fetchone()
-        stats = row._mapping if row is not None and hasattr(row, "_mapping") else None
-        if stats:
-            for key, val in stats.items():
-                if not key.endswith("_coverage_pct"):
-                    continue
-                metric_key = key[: -len("_coverage_pct")]
-                try:
-                    coverage_map[metric_key] = float(val) if val is not None else None
-                except Exception:
-                    coverage_map[metric_key] = None
-    except Exception:
-        coverage_map = {}
+    coverage_map = _get_esg_averages_coverage(db)
+    logger.info("TIMING client_detail %s: after coverage_map (n=%d) %.3fs", client_id, len(coverage_map), perf_counter() - _t0_total)
 
     filtered_esg_fields: list[dict] = []
     for item in esg_fields_client:
@@ -33534,6 +33242,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         ]
     except Exception:
         esg_top_metric_keys = []
+    logger.info("TIMING client_detail %s: after get_esg_top_metrics (n=%d) %.3fs", client_id, len(esg_top_metric_keys), perf_counter() - _t0_total)
     if not allocation_reference_name:
         allocation_reference_name = _suggest_allocation_name(alloc_names_client)
     fallback_alloc_name = _suggest_allocation_name(alloc_names_client)
@@ -33552,7 +33261,9 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
     if len(fields_to_try) > esg_fields_max:
         fields_to_try = fields_to_try[:esg_fields_max]
     esg_comparison_payload = None
+    logger.info("TIMING client_detail %s: esg_comparison_alloc=%r fields=%s", client_id, esg_comparison_alloc, len(fields_to_try))
     if esg_comparison_alloc and fields_to_try:
+        logger.info("TIMING client_detail %s: before esg_comparison call1 %.3fs", client_id, perf_counter() - _t0_total)
         try:
             esg_comparison_payload, _dbg = _compute_client_esg_comparison(
                 db=db,
@@ -33618,11 +33329,21 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 categories = [str(r.get("label") or r.get("field")) for r in chart_rows]
                 index_values = [float(r.get("index") or 0.0) for r in chart_rows]
                 client_values = [float(r.get("client") or 0.0) for r in chart_rows]
-                esg_comparison_chart_png = _build_matplotlib_esg_bar_chart(categories, index_values, client_values)
+                _chart_key = (client_id, esg_comparison_alloc, tuple(categories))
+                _chart_entry = _ESG_CHART_CACHE.get(_chart_key)
+                if _chart_entry and (perf_counter() - _chart_entry[1]) < _ESG_CHART_TTL:
+                    esg_comparison_chart_png = _chart_entry[0]
+                else:
+                    logger.info("TIMING client_detail %s: before matplotlib %.3fs", client_id, perf_counter() - _t0_total)
+                    esg_comparison_chart_png = _build_matplotlib_esg_bar_chart(categories, index_values, client_values)
+                    logger.info("TIMING client_detail %s: after matplotlib %.3fs", client_id, perf_counter() - _t0_total)
+                    _ESG_CHART_CACHE[_chart_key] = (esg_comparison_chart_png, perf_counter())
         except Exception:
             esg_comparison_payload = None
+    logger.info("TIMING client_detail %s: after esg call1 %.3fs", client_id, perf_counter() - _t0_total)
 
     if not esg_comparison_rows and esg_comparison_alloc:
+        logger.info("TIMING client_detail %s: before esg call2 %.3fs", client_id, perf_counter() - _t0_total)
         try:
             payload_tmp, _ = _compute_client_esg_comparison(
                 db=db,
@@ -33680,6 +33401,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         except Exception:
             esg_comparison_rows = []
 
+    logger.info("TIMING client_detail %s: after ESG comparison %.3fs", client_id, perf_counter() - _t0_total)
     # Contrat choisi (si défini via KYC_contrat_choisi)
     if sensitivity_fields:
         esg_default_fields = sensitivity_fields[:]
@@ -34009,6 +33731,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             # En cas d'erreur ici, on garde simplement les scénarios précédents s'ils existent
             pass
 
+    logger.info("TIMING client_detail %s: before template render %.3fs", client_id, perf_counter() - _t0_total)
     return templates.TemplateResponse(
         "dashboard_client_detail.html",
         {
