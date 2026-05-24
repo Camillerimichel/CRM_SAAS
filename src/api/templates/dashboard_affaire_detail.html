@@ -206,10 +206,10 @@
   .support-meta-btn.active i { color:#fff; }
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .aff-esg-split { display:flex; gap:12px; align-items:stretch; }
-  .aff-esg-left { flex:1 1 320px; min-width:260px; }
-  .aff-esg-right { flex:1 1 420px; min-width:260px; display:flex; align-items:stretch; overflow:visible; }
-  .aff-esg-right-inner { width:100%; display:flex; flex-direction:column; min-height:320px; }
-  .aff-esg-right #affaireEsgChart { width:100%; max-width:100%; }
+  .aff-esg-left { flex:1 1 320px; min-width:0; }
+  .aff-esg-right { flex:1 1 420px; min-width:0; display:flex; align-items:stretch; overflow:hidden; }
+  .aff-esg-right-inner { width:100%; min-width:0; display:flex; flex-direction:column; min-height:320px; overflow:hidden; }
+  .aff-esg-right #affaireEsgChart { width:100%; max-width:100%; min-width:0; }
   @media (max-width: 900px) {
     .aff-esg-split { flex-direction:column; }
   }
@@ -1000,11 +1000,24 @@
  </div>
 </div>
 <!-- Séparateur visuel -->
-{% set esg_default_alloc = client_allocation_name or default_alloc_name %}
+{% set esg_default_alloc = allocation_reference_name or client_allocation_name or default_alloc_name %}
 <div id="esgSection" style="display:none;">
   <div class="card" style="margin-top:12px;">
     <div class="kpi-heading">Suivi ESG</div>
-    <div id="affaireEsgPanel" style="margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+    <div id="affaireEsgLoadWrap" style="text-align:center; padding:32px 20px;">
+      <button id="affaireEsgLoadBtn" type="button" class="dim-btn" style="padding:10px 24px; font-size:1rem; gap:8px;">
+        <i class="fa-solid fa-chart-bar"></i><span>Charger l'analyse ESG</span>
+      </button>
+      <div class="muted" style="margin-top:8px; font-size:0.82rem;">L'analyse compare les indicateurs ESG de l'affaire à un indice de référence.</div>
+    </div>
+    <div id="affaireEsgPanel" style="display:none; margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div id="affaireEsgLoading" style="display:none; padding:24px 16px; color:#64748b;">
+        <div style="margin-bottom:6px; font-size:0.93rem; font-weight:600;" id="affaireEsgLoadingMsg">Initialisation…</div>
+        <div style="background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden; margin-bottom:8px;">
+          <div id="affaireEsgProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#6366f1); border-radius:999px; transition:width 0.4s ease;"></div>
+        </div>
+        <div id="affaireEsgProgressPct" style="font-size:0.8rem; color:#94a3b8; text-align:right;">0 %</div>
+      </div>
       <div class="aff-esg-split">
         <div class="aff-esg-left">
           <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
@@ -1212,7 +1225,7 @@ function appendMarkers(url){
   return url + (url.indexOf('?') >= 0 ? '&' : '?') + AF_MARKERS_PARAM;
 }
 
-// ESG affaire (base 100)
+// ESG affaire (base 100) — SSE avec jauge de progression
 (function(){
   var affaireId = {{ affaire.id if affaire else 'null' }};
   if (!affaireId) return;
@@ -1223,10 +1236,17 @@ function appendMarkers(url){
   var $unmatched = document.getElementById('affaireEsgUnmatched');
   var $chart = document.getElementById('affaireEsgChart');
   var $filteredOut = document.getElementById('affaireEsgFilteredOut');
+  var $loading = document.getElementById('affaireEsgLoading');
+  var $loadMsg = document.getElementById('affaireEsgLoadingMsg');
+  var $progBar = document.getElementById('affaireEsgProgressBar');
+  var $progPct = document.getElementById('affaireEsgProgressPct');
+  var _esgCache = {};
+  var _ESG_CACHE_TTL = 300000; // 5 min
   var metaLoaded = false;
   var esgFields = [];
   var esgRefIsins = [];
   var esgAllocIsins = [];
+  var esgAllocNames = [];
   var esgLabelMap = {};
 
   function escHtml(str){
@@ -1251,17 +1271,21 @@ function appendMarkers(url){
     document.head.appendChild(s);
   }
 
+  function _setProgress(pct, msg){
+    if ($progBar) $progBar.style.width = pct + '%';
+    if ($progPct) $progPct.textContent = pct + ' %';
+    if ($loadMsg && msg) $loadMsg.textContent = msg;
+  }
+
   function loadMeta(cb){
-    if (metaLoaded){
-      cb && cb();
-      return;
-    }
+    if (metaLoaded){ cb && cb(); return; }
     fetch('/dashboard/esg/fields')
       .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
       .then(function(data){
         esgFields = Array.isArray(data.esg_fields) ? data.esg_fields : [];
         esgRefIsins = Array.isArray(data.ref_isins) ? data.ref_isins : [];
         esgAllocIsins = Array.isArray(data.alloc_isins) ? data.alloc_isins : [];
+        esgAllocNames = Array.isArray(data.alloc_names) ? data.alloc_names : [];
         if (esgAllocIsins.length){
           esgRefIsins = esgRefIsins.filter(function(item){
             var isin = item && item.isin ? String(item.isin) : '';
@@ -1277,6 +1301,7 @@ function appendMarkers(url){
         console.warn('ESG meta load error', err);
         esgFields = Array.isArray(fallbackFields) ? fallbackFields : [];
         esgRefIsins = [];
+        esgAllocNames = [];
         metaLoaded = true;
         renderFields();
         renderAllocOptions();
@@ -1287,9 +1312,24 @@ function appendMarkers(url){
   function renderAllocOptions(){
     if (!$alloc) return;
     var opts = ['<option value=\"\">— choisir —</option>'];
+    var seenAlloc = new Set();
+    // Option par défaut du client (sélectionnée en premier)
     if (defaultAllocName){
-      opts.push('<option value=\"'+escHtml(defaultAllocName)+'\" data-kind=\"alloc\">Offre financiere globale — '+escHtml(defaultAllocName)+'</option>');
+      opts.push('<option value=\"'+escHtml(defaultAllocName)+'\" data-kind=\"alloc\">'+escHtml(defaultAllocName)+'</option>');
+      seenAlloc.add(String(defaultAllocName).toLowerCase());
     }
+    // Toutes les allocations disponibles
+    if (esgAllocNames.length){
+      opts.push('<optgroup label=\"Offres financières\">');
+      esgAllocNames.forEach(function(name){
+        if (!name) return;
+        if (seenAlloc.has(String(name).toLowerCase())) return;
+        seenAlloc.add(String(name).toLowerCase());
+        opts.push('<option value=\"'+escHtml(name)+'\" data-kind=\"alloc\">'+escHtml(name)+'</option>');
+      });
+      opts.push('</optgroup>');
+    }
+    // ISINs avec données ESG
     if (esgRefIsins && esgRefIsins.length){
       opts.push('<optgroup label=\"Actifs notés ESG\">');
       esgRefIsins.forEach(function(item){
@@ -1303,6 +1343,11 @@ function appendMarkers(url){
     }
     $alloc.innerHTML = opts.join('');
     if (defaultAllocName){ $alloc.value = defaultAllocName; }
+    // Afficher le bouton Actualiser si une référence est disponible
+    var refreshBtn = document.getElementById('affaireEsgRefresh');
+    if (refreshBtn && ($alloc.value || esgAllocNames.length || esgRefIsins.length)){
+      refreshBtn.style.display = '';
+    }
   }
 
   function renderFields(){
@@ -1379,11 +1424,73 @@ function appendMarkers(url){
     return { kind: kind, value: value };
   }
 
-  function runAffaireEsg(){
-    if (!metaLoaded){
-      loadMeta(function(){ runAffaireEsg(); });
+  function _renderAffaireEsgData(data){
+    if (data && data.error){
+      if ($unmatched){ $unmatched.textContent = data.error; $unmatched.style.display = ''; }
+      if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
       return;
     }
+    var rows = (data && data.results) || [];
+    var unmatched = (data && data.unmatched_fields) || [];
+    if ($unmatched){
+      if (unmatched.length){
+        $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+        $unmatched.style.display = '';
+      } else {
+        $unmatched.textContent = ''; $unmatched.style.display = 'none';
+      }
+    }
+    var displayRows = rows.filter(function(r){ return r && r.index != null && r.affaire != null; });
+    if (!displayRows.length){ displayRows = rows; }
+    if (!displayRows.length){
+      if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+      return;
+    }
+    // Filtrer les ratios base-100 aberrants (±300%)
+    (function(){
+      var filtered = [], kept = [], seen = new Set();
+      displayRows.forEach(function(r){
+        var label = esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
+        var raw = (r.affaire == null) ? (r.client == null ? null : r.client) : r.affaire;
+        var v = (raw == null) ? null : Number(raw);
+        var outlier = (v != null && isFinite(v) && Math.abs((v - 100) / 100) > 3);
+        if (outlier){ if (label && !seen.has(label)){ filtered.push(label); seen.add(label); } }
+        else { kept.push(r); }
+      });
+      displayRows = kept;
+      if ($filteredOut){
+        if (filtered.length){
+          $filteredOut.textContent = 'Métriques non affichées (rapport base 100 hors ±300%) : ' + filtered.join(', ');
+          $filteredOut.style.display = '';
+        } else {
+          $filteredOut.textContent = ''; $filteredOut.style.display = 'none';
+        }
+      }
+    })();
+    if (!displayRows.length){
+      if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+      if ($filteredOut && !$filteredOut.textContent){
+        $filteredOut.textContent = 'Aucune métrique affichable (rapport base 100 hors ±300%).';
+        $filteredOut.style.display = '';
+      }
+      return;
+    }
+    var cats = displayRows.map(function(r){ return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field; });
+    var idx  = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
+    var cli  = displayRows.map(function(r){ return r.affaire == null ? (r.client == null ? null : Number(r.client)) : Number(r.affaire); });
+    var traces = [
+      {x:idx, y:cats, type:'bar', orientation:'h', name:'Indice', marker:{color:'#9ca3af'}},
+      {x:cli, y:cats, type:'bar', orientation:'h', name:'Affaire', marker:{color:getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()||'#2456a6'}}
+    ];
+    var _lMargin=Math.min(200,Math.max(100,Math.max.apply(null,cats.map(function(s){return (s||'').length;}))*7));
+    var layout = {barmode:'group', margin:{l:_lMargin,r:20,t:10,b:50}, xaxis:{title:'Base 100',rangemode:'tozero'}, height:Math.max(300,80+Math.max(4,cats.length)*34), legend:{orientation:'h',y:-0.15,x:0,xanchor:'left'}, autosize:true};
+    if ($chart){ $chart.style.display=''; }
+    Plotly.react('affaireEsgChart', traces, layout, {displayModeBar:false, responsive:true});
+    requestAnimationFrame(function(){ try{ Plotly.relayout('affaireEsgChart',{autosize:true}); }catch(_){} });
+  }
+
+  function runAffaireEsg(skipCache){
+    if (!metaLoaded){ loadMeta(function(){ runAffaireEsg(skipCache); }); return; }
     if (!esgFields.length){ renderFields(); return; }
     ensureDefaultFieldSelection();
     var fields = selectedFields();
@@ -1398,132 +1505,81 @@ function appendMarkers(url){
     else { params.set('alloc', ref.value); }
     var asOfInput = document.querySelector('input[name=\"as_of\"]');
     if (asOfInput && asOfInput.value){ params.set('as_of', asOfInput.value); }
+    var _cacheKey = params.toString();
+    var _entry = _esgCache[_cacheKey];
+    var _fromCache = !skipCache && _entry && (Date.now() - _entry.ts) < _ESG_CACHE_TTL;
+
+    if (_fromCache){
+      ensurePlotly(function(){ _renderAffaireEsgData(_entry.data); });
+      return;
+    }
+
+    if ($loading){ $loading.style.display=''; _setProgress(0, 'Initialisation…'); }
+
     ensurePlotly(function(){
-      fetch('/dashboard/affaires/' + encodeURIComponent(affaireId) + '/esg?' + params.toString())
-        .then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); })
-        .then(function(data){
-          if (data && data.error){
-            if ($unmatched){
-              $unmatched.textContent = data.error;
-              $unmatched.style.display = '';
-            }
+      var streamUrl = '/dashboard/affaires/' + encodeURIComponent(affaireId) + '/esg/stream?' + _cacheKey;
+      var es = new EventSource(streamUrl);
+      es.onmessage = function(evt){
+        try {
+          var msg = JSON.parse(evt.data);
+          if (msg.type === 'step'){
+            _setProgress(msg.pct || 0, msg.msg || '');
+          } else if (msg.type === 'done'){
+            es.close();
+            _setProgress(100, 'Calcul terminé.');
+            var data = msg.data || {};
+            _esgCache[_cacheKey] = { data: data, ts: Date.now() };
+            setTimeout(function(){
+              if ($loading) $loading.style.display = 'none';
+              _renderAffaireEsgData(data);
+            }, 250);
+          } else if (msg.type === 'error'){
+            es.close();
+            if ($loading) $loading.style.display = 'none';
+            if ($unmatched){ $unmatched.textContent = 'Erreur : ' + (msg.msg || 'inconnue'); $unmatched.style.display = ''; }
             if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-            return;
           }
-          var rows = (data && data.results) || [];
-          var unmatched = (data && data.unmatched_fields) || [];
-          if ($unmatched){
-            if (unmatched.length){
-              $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
-              $unmatched.style.display = '';
-            } else {
-              $unmatched.textContent = '';
-              $unmatched.style.display = 'none';
-            }
-          }
-	          var displayRows = rows.filter(function(r){ return r && r.index != null && r.affaire != null; });
-	          if (!displayRows.length){ displayRows = rows; }
-	          if (!displayRows.length){
-	            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-	            return;
-	          }
-	          // Filter out absurd base-100 ratios (±300% from 100) and report them below the chart.
-	          // Ratio displayed = (Affaire / Indice) × 100. We hide metrics where |(ratio-100)/100| > 3,
-	          // i.e. ratio > 400 or ratio < -200.
-	          (function(){
-	            var filtered = [];
-	            var kept = [];
-	            var seen = new Set();
-	            displayRows.forEach(function(r){
-	              var label = esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
-	              var raw = (r.affaire == null) ? (r.client == null ? null : r.client) : r.affaire;
-	              var v = (raw == null) ? null : Number(raw);
-	              var outlier = (v != null && isFinite(v) && Math.abs((v - 100) / 100) > 3);
-	              if (outlier){
-	                if (label && !seen.has(label)){ filtered.push(label); seen.add(label); }
-	              } else {
-	                kept.push(r);
-	              }
-	            });
-	            displayRows = kept;
-	            if ($filteredOut){
-	              if (filtered.length){
-	                $filteredOut.textContent = 'Métriques non affichées (rapport base 100 hors ±300%) : ' + filtered.join(', ');
-	                $filteredOut.style.display = '';
-	              } else {
-	                $filteredOut.textContent = '';
-	                $filteredOut.style.display = 'none';
-	              }
-	            }
-	          })();
-	          if (!displayRows.length){
-	            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-	            if ($filteredOut){
-	              if (!$filteredOut.textContent){
-	                $filteredOut.textContent = 'Aucune métrique affichable (rapport base 100 hors ±300%).';
-	              }
-	              $filteredOut.style.display = '';
-	            }
-	            return;
-	          }
-	          var cats = displayRows.map(function(r){
-	            return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
-	          });
-	          var idx = displayRows.map(function(r){ return r.index == null ? null : Number(r.index); });
-	          var cli = displayRows.map(function(r){ return r.affaire == null ? (r.client == null ? null : Number(r.client)) : Number(r.affaire); });
-          var traces = [
-            { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
-            { x: cli, y: cats, type:'bar', orientation:'h', name:'Affaire', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
-          ];
-          var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 70 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(360, 120 + Math.max(4, cats.length)*32), legend:{ orientation:'h', y:-0.18, x:0, xanchor:'left' } };
-          var cfg = { displayModeBar: false, responsive: true };
-          Plotly.react('affaireEsgChart', traces, layout, cfg);
-          if ($chart){ $chart.style.display=''; }
-        })
-	        .catch(function(err){
-	          if ($unmatched){
-	            $unmatched.textContent = 'Erreur de chargement ESG.';
-	            $unmatched.style.display = '';
-	          }
-	          if ($filteredOut){
-	            $filteredOut.textContent = '';
-	            $filteredOut.style.display = 'none';
-	          }
-	          try{ console.warn('Affaire ESG fetch error', err); }catch(_){}
-	          if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-	        });
-	    });
-	  }
+        } catch(_){}
+      };
+      es.onerror = function(){
+        es.close();
+        if ($loading) $loading.style.display = 'none';
+        if ($unmatched){ $unmatched.textContent = 'Erreur de connexion au serveur.'; $unmatched.style.display = ''; }
+        if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+      };
+    });
+  }
 
   function init(){
     loadMeta(function(){
       ensureDefaultFieldSelection();
-      if (defaultAllocName && $alloc && $alloc.value === defaultAllocName){
-        runAffaireEsg();
+      // Auto-sélectionner la première option réelle si rien n'est sélectionné
+      if ($alloc && !$alloc.value && $alloc.options.length > 1){
+        $alloc.selectedIndex = 1;
+      }
+      if ($alloc && $alloc.value){
+        runAffaireEsg(false);
       }
     });
   }
 
-  var esgToggle = document.getElementById('esgToggle');
-  if (esgToggle){
-    esgToggle.addEventListener('click', function(){
-      setTimeout(function(){
-        var section = document.getElementById('esgSection');
-        if (section && section.style.display !== 'none'){ init(); }
-      }, 0);
+  var loadBtn = document.getElementById('affaireEsgLoadBtn');
+  if (loadBtn){
+    loadBtn.addEventListener('click', function(){
+      var wrap = document.getElementById('affaireEsgLoadWrap');
+      var panel = document.getElementById('affaireEsgPanel');
+      if (wrap) wrap.style.display = 'none';
+      if (panel) panel.style.display = '';
+      init();
     });
   }
   var refreshBtn = document.getElementById('affaireEsgRefresh');
   if (refreshBtn){
-    refreshBtn.addEventListener('click', function(){ runAffaireEsg(); });
+    refreshBtn.addEventListener('click', function(){ runAffaireEsg(true); });
   }
   if ($alloc){
-    $alloc.addEventListener('change', function(){ runAffaireEsg(); });
+    $alloc.addEventListener('change', function(){ runAffaireEsg(false); });
   }
-  setTimeout(function(){
-    var section = document.getElementById('esgSection');
-    if (section && section.style.display !== 'none'){ init(); }
-  }, 0);
 })();
 function openAffTaskPage(){
   var params = new URLSearchParams();
@@ -1888,10 +1944,13 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
       });
       try { localStorage.setItem('aff_detail_open', targetKey || ''); } catch(e) {}
     }
-    // Init: restaurer la dernière ouverte si possible
-    var saved = ''; try { saved = localStorage.getItem('aff_detail_open') || ''; } catch(e) {}
-    if (saved) { setOpen(saved); }
-    else { setOpen(firstAvailableKey()); markAffToggleActive(firstAvailableKey()); }
+    // Toujours ouvrir "Investissements" à l'arrivée, sauf si hash URL précise un autre bloc
+    var urlHash = window.location.hash ? window.location.hash.slice(1) : '';
+    if (urlHash && available.some(function(g){ return g.key === urlHash; })){
+      setOpen(urlHash);
+    } else {
+      setOpen('inv');
+    }
     // Bind clicks
     groups.forEach(function(g){
       var t = byId(g.toggleId), s = byId(g.sectionId);

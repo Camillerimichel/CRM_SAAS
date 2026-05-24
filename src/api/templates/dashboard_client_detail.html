@@ -170,9 +170,9 @@
   .support-meta-btn.active i { color:#fff; }
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .client-esg-split { display:flex; gap:12px; align-items:stretch; }
-  .client-esg-left { flex:1 1 320px; min-width:260px; }
-  .client-esg-right { flex:1 1 420px; min-width:260px; display:flex; flex-direction:column; align-items:stretch; gap:8px; overflow:visible; }
-  .client-esg-right #clientEsgChart { width:100%; max-width:100%; }
+  .client-esg-left { flex:1 1 320px; min-width:0; }
+  .client-esg-right { flex:1 1 420px; min-width:0; display:flex; flex-direction:column; align-items:stretch; gap:8px; overflow:hidden; }
+  .client-esg-right #clientEsgChart { width:100%; max-width:100%; min-width:0; }
   @media (max-width: 900px) {
     .client-esg-split { flex-direction:column; }
   }
@@ -2959,7 +2959,20 @@ function generateClientSynthese(){
   {% set esg_default_alloc = allocation_reference_name or allocation_risque_name_raw or (risque_latest.allocation_nom|default(none) if risque_latest else none) or (risque_snapshot.allocation_nom|default(none) if risque_snapshot else none) %}
   <div id="esgSection" class="card" style="display:none;">
     <div class="card-header">Suivi ESG</div>
-    <div id="clientEsgPanel" style="margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+    <div id="clientEsgLoadWrap" style="text-align:center; padding:32px 20px;">
+      <button id="clientEsgLoadBtn" type="button" class="dim-btn" style="padding:10px 24px; font-size:1rem; gap:8px;">
+        <i class="fa-solid fa-chart-bar"></i><span>Charger l'analyse ESG</span>
+      </button>
+      <div class="muted" style="margin-top:8px; font-size:0.82rem;">L'analyse compare les indicateurs ESG du portefeuille à un indice de référence.</div>
+    </div>
+    <div id="clientEsgPanel" style="display:none; margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
+      <div id="clientEsgLoading" style="display:none; padding:24px 16px; color:#64748b;">
+        <div style="margin-bottom:6px; font-size:0.93rem; font-weight:600;" id="clientEsgLoadingMsg">Initialisation…</div>
+        <div style="background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden; margin-bottom:8px;">
+          <div id="clientEsgProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#6366f1); border-radius:999px; transition:width 0.4s ease;"></div>
+        </div>
+        <div id="clientEsgProgressPct" style="font-size:0.8rem; color:#94a3b8; text-align:right;">0 %</div>
+      </div>
       <div class="client-esg-split">
         <div class="client-esg-left">
           <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:8px;">
@@ -3389,6 +3402,9 @@ function openClientMsgs(kind){
     var $unmatched = document.getElementById('clientEsgUnmatched');
     var $chart = document.getElementById('clientEsgChart');
     var $excluded = document.getElementById('clientEsgExcluded');
+    var $loading = document.getElementById('clientEsgLoading');
+    var _esgCache = {};
+    var _ESG_CACHE_TTL = 300000; // 5 min
     var metaLoaded = false;
     var esgFields = [];
     var esgRefIsins = [];
@@ -3544,11 +3560,75 @@ function openClientMsgs(kind){
       return { kind: kind, value: value };
     }
 
-    function runClientEsg(){
-      if (!metaLoaded){
-        loadMeta(function(){ runClientEsg(); });
+    var $loadMsg  = document.getElementById('clientEsgLoadingMsg');
+    var $progBar  = document.getElementById('clientEsgProgressBar');
+    var $progPct  = document.getElementById('clientEsgProgressPct');
+
+    function _setProgress(pct, msg){
+      if ($progBar) $progBar.style.width  = pct + '%';
+      if ($progPct) $progPct.textContent  = pct + ' %';
+      if ($loadMsg && msg) $loadMsg.textContent = msg;
+    }
+
+    function _renderEsgData(data){
+      if (data && data.error){
+        if ($unmatched){ $unmatched.textContent = data.error; $unmatched.style.display = ''; }
+        if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
         return;
       }
+      var rows = (data && data.results) || [];
+      var unmatched = (data && data.unmatched_fields) || [];
+      if ($unmatched){
+        if (unmatched.length){
+          $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+          $unmatched.style.display = '';
+        } else {
+          $unmatched.textContent = '';
+          $unmatched.style.display = 'none';
+        }
+      }
+      var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
+      if (!displayRows.length){ displayRows = rows; }
+      if (!displayRows.length){
+        if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+        if ($excluded){ $excluded.style.display='none'; $excluded.innerHTML=''; }
+        return;
+      }
+      var THRESH = 300;
+      function _labelFor(r){ return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field; }
+      function _fmtNum(x){ var n=Number(x); return isFinite(n)?n.toFixed(2):'—'; }
+      function _fmtPct(x){ var n=Number(x); return isFinite(n)?n.toFixed(1)+' %':'—'; }
+      var kept=[], excl=[];
+      displayRows.forEach(function(r){
+        if (!r) return;
+        var label=_labelFor(r), i=r.index==null?null:Number(r.index), c=r.client==null?null:Number(r.client);
+        if (i==null||c==null||!isFinite(i)||!isFinite(c)) return;
+        var ratio=(i!==0)?(c/i)*100:Infinity;
+        if (!isFinite(ratio)||Math.abs(ratio)>THRESH){ excl.push({label:label,index:i,client:c,ratio:ratio}); return; }
+        kept.push({label:label,index:i,client:c});
+      });
+      if ($excluded){
+        var hdr='<div style="font-weight:700;color:#334155;margin-bottom:4px;">Indicateurs exclus du graphique (|Client/Indice| &gt; '+THRESH+'%)</div>';
+        $excluded.innerHTML = hdr + (excl.length
+          ? excl.map(function(e){ return '<div><strong>'+escHtml(e.label)+'</strong> — Indice: '+_fmtNum(e.index)+' / Client: '+_fmtNum(e.client)+' / Rapport: '+_fmtPct(e.ratio)+'</div>'; }).join('')
+          : '<div>Aucun indicateur exclu.</div>');
+        $excluded.style.display = '';
+      }
+      if (!kept.length){ if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; } return; }
+      var cats=kept.map(function(r){return r.label;}), idx=kept.map(function(r){return r.index;}), cli=kept.map(function(r){return r.client;});
+      var traces=[
+        {x:idx,y:cats,type:'bar',orientation:'h',name:'Indice',marker:{color:'#9ca3af'}},
+        {x:cli,y:cats,type:'bar',orientation:'h',name:'Client',marker:{color:getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()||'#2456a6'}}
+      ];
+      var _lMargin=Math.min(200,Math.max(100,Math.max.apply(null,cats.map(function(s){return (s||'').length;}))*7));
+      var layout={barmode:'group',margin:{l:_lMargin,r:20,t:10,b:50},xaxis:{title:'Base 100',rangemode:'tozero'},height:Math.max(300,80+Math.max(4,cats.length)*34),legend:{orientation:'h',y:-0.15,x:0,xanchor:'left'},autosize:true};
+      if ($chart){ $chart.style.display=''; }
+      Plotly.react('clientEsgChart',traces,layout,{displayModeBar:false,responsive:true});
+      requestAnimationFrame(function(){ try{ Plotly.relayout('clientEsgChart',{autosize:true}); }catch(_){} });
+    }
+
+    function runClientEsg(skipCache){
+      if (!metaLoaded){ loadMeta(function(){ runClientEsg(skipCache); }); return; }
       if (!esgFields.length){ renderFields(); return; }
       ensureDefaultFieldSelection();
       var fields = selectedFields();
@@ -3562,106 +3642,52 @@ function openClientMsgs(kind){
       else { params.set('alloc', ref.value); }
       var asOfSel = document.getElementById('asOfSelect');
       if (asOfSel && asOfSel.value){ params.set('as_of', asOfSel.value); }
+      var _cacheKey = params.toString();
+      var _entry = _esgCache[_cacheKey];
+      var _fromCache = !skipCache && _entry && (Date.now() - _entry.ts) < _ESG_CACHE_TTL;
+
+      if (_fromCache){
+        ensurePlotly(function(){ _renderEsgData(_entry.data); });
+        return;
+      }
+
+      // Afficher la jauge
+      if ($loading){
+        $loading.style.display = '';
+        _setProgress(0, 'Initialisation…');
+      }
+
       ensurePlotly(function(){
-        fetch('/dashboard/clients/' + encodeURIComponent(clientId) + '/esg?' + params.toString())
-          .then(function(resp){ if(!resp.ok) throw new Error('HTTP '+resp.status); return resp.json(); })
-          .then(function(data){
-            if (data && data.error){
-              if ($unmatched){
-                $unmatched.textContent = data.error;
-                $unmatched.style.display = '';
-              }
+        var streamUrl = '/dashboard/clients/' + encodeURIComponent(clientId) + '/esg/stream?' + _cacheKey;
+        var es = new EventSource(streamUrl);
+        es.onmessage = function(evt){
+          try {
+            var msg = JSON.parse(evt.data);
+            if (msg.type === 'step'){
+              _setProgress(msg.pct || 0, msg.msg || '');
+            } else if (msg.type === 'done'){
+              es.close();
+              _setProgress(100, 'Calcul terminé.');
+              var data = msg.data || {};
+              _esgCache[_cacheKey] = { data: data, ts: Date.now() };
+              setTimeout(function(){
+                if ($loading) $loading.style.display = 'none';
+                _renderEsgData(data);
+              }, 250);
+            } else if (msg.type === 'error'){
+              es.close();
+              if ($loading) $loading.style.display = 'none';
+              if ($unmatched){ $unmatched.textContent = 'Erreur : ' + (msg.msg || 'inconnue'); $unmatched.style.display = ''; }
               if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-              return;
             }
-            var rows = (data && data.results) || [];
-            var unmatched = (data && data.unmatched_fields) || [];
-            if ($unmatched){
-              if (unmatched.length){
-                $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
-                $unmatched.style.display = '';
-              } else {
-                $unmatched.textContent = '';
-                $unmatched.style.display = 'none';
-              }
-            }
-            var displayRows = rows.filter(function(r){ return r && r.index != null && r.client != null; });
-            if (!displayRows.length){ displayRows = rows; }
-            if (!displayRows.length){
-              if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-              if ($excluded){ $excluded.style.display='none'; $excluded.innerHTML=''; }
-              return;
-            }
-            var THRESH_RATIO_PCT = 300; // +/- 300% (Client/Indice)
-            function _labelFor(r){
-              return esgLabelMap[r.field] || esgLabelMap[r.resolved_field] || r.field_original || r.field;
-            }
-            function _fmtNum(x){
-              var n = Number(x);
-              if (!isFinite(n)) return '—';
-              return n.toFixed(2);
-            }
-            function _fmtPct(x){
-              var n = Number(x);
-              if (!isFinite(n)) return '—';
-              return n.toFixed(1) + ' %';
-            }
-            var kept = [];
-            var excluded = [];
-            displayRows.forEach(function(r){
-              if (!r) return;
-              var label = _labelFor(r);
-              var i = r.index == null ? null : Number(r.index);
-              var c = r.client == null ? null : Number(r.client);
-              if (i == null || c == null || !isFinite(i) || !isFinite(c)) return;
-              var ratio = (i !== 0) ? (c / i) * 100 : Infinity;
-              if (!isFinite(ratio) || Math.abs(ratio) > THRESH_RATIO_PCT){
-                excluded.push({ label: label, index: i, client: c, ratio: ratio });
-                return;
-              }
-              kept.push({ label: label, index: i, client: c });
-            });
-
-            if ($excluded){
-              var header =
-                '<div style="font-weight:700; color:#334155; margin-bottom:4px;">' +
-                'Indicateurs exclus du graphique (|Client/Indice| &gt; ' + THRESH_RATIO_PCT + '%)' +
-                '</div>';
-              if (excluded.length){
-                var lines = excluded.map(function(e){
-                  return '<div><strong>' + escHtml(e.label) + '</strong> — Indice: ' + _fmtNum(e.index) + ' / Client: ' + _fmtNum(e.client) + ' / Rapport: ' + _fmtPct(e.ratio) + '</div>';
-                });
-                $excluded.innerHTML = header + lines.join('');
-              } else {
-                $excluded.innerHTML = header + '<div>Aucun indicateur exclu.</div>';
-              }
-              $excluded.style.display = '';
-            }
-
-            if (!kept.length){
-              if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-              return;
-            }
-            var cats = kept.map(function(r){ return r.label; });
-            var idx = kept.map(function(r){ return r.index; });
-            var cli = kept.map(function(r){ return r.client; });
-            var traces = [
-              { x: idx, y: cats, type:'bar', orientation:'h', name:'Indice', marker:{ color:'#9ca3af' } },
-              { x: cli, y: cats, type:'bar', orientation:'h', name:'Client', marker:{ color: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2456a6' } }
-            ];
-            var layout = { barmode:'group', margin:{ l: 200, r: 20, t: 10, b: 70 }, xaxis:{ title:'Base 100', rangemode:'tozero' }, height: Math.max(360, 120 + Math.max(4, cats.length)*32), legend:{ orientation:'h', y:-0.18, x:0, xanchor:'left' } };
-            var cfg = { displayModeBar: false, responsive: true };
-            Plotly.react('clientEsgChart', traces, layout, cfg);
-            if ($chart){ $chart.style.display=''; }
-          })
-          .catch(function(err){
-            if ($unmatched){
-              $unmatched.textContent = 'Erreur de chargement ESG.';
-              $unmatched.style.display = '';
-            }
-            try{ console.warn('Client ESG fetch error', err); }catch(_){}
-            if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
-          });
+          } catch(_){}
+        };
+        es.onerror = function(){
+          es.close();
+          if ($loading) $loading.style.display = 'none';
+          if ($unmatched){ $unmatched.textContent = 'Erreur de connexion au serveur.'; $unmatched.style.display = ''; }
+          if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; }
+        };
       });
     }
 
@@ -3669,26 +3695,27 @@ function openClientMsgs(kind){
       loadMeta(function(){
         ensureDefaultFieldSelection();
         if (defaultAllocName && $alloc && $alloc.value === defaultAllocName){
-          runClientEsg();
+          runClientEsg(false);
         }
       });
     }
 
-    var esgToggle = document.getElementById('esgToggle');
-    if (esgToggle){
-      esgToggle.addEventListener('click', function(){
-        setTimeout(function(){
-          var section = document.getElementById('esgSection');
-          if (section && section.style.display !== 'none'){ init(); }
-        }, 0);
+    var loadBtn = document.getElementById('clientEsgLoadBtn');
+    if (loadBtn){
+      loadBtn.addEventListener('click', function(){
+        var wrap = document.getElementById('clientEsgLoadWrap');
+        var panel = document.getElementById('clientEsgPanel');
+        if (wrap) wrap.style.display = 'none';
+        if (panel) panel.style.display = '';
+        init();
       });
     }
     var refreshBtn = document.getElementById('clientEsgRefresh');
     if (refreshBtn){
-      refreshBtn.addEventListener('click', function(){ runClientEsg(); });
+      refreshBtn.addEventListener('click', function(){ runClientEsg(true); });
     }
     if ($alloc){
-      $alloc.addEventListener('change', function(){ runClientEsg(); });
+      $alloc.addEventListener('change', function(){ runClientEsg(false); });
     }
   })();
 
@@ -3816,10 +3843,13 @@ function openClientMsgs(kind){
       currentOpen = targetKey || '';
       try { localStorage.setItem('client_detail_open', currentOpen || ''); } catch(e) {}
     }
-    // Restore last open
+    // Restore last open (hash URL prend priorité sur localStorage)
     var saved = '';
     try { saved = localStorage.getItem('client_detail_open') || ''; } catch(e) {}
-    if (saved) { setOpen(saved); currentOpen = saved; }
+    var urlHash = window.location.hash ? window.location.hash.slice(1) : '';
+    if (urlHash && available.some(function(g){ return g.key === urlHash; })) {
+      setOpen(urlHash);
+    } else if (saved) { setOpen(saved); currentOpen = saved; }
     else if (!currentOpen) { setOpen(firstAvailableKey()); }
     // Wire clicks
     groups.forEach(function(g){
