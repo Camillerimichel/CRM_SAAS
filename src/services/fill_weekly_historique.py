@@ -160,9 +160,15 @@ def _fill_affaire_weekly(db: Session, aff_id: int, sg: int | None, force_recalc:
                 pass
             fb_idx += 1
 
-        # Advance nb_uc forward-fill pointer
+        # Advance nb_uc forward-fill pointer.
+        # At each snapshot date, remove supports that left the portfolio
+        # (absent from the new snapshot) before applying the new positions.
         while pos_idx < len(pos_dates) and pos_dates[pos_idx] <= vl_date:
-            current_nbuc.update(positions_by_date[pos_dates[pos_idx]])
+            snap_positions = positions_by_date[pos_dates[pos_idx]]
+            for id_s in list(current_nbuc.keys()):
+                if id_s not in snap_positions:
+                    del current_nbuc[id_s]
+            current_nbuc.update(snap_positions)
             pos_idx += 1
 
         if not current_nbuc:

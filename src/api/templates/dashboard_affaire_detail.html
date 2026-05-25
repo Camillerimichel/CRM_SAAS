@@ -1230,6 +1230,7 @@ function appendMarkers(url){
   var affaireId = {{ affaire.id if affaire else 'null' }};
   if (!affaireId) return;
   var defaultAllocName = {{ esg_default_alloc|tojson }};
+  var defaultFields = {{ esg_default_fields|default([])|tojson }};
   var fallbackFields = {{ esg_fields|tojson }};
   var $alloc = document.getElementById('affaireEsgAlloc');
   var $fieldsWrap = document.getElementById('affaireEsgFields');
@@ -1388,6 +1389,18 @@ function appendMarkers(url){
     if (!$fieldsWrap) return;
     var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
     if (actives.length) return;
+    // Priorité aux métriques de sensibilité héritées du client
+    if (Array.isArray(defaultFields) && defaultFields.length){
+      defaultFields.slice(0, 10).forEach(function(field){
+        try {
+          var btn = $fieldsWrap.querySelector('[data-field=\"'+CSS.escape(field)+'\"]');
+          if (btn) btn.classList.add('active');
+        } catch(e) {}
+      });
+    }
+    actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
+    if (actives.length) return;
+    // Fallback : premiers champs de la liste globale
     var fields = (Array.isArray(esgFields) ? esgFields : []).map(function(f){
       return f.col || f.field || f.label;
     }).filter(Boolean);

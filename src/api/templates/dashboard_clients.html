@@ -256,7 +256,7 @@
           {% for c in clients %}
 	          <tr data-client-id="{{ c.id }}">
 	            <td>
-	              <a href="/dashboard/clients/{{ c.id }}" target="_blank" style="text-decoration:underline; color: inherit;">
+	              <a href="/dashboard/clients/{{ c.id }}#inv" target="_blank" style="text-decoration:underline; color: inherit;">
 	                {{ c.nom }}
 	              </a>
 	            </td>
@@ -293,7 +293,7 @@
 		    </div>
 
 	    <div class="pagination-container">
-	      <div id="clients-results-info">{{ (clients|length) if clients is defined else '' }} clients</div>
+	      <div id="clients-results-info">Chargement…</div>
 	      <div style="display:flex; gap:8px; align-items:center;">
 	        <button class="btn btn-danger" type="button" onclick="clearClientFilters()">🗑️ Effacer</button>
 	      </div>
@@ -329,8 +329,32 @@ $(document).ready(function () {
 		    };
     const actionsBar = document.getElementById('clientsGroupActions');
     const btnGrouped = document.getElementById('btnGroupedTasksClients');
+        // Colonnes définies par rapport au JSON reçu depuis /clients/data
+        var _dataUrl = '/dashboard/clients/data' + (window.location.search || '');
+        var _columns = [
+            { data: 'nom', render: function(d, t, r) {
+                if (t !== 'display') return d || '';
+                var nm = (d || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                return '<a href="/dashboard/clients/' + r.id + '#inv" target="_blank" style="text-decoration:underline;color:inherit;">' + nm + '</a>';
+            }},
+            { data: 'prenom', defaultContent: '' },
+            { data: 'responsable', defaultContent: '—' }
+        ];
+        if (clientHasSourceColumn) {
+            _columns.push({ data: 'source_societe', defaultContent: '—' });
+        }
+        _columns.push(
+            { data: 'allocation_nom', defaultContent: '—' },
+            { data: 'srri_hist', defaultContent: '', className: 'dt-center' },
+            { data: 'total_valo', defaultContent: '',
+              render: function(d, t, r) { return t === 'display' ? (r.total_valo_str || '') : (d != null ? d : ''); } },
+            { data: 'perf_52_sem', defaultContent: '',
+              render: function(d, t, r) { return t === 'display' ? (r.perf_52_sem_str || '') : (d != null ? d : ''); } },
+            { data: 'volatilite', defaultContent: '',
+              render: function(d, t, r) { return t === 'display' ? (r.volatilite_str || '') : (d != null ? d : ''); } }
+        );
+
 			    var table = $('#clientsTable').DataTable({
-			        // Tout le tri/filtrage/pagination est en front (DataTables)
 			        dom: 'rtip',
 			        paging: true,
 			        pageLength: 50,
@@ -340,6 +364,13 @@ $(document).ready(function () {
 			        ordering: true,
 			        order: [[0, 'asc']],
 			        fixedHeader: true,
+                ajax: { url: _dataUrl, dataSrc: 'clients',
+                    error: function() {
+                        var el = document.getElementById('clients-results-info');
+                        if (el) el.textContent = 'Erreur de chargement';
+                    }
+                },
+                columns: _columns,
 			        columnDefs: [
 			          { targets: 0, width: '200px' },
 			          { targets: 1, width: '150px' },
@@ -350,7 +381,54 @@ $(document).ready(function () {
 				          { targets: clientValoCol, width: '140px' },
 				          { targets: clientPerfCol, width: '95px' },
 				          { targets: clientVolCol, width: '95px' }
-				        ]
+				        ],
+                createdRow: function(row, data) {
+                    $(row).attr('data-client-id', data.id);
+                    $(row).find('td').eq(clientAllocCol).attr('title', data.allocation_nom || '');
+                    $(row).find('td').eq(clientValoCol).attr('data-valo', data.total_valo != null ? data.total_valo : '');
+                    $(row).find('td').eq(clientPerfCol).attr('data-perf', data.perf_52_sem != null ? data.perf_52_sem : '');
+                    $(row).find('td').eq(clientVolCol).attr('data-vol', data.volatilite != null ? data.volatilite : '');
+                    if (clientHasSourceColumn) {
+                        $(row).find('td').eq(clientSourceCol).attr('title', data.source_societe || '');
+                    }
+                },
+                initComplete: function(settings, json) {
+                    var total = (json && json.total != null) ? json.total : this.api().rows().count();
+                    var el = document.getElementById('clients-results-info');
+                    if (el) el.textContent = total + ' client' + (total !== 1 ? 's' : '');
+                    // Peupler le filtre SRRI
+                    var srriSel = document.getElementById('client-srri-filter');
+                    if (srriSel && json && json.srri_options) {
+                        var sopts = ['<option value=""></option>'];
+                        (json.srri_options || []).forEach(function(s) { sopts.push('<option value="' + s + '">' + s + '</option>'); });
+                        srriSel.innerHTML = sopts.join('');
+                    }
+                    // Peupler le filtre Offre financière
+                    var allocSel = document.getElementById('client-alloc-filter');
+                    if (allocSel && json && json.allocation_options) {
+                        var aopts = ['<option value=""></option>'];
+                        (json.allocation_options || []).forEach(function(a) {
+                            var esc = a.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                            aopts.push('<option value="' + esc + '">' + esc + '</option>');
+                        });
+                        allocSel.innerHTML = aopts.join('');
+                    }
+                    // Restaurer le filtre offre depuis l'URL (?alloc=...)
+                    try {
+                        var params = new URLSearchParams(window.location.search || '');
+                        var alloc = (params.get('alloc') || '').trim();
+                        if (alloc && allocSel) {
+                            $(allocSel).val(alloc);
+                            _setExactColumnFilter(clientAllocCol, alloc);
+                        }
+                    } catch(e) {}
+                },
+                language: {
+                    emptyTable: 'Aucun client',
+                    zeroRecords: 'Aucun client correspondant',
+                    loadingRecords: 'Chargement…',
+                    processing: 'Traitement…'
+                }
 			    });
 
 	    // --- Sélection multi-clients (mémoire session par onglet) ---
@@ -610,18 +688,7 @@ $(document).ready(function () {
 			    $('#client-alloc-filter').on('change', function(){ _setExactColumnFilter(clientAllocCol, this.value || ''); });
 			    $('#client-srri-filter').on('change', function(){ _setExactColumnFilter(clientSrriCol, this.value || ''); });
 
-			    // Initialiser le filtre "Offre financière" depuis l'URL, ex:
-			    // /dashboard/clients?alloc=Offre+financière+dynamique
-			    (function(){
-			      try {
-			        var params = new URLSearchParams(window.location.search || '');
-			        var alloc = (params.get('alloc') || '').trim();
-			        if (alloc){
-			          $('#client-alloc-filter').val(alloc);
-			          _setExactColumnFilter(clientAllocCol, alloc);
-			        }
-			      } catch(e){}
-			    })();
+			    // La restauration du filtre "Offre financière" depuis l'URL est gérée dans initComplete.
 
 			    // Filtres numériques (valo/perf/vol) sur data-attributes
 			    function _numToken(raw){
