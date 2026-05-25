@@ -3578,9 +3578,14 @@ function openClientMsgs(kind){
       }
       var rows = (data && data.results) || [];
       var unmatched = (data && data.unmatched_fields) || [];
+      var noDataRows = rows.filter(function(r){ return r && (r.index == null || r.client == null); });
+      var noDataFields = noDataRows.map(function(r){ return esgLabelMap[r.field] || r.field_original || r.field; }).filter(Boolean);
       if ($unmatched){
-        if (unmatched.length){
-          $unmatched.textContent = 'Indicateurs introuvables : ' + unmatched.join(', ');
+        var msgs = [];
+        if (unmatched.length) msgs.push('Indicateurs introuvables : ' + unmatched.join(', '));
+        if (noDataFields.length) msgs.push('Données insuffisantes (pas de données ESG pour ce portefeuille) : ' + noDataFields.join(', '));
+        if (msgs.length){
+          $unmatched.textContent = msgs.join(' — ');
           $unmatched.style.display = '';
         } else {
           $unmatched.textContent = '';
