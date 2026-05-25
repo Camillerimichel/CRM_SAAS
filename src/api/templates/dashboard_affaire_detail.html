@@ -571,7 +571,12 @@
         <div class="kpi-mini"><strong>Compagnie d'assurance:</strong>
           {{ compagnie_assurance_nom if compagnie_assurance_nom else '—' }}
         </div>
-        <div class="kpi-mini"><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</div>
+        <div class="kpi-mini" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <span><strong>Durée historique:</strong> {{ duree_historique_aff_str }}</span>
+          <button type="button" class="btn" style="background:#fff; color:var(--primary-600,#2563eb); border:1px solid var(--primary-200,#bfdbfe); padding:.2rem .6rem; font-size:.78rem; border-radius:7px; display:inline-flex; align-items:center; gap:4px; cursor:pointer; flex-shrink:0;" onclick="openAffHistoriqueModal({{ affaire.id if affaire else 'null' }})" title="Voir l'historique complet de l'affaire">
+            <i class="fa-solid fa-table-list"></i> Historique
+          </button>
+        </div>
         <div class="kpi-mini"><strong>Société (gestion/courtage):</strong>
           {% if societe_gestion_nom %}
             {{ societe_gestion_nom }}{% if societe_gestion_role %} — {{ societe_gestion_role }}{% endif %}
@@ -3019,5 +3024,139 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
     </div>
   </div>
 </div>
+
+<!-- Modal historique affaire -->
+<div id="affHistoriqueModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeAffHistoriqueModal()">
+  <div class="modal-card" style="width:1180px; max-width:98vw; max-height:92vh; display:flex; flex-direction:column;">
+    <div class="modal-header" style="flex-shrink:0;">
+      <h3 style="display:flex; align-items:center; gap:8px; font-size:1rem;">
+        <i class="fa-solid fa-table-list"></i>
+        Historique affaire
+      </h3>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" class="btn btn-primary" style="font-size:.82rem; padding:.3rem .8rem; display:inline-flex; align-items:center; gap:6px;" onclick="downloadAffHistoriqueExcel()">
+          <i class="fa-solid fa-file-excel"></i> Télécharger Excel
+        </button>
+        <button class="modal-close" onclick="closeAffHistoriqueModal()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" style="flex:1 1 auto; overflow:auto; padding:12px 14px;">
+      <div id="affHistoriqueModalSpinner" style="display:flex; align-items:center; justify-content:center; padding:40px; gap:12px; color:#6b7280;">
+        <i class="fa-solid fa-circle-notch fa-spin" style="font-size:1.4rem;"></i>
+        <span>Chargement…</span>
+      </div>
+      <div id="affHistoriqueModalContent" style="display:none;">
+        <div id="affHistoriqueModalMeta" style="font-size:.82rem; color:#6b7280; margin-bottom:8px;"></div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:.85rem; white-space:nowrap;">
+            <thead>
+              <tr style="background:#1d4ed8; color:#fff; position:sticky; top:0;">
+                <th style="padding:7px 10px; text-align:left; font-weight:700; min-width:100px;">Date</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:130px;">Valorisation (€)</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:120px;">Mouvement (€)</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:140px;">VL SICAV (base 1000)</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:110px;">Perf. hebdo (%)</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:120px;">Perf. 52 sem. (%)</th>
+                <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:130px;">Volat. 52 sem. (%)</th>
+                <th style="padding:7px 10px; text-align:center; font-weight:700; min-width:60px;">SRRI</th>
+                <th style="padding:7px 10px; text-align:center; font-weight:700; min-width:60px;">SRI</th>
+              </tr>
+            </thead>
+            <tbody id="affHistoriqueTableBody"></tbody>
+          </table>
+        </div>
+        <div id="affHistoriqueModalEmpty" style="display:none; padding:24px; text-align:center; color:#6b7280;">Aucune donnée historique disponible.</div>
+      </div>
+      <div id="affHistoriqueModalError" style="display:none; padding:24px; text-align:center; color:#c62828;">
+        <i class="fa-solid fa-triangle-exclamation"></i> Erreur lors du chargement des données.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var _affHistData = null;
+  var _affHistId   = null;
+
+  function fmtAffNum(v, decimals) {
+    if (v === null || v === undefined) return '—';
+    return parseFloat(v).toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+
+  function renderAffHistoriqueTable(rows, sri) {
+    var tbody = document.getElementById('affHistoriqueTableBody');
+    var meta  = document.getElementById('affHistoriqueModalMeta');
+    var empty = document.getElementById('affHistoriqueModalEmpty');
+    tbody.innerHTML = '';
+    if (!rows || !rows.length) {
+      empty.style.display = '';
+      meta.textContent = '';
+      return;
+    }
+    empty.style.display = 'none';
+    meta.textContent = rows.length + ' ligne' + (rows.length > 1 ? 's' : '') +
+      (sri !== null && sri !== undefined ? '  •  SRI courant : ' + sri : '');
+    rows.forEach(function(r, i) {
+      var tr = document.createElement('tr');
+      tr.style.background   = i % 2 === 0 ? '#fff' : '#f0f6ff';
+      tr.style.borderBottom = '1px solid #e5e7eb';
+      var mvtStyle    = r.mouvement      !== null && r.mouvement      !== undefined ? (r.mouvement      > 0 ? 'color:#16a34a;' : r.mouvement      < 0 ? 'color:#c62828;' : '') : '';
+      var perfHStyle  = r.perf_hebdo_pct !== null && r.perf_hebdo_pct !== undefined ? (r.perf_hebdo_pct > 0 ? 'color:#16a34a;' : r.perf_hebdo_pct < 0 ? 'color:#c62828;' : '') : '';
+      var perf52Style = r.perf_52_pct    !== null && r.perf_52_pct    !== undefined ? (r.perf_52_pct    > 0 ? 'color:#16a34a;' : r.perf_52_pct    < 0 ? 'color:#c62828;' : '') : '';
+      tr.innerHTML =
+        '<td style="padding:5px 10px;">'                                              + (r.date || '—')                     + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">'                            + fmtAffNum(r.valo, 2)                + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + mvtStyle    + '">'         + fmtAffNum(r.mouvement, 2)           + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">'                            + fmtAffNum(r.vl_sicav, 2)            + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + perfHStyle  + '">'         + fmtAffNum(r.perf_hebdo_pct, 4)      + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + perf52Style + '">'         + fmtAffNum(r.perf_52_pct, 4)         + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">'                            + fmtAffNum(r.volat_pct, 2)           + '</td>' +
+        '<td style="padding:5px 10px; text-align:center;">' + (r.srri !== null && r.srri !== undefined ? r.srri : '—')      + '</td>' +
+        '<td style="padding:5px 10px; text-align:center;">' + (r.sri  !== null && r.sri  !== undefined ? r.sri  : '—')      + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.openAffHistoriqueModal = function(affaireId) {
+    _affHistId = affaireId;
+    var modal = document.getElementById('affHistoriqueModal');
+    modal.style.display = 'flex';
+    if (_affHistData && _affHistData._affaireId === affaireId) return;
+    _affHistData = null;
+    document.getElementById('affHistoriqueModalSpinner').style.display = 'flex';
+    document.getElementById('affHistoriqueModalContent').style.display = 'none';
+    document.getElementById('affHistoriqueModalError').style.display   = 'none';
+    document.getElementById('affHistoriqueTableBody').innerHTML        = '';
+    fetch('/dashboard/affaires/' + affaireId + '/historique')
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(data) {
+        _affHistData = data;
+        _affHistData._affaireId = affaireId;
+        document.getElementById('affHistoriqueModalSpinner').style.display = 'none';
+        document.getElementById('affHistoriqueModalContent').style.display = '';
+        renderAffHistoriqueTable(data.rows || [], data.sri);
+      })
+      .catch(function() {
+        document.getElementById('affHistoriqueModalSpinner').style.display = 'none';
+        document.getElementById('affHistoriqueModalError').style.display   = '';
+      });
+  };
+
+  window.closeAffHistoriqueModal = function() {
+    document.getElementById('affHistoriqueModal').style.display = 'none';
+  };
+
+  window.downloadAffHistoriqueExcel = function() {
+    if (!_affHistId) return;
+    var a = document.createElement('a');
+    a.href = '/dashboard/affaires/' + _affHistId + '/historique/export';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+})();
+</script>
 
 {% endblock %}

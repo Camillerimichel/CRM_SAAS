@@ -6554,6 +6554,138 @@ def dashboard_affaire_documents_list(
     return result
 
 
+@router.get("/affaires/{affaire_id}/historique", response_class=JSONResponse)
+def dashboard_affaire_historique(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    """Historique complet de l'affaire : valo, mouvement, VL SICAV, perf hebdo, perf 52 sem, volat, SRRI + SRI courant."""
+    _require_affaire_read(request, db, affaire_id)
+
+    hist_rows = db.execute(text("""
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.perf_sicav_52, h.volat, h.SRRI
+        FROM mariadb_historique_affaire_w h
+        WHERE h.id = :aid
+        ORDER BY h.date DESC
+    """), {"aid": affaire_id}).fetchall()
+
+    sri_row = db.execute(text("""
+        SELECT sri FROM sri_metrics
+        WHERE entity_type = 'affaire' AND entity_id = :aid
+        ORDER BY as_of_date DESC LIMIT 1
+    """), {"aid": affaire_id}).fetchone()
+    affaire_sri = int(sri_row[0]) if sri_row and sri_row[0] is not None else None
+
+    result = []
+    for r in hist_rows:
+        m = r._mapping if hasattr(r, "_mapping") else dict(r)
+        date_val = m.get("date")
+        date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        valo = m.get("valo")
+        mouvement = m.get("mouvement")
+        sicav = m.get("sicav")
+        perf_hebdo = m.get("perf_sicav_hebdo")
+        perf_52 = m.get("perf_sicav_52")
+        volat = m.get("volat")
+        srri = m.get("SRRI")
+        result.append({
+            "date": date_str,
+            "valo": round(float(valo), 2) if valo is not None else None,
+            "mouvement": round(float(mouvement), 2) if mouvement is not None else None,
+            "vl_sicav": round(float(sicav) * 1000, 2) if sicav is not None else None,
+            "perf_hebdo_pct": round(float(perf_hebdo) * 100, 4) if perf_hebdo is not None else None,
+            "perf_52_pct": round(float(perf_52) * 100, 4) if perf_52 is not None else None,
+            "volat_pct": round(float(volat) * 100, 2) if volat is not None else None,
+            "srri": int(srri) if srri is not None else None,
+            "sri": affaire_sri,
+        })
+
+    return {"rows": result, "sri": affaire_sri}
+
+
+@router.get("/affaires/{affaire_id}/historique/export")
+def dashboard_affaire_historique_export(affaire_id: int, request: Request, db: Session = Depends(get_db)):
+    """Export Excel de l'historique complet de l'affaire."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    _require_affaire_read(request, db, affaire_id)
+
+    from src.models.affaire import Affaire as AffaireModel
+    affaire = db.query(AffaireModel).filter(AffaireModel.id == affaire_id).first()
+    affaire_nom = getattr(affaire, "ref", None) or str(affaire_id)
+
+    hist_rows = db.execute(text("""
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.perf_sicav_52, h.volat, h.SRRI
+        FROM mariadb_historique_affaire_w h
+        WHERE h.id = :aid
+        ORDER BY h.date DESC
+    """), {"aid": affaire_id}).fetchall()
+
+    sri_row = db.execute(text("""
+        SELECT sri FROM sri_metrics
+        WHERE entity_type = 'affaire' AND entity_id = :aid
+        ORDER BY as_of_date DESC LIMIT 1
+    """), {"aid": affaire_id}).fetchone()
+    affaire_sri = int(sri_row[0]) if sri_row and sri_row[0] is not None else None
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Historique {str(affaire_nom)[:28]}"
+
+    header_fill = PatternFill("solid", fgColor="1D4ED8")
+    header_font = Font(bold=True, color="FFFFFF")
+    headers = [
+        "Date",
+        "Valorisation (€)",
+        "Mouvement (€)",
+        "VL SICAV (base 1 000)",
+        "Perf. hebdo (%)",
+        "Perf. 52 sem. (%)",
+        "Volat. 52 sem. (%)",
+        "SRRI",
+        "SRI",
+    ]
+    col_widths = [14, 18, 16, 22, 14, 16, 16, 8, 8]
+    for col, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    for row_idx, r in enumerate(hist_rows, 2):
+        m = r._mapping if hasattr(r, "_mapping") else dict(r)
+        date_val = m.get("date")
+        date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        valo = m.get("valo")
+        mouvement = m.get("mouvement")
+        sicav = m.get("sicav")
+        perf_hebdo = m.get("perf_sicav_hebdo")
+        perf_52 = m.get("perf_sicav_52")
+        volat = m.get("volat")
+        srri = m.get("SRRI")
+        ws.cell(row=row_idx, column=1, value=date_str)
+        ws.cell(row=row_idx, column=2, value=round(float(valo), 2) if valo is not None else None)
+        ws.cell(row=row_idx, column=3, value=round(float(mouvement), 2) if mouvement is not None else None)
+        ws.cell(row=row_idx, column=4, value=round(float(sicav) * 1000, 2) if sicav is not None else None)
+        ws.cell(row=row_idx, column=5, value=round(float(perf_hebdo) * 100, 4) if perf_hebdo is not None else None)
+        ws.cell(row=row_idx, column=6, value=round(float(perf_52) * 100, 4) if perf_52 is not None else None)
+        ws.cell(row=row_idx, column=7, value=round(float(volat) * 100, 2) if volat is not None else None)
+        ws.cell(row=row_idx, column=8, value=int(srri) if srri is not None else None)
+        ws.cell(row=row_idx, column=9, value=affaire_sri)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_nom = re.sub(r"[^\w\-]", "_", str(affaire_nom or affaire_id))
+    filename = f"historique_affaire_{safe_nom}.xlsx"
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/clients/{client_id}/historique", response_class=JSONResponse)
 def dashboard_client_historique(client_id: int, request: Request, db: Session = Depends(get_db)):
     """Historique complet du client : valo, mouvement, VL SICAV, perf hebdo, perf 52 sem, volat, SRRI + SRI courant."""
