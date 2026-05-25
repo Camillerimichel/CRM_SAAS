@@ -6105,7 +6105,6 @@ def _populate_synthese_esg_context(db: Session, ctx: dict, client_id: int) -> di
         filtered_esg_fields.append(item)
     esg_fields_client = filtered_esg_fields
     esg_field_labels = {it["col"]: it["label"] for it in esg_fields_client if it.get("col")}
-    ctx["esg_field_labels"] = esg_field_labels
 
     esg_top_metric_keys: list[str] = []
     esg_top_metrics: list[dict] = []
@@ -6121,6 +6120,29 @@ def _populate_synthese_esg_context(db: Session, ctx: dict, client_id: int) -> di
         esg_top_metrics = []
     ctx["esg_top_metrics"] = esg_top_metrics
 
+    # Métriques sensibilité absentes de l'allowlist : vérifier si la colonne existe dans la table ESG
+    if esg_top_metric_keys:
+        _already = {it["col"] for it in esg_fields_client if it.get("col")}
+        _missing_keys = [k for k in esg_top_metric_keys if k not in _already]
+        if _missing_keys:
+            try:
+                _tbl, _, _ = _pick_esg_table(db, ESG_CANON_TABLE)
+                _, _valid_extra, _ = _resolve_esg_fields(db, _missing_keys, table_name=_tbl)
+                for _orig, _col in _valid_extra:
+                    _cov = coverage_map.get(_col)
+                    if _cov is not None and _cov < 60.0:
+                        continue
+                    _lbl = next(
+                        (m.get("label") for m in esg_top_metrics if m.get("metric_key") == _orig),
+                        _orig,
+                    )
+                    esg_fields_client.append({"col": _col, "label": _lbl})
+                    esg_field_labels[_col] = _lbl
+            except Exception:
+                pass
+
+    ctx["esg_field_labels"] = esg_field_labels
+    ctx["esg_fields"] = esg_fields_client
     available_cols = [it.get("col") for it in esg_fields_client if it.get("col")]
     available_set = set(available_cols)
     sensitivity_fields = [f for f in esg_top_metric_keys if f in available_set]
@@ -6530,6 +6552,137 @@ def dashboard_affaire_documents_list(
             "download_url": f"/dashboard/document-client/{r.id}/pdf",
         })
     return result
+
+
+@router.get("/clients/{client_id}/historique", response_class=JSONResponse)
+def dashboard_client_historique(client_id: int, request: Request, db: Session = Depends(get_db)):
+    """Historique complet du client : valo, mouvement, VL SICAV, perf hebdo, perf 52 sem, volat, SRRI + SRI courant."""
+    _require_client_read(request, db, client_id)
+
+    hist_rows = db.execute(text("""
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.perf_sicav_52, h.volat, h.srri
+        FROM mariadb_historique_personne_w h
+        WHERE h.id = :cid
+        ORDER BY h.date DESC
+    """), {"cid": client_id}).fetchall()
+
+    sri_row = db.execute(text("""
+        SELECT sri FROM sri_metrics
+        WHERE entity_type = 'client' AND entity_id = :cid
+        ORDER BY as_of_date DESC LIMIT 1
+    """), {"cid": client_id}).fetchone()
+    client_sri = int(sri_row[0]) if sri_row and sri_row[0] is not None else None
+
+    result = []
+    for r in hist_rows:
+        m = r._mapping if hasattr(r, "_mapping") else dict(r)
+        date_val = m.get("date")
+        date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        valo = m.get("valo")
+        mouvement = m.get("mouvement")
+        sicav = m.get("sicav")
+        perf_hebdo = m.get("perf_sicav_hebdo")
+        perf_52 = m.get("perf_sicav_52")
+        volat = m.get("volat")
+        srri = m.get("srri")
+        result.append({
+            "date": date_str,
+            "valo": round(float(valo), 2) if valo is not None else None,
+            "mouvement": round(float(mouvement), 2) if mouvement is not None else None,
+            "vl_sicav": round(float(sicav) * 1000, 2) if sicav is not None else None,
+            "perf_hebdo_pct": round(float(perf_hebdo) * 100, 4) if perf_hebdo is not None else None,
+            "perf_52_pct": round(float(perf_52) * 100, 4) if perf_52 is not None else None,
+            "volat_pct": round(float(volat) * 100, 2) if volat is not None else None,
+            "srri": int(srri) if srri is not None else None,
+            "sri": client_sri,
+        })
+
+    return {"rows": result, "sri": client_sri}
+
+
+@router.get("/clients/{client_id}/historique/export")
+def dashboard_client_historique_export(client_id: int, request: Request, db: Session = Depends(get_db)):
+    """Export Excel de l'historique complet du client."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    _require_client_read(request, db, client_id)
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    client_nom = f"{getattr(client, 'nom', '') or ''} {getattr(client, 'prenom', '') or ''}".strip() if client else str(client_id)
+
+    hist_rows = db.execute(text("""
+        SELECT h.date, h.valo, h.mouvement, h.sicav, h.perf_sicav_hebdo, h.perf_sicav_52, h.volat, h.srri
+        FROM mariadb_historique_personne_w h
+        WHERE h.id = :cid
+        ORDER BY h.date DESC
+    """), {"cid": client_id}).fetchall()
+
+    sri_row = db.execute(text("""
+        SELECT sri FROM sri_metrics
+        WHERE entity_type = 'client' AND entity_id = :cid
+        ORDER BY as_of_date DESC LIMIT 1
+    """), {"cid": client_id}).fetchone()
+    client_sri = int(sri_row[0]) if sri_row and sri_row[0] is not None else None
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Historique {client_nom[:28] or client_id}"
+
+    header_fill = PatternFill("solid", fgColor="1D4ED8")
+    header_font = Font(bold=True, color="FFFFFF")
+    headers = [
+        "Date",
+        "Valorisation (€)",
+        "Mouvement (€)",
+        "VL SICAV (base 1 000)",
+        "Perf. hebdo (%)",
+        "Perf. 52 sem. (%)",
+        "Volat. 52 sem. (%)",
+        "SRRI",
+        "SRI",
+    ]
+    col_widths = [14, 18, 16, 22, 14, 16, 16, 8, 8]
+    for col, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    for row_idx, r in enumerate(hist_rows, 2):
+        m = r._mapping if hasattr(r, "_mapping") else dict(r)
+        date_val = m.get("date")
+        date_str = date_val.strftime("%Y-%m-%d") if date_val and hasattr(date_val, "strftime") else str(date_val)[:10] if date_val else ""
+        valo = m.get("valo")
+        mouvement = m.get("mouvement")
+        sicav = m.get("sicav")
+        perf_hebdo = m.get("perf_sicav_hebdo")
+        perf_52 = m.get("perf_sicav_52")
+        volat = m.get("volat")
+        srri = m.get("srri")
+        ws.cell(row=row_idx, column=1, value=date_str)
+        ws.cell(row=row_idx, column=2, value=round(float(valo), 2) if valo is not None else None)
+        ws.cell(row=row_idx, column=3, value=round(float(mouvement), 2) if mouvement is not None else None)
+        ws.cell(row=row_idx, column=4, value=round(float(sicav) * 1000, 2) if sicav is not None else None)
+        ws.cell(row=row_idx, column=5, value=round(float(perf_hebdo) * 100, 4) if perf_hebdo is not None else None)
+        ws.cell(row=row_idx, column=6, value=round(float(perf_52) * 100, 4) if perf_52 is not None else None)
+        ws.cell(row=row_idx, column=7, value=round(float(volat) * 100, 2) if volat is not None else None)
+        ws.cell(row=row_idx, column=8, value=int(srri) if srri is not None else None)
+        ws.cell(row=row_idx, column=9, value=client_sri)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_nom = re.sub(r"[^\w\-]", "_", client_nom or str(client_id))
+    filename = f"historique_{safe_nom}.xlsx"
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.head("/clients/{client_id}/der/pdf")
@@ -23163,7 +23316,8 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
         affaire_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
         affaire_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
         affaire_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
-    except Exception:
+    except Exception as _esg_exc:
+        logger.warning("ESG grade computation failed affaire %s: %s", affaire_id, _esg_exc)
         affaire_esg_grade = None
         affaire_esg_score = None
         affaire_esg_coverage_pct = None
@@ -23442,6 +23596,39 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
     # Champs ESG disponibles (colonnes de esg_fonds, hors identifiants texte)
     esg_fields, _esg_debug = _get_esg_fields(db, debug=False)
     esg_field_labels = {it["col"]: it["label"] for it in esg_fields}
+
+    # Métriques ESG prioritaires héritées du questionnaire de sensibilité du client lié à l'affaire
+    esg_default_fields: list[str] = []
+    if client_id:
+        try:
+            _top_m = get_esg_top_metrics(db, client_id, top_n=10)
+            _avail_set = {it["col"] for it in esg_fields if it.get("col")}
+            esg_default_fields = [
+                m["metric_key"] for m in _top_m
+                if m.get("metric_key") and m["metric_key"] in _avail_set
+            ]
+            # Métriques sensibilité hors allowlist : vérifier si la colonne existe dans la table ESG
+            _missing_m = [
+                m["metric_key"] for m in _top_m
+                if m.get("metric_key") and m["metric_key"] not in _avail_set
+            ]
+            if _missing_m:
+                _tbl_m, _, _ = _pick_esg_table(db, ESG_CANON_TABLE)
+                _, _valid_m, _ = _resolve_esg_fields(db, _missing_m, table_name=_tbl_m)
+                _cov_m = _get_esg_averages_coverage(db)
+                for _orig_m, _col_m in _valid_m:
+                    if _cov_m.get(_col_m) is not None and _cov_m.get(_col_m) < 60.0:
+                        continue
+                    _lbl_m = next(
+                        (m.get("label") for m in _top_m if m.get("metric_key") == _orig_m),
+                        _orig_m,
+                    )
+                    esg_fields.append({"col": _col_m, "label": _lbl_m})
+                    esg_field_labels[_col_m] = _lbl_m
+                    esg_default_fields.append(_col_m)
+        except Exception:
+            esg_default_fields = []
+
     # RH list pour affectation des tâches
     rh_list = fetch_rh_list(db)
 
@@ -23517,6 +23704,7 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
             "alloc_names": alloc_names,
             "esg_fields": esg_fields,
             "esg_field_labels": esg_field_labels,
+            "esg_default_fields": esg_default_fields,
             "societe_gestion_nom": societe_gestion_nom,
             "societe_gestion_role": societe_gestion_role,
             "compagnie_assurance_nom": compagnie_assurance_nom,
@@ -24368,6 +24556,7 @@ def _recompute_srri_clients(db: Session) -> float:
               volat_52           DECIMAL(38,18),
               srri               INT,
               rn                 INT,
+              perf_52            DECIMAL(38,18),
               PRIMARY KEY (id, rn)
             )
             """
@@ -24385,7 +24574,7 @@ def _recompute_srri_clients(db: Session) -> float:
             text(
                 f"""
                 INSERT INTO tempo_hist_personne_w (
-                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn, perf_52
                 )
                 WITH ordered AS (
                   SELECT id, `date`, valo AS valorisation_suiv, mouvement,
@@ -24445,7 +24634,12 @@ def _recompute_srri_clients(db: Session) -> float:
                          WHEN volat_raw < 0.25  THEN 6
                          ELSE 7
                        END AS srri,
-                       rn
+                       rn,
+                       CASE
+                         WHEN LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                         ELSE (dietz - LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`))
+                              / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0)
+                       END AS perf_52
                 FROM vola
                 WHERE id IS NOT NULL
                 ORDER BY id, `date`
@@ -24459,7 +24653,12 @@ def _recompute_srri_clients(db: Session) -> float:
             UPDATE mariadb_historique_personne_w AS m
             JOIN tempo_hist_personne_w AS t
               ON m.id = t.id AND m.`date` = t.`date`
-            SET m.volat = t.volat_52, m.SRRI = t.srri
+            SET
+              m.sicav            = t.dietz,
+              m.perf_sicav_hebdo = t.r,
+              m.perf_sicav_52    = t.perf_52,
+              m.volat            = t.volat_52,
+              m.SRRI             = t.srri
             """
         )
     )
@@ -24554,7 +24753,12 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
                 WHEN volat_raw < 0.25  THEN 6
                 ELSE 7
               END AS srri,
-              rn
+              rn,
+              CASE
+                WHEN LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
+                ELSE (dietz - LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`))
+                     / NULLIF(LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`), 0)
+              END AS perf_52
             FROM vola
             WHERE id IS NOT NULL
             ORDER BY id, `date`
@@ -24635,6 +24839,7 @@ def _recompute_srri_affaires(db: Session) -> float:
               volat_52           DECIMAL(38,18),
               srri               INT,
               rn                 INT,
+              perf_52            DECIMAL(38,18),
               PRIMARY KEY (id, rn)
             )
             """
@@ -24652,7 +24857,7 @@ def _recompute_srri_affaires(db: Session) -> float:
             text(
                 f"""
                 INSERT INTO tempo_hist_affaire_w (
-                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn
+                  id, `date`, valo, mouvement, valorisation_suiv, r, dietz, perf_dietz, volat_52, srri, rn, perf_52
                 )
                 {cte_sql}
                 """
@@ -24666,8 +24871,11 @@ def _recompute_srri_affaires(db: Session) -> float:
               ON m.id = t.id
              AND m.`date` = t.`date`
             SET
-              m.volat = t.volat_52,
-              m.SRRI  = t.srri
+              m.sicav            = t.dietz,
+              m.perf_sicav_hebdo = t.r,
+              m.perf_sicav_52    = t.perf_52,
+              m.volat            = t.volat_52,
+              m.SRRI             = t.srri
             """
         )
     )
@@ -32723,7 +32931,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         client_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
         client_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
         client_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
-    except Exception:
+    except Exception as _esg_exc:
+        logger.warning("ESG grade computation failed client %s: %s", client_id, _esg_exc)
         client_esg_grade = None
         client_esg_score = None
         client_esg_coverage_pct = None
@@ -33817,6 +34026,24 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         except Exception:
             # En cas d'erreur ici, on garde simplement les scénarios précédents s'ils existent
             pass
+
+    # ESG : métriques prioritaires via questionnaire de sensibilité du client
+    try:
+        _esg_ctx: dict = {"allocation_reference_name": allocation_reference_name or client_allocation_name}
+        _esg_ctx = _populate_synthese_esg_context(db, _esg_ctx, client_id)
+        esg_fields_client = _esg_ctx.get("esg_fields") or []
+        esg_field_labels_client = _esg_ctx.get("esg_field_labels") or {}
+        esg_default_fields = _esg_ctx.get("esg_default_fields") or []
+        esg_comparison_alloc = _esg_ctx.get("esg_comparison_alloc")
+        esg_comparison_rows = _esg_ctx.get("esg_comparison_rows") or []
+        esg_comparison_chart_png = _esg_ctx.get("esg_comparison_chart_png")
+        esg_unmatched_fields = _esg_ctx.get("esg_unmatched_fields") or []
+        alloc_names_client = [
+            r[0] for r in db.query(Allocation.nom)
+            .filter(Allocation.nom.isnot(None)).distinct().order_by(Allocation.nom.asc()).all()
+        ]
+    except Exception:
+        pass
 
     logger.info("TIMING client_detail %s: before template render %.3fs", client_id, perf_counter() - _t0_total)
     return templates.TemplateResponse(

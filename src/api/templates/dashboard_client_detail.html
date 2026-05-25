@@ -1190,6 +1190,56 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal Historique client -->
+  <div id="historiqueModal" class="modal-overlay" onclick="if(event.target===this) closeHistoriqueModal()">
+    <div class="modal-card" style="width:1180px; max-width:98vw; max-height:92vh; display:flex; flex-direction:column;">
+      <div class="modal-header" style="flex-shrink:0;">
+        <h3 style="display:flex; align-items:center; gap:8px; font-size:1rem;">
+          <i class="fa-solid fa-table-list"></i>
+          Historique client
+        </h3>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" id="historiqueExportBtn" class="btn btn-primary" style="font-size:.82rem; padding:.3rem .8rem; display:inline-flex; align-items:center; gap:6px;" onclick="downloadHistoriqueExcel()">
+            <i class="fa-solid fa-file-excel"></i> Télécharger Excel
+          </button>
+          <button class="modal-close" onclick="closeHistoriqueModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" style="flex:1 1 auto; overflow:auto; padding:12px 14px;">
+        <div id="historiqueModalSpinner" style="display:flex; align-items:center; justify-content:center; padding:40px; gap:12px; color:#6b7280;">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:1.4rem;"></i>
+          <span>Chargement…</span>
+        </div>
+        <div id="historiqueModalContent" style="display:none;">
+          <div id="historiqueModalMeta" style="font-size:.82rem; color:#6b7280; margin-bottom:8px;"></div>
+          <div style="overflow-x:auto;">
+            <table id="historiqueTable" style="width:100%; border-collapse:collapse; font-size:.85rem; white-space:nowrap;">
+              <thead>
+                <tr style="background:#1d4ed8; color:#fff; position:sticky; top:0;">
+                  <th style="padding:7px 10px; text-align:left; font-weight:700; min-width:100px;">Date</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:130px;">Valorisation (€)</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:120px;">Mouvement (€)</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:140px;">VL SICAV (base 1000)</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:110px;">Perf. hebdo (%)</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:120px;">Perf. 52 sem. (%)</th>
+                  <th style="padding:7px 10px; text-align:right; font-weight:700; min-width:130px;">Volat. 52 sem. (%)</th>
+                  <th style="padding:7px 10px; text-align:center; font-weight:700; min-width:60px;">SRRI</th>
+                  <th style="padding:7px 10px; text-align:center; font-weight:700; min-width:60px;">SRI</th>
+                </tr>
+              </thead>
+              <tbody id="historiqueTableBody"></tbody>
+            </table>
+          </div>
+          <div id="historiqueModalEmpty" style="display:none; padding:24px; text-align:center; color:#6b7280;">Aucune donnée historique disponible.</div>
+        </div>
+        <div id="historiqueModalError" style="display:none; padding:24px; text-align:center; color:#c62828;">
+          <i class="fa-solid fa-triangle-exclamation"></i> Erreur lors du chargement des données.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     function updateSriHiddenToggleBtn(){
       var modal = document.getElementById('sriModal');
@@ -2614,6 +2664,9 @@ function generateClientSynthese(){
     <div style="display:flex; flex-direction:column; gap:4px;">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <h3 id="contractsTitle" class="section-title-blue toggle-title" style="margin:4px 8px 8px 0;">Contrats du client</h3>
+        <button type="button" class="btn" style="background:#fff; color:var(--primary-600,#2563eb); border:1px solid var(--primary-200,#bfdbfe); padding:.25rem .7rem; font-size:.82rem; border-radius:7px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" onclick="openHistoriqueModal({{ client.id if client else 'null' }})" title="Voir l'historique complet du client">
+          <i class="fa-solid fa-table-list"></i> Historique
+        </button>
       </div>
       {% if available_dates %}
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -6814,6 +6867,104 @@ function openClientMsgs(kind){
       $('#cd-status-filter').on('change', function(){ var v=this.value; table.column(4).search(v? '^'+$.fn.dataTable.util.escapeRegex(v)+'$':'' , true, false).draw(); });
     } catch(e) { /* ignore */ }
   })();
+</script>
+
+<script>
+(function(){
+  var _histData = null;
+  var _histClientId = null;
+
+  function fmtNum(v, decimals) {
+    if (v === null || v === undefined) return '—';
+    return Number(v).toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+
+  function renderHistoriqueTable(rows, sri) {
+    var tbody = document.getElementById('historiqueTableBody');
+    var meta  = document.getElementById('historiqueModalMeta');
+    var empty = document.getElementById('historiqueModalEmpty');
+    tbody.innerHTML = '';
+    if (!rows || !rows.length) {
+      empty.style.display = '';
+      meta.textContent = '';
+      return;
+    }
+    empty.style.display = 'none';
+    meta.textContent = rows.length + ' ligne' + (rows.length > 1 ? 's' : '') +
+      (sri !== null && sri !== undefined ? '  •  SRI courant : ' + sri : '');
+    rows.forEach(function(r, i) {
+      var tr = document.createElement('tr');
+      tr.style.background = i % 2 === 0 ? '#fff' : '#f0f6ff';
+      tr.style.borderBottom = '1px solid #e5e7eb';
+
+      var mvtStyle = r.mouvement !== null && r.mouvement !== undefined
+        ? (r.mouvement > 0 ? 'color:#16a34a;' : r.mouvement < 0 ? 'color:#c62828;' : '')
+        : '';
+      var perfHStyle = r.perf_hebdo_pct !== null && r.perf_hebdo_pct !== undefined
+        ? (r.perf_hebdo_pct > 0 ? 'color:#16a34a;' : r.perf_hebdo_pct < 0 ? 'color:#c62828;' : '')
+        : '';
+      var perf52Style = r.perf_52_pct !== null && r.perf_52_pct !== undefined
+        ? (r.perf_52_pct > 0 ? 'color:#16a34a;' : r.perf_52_pct < 0 ? 'color:#c62828;' : '')
+        : '';
+
+      tr.innerHTML =
+        '<td style="padding:5px 10px;">' + (r.date || '—') + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">' + fmtNum(r.valo, 2) + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + mvtStyle + '">' + fmtNum(r.mouvement, 2) + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">' + fmtNum(r.vl_sicav, 2) + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + perfHStyle + '">' + fmtNum(r.perf_hebdo_pct, 4) + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;' + perf52Style + '">' + fmtNum(r.perf_52_pct, 4) + '</td>' +
+        '<td style="padding:5px 10px; text-align:right;">' + fmtNum(r.volat_pct, 2) + '</td>' +
+        '<td style="padding:5px 10px; text-align:center;">' + (r.srri !== null && r.srri !== undefined ? r.srri : '—') + '</td>' +
+        '<td style="padding:5px 10px; text-align:center;">' + (r.sri !== null && r.sri !== undefined ? r.sri : '—') + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.openHistoriqueModal = function(clientId) {
+    _histClientId = clientId;
+    var modal = document.getElementById('historiqueModal');
+    modal.style.display = 'flex';
+
+    if (_histData && _histData._clientId === clientId) {
+      return;
+    }
+
+    _histData = null;
+    document.getElementById('historiqueModalSpinner').style.display  = 'flex';
+    document.getElementById('historiqueModalContent').style.display  = 'none';
+    document.getElementById('historiqueModalError').style.display    = 'none';
+    document.getElementById('historiqueTableBody').innerHTML         = '';
+
+    fetch('/dashboard/clients/' + clientId + '/historique')
+      .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(data) {
+        _histData = data;
+        _histData._clientId = clientId;
+        document.getElementById('historiqueModalSpinner').style.display = 'none';
+        document.getElementById('historiqueModalContent').style.display = '';
+        renderHistoriqueTable(data.rows || [], data.sri);
+      })
+      .catch(function() {
+        document.getElementById('historiqueModalSpinner').style.display = 'none';
+        document.getElementById('historiqueModalError').style.display   = '';
+      });
+  };
+
+  window.closeHistoriqueModal = function() {
+    document.getElementById('historiqueModal').style.display = 'none';
+  };
+
+  window.downloadHistoriqueExcel = function() {
+    if (!_histClientId) return;
+    var a = document.createElement('a');
+    a.href = '/dashboard/clients/' + _histClientId + '/historique/export';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+})();
 </script>
 
 {% endblock %}
