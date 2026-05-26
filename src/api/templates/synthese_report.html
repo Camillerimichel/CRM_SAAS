@@ -117,8 +117,7 @@
 	      <h3 class="card-title">Synthèse</h3>
 	      <table class="table">
 	        <tbody>
-	          <tr><th>Date d'ouverture</th><td>{{ synthese_card.contrat_ouverture_str or '—' }}</td></tr>
-	          <tr><th>Date de clôture</th><td>{{ synthese_card.contrat_fermeture_str or '—' }}</td></tr>
+	          <tr><th>Première date d'ouverture</th><td>{{ synthese_card.premiere_date_ouverture_str or '—' }}</td></tr>
 	          <tr><th>Durée historique</th><td>{{ synthese_card.duree_historique }}</td></tr>
 	          <tr><th>Responsable</th><td>{{ synthese_card.responsable }}</td></tr>
 	        </tbody>
@@ -217,9 +216,9 @@
         <th style="text-align:left;">Année</th>
         <th style="text-align:right;">Solde E/S (€)</th>
         <th style="text-align:right;">Valo fin d'année (€)</th>
-        <th style="text-align:right;">Perf. (%)</th>
-        <th style="text-align:right;">Perf. an (%)*</th>
-        <th style="text-align:right;">Volat. (%)</th>
+        <th style="text-align:right;">Perf. (%)*</th>
+        <th style="text-align:right;">Perf. an. (%)**</th>
+        <th style="text-align:right;">SRRI</th>
       </tr>
     </thead>
     <tbody>
@@ -230,7 +229,7 @@
           <td style="text-align:right;">{{ row.last_valo_str }} €</td>
           <td style="text-align:right;">{{ row.cum_perf_pct is not none and ('%.2f'|format(row.cum_perf_pct)) or '—' }}</td>
           <td style="text-align:right;">{{ row.ann_perf_pct is not none and ('%.2f'|format(row.ann_perf_pct)) or '—' }}</td>
-          <td style="text-align:right;">{{ row.avg_vol_pct is not none and ('%.2f'|format(row.avg_vol_pct)) or '—' }}</td>
+          <td style="text-align:center;">{{ row.srri if row.srri is not none else '—' }}</td>
         </tr>
       {% endfor %}
     </tbody>
@@ -238,6 +237,7 @@
   {% else %}
     <div class="muted">Historique insuffisant pour présenter l'évolution annuelle.</div>
   {% endif %}
+  <p class="muted" style="font-size:0.75rem; margin-top:4px;">* Performances annuelles cumulées &nbsp;&nbsp; ** Performances annuelles</p>
 
   <div class="page-break"></div>
   <h2 id="section-analyses" class="section-title">5. Analyses graphiques</h2>

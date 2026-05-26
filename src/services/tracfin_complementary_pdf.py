@@ -273,22 +273,21 @@ def build_tracfin_complementary_pdf_bytes(data: dict[str, Any], *, background_pa
     ctx = ctx.down(54)
 
     # --- Interlocuteur / Société ---
-    ctx = _draw_label_value(ctx, "Interlocuteur commercial :", _s(data.get("interlocuteur_commercial")).strip(), value_w=360)
-    ctx = _draw_label_value(ctx, "Société (courtier) :", _s(data.get("societe")).strip(), value_w=360)
+    header_label_w = 160
+    ctx = _draw_label_value(ctx, "Interlocuteur commercial :", _s(data.get("interlocuteur_commercial")).strip(), value_w=360, label_w=header_label_w)
+    ctx = _draw_label_value(ctx, "Société (courtier) :", _s(data.get("societe")).strip(), value_w=360, label_w=header_label_w)
 
     # --- Client block ---
-    # Keep value boxes aligned left for these 3 lines (same label column width)
-    header_label_w = 160
     ctx = _draw_label_value(ctx, "Nom du client :", _s(data.get("client_nom")).strip(), value_w=360, label_w=header_label_w)
     ctx = _draw_label_value(ctx, "Prénom du client :", _s(data.get("client_prenom")).strip(), value_w=360, label_w=header_label_w)
     ctx = _draw_label_value(ctx, "Date de naissance :", _s(data.get("date_naissance")).strip(), value_w=360, label_w=header_label_w)
     lieu = " ".join([p for p in [_s(data.get("lieu_naissance_cp")).strip(), _s(data.get("lieu_naissance_ville")).strip()] if p]).strip()
     pays_naissance = _s(data.get("lieu_naissance_pays")).strip()
     lieu_full = ", ".join([p for p in [lieu, pays_naissance] if p]).strip()
-    ctx = _draw_label_value(ctx, "Lieu de naissance (CP, ville, pays) :", lieu_full, value_w=360)
+    ctx = _draw_label_value(ctx, "Lieu de naissance (CP, ville, pays) :", lieu_full, value_w=360, label_w=header_label_w)
 
     # --- Contrat ---
-    ctx = _draw_label_value(ctx, "Nom du contrat :", _s(data.get("nom_contrat")).strip(), value_w=360)
+    ctx = _draw_label_value(ctx, "Nom du contrat :", _s(data.get("nom_contrat")).strip(), value_w=360, label_w=header_label_w)
     ctx = ctx.down(6)
 
     # --- Données personnelles ---
@@ -330,9 +329,9 @@ def build_tracfin_complementary_pdf_bytes(data: dict[str, Any], *, background_pa
     x0 = ctx.x
     y0 = ctx.y
 
-    secteur_selected = _s(data.get("secteur_activite")).strip()
-    rev_selected = _s(data.get("tranche_revenus")).strip()
-    patr_selected = _s(data.get("tranche_patrimoine")).strip()
+    secteur_selected = _s(data.get("secteur_activite")).strip().lower()
+    rev_selected = _s(data.get("tranche_revenus")).strip().lower()
+    patr_selected = _s(data.get("tranche_patrimoine")).strip().lower()
 
     secteur_items = [
         ("Agriculteur exploitant", secteur_selected == "agriculteur"),

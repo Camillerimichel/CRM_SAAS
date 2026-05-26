@@ -124,6 +124,7 @@
   {% endif %}
   <p>Le profil retenu reflète la tolérance au risque que vous avez exprimée, ainsi que vos capacités financières à absorber les fluctuations inhérentes aux marchés.</p>
 
+  <div style="page-break-before: always;"></div>
   <h2>4. Synthèse des objectifs</h2>
   <table>
     <thead>
@@ -195,6 +196,11 @@
   </table>
 
   <h2>7. Détail de l’allocation retenue</h2>
+  {% if adequation_chart_img_b64 %}
+    <div style="text-align:center; margin:10px 0;">
+      <img src="data:image/png;base64,{{ adequation_chart_img_b64 }}" alt="Performance et volatilité" style="max-width:100%; height:auto;" />
+    </div>
+  {% endif %}
   {% if adequation_allocation_html %}
     <div class="section-card">{{ adequation_allocation_html | safe }}</div>
   {% else %}

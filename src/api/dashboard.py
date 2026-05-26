@@ -1137,6 +1137,51 @@ ESG_LEGACY_ALIASES = {
     "noteg": "note_g",
     "nom": "name",
 }
+ESG_FIELD_LABELS_FR: dict[str, str] = {
+    "processes_ungc": "Processus UNGC",
+    "violations_ungc": "Violations UNGC",
+    "exposure_to_fossil_fuels": "Exposition aux combust. fossiles",
+    "renewable_energy": "Énergie renouvelable",
+    "waste_efficiency": "Efficacité des déchets",
+    "water_efficiency": "Efficacité hydrique",
+    "environmental_good": "Impact environnemental positif",
+    "environmental_harm": "Impact environnemental négatif",
+    "social_good": "Impact social positif",
+    "social_harm": "Impact social négatif",
+    "average_per_employee_spend": "Dépense moy. par employé",
+    "number_of_employees": "Nombre d'employés",
+    "pct_female_executives": "% femmes dirigeantes",
+    "pct_female_board": "% femmes au CA",
+    "board_gender_diversity": "Diversité de genre (CA)",
+    "board_independence": "Indépendance du CA",
+    "avoiding_water_scarcity": "Prévention pénurie d'eau",
+    "ghg_intensity_value": "Intensité GES",
+    "emissions_to_water": "Émissions dans l'eau",
+    "hazardous_waste": "Déchets dangereux",
+    "scope_1_and_2_carbon_intensity": "Intensité carbone Sc. 1&2",
+    "scope_3_carbon_intensity": "Intensité carbone Sc. 3",
+    "carbon_trend": "Tendance carbone",
+    "temperature_score": "Score température",
+    "climate_change_positive": "Impact climatique positif",
+    "climate_change_negative": "Impact climatique négatif",
+    "climate_change_net": "Impact climatique net",
+    "natural_resource_positive": "Ressources naturelles positif",
+    "natural_resource_negative": "Ressources naturelles négatif",
+    "natural_resource_net": "Ressources naturelles net",
+    "pollution_positive": "Pollution positive",
+    "pollution_negative": "Pollution négative",
+    "pollution_net": "Pollution nette",
+    "biodiversity": "Biodiversité",
+    "sfdr_biodiversity_pai": "PAI biodiversité (SFDR)",
+    "controversial_weapons": "Armes controversées",
+    "gender_pay_gap": "Écart salarial H/F",
+    "executive_pay": "Rémunération dirigeants",
+    "note_e": "Note E (Environnement)",
+    "note_s": "Note S (Social)",
+    "note_g": "Note G (Gouvernance)",
+    "note_esg": "Note ESG globale",
+    "evic": "EVIC",
+}
 ESG_UI_ALLOWLIST = {
     "company_name",
     "sector1",
@@ -2214,6 +2259,9 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
         def _labelize(name: str) -> str:
             if not name:
                 return name
+            normalized = str(name).lower().replace(" ", "_")
+            if normalized in ESG_FIELD_LABELS_FR:
+                return ESG_FIELD_LABELS_FR[normalized]
             s = str(name).replace("_", " ")
             s = re.sub(r"(?<!^)([A-Z])", r" \\1", s)
             return s.strip().capitalize()
@@ -2230,7 +2278,10 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
             if allow_norm and _normalize_field_key(str(col)) not in allow_norm:
                 continue
             legacy_label = legacy_label_map.get(_normalize_identifier(str(col))) if legacy_label_map else None
-            if legacy_label:
+            fr_key = str(col).lower().replace(" ", "_")
+            if fr_key in ESG_FIELD_LABELS_FR:
+                label = ESG_FIELD_LABELS_FR[fr_key]
+            elif legacy_label:
                 label = _labelize(legacy_label)
             else:
                 label = _labelize(col) if use_labelize else col
@@ -4204,9 +4255,15 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             v *= 100.0
         return v
 
+    nb_contrats_total = len(affaires_rows)
+    nb_contrats_fermes = sum(1 for r in affaires_rows if getattr(r, "date_cle", None))
+    nb_contrats_ouverts = max(0, nb_contrats_total - nb_contrats_fermes)
+
     contracts = []
     contracts_total_valo = 0.0
     for row in affaires_rows:
+        if getattr(row, "date_cle", None):
+            continue  # exclure les contrats clôturés
         valo_raw = float(row.last_valo or 0.0)
         mvt_total_raw = float(mouvements_map.get(getattr(row, "id", None), 0.0) or 0.0)
         contracts_total_valo += valo_raw
@@ -4222,11 +4279,18 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             "en_moins_value": valo_raw < mvt_total_raw,
         })
     contracts_total_valo_str = _fmt_currency(contracts_total_valo)
-    nb_contrats_total = len(affaires_rows)
-    nb_contrats_fermes = sum(1 for r in affaires_rows if getattr(r, "date_cle", None))
-    nb_contrats_ouverts = max(0, nb_contrats_total - nb_contrats_fermes)
 
-    last_support_date = db.execute(text("SELECT MAX(date) FROM mariadb_historique_support_w")).scalar()
+    last_support_date = db.execute(
+        text(
+            """
+            SELECT MAX(h.date)
+            FROM mariadb_historique_support_w h
+            JOIN mariadb_affaires a ON a.id = h.id_source
+            WHERE a.id_personne = :cid
+            """
+        ),
+        {"cid": client_id},
+    ).scalar()
     supports_rows = []
     if last_support_date:
         supports_rows = db.execute(
@@ -4564,15 +4628,20 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
             ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0 if cum_factor > 0 else None
         except Exception:
             ann_perf_pct = None
-        vols_pct = [_to_pct(v) for v in info.get("vols", []) if _to_pct(v) is not None]
-        avg_vol_pct = sum(vols_pct) / len(vols_pct) if vols_pct else None
+        srri_year = None
+        try:
+            srri_raw = getattr(last_row, "SRRI", None) if last_row else None
+            if srri_raw is not None:
+                srri_year = int(srri_raw)
+        except Exception:
+            srri_year = None
         reporting_years.append({
             "year": year,
             "solde_str": _fmt_currency(mov),
             "last_valo_str": _fmt_currency(last_val),
             "cum_perf_pct": cum_perf_pct,
             "ann_perf_pct": ann_perf_pct,
-            "avg_vol_pct": avg_vol_pct,
+            "srri": srri_year,
         })
 
     if first_history_date and last_history_date:
@@ -4623,6 +4692,7 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
     synthese_card = {
         "nb_contrats_ouverts": nb_contrats_ouverts,
         "nb_contrats_fermes": nb_contrats_fermes,
+        "premiere_date_ouverture_str": first_history_date.strftime("%d/%m/%Y") if first_history_date else "—",
         "duree_historique": duree_historique_str,
         "responsable": responsable_label,
     }
@@ -5145,6 +5215,47 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
     budget = revenues - charges
     patrimoine_net = actif - passif
 
+    # Graphique performance/volatilité pour §7 de la lettre d'adéquation
+    adequation_chart_img_b64: str | None = None
+    if allocation_reference_name:
+        try:
+            import importlib.util as _ilu
+            if _ilu.find_spec('matplotlib') is not None:
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt  # type: ignore
+                rows_adq = (
+                    db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                    .filter(func.lower(func.trim(Allocation.nom)) == allocation_reference_name.strip().lower())
+                    .order_by(Allocation.date.asc())
+                    .all()
+                )
+                if rows_adq:
+                    adq_dates, adq_svals, adq_vvals = [], [], []
+                    for d, s, v in rows_adq:
+                        adq_dates.append(d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)[:10])
+                        adq_svals.append(float(s or 0))
+                        vol = float(v or 0)
+                        adq_vvals.append(vol * 100.0 if abs(vol) <= 1 else vol)
+                    fig, ax1 = plt.subplots(figsize=(6.5, 3.2))
+                    ax2 = ax1.twinx()
+                    ax1.plot(adq_dates, adq_svals, color='#2563eb', linewidth=1.5, label='Performance (%)')
+                    ax2.plot(adq_dates, adq_vvals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
+                    ax1.set_ylabel('Performance (%)')
+                    ax2.set_ylabel('Volatilité (%)')
+                    ax1.set_title(f'Performance et volatilité – {allocation_reference_name}')
+                    ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                    ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                    h1, l1 = ax1.get_legend_handles_labels()
+                    h2, l2 = ax2.get_legend_handles_labels()
+                    ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=8)
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+                    plt.close(fig)
+                    adequation_chart_img_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+        except Exception:
+            adequation_chart_img_b64 = None
+
     civilite = None
     situation_familiale = None
     if etat_civil_row:
@@ -5200,6 +5311,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "kyc_etat_civil": etat_civil_row,
         "kyc_situations_matrimoniales": situations_matrimoniales,
         "sri_scenarios": synthese_sri_scenarios,
+        "adequation_chart_img_b64": adequation_chart_img_b64,
     }
     return contexte
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
@@ -5775,15 +5887,20 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
             ann_perf_pct = ((cum_factor ** (1.0 / max(1, year_count))) - 1.0) * 100.0 if cum_factor > 0 else None
         except Exception:
             ann_perf_pct = None
-        vols_pct = [_to_pct(info.get("vol"))] if info.get("vol") is not None else []
-        avg_vol_pct = sum(v for v in vols_pct if v is not None) / len(vols_pct) if vols_pct else None
+        affaire_srri = None
+        try:
+            srri_raw = getattr(affaire, "SRRI", None)
+            if srri_raw is not None:
+                affaire_srri = int(srri_raw)
+        except Exception:
+            affaire_srri = None
         reporting_years.append({
             "year": year,
             "solde_str": _fmt_currency(mov),
             "last_valo_str": _fmt_currency(last_val),
             "cum_perf_pct": cum_perf_pct,
             "ann_perf_pct": ann_perf_pct,
-            "avg_vol_pct": avg_vol_pct,
+            "srri": affaire_srri,
         })
 
     duree_historique_str = "-"
@@ -9477,7 +9594,10 @@ async def dashboard_client_kyc_report(
                 svg.append(f'<polyline fill="none" stroke="#2563eb" stroke-width="2" points="{pts1}" />')
                 svg.append(f'<polyline fill="none" stroke="#ef4444" stroke-width="1.5" points="{pts2}" />')
                 svg.append(f'<text x="{P}" y="{P-10}" fill="#111" font-size="13" font-weight="bold">Performance et volatilité – {ctx.get("risque",{}).get("allocation_nom") or "Allocation"}</text>')
-                svg.append(f'<text x="{W-P}" y="{P-10}" fill="#ef4444" font-size="11" text-anchor="end">Volatilité (%)</text>')
+                svg.append(f'<rect x="{P}" y="{H-22}" width="18" height="3" fill="#2563eb" rx="1"/>')
+                svg.append(f'<text x="{P+22}" y="{H-16}" fill="#2563eb" font-size="10">Performance (%)</text>')
+                svg.append(f'<rect x="{P+155}" y="{H-22}" width="18" height="3" fill="#ef4444" rx="1"/>')
+                svg.append(f'<text x="{P+177}" y="{H-16}" fill="#ef4444" font-size="10">Volatilité (%)</text>')
                 svg.append('</svg>')
                 ctx['chart_alloc_svg'] = ''.join(svg)
             except Exception:
@@ -9724,12 +9844,14 @@ async def dashboard_client_kyc_report(
                         dates.append(d.strftime('%Y-%m-%d') if hasattr(d,'strftime') else str(d)[:10])
                         svals.append(float(s or 0)); vol=float(v or 0); vvals.append(vol*100.0 if abs(vol)<=1 else vol)
                     fig, ax1 = plt.subplots(figsize=(6.5, 3.2)); ax2 = ax1.twinx()
-                    ax1.plot(dates, svals, color='#2563eb', linewidth=1.5, label=str(alloc_name))
+                    ax1.plot(dates, svals, color='#2563eb', linewidth=1.5, label='Performance (%)')
                     ax2.plot(dates, vvals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
-                    ax1.set_ylabel(str(alloc_name)); ax2.set_ylabel('Volatilité (%)'); ax1.set_title(f'Performance et volatilité – {alloc_name}')
+                    ax1.set_ylabel('Performance (%)'); ax2.set_ylabel('Volatilité (%)'); ax1.set_title(f'Performance et volatilité – {alloc_name}')
                     # Masquer l'échelle de l'axe des X (dates)
                     ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
                     ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                    h1, l1 = ax1.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
+                    ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=8)
                     chart_img_alloc = _png_bytes(fig)
                     ctx['chart_img_alloc_b64'] = base64.b64encode(chart_img_alloc).decode('ascii')
         except Exception as _e3:
@@ -9902,14 +10024,16 @@ async def dashboard_client_kyc_report(
                         if dates:
                             fig, ax1 = plt.subplots(figsize=(6.5, 3.2))
                             ax2 = ax1.twinx()
-                            ax1.plot(dates, sicav_vals, color='#2563eb', linewidth=1.5, label=alloc_name)
+                            ax1.plot(dates, sicav_vals, color='#2563eb', linewidth=1.5, label='Performance (%)')
                             ax2.plot(dates, vol_vals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
-                            ax1.set_ylabel(alloc_name)
+                            ax1.set_ylabel('Performance (%)')
                             ax2.set_ylabel('Volatilité (%)')
                             ax1.set_title(f'Performance et volatilité – {alloc_name}')
                             # Masquer l'échelle de l'axe des X (dates)
                             ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
                             ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+                            h1, l1 = ax1.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
+                            ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=8)
                             chart_img_alloc = _png_bytes(fig)
             except Exception:
                 chart_img_alloc = None
