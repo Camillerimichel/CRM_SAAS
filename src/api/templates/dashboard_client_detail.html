@@ -4347,12 +4347,7 @@ function openClientMsgs(kind){
     const allocSeries = {{ alloc_series | tojson }};
     const clientSicav = {{ client_sicav | tojson }};
     const sel = document.getElementById('allocSelectClient');
-    const defaultAllocRaw = {{ (
-      (client_allocation_name if client_allocation_name else None)
-      or allocation_reference_name
-      or (risque_latest.allocation_nom if risque_latest and risque_latest.allocation_nom else (risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else ''))
-      or (client_allocation_id and (allocations_lookup.get(client_allocation_id) if allocations_lookup is defined else None))
-    )|tojson }};
+    const defaultAllocRaw = {{ esg_default_alloc | default(none) | tojson }};
     let defaultAlloc = defaultAllocRaw ? String(defaultAllocRaw).trim() : '';
     // Si le select des allocations est absent, ne pas bloquer le reste du script
     if (!sel) return;

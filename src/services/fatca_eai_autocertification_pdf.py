@@ -216,13 +216,13 @@ def _build_template_pdf_bytes() -> bytes:
         _draw_text(c, label_x, y, "Pays", size=8)
         form.textfield(name=f"{prefix}_adresse_pays", x=field_x, y=y - 3, width=field_w, height=row_h, fillColor=colors.lightgrey, borderWidth=0, fontSize=8, maxlen=40)
 
-        # Residence fiscale
+        # Residence fiscale — boutons décalés à droite pour éviter le chevauchement avec le texte
         y -= 22
         _draw_text(c, label_x, y + 10, "Est-ce votre résidence fiscale?", size=8)
-        form.checkbox(name=f"{prefix}_est_residence_fiscale_oui", x=field_x, y=y + 6, size=10, borderWidth=1, fillColor=colors.white)
-        _draw_text(c, field_x + 14, y + 8, "Oui", size=8)
-        form.checkbox(name=f"{prefix}_est_residence_fiscale_non", x=field_x + 55, y=y + 6, size=10, borderWidth=1, fillColor=colors.white)
-        _draw_text(c, field_x + 69, y + 8, "Non", size=8)
+        form.checkbox(name=f"{prefix}_est_residence_fiscale_oui", x=label_x + 160, y=y + 6, size=10, borderWidth=1, fillColor=colors.white)
+        _draw_text(c, label_x + 174, y + 8, "Oui", size=8)
+        form.checkbox(name=f"{prefix}_est_residence_fiscale_non", x=label_x + 215, y=y + 6, size=10, borderWidth=1, fillColor=colors.white)
+        _draw_text(c, label_x + 229, y + 8, "Non", size=8)
 
         y -= 22
         _draw_text(c, label_x, y + 8, "Résidence fiscale (si différente)", size=8)

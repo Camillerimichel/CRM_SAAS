@@ -2009,7 +2009,7 @@ function closeAffMsgs(){ document.getElementById('affMsgsModal').style.display =
   const annPerf = {{ ann_perf | tojson }};
   const annVol = {{ ann_vol | tojson }};
   const allocSeries = {{ alloc_series | tojson }};
-  const defaultAlloc = {{ default_alloc_name | tojson }};
+  const defaultAlloc = {{ (allocation_reference_name or client_allocation_name or default_alloc_name) | tojson }};
   const affaireSicav = {{ affaire_sicav | tojson }};
   const supportsData = {{ supports | tojson }};
   
