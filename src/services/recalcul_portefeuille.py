@@ -270,18 +270,17 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
             ),
             dietz_calc AS (
               SELECT *,
-                1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
+                COALESCE(EXP(SUM(LN(1 + CASE WHEN r > -1 AND r <= 5 THEN r ELSE NULL END)) OVER (
                   PARTITION BY id ORDER BY `date`
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ) AS dietz
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                )), 1.0) AS dietz
               FROM base
             ),
             perf AS (
               SELECT *,
                 CASE
                   WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                  ELSE dietz / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
                 END AS perf_dietz
               FROM dietz_calc
             ),
@@ -303,8 +302,7 @@ def _dietz_cte_sql(win: int, id_filter_sql: str, source_table: str = "mariadb_hi
               perf_dietz,
               CASE
                 WHEN LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                ELSE (dietz - LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`))
-                     / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0)
+                ELSE dietz / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
               END                                                AS perf_52,
               CASE WHEN rn < {win} THEN 0 ELSE COALESCE(volat_raw, 0) END AS volat_52,
               CASE WHEN rn < {win} THEN 0
