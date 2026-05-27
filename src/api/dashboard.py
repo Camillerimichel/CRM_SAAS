@@ -2448,6 +2448,7 @@ def _compute_conformite_summary(db: Session) -> dict:
         reclam_stats, reclam_pivot = _compute_reclamations_data(db)
 
     except Exception:
+        total_clients = 0
         total_documents = 0
         der_total = der_obs = der_total_pct = der_obs_pct = 0.0
         cc_total = cc_obs = cc_total_pct = cc_obs_pct = 0.0
@@ -2467,6 +2468,7 @@ def _compute_conformite_summary(db: Session) -> dict:
 
     return {
         "docs_total": total_documents,
+        "docs_total_clients": total_clients,
         "docs_der_total": der_total,
         "docs_der_obsolete": der_obs,
         "docs_der_total_pct": der_total_pct,
@@ -16194,13 +16196,25 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         .subquery()
     )
     finance_valo_param = request.query_params.get("finance_valo")
-    finance_global_ctx = _build_finance_analysis(
-        db=db,
-        finance_rh_id=None,
-        finance_date_param=None,
-        finance_valo_param=finance_valo_param,
+
+    # Valorisation totale : dernière valo connue par affaire ouverte (date_cle IS NULL)
+    _sub_total_aff = (
+        db.query(
+            HistoriqueAffaire.id.label("affaire_id"),
+            func.max(HistoriqueAffaire.date).label("last_date"),
+        )
+        .join(Affaire, Affaire.id == HistoriqueAffaire.id)
+        .filter(Affaire.date_cle.is_(None))
+        .group_by(HistoriqueAffaire.id)
+        .subquery()
     )
-    total_valo = finance_global_ctx["finance_total_valo"]
+    total_valo = float(
+        db.query(func.coalesce(func.sum(HistoriqueAffaire.valo), 0))
+        .join(_sub_total_aff, _sub_total_aff.c.affaire_id == HistoriqueAffaire.id)
+        .filter(HistoriqueAffaire.date == _sub_total_aff.c.last_date)
+        .scalar()
+        or 0.0
+    )
     t_finance = perf_counter()
 
     # Découpage du nombre de clients par intervalles de détention (basé sur la dernière valo par client)

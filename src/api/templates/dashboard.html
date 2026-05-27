@@ -562,54 +562,78 @@
       <div data-tb-marker="TB_26" style="margin-top:12px; display:grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap:12px;">
         <div data-tb-marker="TB_27" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="der" aria-label="Voir les documents DER obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">DER</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="derTotal">—</span> / <span id="derTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="derObs">—</span> / <span id="derObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="DER">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="derTotal">—</span> / <span class="conf-n">—</span> : <span id="derTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="derObs">—</span> / <span class="conf-n">—</span> : <span id="derObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="derAbsNb">—</span> / <span class="conf-n">—</span> : <span id="derAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence DER">
+            <div id="derAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="DER" style="margin-top:4px;">
             <div id="derValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="derObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_28" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="recueil d'informations" aria-label="Voir les documents Connaissance client obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Connaissance client</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="ccTotal">—</span> / <span id="ccTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="ccObs">—</span> / <span id="ccObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="Connaissance client">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="ccTotal">—</span> / <span class="conf-n">—</span> : <span id="ccTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="ccObs">—</span> / <span class="conf-n">—</span> : <span id="ccObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="ccAbsNb">—</span> / <span class="conf-n">—</span> : <span id="ccAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence Connaissance client">
+            <div id="ccAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="Connaissance client" style="margin-top:4px;">
             <div id="ccValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="ccObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_29" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="questionnaire esg" aria-label="Voir les documents Questionnaire ESG obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Questionnaire ESG</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="esgTotal">—</span> / <span id="esgTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="esgObs">—</span> / <span id="esgObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="Questionnaire ESG">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="esgTotal">—</span> / <span class="conf-n">—</span> : <span id="esgTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="esgObs">—</span> / <span class="conf-n">—</span> : <span id="esgObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="esgAbsNb">—</span> / <span class="conf-n">—</span> : <span id="esgAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence Questionnaire ESG">
+            <div id="esgAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="Questionnaire ESG" style="margin-top:4px;">
             <div id="esgValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="esgObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_30" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="lettre de mission" aria-label="Voir les documents Lettres de mission obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres de mission</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="lmTotal">—</span> / <span id="lmTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="lmObs">—</span> / <span id="lmObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="Lettres de mission">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="lmTotal">—</span> / <span class="conf-n">—</span> : <span id="lmTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="lmObs">—</span> / <span class="conf-n">—</span> : <span id="lmObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="lmAbsNb">—</span> / <span class="conf-n">—</span> : <span id="lmAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence Lettres de mission">
+            <div id="lmAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="Lettres de mission" style="margin-top:4px;">
             <div id="lmValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="lmObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_31" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="lettre d'adéquation" aria-label="Voir les documents Lettres d'adéquation obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Lettres d'adéquation</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="laTotal">—</span> / <span id="laTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="laObs">—</span> / <span id="laObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="Lettres d'adéquation">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="laTotal">—</span> / <span class="conf-n">—</span> : <span id="laTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="laObs">—</span> / <span class="conf-n">—</span> : <span id="laObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="laAbsNb">—</span> / <span class="conf-n">—</span> : <span id="laAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence Lettres d'adéquation">
+            <div id="laAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="Lettres d'adéquation" style="margin-top:4px;">
             <div id="laValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="laObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
         </div>
         <div data-tb-marker="TB_31B" class="compliance-mini-card" role="button" tabindex="0" data-doc-topic="questionnaire risque" aria-label="Voir les documents Questionnaire de risque obsolètes">
           <div style="font-weight:600; margin-bottom:6px; background:#f1f5f9; border-radius:8px; padding:6px;">Questionnaire de risque</div>
-          <div class="muted" style="font-size:0.85rem;">Total : <span id="rqTotal">—</span> / <span id="rqTotalPct">—</span> %</div>
-          <div class="muted" style="font-size:0.85rem;">Obsolescence : <span id="rqObs">—</span> / <span id="rqObsPct">—</span> %</div>
-          <div class="compliance-progress" role="img" aria-label="Questionnaire de risque">
+          <div class="muted" style="font-size:0.82rem;">Présents : <span id="rqTotal">—</span> / <span class="conf-n">—</span> : <span id="rqTotalPct">—</span> %</div>
+          <div class="muted" style="font-size:0.82rem;">Obsolètes : <span id="rqObs">—</span> / <span class="conf-n">—</span> : <span id="rqObsPct">—</span> %</div>
+          <div style="font-weight:700; font-size:0.82rem; color:#ea580c; margin-top:4px;">Absents : <span id="rqAbsNb">—</span> / <span class="conf-n">—</span> : <span id="rqAbsPct">—</span> %</div>
+          <div class="absence-gauge" aria-label="Taux d'absence Questionnaire de risque">
+            <div id="rqAbsBar" class="absence-gauge-fill" style="width:0%;"></div>
+          </div>
+          <div class="compliance-progress" role="img" aria-label="Questionnaire de risque" style="margin-top:4px;">
             <div id="rqValidBar" class="compliance-progress-valid" style="width:0%;"></div>
             <div id="rqObsBar" class="compliance-progress-obsolete" style="width:0%;"></div>
           </div>
@@ -823,6 +847,29 @@
         .compliance-progress-obsolete {
           background: linear-gradient(90deg, #fb7185, #f43f5e);
           color: #7f1d1d;
+        }
+        .absence-gauge {
+          height: 20px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: #fee2e2;
+          margin-top: 6px;
+          position: relative;
+        }
+        .absence-gauge-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #f97316, #dc2626);
+          transition: width 0.4s ease;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          padding-right: 6px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: #fff;
+          white-space: nowrap;
+          min-width: 0;
         }
         .doc-expired-flag {
           display: inline-flex;
@@ -1606,6 +1653,18 @@
       if (validBar) validBar.style.width = v + '%';
       if (obsBar) obsBar.style.width = o + '%';
     };
+    const setAbsence = (prefix, totalN, total, totalPct)=>{
+      const absNb = Math.max(0, totalN - total);
+      const absPct = Math.max(0, 100 - (Number(totalPct)||0));
+      setText(prefix + 'AbsNb', absNb);
+      setText(prefix + 'AbsPct', absPct.toFixed(1));
+      const bar = document.getElementById(prefix + 'AbsBar');
+      if (bar) {
+        const w = Math.max(0, Math.min(100, absPct));
+        bar.style.width = w + '%';
+        bar.textContent = w >= 12 ? absPct.toFixed(1) + '%' : '';
+      }
+    };
 
     function renderReclam(data){
       const container = document.getElementById('reclamStatusList');
@@ -1629,40 +1688,49 @@
         const res = await fetch('/dashboard/conformite/summary', { credentials:'same-origin' });
         if (!res.ok) throw new Error('HTTP '+res.status);
         const data = await res.json();
+        const totalClients = Number(data.docs_total_clients) || 0;
+        document.querySelectorAll('.conf-n').forEach(el => { el.textContent = totalClients; });
+
         setText('derTotal', data.docs_der_total);
         setText('derTotalPct', (data.docs_der_total_pct||0).toFixed(1));
         setText('derObs', data.docs_der_obsolete);
         setText('derObsPct', (data.docs_der_obsolete_pct||0).toFixed(1));
+        setAbsence('der', totalClients, Number(data.docs_der_total)||0, data.docs_der_total_pct);
         setPctBars('derValidBar', 'derObsBar', data.docs_der_obsolete_pct);
 
         setText('ccTotal', data.docs_cc_total);
         setText('ccTotalPct', (data.docs_cc_total_pct||0).toFixed(1));
         setText('ccObs', data.docs_cc_obsolete);
         setText('ccObsPct', (data.docs_cc_obsolete_pct||0).toFixed(1));
+        setAbsence('cc', totalClients, Number(data.docs_cc_total)||0, data.docs_cc_total_pct);
         setPctBars('ccValidBar', 'ccObsBar', data.docs_cc_obsolete_pct);
 
         setText('esgTotal', data.docs_esg_total);
         setText('esgTotalPct', (data.docs_esg_total_pct||0).toFixed(1));
         setText('esgObs', data.docs_esg_obsolete);
         setText('esgObsPct', (data.docs_esg_obsolete_pct||0).toFixed(1));
+        setAbsence('esg', totalClients, Number(data.docs_esg_total)||0, data.docs_esg_total_pct);
         setPctBars('esgValidBar', 'esgObsBar', data.docs_esg_obsolete_pct);
 
         setText('lmTotal', data.docs_lm_total);
         setText('lmTotalPct', (data.docs_lm_total_pct||0).toFixed(1));
         setText('lmObs', data.docs_lm_obsolete);
         setText('lmObsPct', (data.docs_lm_obsolete_pct||0).toFixed(1));
+        setAbsence('lm', totalClients, Number(data.docs_lm_total)||0, data.docs_lm_total_pct);
         setPctBars('lmValidBar', 'lmObsBar', data.docs_lm_obsolete_pct);
 
         setText('laTotal', data.docs_la_total);
         setText('laTotalPct', (data.docs_la_total_pct||0).toFixed(1));
         setText('laObs', data.docs_la_obsolete);
         setText('laObsPct', (data.docs_la_obsolete_pct||0).toFixed(1));
+        setAbsence('la', totalClients, Number(data.docs_la_total)||0, data.docs_la_total_pct);
         setPctBars('laValidBar', 'laObsBar', data.docs_la_obsolete_pct);
 
         setText('rqTotal', data.docs_rq_total);
         setText('rqTotalPct', (data.docs_rq_total_pct||0).toFixed(1));
         setText('rqObs', data.docs_rq_obsolete);
         setText('rqObsPct', (data.docs_rq_obsolete_pct||0).toFixed(1));
+        setAbsence('rq', totalClients, Number(data.docs_rq_total)||0, data.docs_rq_total_pct);
         setPctBars('rqValidBar', 'rqObsBar', data.docs_rq_obsolete_pct);
 
         setText('reclamTotal', (data.reclam_stats && data.reclam_stats.total) || 0);
