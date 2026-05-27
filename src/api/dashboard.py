@@ -2913,17 +2913,25 @@ def _build_matplotlib_perf_vol_chart(
         return None
 
     try:
-        def _fmt_pct(value):
+        def _safe_float(v):
             try:
-                v = float(value)
-                if abs(v) <= 1:
-                    v *= 100.0
-                return v
+                return float(v)
             except Exception:
                 return 0.0
 
-        perf_pct = [_fmt_pct(v) for v in perf_series]
-        vol_pct = [_fmt_pct(v) for v in vol_series]
+        perf_pct = [_safe_float(v) for v in perf_series]
+        vol_pct = [_safe_float(v) for v in vol_series]
+
+        # Supprimer le dernier point si sa volatilité est aberrante (> 2× la médiane des autres)
+        if len(vol_pct) >= 3:
+            others = sorted(v for v in vol_pct[:-1] if v is not None and v > 0)
+            if others:
+                median_vol = others[len(others) // 2]
+                if median_vol > 0 and vol_pct[-1] is not None and vol_pct[-1] > median_vol * 2.5:
+                    vol_pct = vol_pct[:-1]
+                    perf_pct = perf_pct[:-1]
+                    years = years[:-1]
+
         years_labels = [str(y) for y in years]
         x = list(range(len(years_labels)))
         width = 0.6
@@ -4529,7 +4537,19 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
 
     client_series_pairs = [(d, v) for d, v in client_sicav_series if d and _within_alloc_range(d)]
 
+    def _strip_trailing_zeros(series: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        i = len(series) - 1
+        while i >= 0:
+            try:
+                if float(series[i][1] or 0) > 0.001:
+                    break
+            except Exception:
+                pass
+            i -= 1
+        return series[: i + 1] if i >= 0 else series
+
     def _to_base100(series: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        series = _strip_trailing_zeros(series)
         base = None
         for _, val in series:
             try:
@@ -24851,10 +24871,10 @@ def _recompute_srri_clients(db: Session) -> float:
                 ),
                 dietz_calc AS (
                   SELECT *,
-                    1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
+                    COALESCE(EXP(SUM(LN(1 + CASE WHEN r > -1 AND r <= 5 THEN r ELSE NULL END)) OVER (
                       PARTITION BY id ORDER BY `date`
-                      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                    ) AS dietz
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    )), 1.0) AS dietz
                   FROM base
                 ),
                 perf AS (
@@ -24863,8 +24883,7 @@ def _recompute_srri_clients(db: Session) -> float:
                          r, dietz, rn,
                          CASE
                            WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                           ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                                / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                           ELSE dietz / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
                          END AS perf_dietz
                   FROM dietz_calc
                 ),
@@ -24893,8 +24912,7 @@ def _recompute_srri_clients(db: Session) -> float:
                        rn,
                        CASE
                          WHEN LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                         ELSE (dietz - LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`))
-                              / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0)
+                         ELSE dietz / NULLIF(LAG(dietz, {win}) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
                        END AS perf_52
                 FROM vola
                 WHERE id IS NOT NULL
@@ -24968,10 +24986,10 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
             ),
             dietz_calc AS (
               SELECT *,
-                1 + SUM(COALESCE(CASE WHEN r >= -1 AND r <= 5 THEN r ELSE NULL END, 0)) OVER (
+                COALESCE(EXP(SUM(LN(1 + CASE WHEN r > -1 AND r <= 5 THEN r ELSE NULL END)) OVER (
                   PARTITION BY id ORDER BY `date`
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ) AS dietz
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                )), 1.0) AS dietz
               FROM base
             ),
             perf AS (
@@ -24981,8 +24999,7 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
                 mouvement, valorisation_suiv, r, dietz, rn,
                 CASE
                   WHEN LAG(dietz) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                  ELSE (dietz - LAG(dietz) OVER (PARTITION BY id ORDER BY `date`))
-                       / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0)
+                  ELSE dietz / NULLIF(LAG(dietz) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
                 END AS perf_dietz
               FROM dietz_calc
             ),
@@ -25012,8 +25029,7 @@ def _srri_cte_for_window(window: int, sqrt_factor: float, id_filter_sql: str) ->
               rn,
               CASE
                 WHEN LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`) IS NULL THEN NULL
-                ELSE (dietz - LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`))
-                     / NULLIF(LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`), 0)
+                ELSE dietz / NULLIF(LAG(dietz, {window}) OVER (PARTITION BY id ORDER BY `date`), 0) - 1
               END AS perf_52
             FROM vola
             WHERE id IS NOT NULL
