@@ -276,7 +276,7 @@
     </div>
 
     <div id="allocPerfCard" class="card alloc-perf-card" style="margin-top:1.5rem;">
-        <h3>Performance et Volatilité</h3>
+        <h3>Performance hebdomadaire et Volatilité</h3>
         <div id="sicavChart" style="height: 280px;"></div>
     </div>
 
@@ -947,7 +947,7 @@ $(document).ready(function () {
           margin: { l: 50, r: 50, t: 10, b: 30 },
           xaxis: { type: 'date', tickformat: '%Y-%m-%d', automargin: true },
           yaxis: {
-            title: (currentAllocName || 'SICAV'),
+            title: 'Performance (%)',
             rangemode: 'normal',
             range: [smin - smargin, smax + smargin],
             tickformat: ',.0f',
@@ -980,18 +980,26 @@ $(document).ready(function () {
     });
     $('.rangeBtn').on('click', function(){ applyRange($(this).data('range')); });
 
-    // Sélection par défaut : première allocation de la liste
+    // Sélection par défaut : allocation depuis URL ?nom=, sinon première ligne visible
     try {
-        var firstBtn = document.querySelector('#allocationsTable tbody .seeBtn');
-        if (firstBtn) {
-            var firstNom = firstBtn.getAttribute('data-nom');
-            var firstAid = firstBtn.getAttribute('data-aid');
-            if (firstNom) {
-                buildSeriesForNom(firstNom);
-            }
-            if (firstAid) {
-                renderAllocSimulations(firstAid);
-            }
+        var _urlNom = (new URLSearchParams(window.location.search)).get('nom');
+        var _targetBtn = null;
+        if (_urlNom) {
+            // Cherche le bouton correspondant exactement au nom de l'URL
+            document.querySelectorAll('#allocationsTable tbody .seeBtn').forEach(function(b) {
+                if (!_targetBtn && b.getAttribute('data-nom') === _urlNom) _targetBtn = b;
+            });
+        }
+        if (!_targetBtn) {
+            // Première ligne visible selon DataTables (filtrée)
+            var _firstNode = table.rows({ search: 'applied', order: 'current' }).nodes()[0];
+            _targetBtn = _firstNode ? _firstNode.querySelector('.seeBtn') : document.querySelector('#allocationsTable tbody .seeBtn');
+        }
+        if (_targetBtn) {
+            var _tNom = _targetBtn.getAttribute('data-nom');
+            var _tAid = _targetBtn.getAttribute('data-aid');
+            if (_tNom) buildSeriesForNom(_tNom);
+            if (_tAid) renderAllocSimulations(_tAid);
         }
     } catch(e) {}
 });
