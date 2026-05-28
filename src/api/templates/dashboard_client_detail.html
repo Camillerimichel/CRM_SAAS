@@ -59,7 +59,8 @@
     margin-bottom:12px;
   }
   .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin-bottom: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .grid > .card { min-width: 0; }
   .card-header {
     display:inline-flex;
     align-items:center;
@@ -681,6 +682,79 @@
     .contract-item-perf { padding-left:0; }
     .contract-item-volat { margin-left:0; }
   }
+
+  /* ===== Table-list v2 : Contrats & Supports ===== */
+  .inv-list-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    border-bottom: 2px solid #e2e8f0;
+    margin-bottom: 2px;
+  }
+  /* Taille de base uniformisée pour toutes les cellules */
+  .inv-contracts-row, .inv-supports-row {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+  }
+  /* Annuler la taille héritée de .contract-ref (1rem) dans ce contexte */
+  .inv-contracts-row .contract-ref { font-size: inherit; }
+  /* colonnes contrats */
+  .icl-ref   { flex: 3 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icl-gauge { flex: 0 0 150px; }
+  .icl-date  { flex: 0 0 84px; white-space: nowrap; text-align: center; justify-content: center; display: flex; }
+  .icl-amt   { flex: 1.3 1 0; min-width: 80px; display: flex; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+  .icl-perf  { flex: 0 0 62px; text-align: right; font-variant-numeric: tabular-nums; }
+  .icl-vol   { flex: 0 0 62px; text-align: right; font-variant-numeric: tabular-nums; }
+  .icl-srri, .icl-sri { flex: 0 0 32px; display: flex; justify-content: center; }
+  .icl-e, .icl-s, .icl-g { flex: 0 0 24px; display: flex; justify-content: center; }
+  /* colonnes supports */
+  .isl-name  { flex: 4 1 0; min-width: 0; overflow: hidden; }
+  .isl-gauge { flex: 0 0 150px; }
+  .isl-ctr   { flex: 0 0 48px; text-align: center; font-variant-numeric: tabular-nums; }
+  .isl-parts, .isl-prmp, .isl-vl { flex: 1 1 0; min-width: 65px; text-align: right; font-variant-numeric: tabular-nums; }
+  .isl-valo  { flex: 1.3 1 0; min-width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
+  .isl-e, .isl-s, .isl-g { flex: 0 0 24px; display: flex; justify-content: center; }
+  /* chip SRRI/SRI coloré : 1=vert foncé → 7=rouge foncé */
+  .srri-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 5px;
+    font-size: 0.78rem; font-weight: 800; color: #fff; flex-shrink: 0; cursor: default;
+  }
+  .srri-1 { background: #166534; }
+  .srri-2 { background: #16a34a; }
+  .srri-3 { background: #65a30d; color: #1a1a1a; }
+  .srri-4 { background: #ca8a04; color: #1a1a1a; }
+  .srri-5 { background: #ea580c; }
+  .srri-6 { background: #dc2626; }
+  .srri-7 { background: #991b1b; }
+  .srri-x { background: #cbd5e1; color: #475569; }
+  /* NRO vs SRRI profil : fond coloré + anneau + texte blanc */
+  .nro-above { background: #dc2626 !important; color: #fff !important; box-shadow: 0 0 0 2px #991b1b; }
+  .nro-equal { background: #16a34a !important; color: #fff !important; box-shadow: 0 0 0 2px #14532d; }
+  .nro-below { background: #3b82f6 !important; color: #fff !important; box-shadow: 0 0 0 2px #1d4ed8; }
+  /* badge ESG compact (lettre dans un carré, réutilise esg-a…esg-g) */
+  .esg-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 5px;
+    font-size: 0.7rem; font-weight: 800; flex-shrink: 0; cursor: default;
+  }
+  /* padding compact en mode table-list */
+  .contract-card.inv-contracts-row { padding: 8px 14px; }
+  .support-card.inv-supports-row   { padding: 8px 14px; }
+  /* petits écrans : header masqué, retour flex-wrap */
+  @media (max-width: 860px) {
+    .inv-list-header { display: none; }
+    .inv-contracts-row, .inv-supports-row { flex-wrap: wrap; gap: 6px 10px; }
+    .icl-ref, .isl-name { flex-basis: 100%; white-space: normal; }
+    .icl-gauge, .isl-gauge { flex-basis: 100%; }
+  }
+
   /* Boutons pilule type KYC */
   .kyc-main-btn { padding:10px 18px; border-radius:999px; border:1px solid var(--primary); background:var(--primary); color:#fff; font-weight:600; font-size:.95rem; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-width:auto; text-align:center; white-space:nowrap; }
   .kyc-main-btn-red { background:#dc2626; border-color:#b91c1c; }
@@ -853,7 +927,7 @@
             <form method="post" action="/dashboard/clients/{{ client.id }}/commercial" id="commercialForm" style="display:inline;">
               {% if cl_markers_param %}<input type="hidden" name="markers" value="1" />{% endif %}
               <span style="display:inline-flex; align-items:center; gap:8px;">
-                <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="min-width:220px;">
+                <select id="commercialSelect" name="commercial_id" onchange="this.form.submit()" style="width:100%; max-width:100%; min-width:0;">
                   <option value="">— Aucun —</option>
                   {% for rh in rh_list %}
                     <option value="{{ rh.id }}" {% if client and client.commercial_id is not none and (client.commercial_id|int) == (rh.id|int) %}selected{% endif %}>{{ rh.prenom }} {{ rh.nom }}</option>
@@ -879,7 +953,7 @@
         <div class="kpi-mini kpi-line"><span>Valorisation</span><span class="kv valo {{ 'valo-positive' if valo_gt_solde else 'valo-negative' }}">{{ last_valo_str }}</span></div>
         <div class="kpi-mini kpi-line"><span>Solde net</span><span class="kv">{{ solde_str }}</span></div>
         <div class="kpi-mini kpi-line"><span>Contrats actifs</span><span class="kv">{{ nb_contrats_ouverts }}</span></div>
-        <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ nb_supports_actifs }}</span></div>
+        <div class="kpi-mini kpi-line"><span>Supports référencés</span><span class="kv">{{ consolidated_supports|length }}</span></div>
         {% set offre_nom = allocation_reference_name or allocation_risque_name_raw or (risque_latest.allocation_nom if risque_latest else (risque_snapshot.allocation_nom if risque_snapshot else None)) %}
         <div class="kpi-mini kpi-line">
           <span>Offre financière retenue</span>
@@ -934,36 +1008,27 @@
           </span>
         </div>
         <div class="kpi-mini kpi-line">
-          <span>Note ESG</span>
-          <span class="kv">
-            <span class="esg-scale" title="Note ESG: {{ client_esg_grade or '—' }}">
-              <span class="esg-scale-item {% if client_esg_grade == 'A' %}active esg-a{% endif %}">A</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'B' %}active esg-b{% endif %}">B</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'C' %}active esg-c{% endif %}">C</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'D' %}active esg-d{% endif %}">D</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'E' %}active esg-e{% endif %}">E</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'F' %}active esg-f{% endif %}">F</span>
-              <span class="esg-scale-item {% if client_esg_grade == 'G' %}active esg-g{% endif %}">G</span>
-            </span>
-          </span>
-        </div>
-        <div class="kpi-mini kpi-line">
           <span>Notes ESG</span>
           <span class="kv" style="gap:6px;">
-            {% if client_esg_e_grade %}
-              <span class="esg-grade esg-{{ client_esg_e_grade|lower }}">Env: {{ client_esg_e_grade }}</span>
+            {% if client_esg_grade %}
+              <span class="esg-grade esg-{{ client_esg_grade|lower }}" title="Note ESG globale">{{ client_esg_grade }}</span>
             {% else %}
-              <span class="muted">Env: —</span>
+              <span class="muted">—</span>
+            {% endif %}
+            {% if client_esg_e_grade %}
+              <span class="esg-grade esg-{{ client_esg_e_grade|lower }}" title="Environnement : {{ client_esg_e_grade }}">E</span>
+            {% else %}
+              <span class="muted" title="Environnement : —">E —</span>
             {% endif %}
             {% if client_esg_s_grade %}
-              <span class="esg-grade esg-{{ client_esg_s_grade|lower }}">Soc: {{ client_esg_s_grade }}</span>
+              <span class="esg-grade esg-{{ client_esg_s_grade|lower }}" title="Social : {{ client_esg_s_grade }}">S</span>
             {% else %}
-              <span class="muted">Soc: —</span>
+              <span class="muted" title="Social : —">S —</span>
             {% endif %}
             {% if client_esg_g_grade %}
-              <span class="esg-grade esg-{{ client_esg_g_grade|lower }}">Gov: {{ client_esg_g_grade }}</span>
+              <span class="esg-grade esg-{{ client_esg_g_grade|lower }}" title="Gouvernance : {{ client_esg_g_grade }}">G</span>
             {% else %}
-              <span class="muted">Gov: —</span>
+              <span class="muted" title="Gouvernance : —">G —</span>
             {% endif %}
           </span>
         </div>
@@ -2684,121 +2749,120 @@ function generateClientSynthese(){
     {% for a in sorted_client_affaires %}
       {% set contracts_total.val = contracts_total.val + (a.last_valo_numeric or 0) %}
     {% endfor %}
+    {# En-tête de colonne unique #}
+    <div class="inv-list-header inv-contracts-row">
+      <span class="icl-ref">Contrat</span>
+      <span class="icl-gauge">% total</span>
+      <span class="icl-date">Ouverture</span>
+      <span class="icl-amt">Montant</span>
+      <span class="icl-perf">Perf 52s</span>
+      <span class="icl-vol">Volat 52s</span>
+      <span class="icl-srri">SRRI</span>
+      <span class="icl-sri">NRO</span>
+      <span class="icl-e">E</span>
+      <span class="icl-s">S</span>
+      <span class="icl-g">G</span>
+    </div>
     <div id="contractsList" data-tb-marker="CL_16">
       {% for a in sorted_client_affaires %}
-      <a href="/dashboard/affaires/{{ a.id }}" target="_blank" class="contract-card {% if a.date_cle %}highlight-cle{% endif %}">
-        <div class="contract-card-header">
-          <div class="contract-title">
-            <span class="contract-ref">{{ a.ref }}</span>
-            {% if a.date_cle %}<span class="badge-closed">Le contrat est clôturé ({{ (a.date_cle|string)[:10] }})</span>{% endif %}
+      {% set contract_pct = 0 if a.date_cle else ((a.last_valo_numeric or 0) / contracts_total.val * 100 if contracts_total.val else 0) %}
+      {% if contract_pct < 0 %}{% set contract_pct = 0 %}{% endif %}
+      {% if contract_pct > 100 %}{% set contract_pct = 100 %}{% endif %}
+      {% set dot_class = 'valo-neutral' %}
+      {% set dot_title = 'Valorisation stable' %}
+      {% set ecart = a.ecart_valo_mvt if a.ecart_valo_mvt is defined else None %}
+      {% set last_valo_raw = a.last_valo_numeric if a.last_valo_numeric is defined else 0 %}
+      {% if last_valo_raw > 0 and ecart is not none %}
+        {% if ecart >= 0 %}{% set dot_class = 'valo-up' %}{% set dot_title = 'Contrat en plus-value' %}
+        {% else %}{% set dot_class = 'valo-down' %}{% set dot_title = 'Contrat en moins-value' %}{% endif %}
+      {% elif ecart is none %}{% set dot_title = 'Historique mouvements indisponible' %}
+      {% else %}{% set dot_title = 'Valorisation nulle ou négative' %}{% endif %}
+      {% set noteE_raw = (a.noteE|string)|upper if a.noteE is not none else '' %}
+      {% set noteS_raw = (a.noteS|string)|upper if a.noteS is not none else '' %}
+      {% set noteG_raw = (a.noteG|string)|upper if a.noteG is not none else '' %}
+      {% set srri_val = a.srri_calc|int(0) if a.srri_calc is not none else 0 %}
+      {% set sri_val  = a.sri|int(0)      if a.sri       is not none else 0 %}
+      {% set srri_ref = a.SRRI|int(0)     if a.SRRI      is not none else 0 %}
+      {% set srri_tip = '' %}
+      {% if a.srri_icon == 'fire' %}{% set srri_tip = ' (en-dessous du profil)' %}
+      {% elif a.srri_icon == 'hands-praying' %}{% set srri_tip = ' (dans le profil)' %}
+      {% elif a.srri_icon == 'snowflake' %}{% set srri_tip = ' (au-dessus du profil)' %}{% endif %}
+      {% set nro_ring = '' %}
+      {% set nro_tip  = 'NRO ' ~ sri_val %}
+      {% if sri_val > 0 and srri_ref > 0 %}
+        {% if sri_val > srri_ref %}
+          {% set nro_ring = 'nro-above' %}{% set nro_tip = 'NRO ' ~ sri_val ~ ' — au-dessus du profil (SRRI ' ~ srri_ref ~ ')' %}
+        {% elif sri_val == srri_ref %}
+          {% set nro_ring = 'nro-equal' %}{% set nro_tip = 'NRO ' ~ sri_val ~ ' — dans le profil (SRRI ' ~ srri_ref ~ ')' %}
+        {% else %}
+          {% set nro_ring = 'nro-below' %}{% set nro_tip = 'NRO ' ~ sri_val ~ ' — en-dessous du profil (SRRI ' ~ srri_ref ~ ')' %}
+        {% endif %}
+      {% endif %}
+      <a href="/dashboard/affaires/{{ a.id }}" target="_blank"
+         class="contract-card inv-contracts-row {% if a.date_cle %}highlight-cle{% endif %}">
+        <span class="icl-ref">
+          <span class="contract-ref">{{ a.ref }}</span>
+          {% if a.date_cle %}<span class="badge-closed" style="margin-left:6px;">Clôturé {{ (a.date_cle|string)[:10] }}</span>{% endif %}
+        </span>
+        <span class="icl-gauge">
+          <div class="value-gauge" title="Part du contrat : {{ '%.1f'|format(contract_pct) }} %">
+            <div class="value-gauge-track"><div class="value-gauge-fill" style="width:{{ '%.1f'|format(contract_pct) }}%;"></div></div>
+            <div class="value-gauge-pct">{{ '%.1f'|format(contract_pct) }}%</div>
           </div>
-          {% set contract_pct = (a.last_valo_numeric or 0) / contracts_total.val * 100 if contracts_total.val else 0 %}
-          {% if contract_pct < 0 %}{% set contract_pct = 0 %}{% endif %}
-          {% if contract_pct > 100 %}{% set contract_pct = 100 %}{% endif %}
-          <div class="contract-pct-wrap">
-            <span class="muted" style="font-size:0.8rem; font-weight:600; text-align:right; min-width:60px;">%/total</span>
-            <div class="value-gauge" title="Part du contrat: {{ '%.1f'|format(contract_pct) }} %">
-              <div class="value-gauge-track">
-                <div class="value-gauge-fill" style="width: {{ '%.1f'|format(contract_pct) }}%;"></div>
-              </div>
-              <div class="value-gauge-pct">{{ '%.1f'|format(contract_pct) }}%</div>
-            </div>
-          </div>
-          <div class="contract-esg">
-            <span class="label">Notes ESG</span>
-            {% set noteE_raw = (a.noteE|string)|upper if a.noteE is not none else '' %}
-            {% set noteS_raw = (a.noteS|string)|upper if a.noteS is not none else '' %}
-            {% set noteG_raw = (a.noteG|string)|upper if a.noteG is not none else '' %}
-            {% if noteE_raw %}
-              <span class="esg-grade esg-{{ noteE_raw[:1]|lower }}">Env {{ noteE_raw[:1] }}</span>
-            {% else %}
-              <span class="muted">Env —</span>
-            {% endif %}
-            {% if noteS_raw %}
-              <span class="esg-grade esg-{{ noteS_raw[:1]|lower }}">Soc {{ noteS_raw[:1] }}</span>
-            {% else %}
-              <span class="muted">Soc —</span>
-            {% endif %}
-            {% if noteG_raw %}
-              <span class="esg-grade esg-{{ noteG_raw[:1]|lower }}">Gov {{ noteG_raw[:1] }}</span>
-            {% else %}
-              <span class="muted">Gov —</span>
-            {% endif %}
-          </div>
-        </div>
-        <div class="contract-card-grid">
-          <div class="contract-item">
-            <div class="contract-label">Date début</div>
-            <div class="contract-value">{{ (a.date_debut|string)[:10] if a.date_debut else '' }}</div>
-          </div>
-          {% set dot_class = 'valo-neutral' %}
-          {% set dot_title = 'Valorisation stable' %}
-          {% set ecart = a.ecart_valo_mvt if a.ecart_valo_mvt is defined else None %}
-          {% set last_valo_raw = a.last_valo_numeric if a.last_valo_numeric is defined else 0 %}
-          {% if last_valo_raw > 0 and ecart is not none %}
-            {% if ecart >= 0 %}
-              {% set dot_class = 'valo-up' %}
-              {% set dot_title = 'Contrat en plus-value' %}
-            {% else %}
-              {% set dot_class = 'valo-down' %}
-              {% set dot_title = 'Contrat en moins-value' %}
-            {% endif %}
-          {% elif ecart is none %}
-            {% set dot_title = 'Historique mouvements indisponible' %}
+        </span>
+        <span class="icl-date">{{ (a.date_debut|string)[:10] if a.date_debut else '—' }}</span>
+        <span class="icl-amt">
+          {% if a.date_cle %}
+            <span class="muted">0</span>
           {% else %}
-            {% set dot_title = 'Valorisation nulle ou négative' %}
+            <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
           {% endif %}
-          <div class="contract-item contract-item-amount">
-            <div class="contract-label">Montant</div>
-            <div class="contract-value">
-              <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
-            </div>
-          </div>
-          <div class="contract-item contract-item-perf">
-            <div class="contract-label">Perf. 52s</div>
-            <div class="contract-value">{% if a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% endif %}</div>
-          </div>
-          <div class="contract-item contract-item-volat">
-            <div class="contract-label">Volat. 52s</div>
-            <div class="contract-value">{% if a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% endif %}</div>
-          </div>
-          <div class="contract-item contract-item-srri">
-            <div class="contract-label">SRRI</div>
-            <div class="contract-value">
-              {% if a.srri_icon %}
-                {% if a.srri_icon == 'fire' %}
-                  <span class="srri-dot srri-blue" title="Au‑dessus" aria-hidden="true"></span>
-                {% elif a.srri_icon == 'hands-praying' %}
-                  <span class="srri-dot srri-green" title="Identique" aria-hidden="true"></span>
-                {% elif a.srri_icon == 'snowflake' %}
-                  <span class="srri-dot srri-red" title="En‑dessous" aria-hidden="true"></span>
-                {% else %}{% endif %}
-              {% endif %}
-              {% if a.SRRI is not none %}
-                <span class="sri-scale" aria-hidden="true">
-                  {% for i in range(1, 8) %}
-                    <span class="sri-scale-item {% if a.SRRI == i %}active{% endif %}">{{ i }}</span>
-                  {% endfor %}
-                </span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="contract-item contract-item-sri">
-            <div class="contract-label">SRI</div>
-            <div class="contract-value">
-              {{ a.sri if a.sri is not none else '—' }}
-              {% if a.sri is not none %}
-                <span class="sri-scale" aria-hidden="true">
-                  {% for i in range(1, 8) %}
-                    <span class="sri-scale-item {% if a.sri == i %}active{% endif %}">{{ i }}</span>
-                  {% endfor %}
-                </span>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+        </span>
+        <span class="icl-perf">{% if not a.date_cle and a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
+        <span class="icl-vol">{% if not a.date_cle and a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
+        <span class="icl-srri">
+          {% if srri_val >= 1 and srri_val <= 7 %}
+            {% set srri_ring = '' %}
+            {% if a.srri_icon == 'fire' %}{% set srri_ring = 'nro-below' %}
+            {% elif a.srri_icon == 'hands-praying' %}{% set srri_ring = 'nro-equal' %}
+            {% elif a.srri_icon == 'snowflake' %}{% set srri_ring = 'nro-above' %}{% endif %}
+            <span class="srri-chip srri-{{ srri_val }} {{ srri_ring }}" title="SRRI calculé {{ srri_val }}{{ srri_tip }}">{{ srri_val }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </span>
+        <span class="icl-sri">
+          {% if sri_val >= 1 and sri_val <= 7 %}
+            <span class="srri-chip srri-{{ sri_val }} {{ nro_ring }}" title="{{ nro_tip }}">{{ sri_val }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </span>
+        <span class="icl-e">
+          {% if noteE_raw %}
+            <span class="esg-badge esg-{{ noteE_raw[:1]|lower }}" title="Environnement : {{ noteE_raw[:1] }}">{{ noteE_raw[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
+        <span class="icl-s">
+          {% if noteS_raw %}
+            <span class="esg-badge esg-{{ noteS_raw[:1]|lower }}" title="Social : {{ noteS_raw[:1] }}">{{ noteS_raw[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
+        <span class="icl-g">
+          {% if noteG_raw %}
+            <span class="esg-badge esg-{{ noteG_raw[:1]|lower }}" title="Gouvernance : {{ noteG_raw[:1] }}">{{ noteG_raw[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
       </a>
       {% endfor %}
+    </div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; padding:6px 14px; font-size:0.75rem; color:#6b7280; align-items:center;">
+      <span style="font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Légende SRRI / NRO</span>
+      <span style="display:inline-flex; align-items:center; gap:5px;">
+        <span class="srri-chip nro-above" style="width:16px;height:16px;font-size:0;"></span> Au-dessus du profil questionnaire
+      </span>
+      <span style="display:inline-flex; align-items:center; gap:5px;">
+        <span class="srri-chip nro-equal" style="width:16px;height:16px;font-size:0;"></span> Dans le profil
+      </span>
+      <span style="display:inline-flex; align-items:center; gap:5px;">
+        <span class="srri-chip nro-below" style="width:16px;height:16px;font-size:0;"></span> En-dessous du profil
+      </span>
     </div>
 
     {% if contrats_sans_historique %}
@@ -2829,7 +2893,7 @@ function generateClientSynthese(){
     {% endif %}
 
     </div>
-    <div id="invSupportsBlock">
+    <div id="invSupportsBlock" style="margin-top: 28px;">
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <h3 id="supportsTitle" class="section-title-blue toggle-title" style="margin-top:0;">Supports consolidés (tous contrats)</h3>
     </div>
@@ -2837,112 +2901,77 @@ function generateClientSynthese(){
     {% for s in consolidated_supports %}
       {% set supports_total.val = supports_total.val + (s.valo_totale or 0) %}
     {% endfor %}
+    {# En-tête de colonne unique #}
+    <div class="inv-list-header inv-supports-row">
+      <span class="isl-name">Support (ISIN · Nom)</span>
+      <span class="isl-gauge">% total</span>
+      <span class="isl-ctr">Ctr.</span>
+      <span class="isl-parts">Nb parts</span>
+      <span class="isl-prmp">Px revient</span>
+      <span class="isl-vl">VL moy.</span>
+      <span class="isl-valo">Valorisation</span>
+      <span class="isl-e">E</span>
+      <span class="isl-s">S</span>
+      <span class="isl-g">G</span>
+    </div>
     <div id="supportsList">
       {% for s in consolidated_supports %}
-      <div class="support-card" data-isin="{{ s.code_isin or '' }}" data-name="{{ s.support_nom or '' }}" tabindex="0" role="button">
-        <div class="support-card-header">
-          <div class="support-title">
+      {% set support_pct = (s.valo_totale or 0) / supports_total.val * 100 if supports_total.val else 0 %}
+      {% if support_pct < 0 %}{% set support_pct = 0 %}{% endif %}
+      {% if support_pct > 100 %}{% set support_pct = 100 %}{% endif %}
+      {% set nav_class = 'nav-dot nav-neutral' %}
+      {% set nav_title = 'VL indisponible' %}
+      {% if s.prmp_consolide is not none and s.vl_moyenne is not none %}
+        {% if s.prmp_consolide > s.vl_moyenne %}{% set nav_class = 'nav-dot nav-red' %}{% set nav_title = 'Prix de revient supérieur à la VL' %}
+        {% else %}{% set nav_class = 'nav-dot nav-green' %}{% set nav_title = 'Prix de revient inférieur ou égal à la VL' %}{% endif %}
+      {% elif s.vl_moyenne is not none %}{% set nav_class = 'nav-dot nav-green' %}{% set nav_title = 'VL disponible' %}{% endif %}
+      {% set snE = (s.noteE|string)|upper if s.noteE is not none else '' %}
+      {% set snS = (s.noteS|string)|upper if s.noteS is not none else '' %}
+      {% set snG = (s.noteG|string)|upper if s.noteG is not none else '' %}
+      <div class="support-card inv-supports-row"
+           data-isin="{{ s.code_isin or '' }}" data-name="{{ s.support_nom or '' }}"
+           tabindex="0" role="button">
+        <span class="isl-name" style="display:flex; flex-direction:column; min-width:0; gap:1px;">
+          <span style="font-size:0.78rem; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
             {% if s.code_isin %}
               <a href="#" class="consolidated-support-link" data-isin="{{ s.code_isin }}" data-name="{{ s.support_nom or '' }}">{{ s.code_isin }}</a>
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
-            <span class="support-name">{{ s.support_nom or '—' }}</span>
-          </div>
-          {% set support_pct = (s.valo_totale or 0) / supports_total.val * 100 if supports_total.val else 0 %}
-          {% if support_pct < 0 %}{% set support_pct = 0 %}{% endif %}
-          {% if support_pct > 100 %}{% set support_pct = 100 %}{% endif %}
-          <div class="value-gauge" title="Part du support: {{ '%.1f'|format(support_pct) }} %">
-            <div class="value-gauge-track">
-              <div class="value-gauge-fill" style="width: {{ '%.1f'|format(support_pct) }}%;"></div>
-            </div>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </span>
+          <span style="font-size:0.88rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ s.support_nom or '—' }}</span>
+        </span>
+        <span class="isl-gauge">
+          <div class="value-gauge" title="Part du support : {{ '%.1f'|format(support_pct) }} %">
+            <div class="value-gauge-track"><div class="value-gauge-fill" style="width:{{ '%.1f'|format(support_pct) }}%;"></div></div>
             <div class="value-gauge-pct">{{ '%.1f'|format(support_pct) }}%</div>
           </div>
-        </div>
-        <div class="support-card-grid">
-          <div class="support-item">
-            <div class="support-label">Contrats</div>
-            <div class="support-value">{{ s.contrats_count_str or '0' }}</div>
-          </div>
-          <div class="support-item support-item-parts">
-            <div class="support-label">Nb parts</div>
-            <div class="support-value">{{ s.nb_parts_str or '—' }}</div>
-          </div>
-          <div class="support-item support-item-prmp">
-            <div class="support-label">Prix de revient</div>
-            <div class="support-value">{{ s.prmp_str or '—' }}</div>
-          </div>
-          <div class="support-item support-item-vl">
-            <div class="support-label">VL moyenne</div>
-            <div class="support-value">
-              {% set nav_class = 'nav-dot nav-neutral' %}
-              {% set nav_title = 'VL indisponible' %}
-              {% if s.prmp_consolide is not none and s.vl_moyenne is not none %}
-                {% if s.prmp_consolide > s.vl_moyenne %}
-                  {% set nav_class = 'nav-dot nav-red' %}
-                  {% set nav_title = 'Prix de revient supérieur à la VL' %}
-                {% else %}
-                  {% set nav_class = 'nav-dot nav-green' %}
-                  {% set nav_title = 'Prix de revient inférieur ou égal à la VL' %}
-                {% endif %}
-              {% elif s.vl_moyenne is not none %}
-                {% set nav_class = 'nav-dot nav-green' %}
-                {% set nav_title = 'VL disponible' %}
-              {% endif %}
-              {% if s.vl_str %}
-                <span class="{{ nav_class }}" aria-hidden="true" title="{{ nav_title }}"></span>{{ s.vl_str }}
-              {% else %}
-                <span class="muted">-</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="support-item support-item-valo">
-            <div class="support-label">Valorisation</div>
-            <div class="support-value">{{ s.valo_str or '—' }}</div>
-          </div>
-          <div class="support-item support-item-esg">
-            <div class="support-label">Env</div>
-            <div class="support-value">
-              {% set noteE_raw = (s.noteE|string)|upper if s.noteE is not none else '' %}
-              {% set noteE_class = noteE_raw[:1] if noteE_raw else '' %}
-              {% if noteE_class in ['A','B','C','D','E','F','G'] %}
-                <span class="esg-grade esg-{{ noteE_class|lower }}">{{ noteE_raw }}</span>
-              {% elif noteE_raw %}
-                <span class="esg-grade esg-unknown">{{ noteE_raw }}</span>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="support-item support-item-esg">
-            <div class="support-label">Social</div>
-            <div class="support-value">
-              {% set noteS_raw = (s.noteS|string)|upper if s.noteS is not none else '' %}
-              {% set noteS_class = noteS_raw[:1] if noteS_raw else '' %}
-              {% if noteS_class in ['A','B','C','D','E','F','G'] %}
-                <span class="esg-grade esg-{{ noteS_class|lower }}">{{ noteS_raw }}</span>
-              {% elif noteS_raw %}
-                <span class="esg-grade esg-unknown">{{ noteS_raw }}</span>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="support-item support-item-esg">
-            <div class="support-label">Gouv</div>
-            <div class="support-value">
-              {% set noteG_raw = (s.noteG|string)|upper if s.noteG is not none else '' %}
-              {% set noteG_class = noteG_raw[:1] if noteG_raw else '' %}
-              {% if noteG_class in ['A','B','C','D','E','F','G'] %}
-                <span class="esg-grade esg-{{ noteG_class|lower }}">{{ noteG_raw }}</span>
-              {% elif noteG_raw %}
-                <span class="esg-grade esg-unknown">{{ noteG_raw }}</span>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+        </span>
+        <span class="isl-ctr">{{ s.contrats_count_str or '0' }}</span>
+        <span class="isl-parts">{{ s.nb_parts_str or '—' }}</span>
+        <span class="isl-prmp">{{ s.prmp_str or '—' }}</span>
+        <span class="isl-vl">
+          {% if s.vl_str %}
+            <span class="{{ nav_class }}" aria-hidden="true" title="{{ nav_title }}"></span>{{ s.vl_str }}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </span>
+        <span class="isl-valo">{{ s.valo_str or '—' }}</span>
+        <span class="isl-e">
+          {% if snE and snE[:1] in ['A','B','C','D','E','F','G'] %}
+            <span class="esg-badge esg-{{ snE[:1]|lower }}" title="Environnement : {{ snE[:1] }}">{{ snE[:1] }}</span>
+          {% elif snE %}<span class="esg-badge esg-unknown" title="{{ snE }}">{{ snE[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
+        <span class="isl-s">
+          {% if snS and snS[:1] in ['A','B','C','D','E','F','G'] %}
+            <span class="esg-badge esg-{{ snS[:1]|lower }}" title="Social : {{ snS[:1] }}">{{ snS[:1] }}</span>
+          {% elif snS %}<span class="esg-badge esg-unknown" title="{{ snS }}">{{ snS[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
+        <span class="isl-g">
+          {% if snG and snG[:1] in ['A','B','C','D','E','F','G'] %}
+            <span class="esg-badge esg-{{ snG[:1]|lower }}" title="Gouvernance : {{ snG[:1] }}">{{ snG[:1] }}</span>
+          {% elif snG %}<span class="esg-badge esg-unknown" title="{{ snG }}">{{ snG[:1] }}</span>
+          {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
+        </span>
       </div>
       {% endfor %}
       {% if not consolidated_supports %}
