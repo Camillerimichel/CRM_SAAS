@@ -31,6 +31,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin
 from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError, ProgrammingError
+from zoneinfo import ZoneInfo
 
 
 from src.database import get_db
@@ -105,6 +106,7 @@ def _require_feature(request: Request, db: Session, feature: str, action: str):
 
 
 logger = logging.getLogger("uvicorn.error")
+_DISPLAY_TZ = ZoneInfo("Europe/Paris")
 
 _HIST_AFFAIRE_ID_COL: str | None = None
 _SUIVI_EVENT_VIEW_ID_COL: str | None = None
@@ -134,6 +136,12 @@ def _scope_ids_for_access(access, root_societe_id: int | None = None) -> tuple[i
             return (int(root_societe_id),)
         return tuple()
     return tuple(sorted(int(sid) for sid in (getattr(access, "allowed_societes", set()) or set()) if sid is not None))
+
+
+def _fmt_display_dt(dt: datetime, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_DISPLAY_TZ).strftime(fmt)
 
 
 def _descendant_societe_ids(db: Session, root_societe_id: int | None) -> tuple[int, ...]:
@@ -1181,6 +1189,57 @@ ESG_FIELD_LABELS_FR: dict[str, str] = {
     "note_g": "Note G (Gouvernance)",
     "note_esg": "Note ESG globale",
     "evic": "EVIC",
+}
+ESG_FIELD_PILLARS: dict[str, str] = {
+    # Environnement
+    "exposure_to_fossil_fuels": "E",
+    "renewable_energy": "E",
+    "waste_efficiency": "E",
+    "water_efficiency": "E",
+    "environmental_good": "E",
+    "environmental_harm": "E",
+    "avoiding_water_scarcity": "E",
+    "ghg_intensity_value": "E",
+    "emissions_to_water": "E",
+    "hazardous_waste": "E",
+    "scope_1_and_2_carbon_intensity": "E",
+    "scope_3_carbon_intensity": "E",
+    "carbon_trend": "E",
+    "temperature_score": "E",
+    "climate_change_positive": "E",
+    "climate_change_negative": "E",
+    "climate_change_net": "E",
+    "climate_change__negative_revenue": "E",
+    "natural_resource_positive": "E",
+    "natural_resource_negative": "E",
+    "natural_resource_net": "E",
+    "pollution_positive": "E",
+    "pollution_negative": "E",
+    "pollution_net": "E",
+    "pollution__positive_revenue": "E",
+    "pollution__negative_revenue": "E",
+    "biodiversity": "E",
+    "sfdr_biodiversity_pai": "E",
+    "note_e": "E",
+    # Social
+    "social_good": "S",
+    "social_harm": "S",
+    "average_per_employee_spend": "S",
+    "number_of_employees": "S",
+    "pct_female_executives": "S",
+    "pct_female_board": "S",
+    "gender_pay_gap": "S",
+    "processes_ungc": "S",
+    "violations_ungc": "S",
+    "note_s": "S",
+    # Gouvernance
+    "board_gender_diversity": "G",
+    "board_independence": "G",
+    "executive_pay": "G",
+    "controversial_weapons": "G",
+    "note_g": "G",
+    # Global
+    "note_esg": "ESG",
 }
 ESG_UI_ALLOWLIST = {
     "company_name",
@@ -2285,7 +2344,8 @@ def _get_esg_fields(db: Session, debug: bool = False) -> tuple[list[dict], dict]
                 label = _labelize(legacy_label)
             else:
                 label = _labelize(col) if use_labelize else col
-            esg_fields.append({"col": col, "label": label})
+            pillar = ESG_FIELD_PILLARS.get(str(col).lower().replace(" ", "_"), "")
+            esg_fields.append({"col": col, "label": label, "pillar": pillar})
     except Exception:
         esg_fields = []
         esg_fields_debug = {"source": "ERROR", "raw_cols": [], "final": []}
@@ -7257,6 +7317,25 @@ async def dashboard_client_modele_generate(
         raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
 
 
+@router.patch("/clients/{client_id}/email")
+async def dashboard_client_update_email(client_id: int, request: Request, db: Session = Depends(get_db)):
+    """Met à jour l'adresse email d'un client."""
+    _require_client_write(request, db, client_id)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    email = (payload.get("email") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Adresse email invalide.")
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable.")
+    client.email = email
+    db.commit()
+    return {"message": "Email mis à jour", "email": email}
+
+
 @router.post("/clients/{client_id}/documents/save-generated")
 async def dashboard_client_save_generated(
     client_id: int,
@@ -7364,12 +7443,18 @@ async def dashboard_client_save_generated(
 
         ensure_document_client_storage_columns(db)
         base_doc_id = ensure_document_base_for_label(db, nom_document, niveau="généré", risque=None)
+        _now = datetime.utcnow()
+        _2ans_types = {"der", "mission", "adequation", "kyc"}
+        try:
+            _date_obs = _now.replace(year=_now.year + 2) if doc_type in _2ans_types else None
+        except ValueError:
+            _date_obs = _now.replace(year=_now.year + 2, day=28) if doc_type in _2ans_types else None
         doc_client_payload = DocumentClientCreateSchema(
             id_client=client_id,
             id_document_base=base_doc_id,
             nom_document=nom_document,
-            date_creation=datetime.utcnow(),
-            date_obsolescence=None,
+            date_creation=_now,
+            date_obsolescence=_date_obs,
             obsolescence="généré",
             stored_filename=file_path.name,
             stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
@@ -22542,6 +22627,40 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
         task_types = [{"label": "tâche", "categorie": "tache"}]
         categories = ["tache"]
 
+    modeles_doc: list[dict] = []
+    try:
+        _rows_md = db.query(ModeleDocument).order_by(ModeleDocument.nom.asc()).all()
+        modeles_doc = [
+            {"id": m.id, "nom": m.nom or "", "canal": m.canal or "", "objet": m.objet or ""}
+            for m in _rows_md
+            if m.actif is None or int(m.actif or 0) != 0
+        ]
+    except Exception:
+        modeles_doc = []
+
+    # Ajouter le motif aux entrées de groupe pour exposer source_doc_type
+    motif_by_id: dict[int, str] = {}
+    try:
+        from sqlalchemy import text as _t2
+        rows_m = db.execute(_t2("SELECT id, motif FROM administration_groupe_detail")).fetchall()
+        for r in rows_m or []:
+            gid = r[0]
+            mot = r[1] or ""
+            if gid:
+                motif_by_id[int(gid)] = mot
+    except Exception:
+        pass
+
+    for entry in dashboard_groups_personnes + dashboard_groups_affaires:
+        mot = motif_by_id.get(int(entry["id"]), "")
+        src = ""
+        if "type:" in mot:
+            try:
+                src = mot.split("type:")[-1].strip()
+            except Exception:
+                pass
+        entry["source_doc_type"] = src
+
     return templates.TemplateResponse(
         "dashboard_groupes.html",
         {
@@ -22551,6 +22670,7 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
             "responsables": rh_options,
             "grouped_task_types": task_types,
             "grouped_task_categories": categories,
+            "modeles_documentaires": modeles_doc,
         },
     )
 
@@ -22820,6 +22940,398 @@ def _build_group_products(group_id: int, group_type: str, db: Session) -> tuple[
             }
         )
     return items, total_valo
+
+
+@router.get("/groupes/{groupe_id}/membres", response_class=JSONResponse)
+def dashboard_groupes_membres(groupe_id: int, db: Session = Depends(get_db)):
+    """Retourne les membres clients d'un groupe avec leurs données de contact."""
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT g.client_id,
+                       c.nom, c.prenom, c.email, c.adresse_postale
+                FROM administration_groupe g
+                JOIN mariadb_clients c ON c.id = g.client_id
+                WHERE g.groupe_id = :gid AND g.client_id IS NOT NULL
+                  AND (g.actif IS NULL OR g.actif = 1 OR g.actif = '1')
+                ORDER BY c.nom, c.prenom
+                """
+            ),
+            {"gid": groupe_id},
+        ).fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {e}")
+
+    membres = []
+    for r in rows or []:
+        rm = r._mapping
+        nom = (rm.get("nom") or "").strip()
+        prenom = (rm.get("prenom") or "").strip()
+        membres.append({
+            "entity_id": rm.get("client_id"),
+            "type": "client",
+            "label": f"{prenom} {nom}".strip() or f"Client #{rm.get('client_id')}",
+            "nom": nom,
+            "prenom": prenom,
+            "email": rm.get("email") or "",
+            "civilite": "",
+            "adresse": rm.get("adresse_postale") or "",
+        })
+    return {"membres": membres, "groupe_id": groupe_id}
+
+
+@router.post("/groupes/{groupe_id}/send-courrier", response_class=JSONResponse)
+async def dashboard_groupes_send_courrier(groupe_id: int, request: Request, db: Session = Depends(get_db)):
+    """Envoie un courrier (PDF depuis modèle) à tous les membres clients d'un groupe."""
+    _require_client_write(request, db, 0)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    modele_id = payload.get("modele_id")
+    contenu_html = payload.get("contenu_html") or ""
+    objet = (payload.get("objet") or "Courrier").strip()
+    send_mail = bool(payload.get("send_mail", False))
+
+    if not contenu_html.strip():
+        raise HTTPException(status_code=400, detail="Contenu du document vide.")
+
+    group_detail = (
+        db.query(AdministrationGroupeDetail)
+        .filter(AdministrationGroupeDetail.id == int(groupe_id))
+        .first()
+    )
+    group_name = (getattr(group_detail, "nom", None) or f"Groupe #{groupe_id}").strip()
+    missing_email_marker = f"[[GROUP_TASK:missing_email:group={int(groupe_id)}]]"
+
+    # Récupérer les membres clients du groupe
+    from sqlalchemy import text as _tsql
+    rows = db.execute(_tsql(
+        """
+        SELECT g.client_id, c.nom, c.prenom, c.email, c.adresse_postale
+        FROM administration_groupe g
+        JOIN mariadb_clients c ON c.id = g.client_id
+        WHERE g.groupe_id = :gid AND g.client_id IS NOT NULL
+          AND (g.actif IS NULL OR g.actif = 1)
+        """
+    ), {"gid": groupe_id}).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Aucun client dans ce groupe.")
+
+    # Retrouver le document de base (modele)
+    modele_nom = "Courrier"
+    if modele_id:
+        try:
+            from src.models.modele_document import ModeleDocument as _MD
+            m = db.query(_MD).filter(_MD.id == modele_id).first()
+            if m:
+                modele_nom = m.nom or modele_nom
+        except Exception:
+            pass
+
+    # Retrouver l'id_document_base pour ce type de document
+    base_doc_id = ensure_document_base_for_label(db, modele_nom, niveau="généré")
+
+    # obsolescence_annees pour ce type
+    try:
+        from src.models.document import Document as _Doc
+        doc_base = db.query(_Doc).filter(_Doc.id_document_base == base_doc_id).first()
+        obs_annees = getattr(doc_base, "obsolescence_annees", None) or 0
+    except Exception:
+        obs_annees = 0
+
+    sent, skipped, failed = [], [], []
+    sent_mail_clients: list[dict[str, Any]] = []
+
+    try:
+        from weasyprint import HTML as _WP_HTML
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
+
+    _MERGE = {
+        "{{nom_client}}": "nom", "{{prenom_client}}": "prenom",
+        "{{email_client}}": "email", "{{civilite_client}}": "civilite",
+        "{{adresse_postale}}": "adresse_postale",
+    }
+
+    for row in rows:
+        rm = row._mapping
+        cid = rm.get("client_id")
+        if not cid:
+            continue
+        client_data = {
+            "nom": rm.get("nom") or "", "prenom": rm.get("prenom") or "",
+            "email": rm.get("email") or "", "civilite": "",
+            "adresse_postale": rm.get("adresse_postale") or "",
+        }
+        label = f"{client_data['prenom']} {client_data['nom']}".strip() or f"Client #{cid}"
+        try:
+            # Substitution des champs
+            html_client = contenu_html
+            for placeholder, field in _MERGE.items():
+                html_client = html_client.replace(placeholder, client_data.get(field, ""))
+
+            # Génération PDF
+            pdf_bytes = _WP_HTML(string=html_client, base_url=str(request.url)).write_pdf()
+
+            # Sauvegarde fichier
+            file_path = _ensure_generated_client_pdf_path(cid, f"courrier_{modele_id or 0}")
+            file_path.write_bytes(pdf_bytes)
+
+            # Calcul date obsolescence
+            now_utc = datetime.utcnow()
+            try:
+                date_obs = now_utc.replace(year=now_utc.year + obs_annees) if obs_annees else None
+            except ValueError:
+                date_obs = now_utc.replace(year=now_utc.year + obs_annees, day=28) if obs_annees else None
+
+            # Enregistrement dans Documents_client
+            ensure_document_client_storage_columns(db)
+            from src.schemas.document_client import DocumentClientCreateSchema as _DCSchema
+            dc_payload = _DCSchema(
+                id_client=cid,
+                id_document_base=base_doc_id,
+                nom_document=modele_nom,
+                date_creation=now_utc,
+                date_obsolescence=date_obs,
+                obsolescence="généré",
+                stored_filename=file_path.name,
+                stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+                mime_type="application/pdf",
+                file_size=len(pdf_bytes),
+            )
+            create_document_client(db, dc_payload)
+
+            # Envoi email
+            if send_mail:
+                recipient = client_data.get("email", "").strip()
+                if not recipient:
+                    skipped.append({"client_id": cid, "label": label, "reason": "pas d'email"})
+                    continue
+                mail_ok, mail_err = send_email_with_attachments(
+                    recipient, objet, f"Bonjour {client_data['prenom']},\n\nVeuillez trouver ci-joint votre document.\n\nCordialement.",
+                    attachments=[(file_path.name, pdf_bytes, "application/pdf")]
+                )
+                if mail_ok:
+                    sent.append({"client_id": cid, "label": label, "email": recipient})
+                    sent_mail_clients.append(
+                        {
+                            "client_id": cid,
+                            "label": label,
+                            "email": recipient,
+                            "modele_nom": modele_nom,
+                            "objet": objet,
+                        }
+                    )
+                else:
+                    failed.append({"client_id": cid, "label": label, "error": mail_err or "Erreur envoi"})
+            else:
+                sent.append({"client_id": cid, "label": label})
+        except Exception as e:
+            logger.exception("send-courrier client_id=%s", cid)
+            failed.append({"client_id": cid, "label": label, "error": str(e)})
+
+    missing_email_task_id: int | None = None
+    if send_mail and skipped:
+        try:
+            missing_type = (
+                db.query(TypeEvenement)
+                .filter(func.lower(TypeEvenement.libelle) == func.lower("Adresse mail absente"))
+                .filter(func.lower(func.coalesce(TypeEvenement.categorie, "")) == func.lower("Communication"))
+                .first()
+            )
+            missing_task = None
+            if missing_type:
+                marker_query = (
+                    db.query(Evenement)
+                    .filter(Evenement.type_id == missing_type.id)
+                    .filter(Evenement.client_id.is_(None))
+                    .filter(func.locate(missing_email_marker, func.coalesce(Evenement.commentaire, "")) > 0)
+                    .order_by(Evenement.id.asc())
+                )
+                missing_task = marker_query.first()
+                if not missing_task:
+                    legacy_query = (
+                        db.query(Evenement)
+                        .filter(Evenement.type_id == missing_type.id)
+                        .filter(Evenement.client_id.is_(None))
+                        .filter(
+                            func.lower(func.coalesce(Evenement.commentaire, "")).like("%clients sans adresse email%")
+                        )
+                        .order_by(Evenement.id.asc())
+                    )
+                    missing_task = legacy_query.first()
+            if not missing_task:
+                task_lines = [
+                    missing_email_marker,
+                    f"[{_fmt_display_dt(datetime.utcnow())}] Groupe {group_name} (groupe #{groupe_id})",
+                    "Clients sans adresse email :",
+                ]
+                for item in skipped:
+                    cid = item.get("client_id")
+                    label = (item.get("label") or f"Client #{cid}").strip()
+                    if cid:
+                        task_lines.append(f"- {label} — /dashboard/clients/{int(cid)}#courrier")
+                    else:
+                        task_lines.append(f"- {label}")
+                task_payload = TacheCreateSchema(
+                    type_libelle="Adresse mail absente",
+                    categorie="Communication",
+                    commentaire="\n".join(task_lines),
+                    utilisateur_responsable=None,
+                    rh_id=None,
+                )
+                missing_task = create_tache(db, task_payload)
+                missing_email_task_id = getattr(missing_task, "id", None)
+            else:
+                existing_comment = (getattr(missing_task, "commentaire", None) or "").rstrip()
+                section_lines = [
+                    missing_email_marker,
+                    f"[{_fmt_display_dt(datetime.utcnow())}] Groupe {group_name} (groupe #{groupe_id})",
+                    "Clients sans adresse email :",
+                ]
+                for item in skipped:
+                    cid = item.get("client_id")
+                    label = (item.get("label") or f"Client #{cid}").strip()
+                    if cid:
+                        section_lines.append(f"- {label} — /dashboard/clients/{int(cid)}#courrier")
+                    else:
+                        section_lines.append(f"- {label}")
+                section_text = "\n".join(section_lines).strip()
+                if missing_email_marker not in existing_comment:
+                    existing_comment = (missing_email_marker + "\n" + existing_comment).strip()
+                new_comment = existing_comment + ("\n\n" if existing_comment else "") + section_text
+                if new_comment != getattr(missing_task, "commentaire", None):
+                    missing_task.commentaire = new_comment
+                    db.commit()
+                missing_email_task_id = getattr(missing_task, "id", None)
+        except Exception:
+            logger.exception("Impossible de créer ou mettre à jour la tâche 'Adresse mail absente' pour le groupe %s", groupe_id)
+
+    sent_mail_task_ids: list[int] = []
+    removed_from_group: list[int] = []
+    mail_task_errors: list[dict[str, Any]] = []
+    if send_mail and sent_mail_clients:
+        try:
+            finished_status_id = db.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM mariadb_statut_evenement
+                    WHERE lower(libelle) IN ('terminé', 'termine')
+                    ORDER BY id ASC
+                    LIMIT 1
+                    """
+                )
+            ).scalar()
+        except Exception:
+            finished_status_id = None
+
+        for item in sent_mail_clients:
+            cid = item["client_id"]
+            label = item["label"]
+            now_task = datetime.utcnow()
+            now_task_display = _fmt_display_dt(now_task, "%d/%m/%Y")
+            hour_task_display = _fmt_display_dt(now_task, "%H:%M:%S")
+            comment_lines = [
+                f"Modèle exact : {item.get('modele_nom') or 'Courrier'}",
+                "Type de courrier : Courrier PDF",
+                f"Objet : {item.get('objet') or 'Courrier'}",
+                f"Date : {now_task_display}",
+                f"Heure : {hour_task_display}",
+                f"Destinataire : {label} <{item.get('email') or ''}>",
+                f"Fiche client : /dashboard/clients/{cid}#courrier",
+            ]
+            try:
+                task_payload = TacheCreateSchema(
+                    type_libelle="Envoi E-mail",
+                    categorie="Communication",
+                    client_id=cid,
+                    commentaire="\n".join(comment_lines),
+                    utilisateur_responsable=None,
+                    rh_id=None,
+                    statut="terminé",
+                )
+                task = create_tache(db, task_payload)
+                task_id = getattr(task, "id", None)
+                if task_id:
+                    sent_mail_task_ids.append(int(task_id))
+                    if finished_status_id:
+                        try:
+                            add_statut_to_evenement(
+                                db,
+                                int(task_id),
+                                EvenementStatutCreateSchema(
+                                    statut_id=int(finished_status_id),
+                                    commentaire="Créé automatiquement après envoi email",
+                                    utilisateur_responsable=None,
+                                ),
+                            )
+                        except Exception as exc:
+                            mail_task_errors.append(
+                                {"client_id": cid, "label": label, "error": f"statut: {exc}"}
+                            )
+            except Exception as exc:
+                logger.exception("Impossible de créer la tâche 'Envoi E-mail' client_id=%s", cid)
+                mail_task_errors.append({"client_id": cid, "label": label, "error": str(exc)})
+            finally:
+                try:
+                    db.execute(
+                        text(
+                            """
+                            UPDATE administration_groupe
+                            SET actif = 0, date_retrait = :now
+                            WHERE groupe_id = :gid
+                              AND client_id = :cid
+                              AND (actif IS NULL OR actif = 1 OR actif = '1')
+                            """
+                        ),
+                        {
+                            "now": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                            "gid": int(groupe_id),
+                            "cid": int(cid),
+                        },
+                    )
+                    try:
+                        hist_ts = _fmt_display_dt(datetime.utcnow())
+                        hist_line = f"[{hist_ts}] Retrait de {label} (client #{cid}) après envoi E-mail."
+                        db.execute(
+                            text(
+                                """
+                                UPDATE administration_groupe_detail
+                                SET motif = CASE
+                                        WHEN motif IS NULL OR TRIM(motif) = ''
+                                            THEN :hist_line
+                                        ELSE CONCAT(COALESCE(motif, ''), CHAR(10), :hist_line)
+                                    END
+                                    WHERE id = :gid
+                                """
+                            ),
+                            {"hist_line": hist_line, "gid": int(groupe_id)},
+                        )
+                    except Exception as exc:
+                        mail_task_errors.append({"client_id": cid, "label": label, "error": f"historique groupe: {exc}"})
+                    db.commit()
+                    removed_from_group.append(int(cid))
+                except Exception as exc:
+                    db.rollback()
+                    mail_task_errors.append({"client_id": cid, "label": label, "error": f"retrait groupe: {exc}"})
+
+    return {
+        "status": "ok",
+        "send_mail": send_mail,
+        "sent": sent,
+        "skipped_no_email": skipped,
+        "failed": failed,
+        "missing_email_task_id": missing_email_task_id,
+        "sent_mail_task_ids": sent_mail_task_ids,
+        "removed_from_group": removed_from_group,
+        "mail_task_errors": mail_task_errors,
+        "total": len(rows),
+    }
 
 
 @router.get("/groupes/items", response_class=JSONResponse)
@@ -30250,6 +30762,7 @@ def dashboard_supports(request: Request, db: Session = Depends(get_db)):
 def dashboard_support_details(
     code_isin: str = Query(..., description="Code ISIN du support"),
     format: str = Query("json", description="Format de réponse: json ou csv"),
+    as_of: str | None = Query(default=None, description="Date d'analyse YYYY-MM-DD"),
     group_id: int | None = Query(default=None),
     group_type: Literal["client", "affaire"] | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -30292,200 +30805,93 @@ def dashboard_support_details(
         last_date_iso = last_date[:10]
         last_date_display = last_date_iso
 
-    clients_rows = []
-    affaires_rows = []
+    selected_date_iso = (as_of or last_date_iso or "").strip() or None
+    selected_date_display = last_date_display
+    if selected_date_iso:
+        selected_date_display = selected_date_iso[:10]
+
+    clients_rows: list[Any] = []
+    affaires_rows: list[Any] = []
     total_valo_clients = 0.0
     total_valo_affaires = 0.0
     support_total_valo = 0.0
     group_client_ids: set[int] | None = None
     group_affaire_ids: set[int] | None = None
-    group_affaire_ids_for_support: list[int] | None = None
     if group_id and group_type:
         members = _list_group_members(db, group_id, actifs_only=True)
         if group_type == "client":
             group_client_ids = {int(m["client_id"]) for m in members if m.get("client_id")}
         elif group_type == "affaire":
             group_affaire_ids = {int(m["affaire_id"]) for m in members if m.get("affaire_id")}
-        if group_type == "client" and group_client_ids:
-            affaires_rows_group = db.query(Affaire.id).filter(Affaire.id_personne.in_(group_client_ids)).all()
-            group_affaire_ids_for_support = [int(r[0]) for r in affaires_rows_group if r and r[0] is not None]
-        elif group_type == "affaire" and group_affaire_ids:
-            group_affaire_ids_for_support = list(group_affaire_ids)
-    if group_affaire_ids_for_support is not None:
-        if group_affaire_ids_for_support:
-            open_rows = (
-                db.query(Affaire.id)
-                .filter(Affaire.id.in_(group_affaire_ids_for_support))
-                .filter(Affaire.date_cle.is_(None))
-                .all()
-            )
-            group_affaire_ids_for_support = [int(r[0]) for r in open_rows if r and r[0] is not None]
-        else:
-            group_affaire_ids_for_support = []
-        if group_affaire_ids is not None:
-            group_affaire_ids = set(group_affaire_ids_for_support or [])
-        if group_affaire_ids_for_support:
-            last_date = db.execute(
-                text("SELECT MAX(date) FROM mariadb_historique_affaire_w WHERE id IN :ids")
-                .bindparams(bindparam("ids", expanding=True)),
-                {"ids": group_affaire_ids_for_support},
-            ).scalar()
-            if isinstance(last_date, datetime):
-                last_date_iso = last_date.date().isoformat()
-                last_date_display = last_date.strftime("%d/%m/%Y")
-            elif isinstance(last_date, _date):
-                last_date_iso = last_date.isoformat()
-                last_date_display = last_date.strftime("%d/%m/%Y")
-            elif isinstance(last_date, str):
-                last_date_iso = last_date[:10]
-                last_date_display = last_date_iso
-            else:
-                last_date_iso = None
-    if last_date_iso:
-        if group_id and group_type and group_affaire_ids_for_support is not None:
-            if not group_affaire_ids_for_support:
-                clients_rows = []
-                affaires_rows = []
-                support_total_valo = 0.0
-            else:
-                support_total_valo = db.execute(
-                    text(
-                        """
-                        SELECT COALESCE(SUM(h.valo), 0) AS total_valo
-                        FROM mariadb_historique_support_w h
-                        JOIN mariadb_support s ON s.id = h.id_support
-                        WHERE s.code_isin = :code
-                          AND h.id_source IN :aff_ids
-                          AND DATE(h.date) = DATE(:last_date)
-                        """
-                    ).bindparams(bindparam("aff_ids", expanding=True)),
-                    {
-                        "code": code_isin,
-                        "aff_ids": group_affaire_ids_for_support,
-                        "last_date": last_date_iso,
-                    },
-                ).scalar() or 0.0
+            if group_affaire_ids:
+                try:
+                    rows_group_clients = (
+                        db.query(Affaire.id_personne)
+                        .filter(Affaire.id.in_(group_affaire_ids))
+                        .all()
+                    )
+                    group_client_ids = {
+                        int(r[0]) for r in rows_group_clients
+                        if r and r[0] is not None
+                    }
+                except Exception:
+                    group_client_ids = None
+    if not selected_date_iso:
+        raise HTTPException(status_code=404, detail="Date de référence introuvable.")
 
-                clients_rows = db.execute(
-                    text(
-                        """
-                        SELECT
-                            c.id AS client_id,
-                            c.nom AS client_nom,
-                            c.prenom AS client_prenom,
-                            c.commercial_id AS commercial_id,
-                            SUM(h.valo) AS total_valo
-                        FROM mariadb_historique_support_w h
-                        JOIN mariadb_affaires a ON a.id = h.id_source
-                        JOIN mariadb_clients c ON c.id = a.id_personne
-                        JOIN mariadb_support s ON s.id = h.id_support
-                        WHERE s.code_isin = :code
-                          AND h.id_source IN :aff_ids
-                          AND DATE(h.date) = DATE(:last_date)
-                        GROUP BY c.id, c.nom, c.prenom, c.commercial_id
-                        ORDER BY total_valo DESC
-                        """
-                    ).bindparams(bindparam("aff_ids", expanding=True)),
-                    {
-                        "code": code_isin,
-                        "aff_ids": group_affaire_ids_for_support,
-                        "last_date": last_date_iso,
-                    },
-                ).fetchall()
-                if group_affaire_ids is not None and group_affaire_ids:
-                    affaires_rows = db.execute(
-                        text(
-                            """
-                            SELECT
-                                a.id AS affaire_id,
-                                a.ref AS affaire_ref,
-                                c.nom AS client_nom,
-                                c.prenom AS client_prenom,
-                                c.commercial_id AS commercial_id,
-                                SUM(h.valo) AS total_valo
-                            FROM mariadb_historique_support_w h
-                            JOIN mariadb_affaires a ON a.id = h.id_source
-                            JOIN mariadb_clients c ON c.id = a.id_personne
-                            JOIN mariadb_support s ON s.id = h.id_support
-                            WHERE s.code_isin = :code
-                              AND h.id_source IN :aff_ids
-                              AND DATE(h.date) = DATE(:last_date)
-                            GROUP BY a.id, a.ref, c.nom, c.prenom, c.commercial_id
-                            ORDER BY total_valo DESC
-                            """
-                        ).bindparams(bindparam("aff_ids", expanding=True)),
-                        {
-                            "code": code_isin,
-                            "aff_ids": list(group_affaire_ids),
-                            "last_date": last_date_iso,
-                        },
-                    ).fetchall()
-        else:
-            support_total_valo = db.execute(
-                text(
-                    """
-                    SELECT COALESCE(SUM(h.valo), 0) AS total_valo
-                    FROM mariadb_historique_support_w h
-                    JOIN mariadb_support s ON s.id = h.id_support
-                    WHERE s.code_isin = :code
-                      AND DATE(h.date) = DATE(:last_date)
-                    """
-                ),
-                {"code": code_isin, "last_date": last_date_iso},
-            ).scalar() or 0.0
+    clients_rows = db.execute(
+        text(
+            """
+            SELECT
+                c.id AS client_id,
+                c.nom AS client_nom,
+                c.prenom AS client_prenom,
+                c.commercial_id AS commercial_id,
+                SUM(h.valo) AS total_valo
+            FROM mariadb_historique_support_w h
+            JOIN mariadb_support s ON s.id = h.id_support
+            JOIN mariadb_affaires a ON a.id = h.id_source
+            JOIN mariadb_clients c ON c.id = a.id_personne
+            WHERE s.code_isin = :code
+              AND DATE(h.date) = DATE(:as_of)
+            GROUP BY c.id, c.nom, c.prenom, c.commercial_id
+            ORDER BY total_valo DESC
+            """
+        ),
+        {"code": code_isin, "as_of": selected_date_iso},
+    ).fetchall()
 
-            clients_rows = db.execute(
-                text(
-                    """
-                    SELECT
-                        c.id AS client_id,
-                        c.nom AS client_nom,
-                        c.prenom AS client_prenom,
-                        c.commercial_id AS commercial_id,
-                        SUM(h.valo) AS total_valo
-                    FROM mariadb_historique_support_w h
-                    JOIN mariadb_affaires a ON a.id = h.id_source
-                    JOIN mariadb_clients c ON c.id = a.id_personne
-                    JOIN mariadb_support s ON s.id = h.id_support
-                    WHERE s.code_isin = :code
-                      AND DATE(h.date) = DATE(:last_date)
-                    GROUP BY c.id, c.nom, c.prenom, c.commercial_id
-                    ORDER BY total_valo DESC
-                    """
-                ),
-                {"code": code_isin, "last_date": last_date_iso},
-            ).fetchall()
-        if not (group_id and group_type and group_affaire_ids_for_support is not None):
-            if group_client_ids is not None:
-                clients_rows = [row for row in clients_rows if (row._mapping if hasattr(row, "_mapping") else row).get("client_id") in group_client_ids]
-            if group_affaire_ids is not None and group_affaire_ids:
-                affaires_rows = db.execute(
-                    text(
-                        """
-                        SELECT
-                            a.id AS affaire_id,
-                            a.ref AS affaire_ref,
-                            c.nom AS client_nom,
-                            c.prenom AS client_prenom,
-                            c.commercial_id AS commercial_id,
-                            SUM(h.valo) AS total_valo
-                        FROM mariadb_historique_support_w h
-                        JOIN mariadb_affaires a ON a.id = h.id_source
-                        JOIN mariadb_clients c ON c.id = a.id_personne
-                        JOIN mariadb_support s ON s.id = h.id_support
-                        WHERE s.code_isin = :code
-                          AND DATE(h.date) = DATE(:last_date)
-                          AND a.id IN :aff_ids
-                        GROUP BY a.id, a.ref, c.nom, c.prenom, c.commercial_id
-                        ORDER BY total_valo DESC
-                        """
-                    ).bindparams(bindparam("aff_ids", expanding=True)),
-                    {"code": code_isin, "last_date": last_date_iso, "aff_ids": list(group_affaire_ids)},
-                ).fetchall()
-        total_valo_clients = sum(float(row.total_valo or 0) for row in clients_rows)
-        total_valo_affaires = sum(float(row.total_valo or 0) for row in affaires_rows)
-        if group_type == "affaire":
-            clients_rows = []
+    affaires_rows = db.execute(
+        text(
+            """
+            SELECT
+                a.id AS affaire_id,
+                a.ref AS affaire_ref,
+                c.nom AS client_nom,
+                c.prenom AS client_prenom,
+                c.commercial_id AS commercial_id,
+                SUM(h.valo) AS total_valo
+            FROM mariadb_historique_support_w h
+            JOIN mariadb_support s ON s.id = h.id_support
+            JOIN mariadb_affaires a ON a.id = h.id_source
+            JOIN mariadb_clients c ON c.id = a.id_personne
+            WHERE s.code_isin = :code
+              AND DATE(h.date) = DATE(:as_of)
+            GROUP BY a.id, a.ref, c.nom, c.prenom, c.commercial_id
+            ORDER BY total_valo DESC
+            """
+        ),
+        {"code": code_isin, "as_of": selected_date_iso},
+    ).fetchall()
+
+    if group_client_ids is not None:
+        clients_rows = [row for row in clients_rows if (row._mapping if hasattr(row, "_mapping") else row).get("client_id") in group_client_ids]
+    if group_affaire_ids is not None:
+        affaires_rows = [row for row in affaires_rows if (row._mapping if hasattr(row, "_mapping") else row).get("affaire_id") in group_affaire_ids]
+
+    total_valo_clients = sum(float(row._mapping.get("total_valo") if hasattr(row, "_mapping") else row[4] or 0) for row in clients_rows)
+    total_valo_affaires = sum(float(row._mapping.get("total_valo") if hasattr(row, "_mapping") else row[5] or 0) for row in affaires_rows)
+    support_total_valo = total_valo_clients or total_valo_affaires
 
     rh_lookup = {}
     for rh in fetch_rh_list(db):
@@ -30669,7 +31075,7 @@ def dashboard_support_details(
         writer.writerow(["Zone géographique", support["cat_geo"] or ""])
         writer.writerow(["Promoteur", support["promoteur"] or ""])
         writer.writerow(["SRRI", support["SRRI"] if support["SRRI"] is not None else ""])
-        writer.writerow(["Date", last_date_display or ""])
+        writer.writerow(["Date", selected_date_display or ""])
         writer.writerow([])
         writer.writerow(["Clients"])
         writer.writerow(["ID Client", "Nom", "Prénom", "Responsable", "Valorisation (€)"])
@@ -30688,7 +31094,7 @@ def dashboard_support_details(
         if total_valo_clients:
             writer.writerow(["Total clients", "", "", "", "{:,.0f}".format(total_valo_clients).replace(",", " ")])
         output.seek(0)
-        filename = f"support_{support['code_isin']}_{last_date_iso or 'latest'}.csv"
+        filename = f"support_{support['code_isin']}_{selected_date_iso or 'latest'}.csv"
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
@@ -30737,7 +31143,8 @@ def dashboard_support_details(
                 "promoteur": support["promoteur"],
                 "SRRI": support["SRRI"],
             },
-            "last_date": last_date_display,
+            "last_date": selected_date_display,
+            "as_of": selected_date_iso,
             "clients": clients_payload,
             "items": affaires_payload if group_type == "affaire" else clients_payload,
             "list_type": group_type or "client",
@@ -30750,7 +31157,7 @@ def dashboard_support_details(
             "default_type_id": default_type_id,
             "valuations_weekly": valuations_weekly_payload,
             "valuations": valuations_payload,
-            "csv_url": f"/dashboard/supports/details?code_isin={code_isin}&format=csv",
+            "csv_url": f"/dashboard/supports/details?code_isin={code_isin}&format=csv&as_of={selected_date_iso}",
         }
     )
 
@@ -31323,13 +31730,21 @@ def dashboard_mouvements(
             tot_neg_frais += frais_val
 
     avis_reference = None
+    avis_label = None
     if avis_id is not None:
         row_ref = db.execute(
-            _text("SELECT reference FROM avis WHERE id = :id LIMIT 1"),
+            _text("""
+                SELECT a.reference, ar.nom AS etape_nom
+                FROM avis a
+                LEFT JOIN avis_regle ar ON ar.id = a.id_etape
+                WHERE a.id = :id LIMIT 1
+            """),
             {"id": avis_id},
         ).fetchone()
         if row_ref:
-            avis_reference = row_ref[0]
+            m = row_ref._mapping if hasattr(row_ref, "_mapping") else None
+            avis_reference = m.get("reference") if m else row_ref[0]
+            avis_label = m.get("etape_nom") if m else (row_ref[1] if len(row_ref) > 1 else None)
 
     return templates.TemplateResponse(
         "dashboard_mouvements.html",
@@ -31344,6 +31759,7 @@ def dashboard_mouvements(
             "affaire_id": affaire_id,
             "avis_id": avis_id,
             "avis_reference": avis_reference,
+            "avis_label": avis_label,
         },
     )
 
@@ -31433,11 +31849,14 @@ def dashboard_tache_edit(
             lines = raw.splitlines()
             cur = None
             for line in lines:
-                if line.strip().startswith('[') and ']' in line:
+                stripped = line.strip()
+                if stripped.startswith('[[GROUP_TASK:'):
+                    continue
+                if stripped.startswith('[') and ']' in stripped:
                     # nouvelle entrée
                     if cur:
                         comment_entries.append(cur)
-                    ts = line.strip()[1:line.strip().find(']')]
+                    ts = stripped[1:stripped.find(']')]
                     cur = { 'ts': ts, 'text': '' }
                 else:
                     if cur is None:
@@ -31641,7 +32060,7 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
         try:
             if ev_model:
                 from datetime import datetime as _dt
-                ts = _dt.utcnow().strftime("%Y-%m-%d %H:%M")
+                ts = _fmt_display_dt(_dt.utcnow())
                 base_text = comment_text
                 if prefill_comment and (not comment_text or comment_text.strip() == prefill_comment.strip()):
                     base_text = prefill_comment
@@ -31678,7 +32097,7 @@ async def dashboard_taches_add_statut(evenement_id: int, request: Request, db: S
                     )
                 except Exception:
                     old_label = None
-            ts_change = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+            ts_change = _fmt_display_dt(datetime.utcnow())
             label_text = old_label or "—"
             prefill_comment = f"[{ts_change}]\nStatut réclamation précédent : {label_text}. motif : "
             recorded_prefill = prefill_comment
@@ -33437,6 +33856,20 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             return f"/dashboard/clients/kyc/{cid}/rapport?pdf=1&inline=1"
         return None
 
+    _OBS_2ANS = frozenset({"DER", "Lettre de mission", "Lettre d'adéquation", "Compte rendu d'entretien"})
+
+    def _obs_status(base: str | None, date_obs) -> str:
+        if not base or base not in _OBS_2ANS:
+            return "na"
+        if not date_obs:
+            return "absent"
+        now = datetime.utcnow()
+        if date_obs < now:
+            return "expire"
+        if date_obs < now + timedelta(days=90):
+            return "bientot"
+        return "valide"
+
     documents_client: list[dict[str, Any]] = []
     seen_generated_keys: set[tuple[int | None, int | None, str]] = set()
     for d, base_name in rows:
@@ -33467,6 +33900,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                 "download_url": f"/dashboard/document-client/{d.id}/pdf" if stored_path else None,
                 "view_url": _doc_view_url(d.nom_document, base_name, client_id, d.id, bool(stored_path), first_affaire_id),
                 "base_name": base_name_display,
+                "obs_rule": base_name_display in _OBS_2ANS,
+                "obs_status": _obs_status(base_name_display, d.date_obsolescence),
             }
         )
 

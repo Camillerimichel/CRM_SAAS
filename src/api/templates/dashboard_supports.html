@@ -421,6 +421,13 @@
         <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
         <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
       </div>
+      <div style="display:flex; align-items:end; gap:8px; flex-wrap:wrap; margin-left:auto;">
+        <div>
+          <label for="supportModalAsOf" style="display:block; font-size:0.75rem; color:#475569; margin-bottom:3px;">Date</label>
+          <input type="text" id="supportModalAsOf" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" style="border:1px solid #cbd5e1; border-radius:8px; padding:0.42rem 0.55rem; font-size:0.92rem; width:140px;" />
+        </div>
+        <button type="button" id="supportModalAsOfReload" class="support-meta-btn" style="height:40px;"><span>Charger</span></button>
+      </div>
     </div>
     <div class="support-modal__meta" id="supportModalMeta"></div>
     <div class="support-modal__compare-toggle">
@@ -997,6 +1004,8 @@ $(document).ready(function () {
     var $supportModalSeries = $('#supportModalSeries');
     var $supportModalDate = $('#supportModalDate');
     var $supportModalTotal = $('#supportModalTotal');
+    var $supportModalAsOf = $('#supportModalAsOf');
+    var $supportModalAsOfReload = $('#supportModalAsOfReload');
     var $supportModalExport = $('#supportModalExport');
     var $supportCompareToggle = $('#supportCompareToggle');
     var $supportCompareSection = $('#supportCompareSection');
@@ -1036,6 +1045,7 @@ $(document).ready(function () {
     var supportModalTaskTypes = [];
     var supportModalCodeIsin = '';
     var supportModalLastDate = null;
+    var supportModalAsOf = '';
     var $supportTaskModal = $('#supportTaskModal');
     var $supportTaskModalClose = $('#supportTaskModalClose');
     var $supportTaskTypeSelect = $('#supportTaskTypeSelect');
@@ -1858,10 +1868,12 @@ $(document).ready(function () {
     function renderSupportModalLoading(code){
         $('#supportModalTitle').text('Support ' + (code || ''));
         supportModalCodeIsin = code || '';
+        supportModalAsOf = '';
         $supportModalMeta.html('<div><span class="label">Chargement…</span><span class="value">Patientez</span></div>');
         $supportModalClients.empty();
         $supportModalDate.text('');
         $supportModalTotal.text('');
+        $supportModalAsOf.val('');
         $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
         supportModalValuations = [];
         supportModalValuationsWeekly = [];
@@ -1912,6 +1924,7 @@ $(document).ready(function () {
             return;
         }
         var s = data.support;
+        supportModalAsOf = data.as_of || data.last_date || '';
         var metaHtml = '';
         var fields = [
             {label: 'Code ISIN', value: s.code_isin},
@@ -1983,13 +1996,16 @@ $(document).ready(function () {
         supportCompareLabel = '';
         renderSupportSeriesTables(false);
         $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
-        $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
-        supportModalLastDate = data.last_date || null;
+        $supportModalDate.text(supportModalAsOf ? ('Date : ' + supportModalAsOf) : '');
+        supportModalLastDate = supportModalAsOf || null;
         var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
         $supportModalTotal.text('Total valorisation : ' + totalText);
         $supportModalExport.data('export', data.csv_url || '').prop('disabled', !data.csv_url);
         supportModalTaskTypes = Array.isArray(data.task_types) ? data.task_types : [];
         supportModalCodeIsin = s.code_isin || '';
+        if ($supportModalAsOf.length){
+            $supportModalAsOf.val(supportModalAsOf || '');
+        }
         populateSupportTaskTypeSelect(data.default_type_id);
         supportModalClientsData = Array.isArray(data.clients) ? data.clients.slice() : [];
         supportModalFilteredData = supportModalClientsData.slice();
@@ -2234,11 +2250,18 @@ $(document).ready(function () {
         });
     }
 
-    function openSupportByCode(code){
+    function openSupportByCode(code, asOf){
         if (!code) return;
         openSupportModal();
         renderSupportModalLoading(code);
-        fetch('/dashboard/supports/details?code_isin=' + encodeURIComponent(code))
+        var url = '/dashboard/supports/details?code_isin=' + encodeURIComponent(code);
+        var asOfValue = normalizeSupportDateInput(
+            (asOf !== undefined && asOf !== null) ? String(asOf).trim() : (supportModalAsOf || '').trim()
+        );
+        if (asOfValue){
+            url += '&as_of=' + encodeURIComponent(asOfValue);
+        }
+        fetch(url)
             .then(function(resp){
                 if (!resp.ok) throw new Error('Erreur ' + resp.status);
                 return resp.json();
@@ -2258,10 +2281,45 @@ $(document).ready(function () {
             });
     }
 
+    function normalizeSupportDateInput(value){
+        var str = (value || '').trim();
+        if (!str) return '';
+        var iso = str;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)){
+            var m = str.match(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})$/);
+            if (m){
+                iso = m[3] + '-' + m[2] + '-' + m[1];
+            }
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return str;
+        var parts = iso.split('-');
+        var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+        if (isNaN(d.getTime())) return iso;
+        var day = d.getUTCDay(); // 0=Sunday ... 5=Friday
+        var delta = (day - 5 + 7) % 7;
+        if (delta > 0){
+            d.setUTCDate(d.getUTCDate() - delta);
+        }
+        var y = d.getUTCFullYear();
+        var mth = String(d.getUTCMonth() + 1).padStart(2, '0');
+        var dom = String(d.getUTCDate()).padStart(2, '0');
+        return y + '-' + mth + '-' + dom;
+    }
+
     $('#supportsTable tbody').on('click', 'a.support-link', function(e){
         e.preventDefault();
         var code = $(this).data('isin');
         openSupportByCode(code);
+    });
+
+    $supportModalAsOfReload.on('click', function(){
+        if (!supportModalCodeIsin) return;
+        openSupportByCode(supportModalCodeIsin, normalizeSupportDateInput($supportModalAsOf.val() || ''));
+    });
+
+    $supportModalAsOf.on('change', function(){
+        if (!supportModalCodeIsin) return;
+        openSupportByCode(supportModalCodeIsin, normalizeSupportDateInput($supportModalAsOf.val() || ''));
     });
 
     $('#supportModalClose').on('click', function(){ closeSupportModal(); });

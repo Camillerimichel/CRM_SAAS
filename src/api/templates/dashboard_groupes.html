@@ -25,6 +25,23 @@
     cursor: pointer;
     transition: background .2s ease, color .2s ease, border-color .2s ease;
   }
+  .groups-toolbar .groups-action {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: inherit;
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s ease, color .2s ease, border-color .2s ease;
+  }
+  .groups-toolbar .groups-action:hover:not(:disabled) {
+    color: var(--primary);
+  }
+  .groups-toolbar .groups-action:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
   .groups-toolbar .groups-tab.active {
     background: var(--primary);
     color: #fff;
@@ -390,6 +407,7 @@
   <button class="groups-tab" type="button" data-target="groupProductsBlock" style="display:none;">Liste produits</button>
   <button class="groups-tab" type="button" data-target="groupEsgBlock" style="display:none;">Analyse ESG</button>
   <button class="groups-tab" type="button" data-target="groupTasksBlock" style="display:none;">Générer une tâche</button>
+  <button class="groups-action" type="button" id="groupMailOpen" style="display:none;">Envoyer par mail</button>
 </div>
 
 <section id="groupEsgBlock" class="groups-accordion" aria-label="Analyse ESG">
@@ -462,6 +480,7 @@
   </div>
 </section>
 
+<!-- ── Section Envoi de courrier en masse ─────────────────────────── -->
 <section id="groupsBlock" class="groups-accordion active" aria-label="Groupes">
   <div class="card" style="margin-bottom:12px;">
     <h3 style="margin:0 0 8px 0;">Groupes de personnes</h3>
@@ -623,6 +642,13 @@
         <span id="supportModalDate" style="color:#475569; font-size:0.85rem;"></span><br>
         <strong id="supportModalTotal" style="font-size:1rem; color:#111827;"></strong>
       </div>
+      <div style="display:flex; align-items:end; gap:8px; flex-wrap:wrap; margin-left:auto;">
+        <div>
+          <label for="supportModalAsOf" style="display:block; font-size:0.75rem; color:#475569; margin-bottom:3px;">Date</label>
+          <input type="text" id="supportModalAsOf" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" style="border:1px solid #cbd5e1; border-radius:8px; padding:0.42rem 0.55rem; font-size:0.92rem; width:140px;" />
+        </div>
+        <button type="button" id="supportModalAsOfReload" class="support-meta-btn" style="height:40px;"><span>Charger</span></button>
+      </div>
     </div>
     <div class="support-modal__meta" id="supportModalMeta"></div>
     <div class="support-modal__compare-toggle">
@@ -732,6 +758,95 @@
 
 {% include "fragments/grouped_tasks_modal.html" %}
 
+<!-- ── Modale Envoi de courrier (groupe) ─────────────────────────── -->
+<div id="groupMailModal" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.45); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; width:980px; max-width:98vw; height:90vh; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,.22); overflow:hidden;">
+
+    <!-- En-tête -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 18px; border-bottom:1px solid var(--border); flex-shrink:0;">
+      <span style="font-weight:600; font-size:1rem; display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-envelope-open-text"></i>
+        Envoi de courrier — <span id="gmGroupName">—</span>
+      </span>
+      <button type="button" onclick="closeGroupMailModal()" style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:#64748b;" title="Fermer">✕</button>
+    </div>
+
+    <!-- Corps -->
+    <div style="flex:1 1 auto; display:flex; flex-direction:column; gap:10px; padding:14px 18px; min-height:0; overflow:auto;">
+
+      <!-- Sélection modèle + objet -->
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <select id="gmModeleSelect" style="flex:1 1 280px; max-width:440px; padding:.4rem .6rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.9rem;">
+          <option value="">— Choisir un modèle —</option>
+          {% for m in modeles_documentaires or [] %}
+            <option value="{{ m.id }}" data-nom="{{ m.nom }}">{{ m.nom }}{% if m.canal %} — {{ m.canal }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <input id="gmObjet" type="text" placeholder="Objet du courrier" style="flex:1 1 220px; padding:.4rem .6rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.9rem;">
+        <button type="button" id="gmLoadBtn" class="btn btn-secondary">
+          <i class="fa-solid fa-eye" style="margin-right:5px;"></i>Afficher
+        </button>
+        <span id="gmStatus" class="muted" style="font-size:.82rem;"></span>
+      </div>
+
+      <!-- Barre de formatage -->
+      <div id="gmToolbar" style="display:none; flex-wrap:wrap; gap:5px; align-items:center; padding:7px 10px; border:1px solid var(--border); border-radius:10px; background:#f8fafc;">
+        <select id="gmMergeField" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:8px; font-size:.82rem; max-width:160px; background:#fff;">
+          <option value="">Champ client…</option>
+          <option value="{{civilite_client}}">Civilité</option>
+          <option value="{{prenom_client}}">Prénom</option>
+          <option value="{{nom_client}}">Nom</option>
+          <option value="{{email_client}}">Email</option>
+          <option value="{{adresse_postale}}">Adresse postale</option>
+        </select>
+        <button type="button" id="gmInsertField" style="padding:.3rem .55rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-plus"></i> Champ</button>
+        <span style="width:1px; height:22px; background:#e2e8f0; display:inline-block;"></span>
+        <button type="button" class="gm2-fmt" data-cmd="bold" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; font-weight:700;">B</button>
+        <button type="button" class="gm2-fmt" data-cmd="italic" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; font-style:italic;">I</button>
+        <button type="button" class="gm2-fmt" data-cmd="underline" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer; text-decoration:underline;">S̲</button>
+        <button type="button" class="gm2-fmt" data-cmd="insertUnorderedList" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-list-ul"></i></button>
+        <button type="button" class="gm2-fmt" data-cmd="insertOrderedList" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;"><i class="fa-solid fa-list-ol"></i></button>
+        <button type="button" class="gm2-fmt" data-cmd="formatBlock" data-val="h3" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;">Titre</button>
+        <button type="button" class="gm2-fmt" data-cmd="formatBlock" data-val="p" style="padding:.3rem .5rem; border:1px solid #cbd5e1; border-radius:7px; background:#fff; font-size:.82rem; cursor:pointer;">¶</button>
+      </div>
+
+      <!-- Éditeur (gauche) + Aperçu (droite) -->
+      <div style="flex:1 1 auto; display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0;">
+        <div style="display:flex; flex-direction:column; gap:4px; min-height:0;">
+          <div class="muted" style="font-size:.78rem;">Modèle (modifiable)</div>
+          <div id="gmEditor" contenteditable="true" spellcheck="true"
+               style="flex:1 1 auto; border:1px solid #e2e8f0; border-radius:10px; padding:16px; background:#fff; outline:none; font-size:.9rem; line-height:1.6; overflow:auto; min-height:180px;"></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; min-height:0;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span class="muted" style="font-size:.78rem;">Aperçu — <span id="gmPreviewLabel">—</span></span>
+            <div style="display:flex; gap:5px; align-items:center;">
+              <button type="button" id="gmPrev" class="btn btn-compact" disabled title="Précédent">◀</button>
+              <span id="gmPreviewIdx" style="font-size:.78rem; white-space:nowrap;">0 / 0</span>
+              <button type="button" id="gmNext" class="btn btn-compact" disabled title="Suivant">▶</button>
+            </div>
+          </div>
+          <div id="gmPreview"
+               style="flex:1 1 auto; border:1px solid #e2e8f0; border-radius:10px; padding:16px; background:#f8fafc; font-size:.9rem; line-height:1.6; overflow:auto; color:#334155; min-height:180px;">
+            <em style="color:#94a3b8;">Chargez un modèle pour voir l'aperçu.</em>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pied -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 18px; border-top:1px solid var(--border); flex-shrink:0; flex-wrap:wrap;">
+      <div id="gmSendLog" class="muted" style="font-size:.82rem; flex:1 1 200px;"></div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" id="gmSaveBtn" class="btn btn-secondary" disabled>Enregistrer sans envoyer</button>
+        <button type="button" id="gmSendBtn" class="btn btn-primary" disabled>
+          <i class="fa-solid fa-paper-plane" style="margin-right:6px;"></i>Envoyer à tous (<span id="gmMemberCount">0</span>)
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (function(){
     const groupedTaskTypes = {{ (grouped_task_types or []) | tojson }};
@@ -762,9 +877,11 @@
 	    let currentGroupId = null;
 	    let currentGroupType = null;
 	    let currentGroupName = null;
+	    let currentGroupMailSourceDocType = '';
 	    let scatterPlotInstance = null;
 	    let scatterRenderToken = 0;
 	    const tasksTab = document.querySelector('.groups-tab[data-target="groupTasksBlock"]');
+	    const mailOpenBtn = document.getElementById('groupMailOpen');
 	    const tasksOpenBtn = document.getElementById('groupTasksOpen');
 	    const tasksStatus = document.getElementById('groupTasksStatus');
 
@@ -910,6 +1027,10 @@
 	          setActive('groupItemsBlock');
 	        }
 	      }
+	      if (mailOpenBtn) {
+	        mailOpenBtn.style.display = 'none';
+	        mailOpenBtn.disabled = true;
+	      }
 		      if (tasksOpenBtn) tasksOpenBtn.disabled = true;
 		      if (tasksStatus) tasksStatus.textContent = 'Sélectionnez un groupe pour générer 1 tâche par item.';
 	    }
@@ -939,9 +1060,13 @@
 	          setActive('groupItemsBlock');
 	        }
 	      }
+	      if (mailOpenBtn) {
+	        mailOpenBtn.style.display = 'none';
+	        mailOpenBtn.disabled = true;
+	      }
 	      if (tasksOpenBtn) tasksOpenBtn.disabled = true;
 	      if (tasksStatus) tasksStatus.textContent = 'Sélectionnez un groupe pour générer 1 tâche par item.';
-	    }
+    }
 
     function setProductsStatus(text, state){
       if (!productsStatus) return;
@@ -1210,6 +1335,10 @@
       if (productsTab) productsTab.style.display = '';
 	      if (esgTab) esgTab.style.display = '';
 	      if (tasksTab) tasksTab.style.display = '';
+	      if (mailOpenBtn) {
+	        mailOpenBtn.style.display = '';
+	        mailOpenBtn.disabled = String(currentGroupType) !== 'client';
+	      }
 	      if (tasksOpenBtn) tasksOpenBtn.disabled = false;
 	      if (tasksStatus) tasksStatus.textContent = '1 tâche sera créée par item du groupe (“' + (currentGroupName || 'Groupe') + '”).';
 	    }
@@ -1254,6 +1383,7 @@
       currentGroupId = groupId;
       currentGroupType = groupType;
       currentGroupName = groupName || null;
+      currentGroupMailSourceDocType = '';
 	      window.currentGroupId = groupId;
 	      window.currentGroupType = groupType;
       updateExportLink();
@@ -1283,11 +1413,30 @@
         } else {
           setProductsEmpty('Aucun produit à afficher.');
         }
+        // Charger les membres pour l'envoi de courrier
+        await _loadGroupMembersForMail(groupId, groupType, groupName);
       } catch (err) {
         setStatus('Erreur', 'error');
         setItemsEmpty('Impossible de charger les items.');
         setProductsEmpty('Impossible de charger les produits.');
       }
+    }
+
+    async function _loadGroupMembersForMail(groupId, groupType, groupName) {
+      try {
+        var r = await fetch('/api/groupes/overview/' + encodeURIComponent(groupId));
+        if (!r.ok) return;
+        var data = await r.json();
+        var sourceDocType = '';
+        var motif = (data.detail && data.detail.motif) || '';
+        if (motif.includes('type:')) {
+          sourceDocType = motif.split('type:').pop().trim();
+        }
+        currentGroupMailSourceDocType = sourceDocType || '';
+        if (typeof window._groupMailActivate === 'function') {
+          window._groupMailActivate(groupId, String(groupType), data.members || [], sourceDocType);
+        }
+      } catch(e) {}
     }
 
     function buildScatterUrl(row){
@@ -1529,6 +1678,16 @@
         openGroupTasksModal();
 	      });
 	    }
+    if (mailOpenBtn){
+      mailOpenBtn.addEventListener('click', function(e){
+        if (e && e.preventDefault) e.preventDefault();
+        if (!currentGroupId || String(currentGroupType) !== 'client') {
+          alert('Sélectionnez un groupe de personnes.');
+          return;
+        }
+        window.openGroupMailModal(currentGroupId, currentGroupName || 'Groupe', currentGroupMailSourceDocType || '');
+      });
+    }
 
 	    document.querySelectorAll('.group-items-btn').forEach(btn => {
 	      btn.addEventListener('click', () => {
@@ -1671,6 +1830,8 @@ $(function () {
     var $supportModalSeries = $('#supportModalSeries');
     var $supportModalDate = $('#supportModalDate');
     var $supportModalTotal = $('#supportModalTotal');
+    var $supportModalAsOf = $('#supportModalAsOf');
+    var $supportModalAsOfReload = $('#supportModalAsOfReload');
     var $supportModalExport = $('#supportModalExport');
     var $supportCompareToggle = $('#supportCompareToggle');
     var $supportCompareSection = $('#supportCompareSection');
@@ -1719,6 +1880,7 @@ $(function () {
     var supportModalTaskTypes = [];
     var supportModalCodeIsin = '';
     var supportModalLastDate = null;
+    var supportModalAsOf = '';
     var supportModalListType = 'client';
     var supportModalGroupId = null;
     var supportModalGroupType = null;
@@ -2583,10 +2745,12 @@ $(function () {
 
     function renderSupportModalLoading(code){
         $('#supportModalTitle').text('Support ' + (code || ''));
+        supportModalAsOf = '';
         $supportModalMeta.html('<div><span class=\"label\">Chargement…</span><span class=\"value\">Patientez</span></div>');
         $supportModalClients.empty();
         $supportModalDate.text('');
         $supportModalTotal.text('');
+        $supportModalAsOf.val('');
         $supportModalExport.data('export', '').prop('disabled', true).text('Exporter CSV');
         supportModalValuations = [];
         supportModalValuationsWeekly = [];
@@ -2621,6 +2785,7 @@ $(function () {
             return;
         }
         var s = data.support;
+        supportModalAsOf = data.as_of || data.last_date || '';
         supportModalListType = data.list_type || 'client';
         var metaHtml = '';
         var fields = [
@@ -2693,13 +2858,16 @@ $(function () {
         supportCompareLabel = '';
         renderSupportSeriesTables(false);
         $('#supportModalTitle').text('Support ' + (s.code_isin || ''));
-        $supportModalDate.text(data.last_date ? ('Date : ' + data.last_date) : '');
-        supportModalLastDate = data.last_date || null;
+        $supportModalDate.text(supportModalAsOf ? ('Date : ' + supportModalAsOf) : '');
+        supportModalLastDate = supportModalAsOf || null;
         var totalText = data.total_valo_str ? (data.total_valo_str + ' €') : '0 €';
         $supportModalTotal.text('Total valorisation : ' + totalText);
         $supportModalExport.data('export', data.csv_url || '').prop('disabled', !data.csv_url);
         supportModalTaskTypes = Array.isArray(data.task_types) ? data.task_types : [];
         supportModalCodeIsin = s.code_isin || '';
+        if ($supportModalAsOf.length){
+            $supportModalAsOf.val(supportModalAsOf || '');
+        }
         populateSupportTaskTypeSelect(data.default_type_id);
         supportModalClientsData = Array.isArray(data.items) ? data.items.slice() : (Array.isArray(data.clients) ? data.clients.slice() : []);
         supportModalFilteredData = supportModalClientsData.slice();
@@ -2979,11 +3147,17 @@ $(function () {
         });
     }
 
-    function openSupportByCode(code){
+    function openSupportByCode(code, asOf){
         if (!code) return;
         openSupportModal();
         renderSupportModalLoading(code);
         var url = '/dashboard/supports/details?code_isin=' + encodeURIComponent(code);
+        var asOfValue = normalizeSupportDateInput(
+            (asOf !== undefined && asOf !== null) ? String(asOf).trim() : (supportModalAsOf || '').trim()
+        );
+        if (asOfValue){
+            url += '&as_of=' + encodeURIComponent(asOfValue);
+        }
         if (supportModalGroupId && supportModalGroupType){
             url += '&group_id=' + encodeURIComponent(supportModalGroupId) + '&group_type=' + encodeURIComponent(supportModalGroupType);
         }
@@ -3006,12 +3180,47 @@ $(function () {
             });
     }
 
+    function normalizeSupportDateInput(value){
+        var str = (value || '').trim();
+        if (!str) return '';
+        var iso = str;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)){
+            var m = str.match(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})$/);
+            if (m){
+                iso = m[3] + '-' + m[2] + '-' + m[1];
+            }
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return str;
+        var parts = iso.split('-');
+        var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+        if (isNaN(d.getTime())) return iso;
+        var day = d.getUTCDay();
+        var delta = (day - 5 + 7) % 7;
+        if (delta > 0){
+            d.setUTCDate(d.getUTCDate() - delta);
+        }
+        var y = d.getUTCFullYear();
+        var mth = String(d.getUTCMonth() + 1).padStart(2, '0');
+        var dom = String(d.getUTCDate()).padStart(2, '0');
+        return y + '-' + mth + '-' + dom;
+    }
+
     $(document).on('click', 'a.support-link', function(e){
         e.preventDefault();
         var code = $(this).data('isin');
         supportModalGroupId = $(this).data('group-id') || null;
         supportModalGroupType = $(this).data('group-type') || null;
         openSupportByCode(code);
+    });
+
+    $supportModalAsOfReload.on('click', function(){
+        if (!supportModalCodeIsin) return;
+        openSupportByCode(supportModalCodeIsin, normalizeSupportDateInput($supportModalAsOf.val() || ''));
+    });
+
+    $supportModalAsOf.on('change', function(){
+        if (!supportModalCodeIsin) return;
+        openSupportByCode(supportModalCodeIsin, normalizeSupportDateInput($supportModalAsOf.val() || ''));
     });
 
     $('#supportModalClose').on('click', function(){ closeSupportModal(); });
@@ -3141,5 +3350,219 @@ $(function () {
         setClientsButtonActive(true);
     });
 });
+</script>
+
+<script>
+(function(){
+  var gmModal       = document.getElementById('groupMailModal');
+  var gmGroupName   = document.getElementById('gmGroupName');
+  var gmModele      = document.getElementById('gmModeleSelect');
+  var gmObjet       = document.getElementById('gmObjet');
+  var gmLoadBtn     = document.getElementById('gmLoadBtn');
+  var gmToolbar     = document.getElementById('gmToolbar');
+  var gmEditor      = document.getElementById('gmEditor');
+  var gmPreview     = document.getElementById('gmPreview');
+  var gmPreviewLbl  = document.getElementById('gmPreviewLabel');
+  var gmPreviewIdx  = document.getElementById('gmPreviewIdx');
+  var gmPrev        = document.getElementById('gmPrev');
+  var gmNext        = document.getElementById('gmNext');
+  var gmSaveBtn     = document.getElementById('gmSaveBtn');
+  var gmSendBtn     = document.getElementById('gmSendBtn');
+  var gmMemberCount = document.getElementById('gmMemberCount');
+  var gmSendLog     = document.getElementById('gmSendLog');
+  var gmStatus      = document.getElementById('gmStatus');
+
+  var _gm_groupId = null;
+  var _gm_members = [];
+  var _gm_idx     = 0;
+
+  function gmSub(html, m) {
+    return html
+      .replace(/\{\{civilite_client\}\}/g,  m.civilite || '')
+      .replace(/\{\{prenom_client\}\}/g,    m.prenom   || '')
+      .replace(/\{\{nom_client\}\}/g,       m.nom      || '')
+      .replace(/\{\{email_client\}\}/g,     m.email    || '')
+      .replace(/\{\{adresse_postale\}\}/g,  m.adresse  || '');
+  }
+
+  function gmRender() {
+    if (!gmEditor || !gmPreview) return;
+    var m = _gm_members[_gm_idx] || {};
+    gmPreview.innerHTML = gmSub(gmEditor.innerHTML, m) || '<em style="color:#94a3b8">Chargez un modèle.</em>';
+    if (gmPreviewLbl) gmPreviewLbl.textContent = m.label || '—';
+    if (gmPreviewIdx) gmPreviewIdx.textContent = _gm_members.length ? (_gm_idx+1)+' / '+_gm_members.length : '0 / 0';
+    if (gmPrev) gmPrev.disabled = _gm_idx <= 0;
+    if (gmNext) gmNext.disabled = _gm_idx >= _gm_members.length - 1;
+  }
+
+  if (gmEditor) gmEditor.addEventListener('input', gmRender);
+  if (gmPrev) gmPrev.addEventListener('click', function() { if (_gm_idx > 0) { _gm_idx--; gmRender(); } });
+  if (gmNext) gmNext.addEventListener('click', function() { if (_gm_idx < _gm_members.length-1) { _gm_idx++; gmRender(); } });
+
+  document.querySelectorAll('.gm2-fmt').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.execCommand(this.dataset.cmd, false, this.dataset.val || null);
+      if (gmEditor) gmEditor.focus();
+      gmRender();
+    });
+  });
+
+  var gmInsert = document.getElementById('gmInsertField');
+  var gmField  = document.getElementById('gmMergeField');
+  if (gmInsert && gmField) {
+    gmInsert.addEventListener('click', function() {
+      var val = gmField.value;
+      if (!val || !gmEditor) return;
+      gmEditor.focus();
+      document.execCommand('insertText', false, val);
+      gmRender();
+    });
+  }
+
+  if (gmModele) gmModele.addEventListener('change', function() {
+    if (gmLoadBtn) gmLoadBtn.disabled = !this.value;
+    if (!this.value) {
+      if (gmEditor) gmEditor.innerHTML = '';
+      if (gmPreview) gmPreview.innerHTML = '<em style="color:#94a3b8">Chargez un modèle.</em>';
+      if (gmToolbar) gmToolbar.style.display = 'none';
+      if (gmStatus) gmStatus.textContent = '';
+      if (gmSaveBtn) gmSaveBtn.disabled = true;
+      if (gmSendBtn) gmSendBtn.disabled = true;
+      return;
+    }
+    gmLoadModel();
+  });
+
+  async function gmLoadModel() {
+    var id = gmModele ? gmModele.value : '';
+    if (!id) { if (gmStatus) gmStatus.textContent = 'Sélectionnez un modèle.'; return; }
+    if (gmStatus) gmStatus.textContent = 'Chargement…';
+    try {
+      var r = await fetch('/modeles/' + id + '/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      if (gmStatus) gmStatus.textContent = 'HTTP ' + r.status;
+      if (!r.ok) { if (gmStatus) gmStatus.textContent = 'Erreur HTTP ' + r.status; return; }
+      var body = await r.text();
+      var txt = '';
+      var parsed = null;
+      try { parsed = JSON.parse(body); txt = parsed.contenu || ''; } catch(pe) { txt = ''; }
+      if (gmStatus) gmStatus.textContent = txt ? ('OK — ' + txt.length + ' chars') : 'Contenu vide';
+      if (!txt) return;
+      if (gmEditor) gmEditor.innerHTML = txt;
+      if (gmToolbar) gmToolbar.style.display = 'flex';
+      var selOpt = gmModele ? gmModele.options[gmModele.selectedIndex] : null;
+      if (gmObjet && !gmObjet.value && selOpt)
+        gmObjet.value = (selOpt.dataset.nom || selOpt.textContent || '').split('—')[0].trim();
+      if (parsed && parsed.objet && gmObjet && !gmObjet.value) {
+        gmObjet.value = parsed.objet;
+      }
+      if (gmSaveBtn) gmSaveBtn.disabled = false;
+      if (gmSendBtn) gmSendBtn.disabled = false;
+      if (gmStatus) gmStatus.textContent = 'Modèle chargé ✓';
+      gmRender();
+    } catch(e) {
+      if (gmStatus) gmStatus.textContent = 'Erreur JS : ' + (e.message || String(e));
+    }
+  }
+  if (gmLoadBtn) gmLoadBtn.addEventListener('click', gmLoadModel);
+
+  function gmPreselect(src) {
+    if (!src || !gmModele) return;
+    var norm = src.toLowerCase();
+    var best = null;
+    gmModele.querySelectorAll('option[value]').forEach(function(o) {
+      if (!best && o.value && (o.dataset.nom || o.textContent || '').toLowerCase().includes(norm)) best = o.value;
+    });
+    if (best) { gmModele.value = best; if (gmLoadBtn) gmLoadBtn.disabled = false; }
+  }
+
+  window.openGroupMailModal = async function(groupId, groupName, sourceDocType) {
+    _gm_groupId = groupId;
+    _gm_idx = 0;
+    _gm_members = [];
+    if (gmGroupName) gmGroupName.textContent = groupName || '—';
+    if (gmEditor) gmEditor.innerHTML = '';
+    if (gmPreview) gmPreview.innerHTML = '<em style="color:#94a3b8">Chargez un modèle.</em>';
+    if (gmToolbar) gmToolbar.style.display = 'none';
+    if (gmSaveBtn) gmSaveBtn.disabled = true;
+    if (gmSendBtn) gmSendBtn.disabled = true;
+    if (gmSendLog) gmSendLog.textContent = '';
+    if (gmObjet) gmObjet.value = '';
+    if (gmModele) { gmModele.value = ''; if (gmLoadBtn) gmLoadBtn.disabled = true; }
+    if (gmPreviewIdx) gmPreviewIdx.textContent = '0 / 0';
+    if (gmPreviewLbl) gmPreviewLbl.textContent = '—';
+    if (gmStatus) gmStatus.textContent = 'Chargement des membres…';
+    if (gmModal) { gmModal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+
+    try {
+      var r = await fetch('/dashboard/groupes/' + encodeURIComponent(groupId) + '/membres');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var data = await r.json();
+      _gm_members = data.membres || [];
+      var withEmail = _gm_members.filter(function(m){ return m.email; }).length;
+      if (gmMemberCount) gmMemberCount.textContent = _gm_members.length;
+      if (gmStatus) gmStatus.textContent = _gm_members.length + ' client(s) — ' + withEmail + ' avec email.';
+      gmRender();
+      gmPreselect(sourceDocType || '');
+      if (gmModele && gmModele.value) {
+        await gmLoadModel();
+      }
+    } catch(e) {
+      if (gmStatus) gmStatus.textContent = 'Erreur chargement groupe (' + e.message + ').';
+    }
+  };
+
+  window.closeGroupMailModal = function() {
+    if (gmModal) { gmModal.style.display = 'none'; document.body.style.overflow = ''; }
+  };
+  if (gmModal) gmModal.addEventListener('click', function(e){ if (e.target === gmModal) closeGroupMailModal(); });
+
+  async function gmDoSend(sendMail) {
+    if (!_gm_groupId) return;
+    var modeleId = gmModele ? (parseInt(gmModele.value,10)||null) : null;
+    var html = gmEditor ? gmEditor.innerHTML : '';
+    var objet = (gmObjet ? gmObjet.value : '') || 'Courrier';
+    if (!html.replace(/<[^>]*>/g,'').trim()) { alert('Contenu vide.'); return; }
+    if (gmSaveBtn) gmSaveBtn.disabled = true;
+    if (gmSendBtn) gmSendBtn.disabled = true;
+    if (gmSendLog) gmSendLog.textContent = sendMail ? 'Envoi en cours…' : 'Enregistrement…';
+    try {
+      var res = await fetch('/dashboard/groupes/' + _gm_groupId + '/send-courrier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modele_id: modeleId, contenu_html: html, objet: objet, send_mail: !!sendMail })
+      });
+      var d = await res.json().catch(function(){return{};});
+      if (!res.ok) { alert('Erreur : ' + (d.detail || res.status)); return; }
+      var msg = (d.sent||[]).length + ' doc(s) enregistré(s)';
+      if (sendMail) {
+        if ((d.skipped_no_email||[]).length) msg += ' · ' + d.skipped_no_email.length + ' sans email';
+        if ((d.failed||[]).length) msg += ' · ' + d.failed.length + ' erreur(s)';
+        if (d.missing_email_task_id) msg += ' · tâche "Adresse mail absente" créée';
+        if ((d.sent_mail_task_ids||[]).length) msg += ' · ' + d.sent_mail_task_ids.length + ' tâche(s) "Envoi E-mail" créée(s)';
+        if ((d.removed_from_group||[]).length) msg += ' · ' + d.removed_from_group.length + ' retiré(s) du groupe';
+        if ((d.mail_task_errors||[]).length) msg += ' · ' + d.mail_task_errors.length + ' anomalie(s) tâche/groupe';
+      }
+      if (gmSendLog) gmSendLog.textContent = msg;
+    } catch(e) {
+      if (gmSendLog) gmSendLog.textContent = 'Erreur inattendue.';
+    } finally {
+      if (gmSaveBtn) gmSaveBtn.disabled = false;
+      if (gmSendBtn) gmSendBtn.disabled = false;
+    }
+  }
+
+  if (gmSaveBtn) gmSaveBtn.addEventListener('click', function(){ gmDoSend(false); });
+  if (gmSendBtn) gmSendBtn.addEventListener('click', function(){
+    var n = _gm_members.length;
+    var e = _gm_members.filter(function(m){ return m.email; }).length;
+    if (!confirm('Envoyer à ' + n + ' client(s) (' + e + ' avec email) ?')) return;
+    gmDoSend(true);
+  });
+
+})();
 </script>
 {% endblock %}
