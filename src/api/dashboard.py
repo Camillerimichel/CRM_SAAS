@@ -55,6 +55,7 @@ from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _r
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
+from src.api.utils.esg import esg_grade_from_letters
 from src.services.fatca_eai_autocertification_pdf import build_fatca_eai_autocertification_pdf_bytes
 from src.services.modele_render import render_modele as render_modele_util
 from src.services.mailer import send_email_with_attachments
@@ -1005,15 +1006,18 @@ def _get_consolidated_supports(
                        COALESCE(g.frais_gestion_assureur, 0) AS frais_gestion_assureur,
                        COALESCE(g.frais_gestion_courtier, 0) AS frais_gestion_courtier,
                        SUM(h.valo) AS valo, SUM(h.nbuc) AS nbuc,
-                       AVG(h.prmp) AS prmp, AVG(h.vl) AS vl
+                       AVG(h.prmp) AS prmp, AVG(h.vl) AS vl,
+                       esg.note_e_grade AS noteE, esg.note_s_grade AS noteS, esg.note_g_grade AS noteG
                 FROM mariadb_historique_support_w h
                 JOIN mariadb_support s ON s.id = h.id_support
                 JOIN mariadb_affaires a ON a.id = h.id_source
                 LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
+                LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
                 WHERE h.id_source IN (SELECT id FROM client_affaires)
                   AND h.date >= :snap_start AND h.date <= :snap_end
                 GROUP BY s.code_isin, a.ref, h.id_source, h.id_support,
-                         g.frais_gestion_assureur, g.frais_gestion_courtier
+                         g.frais_gestion_assureur, g.frais_gestion_courtier,
+                         esg.note_e_grade, esg.note_s_grade, esg.note_g_grade
                 ORDER BY a.ref, s.code_isin
                 """
             ),
@@ -1036,6 +1040,9 @@ def _get_consolidated_supports(
                 "nbuc":  float(row.nbuc  or 0),
                 "prmp":  float(row.prmp  or 0),
                 "vl":    float(row.vl    or 0),
+                "noteE": row.noteE,
+                "noteS": row.noteS,
+                "noteG": row.noteG,
             })
         for isin in set(support_isins.values()):
             consolidated_support_contracts.setdefault(isin, [])
@@ -7119,6 +7126,48 @@ def _ensure_generated_client_pdf_path(client_id: int, modele_name: str) -> Path:
     return generated_dir / f"{_slugify_document_filename(modele_name)}_{client_id}_{timestamp}.pdf"
 
 
+async def _consume_pdf_response_bytes(resp) -> bytes:
+    chunks: list[bytes] = []
+    body_iter = getattr(resp, "body_iterator", None)
+    if body_iter is None:
+        return b""
+    async for chunk in body_iter:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk)
+        else:
+            chunks.append(str(chunk).encode())
+    return b"".join(chunks)
+
+
+async def _build_client_direct_pdf_bytes(doc_type: str, client_id: int, request: Request, db: Session) -> tuple[bytes, str]:
+    doc_key = (doc_type or "").strip().lower()
+    if doc_key == "der":
+        resp = await dashboard_client_der_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "DER"
+    if doc_key == "mission":
+        resp = await dashboard_client_mission_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Lettre de mission"
+    if doc_key == "adequation":
+        resp = await dashboard_client_adequation_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Lettre d'adéquation"
+    if doc_key == "fatca":
+        resp = await dashboard_client_fatca_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "FATCA / EAI"
+    if doc_key == "tracfin":
+        resp = await dashboard_client_tracfin_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Tracfin"
+    if doc_key == "kyc":
+        kyc_scope = dict(request.scope)
+        kyc_scope["query_string"] = b"style=conformite&pdf=1&inline=1"
+        kyc_request = Request(kyc_scope, request.receive)
+        gen_resp = await dashboard_client_kyc_report(client_id, kyc_request, pdf=1, db=db)
+        return await _consume_pdf_response_bytes(gen_resp), "Compte rendu d'entretien"
+    if doc_key == "synthese":
+        pdf_bytes, _ctx = _render_client_synthese_pdf_bytes(request, db, client_id, esg=1)
+        return pdf_bytes, "Synthèse"
+    raise HTTPException(status_code=400, detail="Type de document direct non géré.")
+
+
 def _log_document_generation_error(message: str) -> None:
     try:
         error_log = PROJECT_ROOT / "logs" / "document_generation_errors.log"
@@ -7221,6 +7270,8 @@ async def dashboard_client_modele_generate(
         recipient = (payload.get("recipient") or getattr(client, "email", None) or "").strip()
         override_contenu = payload.get("contenu_html") or payload.get("contenu")
         override_objet = payload.get("objet") or payload.get("title")
+        mail_subject_override = payload.get("mail_subject") or payload.get("mail_objet") or payload.get("subject")
+        mail_body_override = payload.get("mail_body") or payload.get("body")
 
         rendered = render_modele_util(db, modele_id, {"client_id": client_id})
         contenu_html = override_contenu if isinstance(override_contenu, str) and override_contenu.strip() else rendered.get("contenu") or ""
@@ -7282,14 +7333,23 @@ async def dashboard_client_modele_generate(
             if not recipient:
                 mail_error = "Aucun destinataire email pour le client."
             else:
-                subject = rendered.get("objet") or modele.objet or modele.nom or "Document"
+                subject = (
+                    (mail_subject_override or "").strip()
+                    if isinstance(mail_subject_override, str) and mail_subject_override.strip()
+                    else (rendered.get("objet") or modele.objet or modele.nom or "Document")
+                )
                 client_civilite = _get_client_civilite(db, client_id, client)
                 client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
-                salutation = f"Bonjour {client_full_name}," if client_full_name else "Bonjour,"
-                body = (
-                    f"{salutation}\n\n"
+                default_body = (
+                    f"Bonjour {client_full_name},\n\n" if client_full_name else "Bonjour,\n\n"
+                ) + (
                     f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
-                    f"Cordialement,\n"
+                    "Cordialement,\n"
+                )
+                body = (
+                    (mail_body_override or "").strip()
+                    if isinstance(mail_body_override, str) and mail_body_override.strip()
+                    else default_body
                 )
                 mail_sent, mail_error = send_email_with_attachments(
                     recipient,
@@ -7314,6 +7374,122 @@ async def dashboard_client_modele_generate(
         raise
     except Exception:
         _log_document_generation_error(f"client_id={client_id} modele_id={modele_id}")
+        raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
+
+
+@router.post("/clients/{client_id}/documents/direct/{doc_type}/generate")
+async def dashboard_client_direct_document_generate(
+    client_id: int,
+    doc_type: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Génère, enregistre et éventuellement envoie un PDF direct (DER, mission, adéquation, FATCA, Tracfin, synthèse)."""
+    try:
+        _require_client_read(request, db, client_id)
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        payload = payload if isinstance(payload, dict) else {}
+        send_mail = bool(payload.get("send_mail"))
+        recipient = (payload.get("recipient") or getattr(client, "email", None) or "").strip()
+        mail_subject_override = payload.get("mail_subject") or payload.get("mail_objet") or payload.get("subject")
+        mail_body_override = payload.get("mail_body") or payload.get("body")
+
+        pdf_bytes, doc_label = await _build_client_direct_pdf_bytes(doc_type, client_id, request, db)
+        file_path = _ensure_generated_client_pdf_path(client_id, doc_label)
+        file_path.write_bytes(pdf_bytes)
+
+        ensure_document_client_storage_columns(db)
+        base_doc_id = ensure_document_base_for_label(db, doc_label, niveau="généré", risque=None)
+        client_full_name = " ".join(
+            p for p in [
+                (getattr(client, "prenom", "") or "").strip(),
+                (getattr(client, "nom", "") or "").strip(),
+            ] if p
+        ).strip()
+        doc_name = doc_label + (f" - {client_full_name}" if client_full_name else "")
+        doc_client_payload = DocumentClientCreateSchema(
+            id_client=client_id,
+            id_document_base=base_doc_id,
+            nom_document=doc_name,
+            date_creation=datetime.utcnow(),
+            date_obsolescence=None,
+            obsolescence="généré",
+            stored_filename=file_path.name,
+            stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+            mime_type="application/pdf",
+            file_size=len(pdf_bytes),
+        )
+        doc_client, err = create_document_client(db, doc_client_payload)
+        if err or not doc_client:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err or "Impossible d'enregistrer le document client")
+
+        doc_client_id = doc_client["id"] if isinstance(doc_client, dict) else getattr(doc_client, "id", None)
+        if not doc_client_id:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Document créé mais identifiant introuvable.")
+
+        mail_sent = False
+        mail_error = None
+        if send_mail:
+            if not recipient:
+                mail_error = "Aucun destinataire email pour le client."
+            else:
+                subject = (
+                    (mail_subject_override or "").strip()
+                    if isinstance(mail_subject_override, str) and mail_subject_override.strip()
+                    else doc_label
+                )
+                client_civilite = _get_client_civilite(db, client_id, client)
+                client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+                default_body = (
+                    f"Bonjour {client_full_name},\n\n" if client_full_name else "Bonjour,\n\n"
+                ) + (
+                    f"Veuillez trouver ci-joint le document PDF '{subject}'.\n\n"
+                    "Cordialement,\n"
+                )
+                body = (
+                    (mail_body_override or "").strip()
+                    if isinstance(mail_body_override, str) and mail_body_override.strip()
+                    else default_body
+                )
+                mail_sent, mail_error = send_email_with_attachments(
+                    recipient,
+                    subject,
+                    body,
+                    attachments=[(file_path.name, pdf_bytes, "application/pdf")],
+                )
+                if not mail_sent:
+                    mail_error = mail_error or "Envoi SMTP impossible ou non configuré."
+
+        return {
+            "document_id": doc_client_id,
+            "client_id": client_id,
+            "doc_type": doc_type,
+            "document_label": doc_label,
+            "filename": file_path.name,
+            "pdf_url": f"/dashboard/document-client/{doc_client_id}/pdf?inline=1",
+            "download_url": f"/dashboard/document-client/{doc_client_id}/pdf",
+            "mail_sent": mail_sent,
+            "mail_error": mail_error,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        _log_document_generation_error(f"client_id={client_id} doc_type={doc_type}")
         raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
 
 
@@ -15530,6 +15706,71 @@ def _list_group_members(db: Session, group_id: int, actifs_only: bool = False) -
     return members
 
 
+def _append_group_history_line(current_motif: str | None, line: str) -> str:
+    current = (current_motif or "").strip()
+    if not current:
+        return line
+    return f"{current}\n{line}"
+
+
+def _collect_group_removal_labels(db: Session, group_id: int) -> list[str]:
+    labels: list[str] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT g.id,
+                       g.client_id,
+                       g.affaire_id,
+                       c.nom AS client_nom,
+                       c.prenom AS client_prenom,
+                       a.ref AS affaire_ref,
+                       a.id AS affaire_code,
+                       ac.nom AS affaire_client_nom,
+                       ac.prenom AS affaire_client_prenom
+                FROM administration_groupe g
+                LEFT JOIN mariadb_clients c ON c.id = g.client_id
+                LEFT JOIN mariadb_affaires a ON a.id = g.affaire_id
+                LEFT JOIN mariadb_clients ac ON ac.id = a.id_personne
+                WHERE g.groupe_id = :gid
+                  AND (COALESCE(g.actif, 1) != 0)
+                ORDER BY g.id
+                """
+            ),
+            {"gid": group_id},
+        ).fetchall()
+    except Exception:
+        return labels
+    for row in rows or []:
+        m = row._mapping
+        client_id = m.get("client_id")
+        affaire_id = m.get("affaire_id")
+        if client_id is not None:
+            parts = [
+                (m.get("client_prenom") or "").strip(),
+                (m.get("client_nom") or "").strip(),
+            ]
+            label = " ".join(p for p in parts if p) or f"Client #{client_id}"
+            labels.append(label)
+            continue
+        if affaire_id is not None:
+            affaire_ref = (m.get("affaire_ref") or "").strip()
+            affaire_code = m.get("affaire_code")
+            client_parts = [
+                (m.get("affaire_client_prenom") or "").strip(),
+                (m.get("affaire_client_nom") or "").strip(),
+            ]
+            client_label = " ".join(p for p in client_parts if p)
+            base = affaire_ref or (f"Affaire #{affaire_code}" if affaire_code is not None else f"Affaire #{affaire_id}")
+            if client_label:
+                labels.append(f"{base} / {client_label}")
+            else:
+                labels.append(base)
+            continue
+        labels.append(f"Ligne groupe #{m.get('id')}")
+    return labels
+
+
 def _resolve_affaire_client(db: Session, affaire_id: int | None) -> tuple[int | None, str | None]:
     """Pour une affaire, retourne (client_id, ref) si possible."""
     if affaire_id is None:
@@ -15712,6 +15953,93 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
         db.rollback()
         logger.error(f"delete_administration_group failed: {e}")
         return _group_error_redirect(f"Suppression impossible : {e}")
+
+
+@router.post("/groupes/{group_key}/delete", response_class=HTMLResponse)
+async def dashboard_groupes_delete(group_key: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
+    form = await request.form()
+    confirm = (form.get("confirm_delete") or "").strip()
+    if confirm != "SUPPRIMER":
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Merci de saisir SUPPRIMER pour confirmer la suppression.')}",
+            status_code=303,
+        )
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id, nom, type_groupe, motif, actif
+                FROM administration_groupe_detail
+                WHERE id = :gid
+                LIMIT 1
+                """
+            ),
+            {"gid": group_key},
+        ).fetchone()
+    except Exception as e:
+        logger.error(f"dashboard_groupes_delete lookup failed: {e}")
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Groupe introuvable ou table inaccessible.')}",
+            status_code=303,
+        )
+    if not row:
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Groupe introuvable.')}",
+            status_code=303,
+        )
+    data = row._mapping
+    try:
+        now_dt = datetime.utcnow()
+        labels = _collect_group_removal_labels(db, int(group_key))
+        db.execute(
+            text(
+                """
+                UPDATE administration_groupe
+                SET actif = 0,
+                    date_retrait = :now_dt
+                WHERE groupe_id = :gid
+                  AND (COALESCE(actif, 1) != 0)
+                """
+            ),
+            {"now_dt": now_dt, "gid": int(group_key)},
+        )
+        hist_ts = _fmt_display_dt(now_dt)
+        hist_lines = [
+            f"[{hist_ts}] Suppression du groupe validée par saisie SUPPRIMER.",
+            f"[{hist_ts}] {len(labels)} personne(s)/affaire(s) retirée(s) du groupe.",
+        ]
+        if labels:
+            preview = "; ".join(labels[:20])
+            if len(labels) > 20:
+                preview += f" … (+{len(labels) - 20} autre(s))"
+            hist_lines.append(f"[{hist_ts}] Membres retirés : {preview}.")
+        motif = _append_group_history_line(data.get("motif"), "\n".join(hist_lines))
+        db.execute(
+            text(
+                """
+                UPDATE administration_groupe_detail
+                SET actif = 0,
+                    date_fin = :date_fin,
+                    motif = :motif
+                WHERE id = :gid
+                """
+            ),
+            {
+                "date_fin": now_dt.date(),
+                "motif": motif,
+                "gid": int(group_key),
+            },
+        )
+        db.commit()
+        return RedirectResponse(url="/dashboard/groupes?deleted=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"dashboard_groupes_delete failed: {e}")
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote(f'Suppression impossible : {e}')}",
+            status_code=303,
+        )
 
 
 # ---- Administration : Ressources humaines ----
@@ -22575,6 +22903,11 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
         gid = row.get("id")
         if not gid:
             continue
+        try:
+            if int(row.get("actif") or 0) == 0:
+                continue
+        except Exception:
+            pass
         type_raw = (row.get("type_groupe") or "").lower()
         resp_label = " ".join(
             p for p in [
@@ -24023,11 +24356,17 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 "nbuc": r.nbuc,
                 "vl": r.vl,
                 "prmp": r.prmp,
+                "prma": r.prmp,
                 "valo": r.valo,
                 "srri_support": getattr(r, "srri_support", None),
                 "noteE": getattr(r, "noteE", None),
                 "noteS": getattr(r, "noteS", None),
                 "noteG": getattr(r, "noteG", None),
+                "note_esg": esg_grade_from_letters(
+                    getattr(r, "noteE", None),
+                    getattr(r, "noteS", None),
+                    getattr(r, "noteG", None),
+                ),
                 "cat_gene": getattr(r, "cat_gene", None),
                 "cat_principale": getattr(r, "cat_principale", None),
                 "cat_det": getattr(r, "cat_det", None),
@@ -33401,6 +33740,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     client_affaires = []
     consolidation_rows: list[dict] = []
+    note_map_esg = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7}
+    inv_map_esg = {v: k for k, v in note_map_esg.items()}
     for r in affaires_rows:
         srri_calc = _srri_from_vol(r.last_volat)
         icon = _icon_for_compare(r.SRRI, srri_calc)
@@ -33441,6 +33782,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "total_mvt": total_mvt,
             "ecart_valo_mvt": ecart_valo_mvt,
             "last_valo_numeric": last_valo_numeric,
+            "note_esg": None,
         })
 
     effective_support_date = as_of_effective or (labels[-1] if labels else None)
@@ -33539,6 +33881,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     "noteS": _grade(st["s_sum"], st["s_w"]),
                     "noteG": _grade(st["g_sum"], st["g_w"]),
                 }
+                affaire_esg_grade = esg_grade_from_letters(
+                    affaire_esg_map[aid]["noteE"],
+                    affaire_esg_map[aid]["noteS"],
+                    affaire_esg_map[aid]["noteG"],
+                )
+                affaire_esg_map[aid]["grade"] = affaire_esg_grade
         except Exception:
             affaire_esg_map = {}
 
@@ -33554,6 +33902,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             aff["noteE"] = esg.get("noteE")
             aff["noteS"] = esg.get("noteS")
             aff["noteG"] = esg.get("noteG")
+            aff["note_esg"] = esg.get("grade")
 
     # Note ESG agrégée (pondérée par valorisation) pour le client
     client_esg_grade = None
@@ -33615,12 +33964,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     g_weight_total += valo
         if esg_weight_total > 0:
             client_esg_score = esg_weighted_sum / esg_weight_total
-            grade_num = int(round(client_esg_score))
-            if grade_num < 1:
-                grade_num = 1
-            if grade_num > 7:
-                grade_num = 7
-            client_esg_grade = inv_map.get(grade_num)
             if total_valo_esg > 0:
                 client_esg_coverage_pct = (esg_weight_total / total_valo_esg) * 100.0
         def _grade_from(weighted_sum: float, weight_total: float) -> str | None:
@@ -33636,6 +33979,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         client_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
         client_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
         client_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
+        client_esg_grade = esg_grade_from_letters(client_esg_e_grade, client_esg_s_grade, client_esg_g_grade)
     except Exception as _esg_exc:
         logger.warning("ESG grade computation failed client %s: %s", client_id, _esg_exc)
         client_esg_grade = None

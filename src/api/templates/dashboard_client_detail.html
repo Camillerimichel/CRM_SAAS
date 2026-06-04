@@ -169,6 +169,36 @@
   .support-meta-btn.active,
   .support-meta-btn:active { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 6px 14px rgba(37,99,235,0.25); transform: scale(1.04); }
   .support-meta-btn.active i { color:#fff; }
+  .edition-send-btn {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:84px;
+    height:36px;
+    padding:0 12px;
+    border:1px solid #dbe4f0;
+    border-radius:10px;
+    background:#fff;
+    color:#0f172a;
+    cursor:pointer;
+    transition:background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease;
+    flex:0 0 auto;
+    gap:6px;
+    font-size:0.85rem;
+    font-weight:700;
+  }
+  .edition-send-btn:hover:not(:disabled),
+  .edition-send-btn:focus-visible:not(:disabled) {
+    transform: translateY(-1px);
+    background:#eff6ff;
+    border-color:#bfdbfe;
+    color:#1d4ed8;
+  }
+  .edition-send-btn:disabled {
+    opacity:.45;
+    cursor:not-allowed;
+    transform:none;
+  }
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .client-esg-split { display:flex; gap:12px; align-items:stretch; }
   .client-esg-left { flex:1 1 320px; min-width:0; }
@@ -176,6 +206,44 @@
   .client-esg-right #clientEsgChart { width:100%; max-width:100%; min-width:0; }
   @media (max-width: 900px) {
     .client-esg-split { flex-direction:column; }
+  }
+  /* Contrats client: colonnes activables */
+  #invContractsBlock .contracts-col-actions {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+  #invContractsBlock .contracts-col-btn {
+    border:1px solid #dbe4f0;
+    background:#f8fafc;
+    color:#334155;
+    border-radius:10px;
+    width:30px;
+    height:30px;
+    padding:0;
+    font-size:0.82rem;
+    font-weight:600;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    transition: background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease;
+    user-select:none;
+  }
+  #invContractsBlock .contracts-col-btn:hover { transform: translateY(-1px); }
+  #invContractsBlock .contracts-col-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+  #invContractsBlock.contracts-show-perf-risk .col-perf-risk,
+  #invContractsBlock.contracts-show-esg .col-esg {
+    display: flex;
+  }
+  #invContractsBlock .col-perf-risk,
+  #invContractsBlock .col-esg {
+    display: none;
   }
   /* Bouton Voir compact */
   /* Réduire la marge haute du bloc contrats */
@@ -226,6 +294,9 @@
   #supportChronologyTable th, #supportChronologyTable td { padding:10px 12px; border-bottom:1px solid #e2e8f0; }
   #supportChronologyTable th { background:var(--primary, #475569); color:#fff; text-transform:none; font-size:0.87rem; }
   #supportChronologyTable tr:nth-child(even) td { background:#f8fafc; }
+  #reportSection table { font-size: 0.75rem; border-collapse: collapse; width: 100%; }
+  #reportSection table thead th { font-size: 0.75rem; font-weight: 600; color: #fff; background: var(--primary, #2456a6); padding: 5px 8px; }
+  #reportSection table tbody td { font-size: 0.75rem; padding: 5px 8px; }
   #reportSection table tbody tr:nth-child(even) { background:#eff6ff; }
   #reportSection table tbody tr:nth-child(odd) { background:#fff; }
   /* Charts block (embedded inside a card → keep it light) */
@@ -705,13 +776,14 @@
   /* Annuler la taille héritée de .contract-ref (1rem) dans ce contexte */
   .inv-contracts-row .contract-ref { font-size: inherit; }
   /* colonnes contrats */
-  .icl-ref   { flex: 3 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icl-ref   { flex: 2.5 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icl-gauge { flex: 0 0 150px; }
   .icl-date  { flex: 0 0 84px; white-space: nowrap; text-align: center; justify-content: center; display: flex; }
   .icl-amt   { flex: 1.3 1 0; min-width: 80px; display: flex; justify-content: flex-end; font-variant-numeric: tabular-nums; }
   .icl-perf  { flex: 0 0 62px; text-align: right; font-variant-numeric: tabular-nums; }
   .icl-vol   { flex: 0 0 62px; text-align: right; font-variant-numeric: tabular-nums; }
   .icl-srri, .icl-sri { flex: 0 0 32px; display: flex; justify-content: center; }
+  .icl-esg { flex: 0 0 30px; display: flex; justify-content: center; }
   .icl-e, .icl-s, .icl-g { flex: 0 0 24px; display: flex; justify-content: center; }
   /* colonnes supports */
   .isl-name  { flex: 4 1 0; min-width: 0; overflow: hidden; }
@@ -876,7 +948,82 @@
       <button id="docsToggle" class="accordion-toggle client-hide" data-tb-marker="CL_16" type="button" title="Documents" aria-label="Documents" onclick="setSectionToggleActive('docsToggle');">
         <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Documents</span>
       </button>
+      <button id="courrierToggle" class="accordion-toggle client-hide" type="button" title="Envoi de courrier" aria-label="Envoi de courrier" onclick="setSectionToggleActive('courrierToggle');">
+        <i class="fa-solid fa-envelope-open-text" aria-hidden="true"></i><span>Envoi de courrier</span>
+      </button>
     {% endif %}
+  </div>
+
+  {# Modale Échelles de risque #}
+  {% set _srri_cur = current_srri %}
+  {% set _nro_cur  = client_sri %}
+  {% set _esg_cur  = client_esg_grade %}
+  <div id="echellesModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+    <div class="modal-card" style="width:540px; max-width:96vw; max-height:88vh; overflow:auto;">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;"><i class="fa-solid fa-gauge-high"></i>Échelles de risque</h3>
+        <button class="modal-close" onclick="document.getElementById('echellesModal').style.display='none'">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;padding:14px 14px 12px;">
+        {% set srri_labels = ['Très faible','Faible','Moy. faible','Moyen','Moy. élevé','Élevé','Très élevé'] %}
+        {% set srri_colors = ['#166534','#16a34a','#65a30d','#ca8a04','#ea580c','#dc2626','#991b1b'] %}
+        {% set srri_text   = ['#fff','#fff','#1a1a1a','#1a1a1a','#fff','#fff','#fff'] %}
+
+        {# --- SRRI --- #}
+        <div>
+          <div style="font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">SRRI — Indicateur synthétique de risque et de rendement</div>
+          <div style="display:flex;gap:3px;">
+            {% for i in range(1,8) %}
+            {% set col = srri_colors[i-1] %}{% set tc = srri_text[i-1] %}{% set active = (_srri_cur|int(0)) == i %}
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">
+              <div style="width:100%;padding:7px 2px;border-radius:6px;background:{{ col }};color:{{ tc }};font-weight:800;font-size:0.78rem;text-align:center;
+                {% if active %}box-shadow:0 0 0 3px #0f172a,0 0 0 5px {{ col }};transform:scale(1.08);{% else %}opacity:0.7;{% endif %}">{{ i }}</div>
+              <div style="font-size:0.52rem;color:#64748b;text-align:center;line-height:1.1;">{{ srri_labels[i-1] }}</div>
+              {% if active %}<div style="font-size:0.56rem;font-weight:700;color:#0f172a;">◀ calculé</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# --- NRO --- #}
+        <div>
+          <div style="font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">NRO — Nouveau Risque Observé</div>
+          <div style="display:flex;gap:3px;">
+            {% for i in range(1,8) %}
+            {% set col = srri_colors[i-1] %}{% set tc = srri_text[i-1] %}{% set active = (_nro_cur|int(0)) == i %}
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">
+              <div style="width:100%;padding:7px 2px;border-radius:6px;background:{{ col }};color:{{ tc }};font-weight:800;font-size:0.78rem;text-align:center;
+                {% if active %}box-shadow:0 0 0 3px #0f172a,0 0 0 5px {{ col }};transform:scale(1.08);{% else %}opacity:0.7;{% endif %}">{{ i }}</div>
+              <div style="font-size:0.52rem;color:#64748b;text-align:center;line-height:1.1;">{{ srri_labels[i-1] }}</div>
+              {% if active %}<div style="font-size:0.56rem;font-weight:700;color:#0f172a;">◀ niveau</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# --- ESG --- #}
+        {% set esg_letters = ['A','B','C','D','E','F','G'] %}
+        {% set esg_colors  = ['#16a34a','#4ade80','#a3e635','#facc15','#fb923c','#f97316','#ef4444'] %}
+        {% set esg_tcolors = ['#fff','#0f172a','#0f172a','#0f172a','#0f172a','#fff','#fff'] %}
+        {% set esg_labels  = ['Excellente','Très bonne','Bonne','Moyenne','Assez faible','Faible','Très faible'] %}
+        <div>
+          <div style="font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Note ESG — Qualité environnementale, sociale et de gouvernance</div>
+          <div style="display:flex;gap:3px;">
+            {% for i in range(7) %}
+            {% set lt = esg_letters[i] %}{% set col = esg_colors[i] %}{% set tc = esg_tcolors[i] %}
+            {% set active = (_esg_cur|upper if _esg_cur else '') == lt %}
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">
+              <div style="width:100%;padding:7px 2px;border-radius:6px;background:{{ col }};color:{{ tc }};font-weight:800;font-size:0.78rem;text-align:center;
+                {% if active %}box-shadow:0 0 0 3px #0f172a,0 0 0 5px {{ col }};transform:scale(1.08);{% else %}opacity:0.7;{% endif %}">{{ lt }}</div>
+              <div style="font-size:0.52rem;color:#64748b;text-align:center;line-height:1.1;">{{ esg_labels[i] }}</div>
+              {% if active %}<div style="font-size:0.56rem;font-weight:700;color:#0f172a;">◀ note</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div style="font-size:0.62rem;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:8px;line-height:1.35;">Le SRRI et le NRO sont calculés sur une échelle de 1 (risque minimal) à 7 (risque maximal). La note ESG va de A (meilleure) à G (la moins bonne).</div>
+      </div>
+    </div>
   </div>
   <div id="synthCard" class="card" style="margin-bottom:0.5rem; padding:0;">
     <div id="synthToggle" class="accordion-toggle" data-target="synthPanel" style="margin:0; cursor:pointer; justify-content:center; text-align:center;">
@@ -913,6 +1060,9 @@
         <i class="fa-solid fa-file-pdf"></i><span>Docs PDF</span>
       </button>
       {% endif %}
+      <button type="button" class="btn" style="background:#fff; color:var(--text); border:1px solid transparent; padding:.25rem .6rem; font-size:.85rem; display:inline-flex; align-items:center; gap:6px;" onclick="document.getElementById('echellesModal').style.display='flex'" title="Échelles de risque">
+        <i class="fa-solid fa-gauge-high"></i><span>Échelles</span>
+      </button>
     </div>
     <div class="grid" data-tb-marker="CL_02">
       <div class="card" data-tb-marker="CL_03">
@@ -999,37 +1149,33 @@
           {% endif %}
         {% endif %}
         <div class="kpi-mini kpi-line" style="align-items:flex-start;">
-          <span>NRO (<a href="javascript:void(0)" class="link" style="font-weight:600;" onclick="openSriModal()">détails</a>)</span>
+          <span>SRI client / NRO (<a href="javascript:void(0)" class="link" style="font-weight:600;" onclick="openSriModal()">détails</a>)</span>
           <span class="kv">
             {% if nro_sri_icon_class %}
               <span class="srri-dot {{ nro_sri_icon_class }}" aria-hidden="true" style="margin-right:6px;"></span>
             {% endif %}
-            <span style="white-space:nowrap;">NRO {{ client_sri if client_sri is not none else '—' }} / SRI {{ client_srri if client_srri is not none else '—' }}</span>
+            <span style="white-space:nowrap;">SRI {{ client_srri if client_srri is not none else '—' }} / NRO {{ client_sri if client_sri is not none else '—' }}</span>
           </span>
         </div>
-        <div class="kpi-mini kpi-line">
-          <span>Notes ESG</span>
-          <span class="kv" style="gap:6px;">
+        <div class="kpi-mini kpi-line" style="align-items:center; padding:2px 0;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <span>ESG</span>
             {% if client_esg_grade %}
               <span class="esg-grade esg-{{ client_esg_grade|lower }}" title="Note ESG globale">{{ client_esg_grade }}</span>
             {% else %}
               <span class="muted">—</span>
             {% endif %}
-            {% if client_esg_e_grade %}
-              <span class="esg-grade esg-{{ client_esg_e_grade|lower }}" title="Environnement : {{ client_esg_e_grade }}">E</span>
-            {% else %}
-              <span class="muted" title="Environnement : —">E —</span>
-            {% endif %}
-            {% if client_esg_s_grade %}
-              <span class="esg-grade esg-{{ client_esg_s_grade|lower }}" title="Social : {{ client_esg_s_grade }}">S</span>
-            {% else %}
-              <span class="muted" title="Social : —">S —</span>
-            {% endif %}
-            {% if client_esg_g_grade %}
-              <span class="esg-grade esg-{{ client_esg_g_grade|lower }}" title="Gouvernance : {{ client_esg_g_grade }}">G</span>
-            {% else %}
-              <span class="muted" title="Gouvernance : —">G —</span>
-            {% endif %}
+          </span>
+          <span class="kv" style="display:inline-flex; align-items:center; flex-wrap:nowrap; gap:4px; white-space:nowrap; overflow:hidden;">
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;color:#6b7280;">E :
+              {% if client_esg_e_grade %}<span class="esg-grade esg-{{ client_esg_e_grade|lower }}">{{ client_esg_e_grade }}</span>{% else %}<span class="muted">—</span>{% endif %}
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;color:#6b7280;">S :
+              {% if client_esg_s_grade %}<span class="esg-grade esg-{{ client_esg_s_grade|lower }}">{{ client_esg_s_grade }}</span>{% else %}<span class="muted">—</span>{% endif %}
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;color:#6b7280;">G :
+              {% if client_esg_g_grade %}<span class="esg-grade esg-{{ client_esg_g_grade|lower }}">{{ client_esg_g_grade }}</span>{% else %}<span class="muted">—</span>{% endif %}
+            </span>
           </span>
         </div>
       </div>
@@ -1361,6 +1507,7 @@
   .modal-header h3 { margin: 0; font-size: 1.05rem; }
   .modal-body { padding: 12px 14px; }
   .modal-close { border:none; background: transparent; cursor: pointer; font-size: 18px; }
+  .doc-icon-btn { width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; margin-right:2px; position:relative; }
 </style>
 <div id="clientAdminGroupsModal" class="modal-overlay" onclick="if(event.target===this) document.getElementById('clientAdminGroupsModal').style.display='none'">
   <div class="modal-card">
@@ -1757,6 +1904,7 @@ function generateClientSynthese(){
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button type="button" id="pdfViewerOpenBtn" class="btn btn-secondary" style="display:none;" onclick="openPdfViewerExternal()">Ouvrir</button>
         <button type="button" id="pdfViewerSaveBtn" class="btn btn-secondary" style="display:none;" onclick="savePdfToRecord()"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
+        <button type="button" id="pdfViewerSendBtn" class="btn btn-primary" style="display:none;" onclick="openPdfViewerSendModal()"><i class="fa-solid fa-paper-plane"></i> Envoyer</button>
         <button type="button" id="pdfViewerDownloadBtn" class="btn btn-primary" style="display:none;" onclick="downloadPdfViewerFile()">Télécharger</button>
         <button class="modal-close" onclick="closePdfViewer()">✕</button>
       </div>
@@ -1768,6 +1916,54 @@ function generateClientSynthese(){
         <div id="pdfViewerLog" style="padding:0 12px 10px; font-size:12px; line-height:1.45; color:#334155; white-space:pre-wrap;"></div>
       </details>
       <iframe id="pdfViewerFrame" src="about:blank" style="width:100%; height:100%; border:0;" title="Aperçu PDF"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- Modale modification date d'obsolescence -->
+<div id="editObsModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeEditObsModal()">
+  <div class="modal-card" style="width:380px; max-width:95vw;">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-calendar-days" style="margin-right:8px;"></i>Date d'obsolescence</h3>
+      <button class="modal-close" onclick="closeEditObsModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;">
+      <p style="margin:0 0 14px; font-size:.875rem; color:#64748b;">Ces documents ont une durée de validité réglementaire de <strong>2 ans</strong>. Vous pouvez ajuster la date ci-dessous.</p>
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:.9rem;">Date d'obsolescence</label>
+        <input type="date" id="editObsDate" style="width:100%; padding:.45rem .6rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.9rem;" />
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" onclick="closeEditObsModal()" class="btn" style="background:#f1f5f9; color:#334155;">Annuler</button>
+        <button type="button" id="editObsSaveBtn" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modale saisie / modification email client (envoi courrier) -->
+<div id="courrierEmailModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeCourrierEmailModal()">
+  <div class="modal-card" style="width:420px; max-width:95vw;">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-envelope" style="margin-right:8px;"></i><span id="courrierEmailModalTitle">Adresse email du client</span></h3>
+      <button class="modal-close" onclick="closeCourrierEmailModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;">
+      <p id="courrierEmailModalDesc" style="margin:0 0 14px; font-size:.875rem; color:#64748b;">
+        Ce client n'a pas d'adresse email. Saisissez-en une pour envoyer le courrier.
+      </p>
+      <div style="margin-bottom:14px;">
+        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:.9rem;">Adresse email</label>
+        <input type="email" id="courrierEmailInput" placeholder="prenom.nom@exemple.fr" style="width:100%; padding:.45rem .6rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.9rem;" />
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:.875rem; cursor:pointer; margin-bottom:18px;">
+        <input type="checkbox" id="courrierEmailSaveCb" checked style="width:16px; height:16px;" />
+        Enregistrer cette adresse pour le client
+      </label>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" onclick="closeCourrierEmailModal()" class="btn" style="background:#f1f5f9; color:#334155;">Annuler</button>
+        <button type="button" id="courrierEmailConfirmBtn" class="btn btn-primary">Confirmer et envoyer</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1899,7 +2095,57 @@ function generateClientSynthese(){
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button type="button" id="modelePdfSaveBtn" class="btn btn-secondary" onclick="saveModelePdf(false)" disabled>Enregistrer</button>
-        <button type="button" id="modelePdfSaveSendBtn" class="btn btn-primary" onclick="saveModelePdf(true)" disabled>Enregistrer et envoyer</button>
+        <button type="button" id="modelePdfSaveSendBtn" class="btn btn-primary" onclick="openModelePdfSendModal()" disabled>Enregistrer et envoyer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modelePdfSendModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeModelePdfSendModal()">
+  <div class="modal-card" style="width:560px; max-width:95vw;">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-paper-plane" style="margin-right:8px;"></i>Enregistrer et envoyer</h3>
+      <button class="modal-close" onclick="closeModelePdfSendModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+      <div>
+        <label for="modelePdfMailSubject" style="display:block; margin-bottom:6px; font-weight:600; font-size:.9rem;">Type / objet du mail</label>
+        <input type="text" id="modelePdfMailSubject" style="width:100%; padding:.5rem .65rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.95rem;" />
+      </div>
+      <div>
+        <label for="modelePdfMailBody" style="display:block; margin-bottom:6px; font-weight:600; font-size:.9rem;">Message</label>
+        <textarea id="modelePdfMailBody" rows="10" style="width:100%; padding:.6rem .7rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.95rem; resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn" onclick="closeModelePdfSendModal()" style="background:#f1f5f9; color:#334155;">Annuler</button>
+        <button type="button" id="modelePdfSendConfirmBtn" class="btn btn-primary">Valider et envoyer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="editionPdfSendModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeEditionPdfSendModal()">
+  <div class="modal-card" style="width:560px; max-width:95vw;">
+    <div class="modal-header">
+      <h3><i class="fa-solid fa-paper-plane" style="margin-right:8px;"></i><span id="editionPdfSendModalTitle">Enregistrer et envoyer</span></h3>
+      <button class="modal-close" onclick="closeEditionPdfSendModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+      <div>
+        <label for="editionPdfDocType" style="display:block; margin-bottom:6px; font-weight:600; font-size:.9rem;">Document</label>
+        <input type="text" id="editionPdfDocType" readonly style="width:100%; padding:.5rem .65rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.95rem; background:#f8fafc;" />
+      </div>
+      <div>
+        <label for="editionPdfMailSubject" style="display:block; margin-bottom:6px; font-weight:600; font-size:.9rem;">Type / objet du mail</label>
+        <input type="text" id="editionPdfMailSubject" style="width:100%; padding:.5rem .65rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.95rem;" />
+      </div>
+      <div>
+        <label for="editionPdfMailBody" style="display:block; margin-bottom:6px; font-weight:600; font-size:.9rem;">Message</label>
+        <textarea id="editionPdfMailBody" rows="10" style="width:100%; padding:.6rem .7rem; border:1px solid #e2e8f0; border-radius:8px; font-size:.95rem; resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn" onclick="closeEditionPdfSendModal()" style="background:#f1f5f9; color:#334155;">Annuler</button>
+        <button type="button" id="editionPdfSendConfirmBtn" class="btn btn-primary">Valider et envoyer</button>
       </div>
     </div>
   </div>
@@ -2162,18 +2408,36 @@ function generateClientSynthese(){
         <div>
 	          <h4 style="margin:0 0 8px 0; text-align:center;">Éditions</h4>
 	          <div style="display:flex; flex-direction:column; gap:8px;">
-	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
+	            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+	              <button type="button" class="kyc-main-btn" style="flex:1 1 auto;" onclick="closeConfMain(); generateDerPdf();"><i class="fa-solid fa-file-signature"></i>DER</button>
+	              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer DER" aria-label="Enregistrer et envoyer DER" onclick="openEditionPdfSendModal('der', 'DER')"><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+	            </div>
 	            {% set _obj_total = _kyc.objectifs_total if _kyc and (_kyc.objectifs_total is not none) else lm_total_invest %}
 	            {% set _mission_enabled = (_obj_total or 0) > 0 %}
 	            {% set _docs_enabled = _overall.complete if _overall else False %}
-	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateMissionPdf();" {% if not _mission_enabled %}disabled title="Un montant global d'objectifs doit être saisi dans la fiche KYC."{% endif %}><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
-	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateAdequationPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
-		            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateFatcaPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-shield"></i>Autocertification FATCA / EAI</button>
-	            <button type="button" class="kyc-main-btn" style="width:100%;" onclick="closeConfMain(); generateTracfinPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-exclamation"></i>Fiche Tracfin</button>
-		            <button type="button" class="kyc-main-btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="generateClientSynthese()" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}>
-		              <span class="pdf-pill-icon">PDF</span>
-		              <span>Edition de synthèse</span>
-		            </button>
+	            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+	              <button type="button" class="kyc-main-btn" style="flex:1 1 auto;" onclick="closeConfMain(); generateMissionPdf();" {% if not _mission_enabled %}disabled title="Un montant global d'objectifs doit être saisi dans la fiche KYC."{% endif %}><i class="fa-solid fa-file-contract"></i>Lettre de Mission</button>
+	              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer la lettre de mission" aria-label="Enregistrer et envoyer la lettre de mission" onclick="openEditionPdfSendModal('mission', 'Lettre de mission')" {% if not _mission_enabled %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+	            </div>
+	            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+	              <button type="button" class="kyc-main-btn" style="flex:1 1 auto;" onclick="closeConfMain(); generateAdequationPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-check"></i>Lettre d’adéquation</button>
+	              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer la lettre d’adéquation" aria-label="Enregistrer et envoyer la lettre d’adéquation" onclick="openEditionPdfSendModal('adequation', 'Lettre d’adéquation')" {% if not _docs_enabled %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+	            </div>
+		            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+		              <button type="button" class="kyc-main-btn" style="flex:1 1 auto;" onclick="closeConfMain(); generateFatcaPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-shield"></i>Autocertification FATCA / EAI</button>
+		              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer l'autocertification FATCA / EAI" aria-label="Enregistrer et envoyer l'autocertification FATCA / EAI" onclick="openEditionPdfSendModal('fatca', 'Autocertification FATCA / EAI')" {% if not _docs_enabled %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+		            </div>
+	            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+	              <button type="button" class="kyc-main-btn" style="flex:1 1 auto;" onclick="closeConfMain(); generateTracfinPdf();" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}><i class="fa-solid fa-file-circle-exclamation"></i>Fiche Tracfin</button>
+	              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer la fiche Tracfin" aria-label="Enregistrer et envoyer la fiche Tracfin" onclick="openEditionPdfSendModal('tracfin', 'Fiche Tracfin')" {% if not _docs_enabled %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+	            </div>
+		            <div style="display:flex; gap:8px; align-items:center; width:100%;">
+		              <button type="button" class="kyc-main-btn" style="flex:1 1 auto; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="generateClientSynthese()" {% if not _docs_enabled %}disabled title="Disponible lorsque la connaissance client est complétée à 100 %."{% endif %}>
+		                <span class="pdf-pill-icon">PDF</span>
+		                <span>Edition de synthèse</span>
+		              </button>
+		              <button type="button" class="edition-send-btn" title="Enregistrer et envoyer l'édition de synthèse" aria-label="Enregistrer et envoyer l'édition de synthèse" onclick="openEditionPdfSendModal('synthese', 'Edition de synthèse')" {% if not _docs_enabled %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i><span>Envoyer</span></button>
+		            </div>
 	          </div>
 	        </div>
       </div>
@@ -2729,9 +2993,20 @@ function generateClientSynthese(){
     <div style="display:flex; flex-direction:column; gap:4px;">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <h3 id="contractsTitle" class="section-title-blue toggle-title" style="margin:4px 8px 8px 0;">Contrats du client</h3>
-        <button type="button" class="btn" style="background:#fff; color:var(--primary-600,#2563eb); border:1px solid var(--primary-200,#bfdbfe); padding:.25rem .7rem; font-size:.82rem; border-radius:7px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" onclick="openHistoriqueModal({{ client.id if client else 'null' }})" title="Voir l'historique complet du client">
-          <i class="fa-solid fa-table-list"></i> Historique
+        <button type="button" class="contracts-col-btn" style="background:#f8fafc; color:#334155; border:1px solid #dbe4f0;" onclick="openHistoriqueModal({{ client.id if client else 'null' }})" title="Voir l'historique complet du client" aria-label="Voir l'historique complet du client">
+          <i class="fa-solid fa-table-list" aria-hidden="true"></i>
         </button>
+        <div class="contracts-col-actions" aria-label="Colonnes du tableau contrats">
+          <button type="button" class="contracts-col-btn" data-contract-columns="perf-risk" aria-pressed="false" title="Afficher performances et risques" aria-label="Afficher performances et risques">
+            <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="contracts-col-btn" data-contract-columns="esg" aria-pressed="false" title="Afficher la note ESG" aria-label="Afficher la note ESG">
+            <i class="fa-solid fa-leaf" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="contracts-col-btn" data-contract-columns="all" aria-pressed="false" title="Tout afficher" aria-label="Tout afficher">
+            <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+          </button>
+        </div>
       </div>
       {% if available_dates %}
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -2755,13 +3030,14 @@ function generateClientSynthese(){
       <span class="icl-gauge">% total</span>
       <span class="icl-date">Ouverture</span>
       <span class="icl-amt">Montant</span>
-      <span class="icl-perf">Perf 52s</span>
-      <span class="icl-vol">Volat 52s</span>
-      <span class="icl-srri">SRRI</span>
-      <span class="icl-sri">NRO</span>
-      <span class="icl-e">E</span>
-      <span class="icl-s">S</span>
-      <span class="icl-g">G</span>
+      <span class="icl-perf col-perf-risk">Perf 52s</span>
+      <span class="icl-vol col-perf-risk">Volat 52s</span>
+      <span class="icl-srri col-perf-risk">SRRI</span>
+      <span class="icl-sri col-perf-risk">NRO</span>
+      <span class="icl-esg col-esg">ESG</span>
+      <span class="icl-e col-esg">E</span>
+      <span class="icl-s col-esg">S</span>
+      <span class="icl-g col-esg">G</span>
     </div>
     <div id="contractsList" data-tb-marker="CL_16">
       {% for a in sorted_client_affaires %}
@@ -2818,9 +3094,9 @@ function generateClientSynthese(){
             <span class="valo-dot {{ dot_class }}" aria-hidden="true" title="{{ dot_title }}"></span>{{ a.last_valo_str }}
           {% endif %}
         </span>
-        <span class="icl-perf">{% if not a.date_cle and a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
-        <span class="icl-vol">{% if not a.date_cle and a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
-        <span class="icl-srri">
+        <span class="icl-perf col-perf-risk">{% if not a.date_cle and a.last_perf_pct is not none %}{{ '%.2f'|format(a.last_perf_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
+        <span class="icl-vol col-perf-risk">{% if not a.date_cle and a.last_vol_pct is not none %}{{ '%.2f'|format(a.last_vol_pct) }} %{% else %}<span class="muted">—</span>{% endif %}</span>
+        <span class="icl-srri col-perf-risk">
           {% if srri_val >= 1 and srri_val <= 7 %}
             {% set srri_ring = '' %}
             {% if a.srri_icon == 'fire' %}{% set srri_ring = 'nro-below' %}
@@ -2829,22 +3105,29 @@ function generateClientSynthese(){
             <span class="srri-chip srri-{{ srri_val }} {{ srri_ring }}" title="SRRI calculé {{ srri_val }}{{ srri_tip }}">{{ srri_val }}</span>
           {% else %}<span class="muted">—</span>{% endif %}
         </span>
-        <span class="icl-sri">
+        <span class="icl-sri col-perf-risk">
           {% if sri_val >= 1 and sri_val <= 7 %}
             <span class="srri-chip srri-{{ sri_val }} {{ nro_ring }}" title="{{ nro_tip }}">{{ sri_val }}</span>
           {% else %}<span class="muted">—</span>{% endif %}
         </span>
-        <span class="icl-e">
+        <span class="icl-esg col-esg">
+          {% if a.note_esg %}
+            <span class="esg-badge esg-{{ a.note_esg|lower }}" title="Note ESG globale">{{ a.note_esg }}</span>
+          {% else %}
+            <span class="muted" style="font-size:0.75rem;">—</span>
+          {% endif %}
+        </span>
+        <span class="icl-e col-esg">
           {% if noteE_raw %}
             <span class="esg-badge esg-{{ noteE_raw[:1]|lower }}" title="Environnement : {{ noteE_raw[:1] }}">{{ noteE_raw[:1] }}</span>
           {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
         </span>
-        <span class="icl-s">
+        <span class="icl-s col-esg">
           {% if noteS_raw %}
             <span class="esg-badge esg-{{ noteS_raw[:1]|lower }}" title="Social : {{ noteS_raw[:1] }}">{{ noteS_raw[:1] }}</span>
           {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
         </span>
-        <span class="icl-g">
+        <span class="icl-g col-esg">
           {% if noteG_raw %}
             <span class="esg-badge esg-{{ noteG_raw[:1]|lower }}" title="Gouvernance : {{ noteG_raw[:1] }}">{{ noteG_raw[:1] }}</span>
           {% else %}<span class="muted" style="font-size:0.75rem;">—</span>{% endif %}
@@ -2864,6 +3147,39 @@ function generateClientSynthese(){
         <span class="srri-chip nro-below" style="width:16px;height:16px;font-size:0;"></span> En-dessous du profil
       </span>
     </div>
+    <script>
+      (function(){
+        var block = document.getElementById('invContractsBlock');
+        if (!block) return;
+        var buttons = Array.prototype.slice.call(block.querySelectorAll('.contracts-col-btn'));
+        function setShowAll() {
+          block.classList.add('contracts-show-perf-risk');
+          block.classList.add('contracts-show-esg');
+        }
+        function syncButtons(){
+          buttons.forEach(function(btn){
+            var group = btn.getAttribute('data-contract-columns');
+            var active = group === 'all'
+              ? block.classList.contains('contracts-show-perf-risk') && block.classList.contains('contracts-show-esg')
+              : block.classList.contains('contracts-show-' + group);
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+          });
+        }
+        buttons.forEach(function(btn){
+          btn.addEventListener('click', function(){
+            var group = btn.getAttribute('data-contract-columns');
+            if (group === 'all') {
+              setShowAll();
+            } else {
+              block.classList.toggle('contracts-show-' + group);
+            }
+            syncButtons();
+          });
+        });
+        syncButtons();
+      })();
+    </script>
 
     {% if contrats_sans_historique %}
     <div id="contratsSansHistoriqueBlock" style="margin-top:16px;">
@@ -3076,6 +3392,11 @@ function generateClientSynthese(){
           <div class="muted" style="margin-top:4px; font-size:12px;">Indice de référence normalisé à 100. Client = (Client / Indice) × 100.</div>
         </div>
         <div class="client-esg-right">
+          <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
+            <button id="clientEsgChartToggle" type="button" class="dim-btn" title="Basculer entre barres et radar" style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem;">
+              <i class="fa-solid fa-chart-bar"></i><span id="clientEsgChartToggleLabel">Radar</span>
+            </button>
+          </div>
           <div id="clientEsgChart" style="min-height:320px; width:100%; display:none;"></div>
           <div id="clientEsgExcluded" class="muted" style="margin-top:8px; font-size:12px; display:none;"></div>
         </div>
@@ -3227,7 +3548,7 @@ function generateClientSynthese(){
 
   <div id="reportSection" class="card" style="display:none;">
     {% if reporting_years %}
-    <table style="font-size:12px;">
+    <table>
       <thead>
         <tr>
           <th>Année</th>
@@ -3261,7 +3582,7 @@ function generateClientSynthese(){
         {% endfor %}
       </tbody>
     </table>
-    <div class="muted" style="margin-top:6px; font-size:12px;">
+    <div class="muted" style="margin-top:6px; font-size:0.75rem;">
       <div>Les pourcentages sont exprimés en % (valeurs décimales converties).</div>
       <div>La performance annualisée correspond à la performance cumulée observée à la date, ramenée en taux annuel fixe (CAGR).</div>
     </div>
@@ -3332,22 +3653,49 @@ function generateClientSynthese(){
           <td>{{ d.base_name or '-' }}</td>
           <td>{{ d.nom_document or '-' }}</td>
           <td>{{ (d.date_creation|string)[:10] if d.date_creation else '-' }}</td>
-          <td>{{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '-' }}</td>
+          <td>
+            {% if d.obs_status == 'expire' %}
+              <span style="background:#fee2e2; color:#dc2626; border-radius:6px; padding:2px 7px; font-size:.8rem; font-weight:600; display:inline-block; white-space:nowrap;">
+                {{ (d.date_obsolescence|string)[:10] }} <span style="font-size:.7rem; opacity:.85;">· Expiré</span>
+              </span>
+            {% elif d.obs_status == 'bientot' %}
+              <span style="background:#fef3c7; color:#b45309; border-radius:6px; padding:2px 7px; font-size:.8rem; font-weight:600; display:inline-block; white-space:nowrap;">
+                {{ (d.date_obsolescence|string)[:10] }} <span style="font-size:.7rem; opacity:.85;">· Bientôt</span>
+              </span>
+            {% elif d.obs_status == 'absent' %}
+              <span style="background:#fef3c7; color:#b45309; border-radius:6px; padding:2px 7px; font-size:.8rem; font-weight:600; display:inline-block; white-space:nowrap;">
+                À définir
+              </span>
+            {% elif d.obs_status == 'valide' %}
+              <span style="background:#dcfce7; color:#15803d; border-radius:6px; padding:2px 7px; font-size:.8rem; font-weight:600; display:inline-block; white-space:nowrap;">
+                {{ (d.date_obsolescence|string)[:10] }}
+              </span>
+            {% else %}
+              {{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '-' }}
+            {% endif %}
+          </td>
           <td>{{ d.obsolescence or '-' }}</td>
           <td style="white-space:nowrap;">
             {% if d.view_url %}
-              <button type="button" class="btn btn-compact" style="margin-right:4px;" onclick='openPdfViewer({title: {{ (d.nom_document or d.base_name or "Document")|tojson }}, inlineUrl: {{ d.view_url|tojson }}, downloadUrl: {{ (d.download_url or d.view_url)|tojson }}})'>
-                <i class="fa-solid fa-eye"></i> Afficher
+              <button type="button" class="btn btn-compact doc-icon-btn" title="Afficher" onclick='openPdfViewer({title: {{ (d.nom_document or d.base_name or "Document")|tojson }}, inlineUrl: {{ d.view_url|tojson }}, downloadUrl: {{ (d.download_url or d.view_url)|tojson }}})'>
+                <i class="fa-solid fa-eye"></i>
               </button>
             {% endif %}
             {% if d.download_url and client and client.email %}
               <form action="/dashboard/document-client/{{ d.id }}/send-page" method="post" target="_blank" style="display:inline;">
-                <button type="submit" class="btn btn-compact" style="margin-right:4px;">
-                  <i class="fa-solid fa-paper-plane"></i> Envoyer
+                <button type="submit" class="btn btn-compact doc-icon-btn" title="Envoyer par e-mail">
+                  <i class="fa-solid fa-paper-plane"></i>
                 </button>
               </form>
             {% endif %}
-            <button class="delBtn" data-id="{{ d.id }}">Supprimer</button>
+            {% if d.obs_rule %}
+              <button class="btn btn-compact doc-icon-btn editObsBtn" data-id="{{ d.id }}" data-obs="{{ (d.date_obsolescence|string)[:10] if d.date_obsolescence else '' }}" data-creation="{{ (d.date_creation|string)[:10] if d.date_creation else '' }}" title="Modifier la date d'obsolescence">
+                <i class="fa-solid fa-calendar-days"></i>
+              </button>
+            {% endif %}
+            <button class="btn btn-compact doc-icon-btn delBtn" data-id="{{ d.id }}" title="Supprimer" style="color:#dc2626;">
+              <i class="fa-solid fa-trash"></i>
+            </button>
           </td>
         </tr>
       {% endfor %}
@@ -3359,6 +3707,52 @@ function generateClientSynthese(){
     </details>
 
   </div>
+
+  <!-- ── Section Envoi de courrier ─────────────────────────────────── -->
+  <div id="courrierSection" class="card" style="display:none;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+      <h3 style="margin:0;"><i class="fa-solid fa-envelope-open-text" style="margin-right:8px;"></i>Envoi de courrier</h3>
+    </div>
+
+    <!-- Email client -->
+    <div id="courrierEmailInfo" style="margin-bottom:18px; padding:12px 14px; border-radius:10px; background:#f8fafc; border:1px solid #e2e8f0; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <i class="fa-solid fa-envelope" style="color:#64748b;"></i>
+      {% if client.email %}
+        <span style="font-size:.9rem;">Email du client : <strong id="courrierClientEmailDisplay">{{ client.email }}</strong></span>
+        <button type="button" class="btn btn-compact" id="courrierChangeEmailBtn" title="Modifier l'adresse email" style="margin-left:auto;">
+          <i class="fa-solid fa-pencil"></i>
+        </button>
+      {% else %}
+        <span style="font-size:.9rem; color:#b45309;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>Aucune adresse email renseignée pour ce client.</span>
+        <button type="button" class="btn btn-compact" id="courrierAddEmailBtn" style="margin-left:auto;">
+          <i class="fa-solid fa-plus"></i> Ajouter un email
+        </button>
+      {% endif %}
+    </div>
+
+    <!-- Sélection du modèle -->
+    {% if modeles_documentaires %}
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px;">
+      <label style="font-weight:500; font-size:.9rem; white-space:nowrap;">Modèle de courrier</label>
+      <select id="courrierModeleSelect" style="flex:1 1 300px; max-width:480px; padding:.45rem .6rem; border:1px solid #e2e8f0; border-radius:8px;">
+        <option value="">Choisir un modèle…</option>
+        {% for m in modeles_documentaires %}
+          <option value="{{ m.id }}">{{ m.nom }}{% if m.canal %} — {{ m.canal }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-primary" id="courrierRedigerBtn" disabled>
+        <i class="fa-solid fa-pen-to-square" style="margin-right:6px;"></i>Rédiger
+      </button>
+    </div>
+    {% else %}
+    <div class="muted" style="padding:16px 0;">Aucun modèle de courrier disponible. Créez-en depuis la bibliothèque documentaire.</div>
+    {% endif %}
+
+    <p class="muted" style="font-size:.82rem; margin:0;">
+      L'éditeur permet de personnaliser le contenu, d'insérer les informations du client, puis d'enregistrer avec ou sans envoi par email.
+    </p>
+  </div>
+
 {% else %}
   <div class="card">Client introuvable.</div>
 {% endif %}
@@ -3491,6 +3885,7 @@ function openClientMsgs(kind){
     var esgFields = [];
     var esgRefIsins = [];
     var esgAllocIsins = [];
+    var esgChartType = 'bar'; // 'bar' ou 'radar'
     var esgLabelMap = {};
 
     function escHtml(str){
@@ -3579,28 +3974,69 @@ function openClientMsgs(kind){
         $fieldsWrap.innerHTML = '<span class=\"muted\">Aucun champ ESG détecté</span>';
         return;
       }
+      var pillarOrder = ['E','S','G','ESG',''];
+      var pillarLabels = {'E':'Environnement','S':'Social','G':'Gouvernance','ESG':'Global','':"Autres"};
+      var groups = {};
+      pillarOrder.forEach(function(p){ groups[p] = []; });
       esgFields.forEach(function(f){
-        var btn = document.createElement('button');
-        btn.type='button';
-        btn.className='dim-btn support-esg-field';
-        btn.setAttribute('data-field', f.col || f.field || f.label || '');
-        btn.title = f.label || f.col || '';
-        btn.textContent = f.label || f.col || '';
-        if (f.col || f.field){
-          var key = f.col || f.field;
-          esgLabelMap[key] = f.label || key;
-        }
-        btn.addEventListener('click', function(){
-          if (btn.classList.contains('active')){
-            btn.classList.remove('active');
-          } else {
-            var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
-            if (actives.length >= 10) return;
-            btn.classList.add('active');
+        var p = f.pillar || '';
+        if (!(p in groups)) p = '';
+        groups[p].push(f);
+      });
+      pillarOrder.forEach(function(p){
+        var arr = groups[p];
+        if (!arr || !arr.length) return;
+        arr.sort(function(a,b){ return (a.label||'').localeCompare(b.label||'','fr',{sensitivity:'base'}); });
+
+        // En-tête pilier avec bouton afficher/masquer
+        var hdr = document.createElement('div');
+        hdr.style.cssText = 'width:100%; display:flex; align-items:center; justify-content:space-between; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#94a3b8; margin:6px 0 2px; padding-bottom:2px; border-bottom:1px solid #e2e8f0;';
+        var hdrLabel = document.createElement('span');
+        hdrLabel.textContent = pillarLabels[p] || p;
+        var toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.style.cssText = 'background:none; border:none; cursor:pointer; font-size:0.65rem; color:#94a3b8; padding:0; line-height:1; display:inline-flex; align-items:center; gap:3px;';
+        toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-down"></i><span>Afficher</span>';
+        hdr.appendChild(hdrLabel);
+        hdr.appendChild(toggleBtn);
+        $fieldsWrap.appendChild(hdr);
+
+        // Conteneur des boutons du pilier
+        var group = document.createElement('div');
+        group.style.cssText = 'display:none; gap:6px; flex-wrap:wrap; width:100%;';
+        arr.forEach(function(f){
+          var btn = document.createElement('button');
+          btn.type='button';
+          btn.className='dim-btn support-esg-field';
+          btn.setAttribute('data-field', f.col || f.field || f.label || '');
+          btn.title = f.label || f.col || '';
+          btn.textContent = f.label || f.col || '';
+          if (f.col || f.field){
+            var key = f.col || f.field;
+            esgLabelMap[key] = f.label || key;
           }
-          runClientEsg();
+          btn.addEventListener('click', function(){
+            if (btn.classList.contains('active')){
+              btn.classList.remove('active');
+            } else {
+              var actives = $fieldsWrap.querySelectorAll('.support-esg-field.active');
+              if (actives.length >= 10) return;
+              btn.classList.add('active');
+            }
+            runClientEsg();
+          });
+          group.appendChild(btn);
         });
-        $fieldsWrap.appendChild(btn);
+        $fieldsWrap.appendChild(group);
+
+        // Logique afficher/masquer
+        toggleBtn.addEventListener('click', function(){
+          var hidden = group.style.display === 'none';
+          group.style.display = hidden ? 'flex' : 'none';
+          toggleBtn.innerHTML = hidden
+            ? '<i class="fa-solid fa-chevron-up"></i><span>Masquer</span>'
+            : '<i class="fa-solid fa-chevron-down"></i><span>Afficher</span>';
+        });
       });
       ensureDefaultFieldSelection();
     }
@@ -3703,14 +4139,35 @@ function openClientMsgs(kind){
       }
       if (!kept.length){ if ($chart){ $chart.style.display='none'; $chart.innerHTML=''; } return; }
       var cats=kept.map(function(r){return r.label;}), idx=kept.map(function(r){return r.index;}), cli=kept.map(function(r){return r.client;});
-      var traces=[
-        {x:idx,y:cats,type:'bar',orientation:'h',name:'Indice',marker:{color:'#9ca3af'}},
-        {x:cli,y:cats,type:'bar',orientation:'h',name:'Client',marker:{color:getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()||'#2456a6'}}
-      ];
-      var _lMargin=Math.min(200,Math.max(100,Math.max.apply(null,cats.map(function(s){return (s||'').length;}))*7));
-      var layout={barmode:'group',margin:{l:_lMargin,r:20,t:10,b:50},xaxis:{title:'Base 100',rangemode:'tozero'},height:Math.max(300,80+Math.max(4,cats.length)*34),legend:{orientation:'h',y:-0.15,x:0,xanchor:'left'},autosize:true};
+      var primary=getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()||'#2456a6';
       if ($chart){ $chart.style.display=''; }
-      Plotly.react('clientEsgChart',traces,layout,{displayModeBar:false,responsive:true});
+      if (esgChartType === 'radar'){
+        // Normalisation : index = 50, client = (client/index)*50, capé 0-100
+        var rIdx=idx.map(function(){ return 50; });
+        var rCli=kept.map(function(r){
+          var i=r.index, c=r.client;
+          if (!isFinite(i)||i===0) return 50;
+          var v=(c/i)*50; return Math.max(0,Math.min(100,v));
+        });
+        // fermer le polygone
+        var thetaClosed=cats.concat([cats[0]]);
+        var rIdxClosed=rIdx.concat([rIdx[0]]);
+        var rCliClosed=rCli.concat([rCli[0]]);
+        var traces=[
+          {type:'scatterpolar',r:rIdxClosed,theta:thetaClosed,fill:'toself',name:'Indice',line:{color:'#9ca3af'},fillcolor:'rgba(156,163,175,0.15)'},
+          {type:'scatterpolar',r:rCliClosed,theta:thetaClosed,fill:'toself',name:'Client',line:{color:primary},fillcolor:'rgba(36,86,166,0.18)'}
+        ];
+        var layout={polar:{radialaxis:{visible:true,range:[0,100],tickfont:{size:9}},angularaxis:{tickfont:{size:10}}},showlegend:true,legend:{orientation:'h',y:-0.12,x:0},margin:{l:40,r:40,t:30,b:60},height:Math.max(340,300+Math.max(0,cats.length-6)*10),autosize:true};
+        Plotly.react('clientEsgChart',traces,layout,{displayModeBar:false,responsive:true});
+      } else {
+        var traces=[
+          {x:idx,y:cats,type:'bar',orientation:'h',name:'Indice',marker:{color:'#9ca3af'}},
+          {x:cli,y:cats,type:'bar',orientation:'h',name:'Client',marker:{color:primary}}
+        ];
+        var _lMargin=Math.min(200,Math.max(100,Math.max.apply(null,cats.map(function(s){return (s||'').length;}))*7));
+        var layout={barmode:'group',margin:{l:_lMargin,r:20,t:10,b:50},xaxis:{title:'Base 100',rangemode:'tozero'},height:Math.max(300,80+Math.max(4,cats.length)*34),legend:{orientation:'h',y:-0.15,x:0,xanchor:'left'},autosize:true};
+        Plotly.react('clientEsgChart',traces,layout,{displayModeBar:false,responsive:true});
+      }
       requestAnimationFrame(function(){ try{ Plotly.relayout('clientEsgChart',{autosize:true}); }catch(_){} });
     }
 
@@ -3804,6 +4261,17 @@ function openClientMsgs(kind){
     if ($alloc){
       $alloc.addEventListener('change', function(){ runClientEsg(false); });
     }
+    var $toggleBtn = document.getElementById('clientEsgChartToggle');
+    var $toggleLabel = document.getElementById('clientEsgChartToggleLabel');
+    if ($toggleBtn){
+      $toggleBtn.addEventListener('click', function(){
+        esgChartType = (esgChartType === 'bar') ? 'radar' : 'bar';
+        var isRadar = esgChartType === 'radar';
+        $toggleBtn.querySelector('i').className = isRadar ? 'fa-solid fa-chart-bar' : 'fa-solid fa-circle-nodes';
+        if ($toggleLabel) $toggleLabel.textContent = isRadar ? 'Barres' : 'Radar';
+        runClientEsg(false);
+      });
+    }
   })();
 
   // Accordéons internes du bloc Graphiques (exclusifs, fermés par défaut)
@@ -3896,6 +4364,7 @@ function openClientMsgs(kind){
       { key:'graphs', toggleId:'graphsToggle', sectionId:'graphsSection' },
       { key:'report', toggleId:'reportToggle', sectionId:'reportSection' },
       { key:'docs', toggleId:'docsToggle', sectionId:'docsSection' },
+      { key:'courrier', toggleId:'courrierToggle', sectionId:'courrierSection' },
       { key:'conf', toggleId:'confToggleDetail', sectionId:'confSection' },
       { key:'invest', toggleId:'investToggle', sectionId:'investSection' },
     ];
@@ -4001,9 +4470,20 @@ function openClientMsgs(kind){
     const normLabels = labels.map(d => (d||'').toString().slice(0,10));
     const parsedDates = normLabels.map(d => new Date(d));
     const primaryColorValo = '#16a34a';
-    const gridSoft = 'rgba(15, 23, 42, 0.08)';
-    const textMuted = '#000';
-    const movementColor = '#dc2626';
+    const gridSoft = 'rgba(15, 23, 42, 0.06)';
+    const textMuted = '#64748b';
+    const movementColor = '#f59e0b';
+
+    // Dégradé vert sous la courbe valorisation (hauteur fixe pour canvas caché)
+    const _h = 300;
+    const gradientValo = ctx.createLinearGradient(0, 0, 0, _h);
+    gradientValo.addColorStop(0,   'rgba(22, 163, 74, 0.22)');
+    gradientValo.addColorStop(0.6, 'rgba(22, 163, 74, 0.06)');
+    gradientValo.addColorStop(1,   'rgba(22, 163, 74, 0)');
+    // Dégradé ambre sous la courbe mouvements
+    const gradientMovs = ctx.createLinearGradient(0, 0, 0, _h);
+    gradientMovs.addColorStop(0,   'rgba(245, 158, 11, 0.14)');
+    gradientMovs.addColorStop(1,   'rgba(245, 158, 11, 0)');
     function euro(v){ try{ return (Number(v)||0).toLocaleString('fr-FR')+' \u20AC'; }catch(e){ return v; } }
     function yearAt(index){
       const d = parsedDates[index];
@@ -4054,26 +4534,33 @@ function openClientMsgs(kind){
             label: 'Valorisation',
             data,
             borderColor: primaryColorValo,
-            backgroundColor: 'transparent',
-            fill: false,
-            borderWidth: 1.8,
-            tension: 0.35,
+            backgroundColor: gradientValo,
+            fill: true,
+            borderWidth: 2.2,
+            tension: 0.42,
             pointRadius: 0,
-            pointHoverRadius: 3,
-            pointHitRadius: 10,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#fff',
+            pointHoverBorderColor: primaryColorValo,
+            pointHoverBorderWidth: 2,
+            pointHitRadius: 12,
             spanGaps: true
           },
           {
             label: 'Cumul mouvements',
             data: movs,
             borderColor: movementColor,
-            backgroundColor: 'transparent',
-            fill: false,
-            borderWidth: 1.4,
-            tension: 0.25,
+            backgroundColor: gradientMovs,
+            fill: true,
+            borderWidth: 1.8,
+            borderDash: [4, 3],
+            tension: 0.38,
             pointRadius: 0,
-            pointHoverRadius: 3,
-            pointHitRadius: 10,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#fff',
+            pointHoverBorderColor: movementColor,
+            pointHoverBorderWidth: 2,
+            pointHitRadius: 12,
             spanGaps: true
           }
         ]
@@ -4084,14 +4571,15 @@ function openClientMsgs(kind){
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false, axis: 'x' },
         stacked: false,
-        layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
+        animation: { duration: 600, easing: 'easeInOutQuart' },
+        layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
         scales: {
           x: {
             ticks: {
               autoSkip: false,
               maxRotation: 0,
               color: textMuted,
-              font: { size: 11, weight: '700' },
+              font: { size: 10.5, weight: '600' },
               callback: (val, idx) => {
                 const y = yearAt(idx);
                 const prev = yearAt(idx - 1);
@@ -4102,12 +4590,12 @@ function openClientMsgs(kind){
               color: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 'rgba(15, 23, 42, 0.3)' : 'rgba(0, 0, 0, 0)';
+                return y && y !== prev ? 'rgba(15, 23, 42, 0.15)' : 'transparent';
               },
               lineWidth: (ctx) => {
                 const y = yearAt(ctx.index);
                 const prev = yearAt(ctx.index - 1);
-                return y && y !== prev ? 1.6 : 0;
+                return y && y !== prev ? 1 : 0;
               }
             },
             border: { display: false }
@@ -4115,49 +4603,59 @@ function openClientMsgs(kind){
           y: {
             beginAtZero: false,
             ticks: {
-              callback: (v)=> euro(v),
+              callback: (v) => euro(v),
               color: textMuted,
-              font: { size: 11, weight: '700' }
+              font: { size: 10.5, weight: '500' },
+              maxTicksLimit: 6
             },
-            grid: { color: gridSoft },
+            grid: { color: gridSoft, lineWidth: 1 },
             border: { display: false }
           }
         },
         plugins: {
           legend: {
             display: true,
-            position: 'top',
-            align: 'start',
+            position: 'bottom',
+            align: 'center',
             labels: {
               usePointStyle: true,
-              pointStyle: 'line',
-              boxWidth: 28,
-              color: '#334155',
-              font: { size: 12, weight: '600' }
+              pointStyle: 'circle',
+              boxWidth: 8,
+              boxHeight: 8,
+              padding: 16,
+              color: '#475569',
+              font: { size: 11, weight: '600' }
             }
           },
           tooltip: {
-            backgroundColor: '#0f172a',
-            titleColor: '#f8fafc',
-            bodyColor: '#f8fafc',
-            borderColor: 'rgba(148, 163, 184, 0.4)',
+            backgroundColor: '#ffffff',
+            titleColor: '#0f172a',
+            bodyColor: '#334155',
+            borderColor: '#e2e8f0',
             borderWidth: 1,
-            padding: 10,
-            caretPadding: 6,
+            padding: { top: 10, right: 14, bottom: 10, left: 14 },
+            caretPadding: 8,
+            caretSize: 5,
+            cornerRadius: 10,
             displayColors: true,
+            boxWidth: 8,
+            boxHeight: 8,
             titleFont: { size: 12, weight: '700' },
-            bodyFont: { size: 12 },
+            bodyFont: { size: 11.5 },
             callbacks: {
+              title: function(items){
+                return items[0]?.label || '';
+              },
               label: function(context){
                 const y = context.parsed.y;
                 const idx = context.dataIndex;
                 if (context.dataset.label === 'Cumul mouvements'){
                   const delta = movsRaw[idx] || 0;
-                  return context.dataset.label+': '+euro(y)+' (\u0394 '+euro(delta)+')';
+                  return '  ' + context.dataset.label + ' : ' + euro(y) + '  (\u0394 ' + euro(delta) + ')';
                 }
                 const diff = (data[idx] || 0) - (movs[idx] || 0);
-                const tag = diff >= 0 ? 'Gain' : 'Perte';
-                return [context.dataset.label+': '+euro(y), tag+': '+euro(Math.abs(diff))];
+                const tag = diff >= 0 ? '\u25b2 Gain' : '\u25bc Perte';
+                return ['  ' + context.dataset.label + ' : ' + euro(y), '  ' + tag + ' : ' + euro(Math.abs(diff))];
               }
             }
           }
@@ -5881,6 +6379,7 @@ function openClientMsgs(kind){
         var titleEl = document.getElementById('pdfViewerTitle');
         var openBtn = document.getElementById('pdfViewerOpenBtn');
         var dlBtn = document.getElementById('pdfViewerDownloadBtn');
+        var sendBtn = document.getElementById('pdfViewerSendBtn');
         if (!m || !frame) return;
         var title = (options && options.title) ? String(options.title) : 'Document';
         var inlineUrl = (options && options.inlineUrl) ? String(options.inlineUrl) : '';
@@ -5902,6 +6401,11 @@ function openClientMsgs(kind){
           saveBtn.style.display = docType ? '' : 'none';
           saveBtn.disabled = false;
           saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer';
+        }
+        if (sendBtn){
+          sendBtn.style.display = docType ? '' : 'none';
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Envoyer';
         }
         _setPdfViewerStatus('', false);
         _resetPdfViewerLogs();
@@ -6067,6 +6571,11 @@ function openClientMsgs(kind){
         if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer'; }
         _setPdfViewerStatus('Erreur réseau lors de l\'enregistrement.', true);
       }
+    }
+    function openPdfViewerSendModal(){
+      var docType = __pdfViewerContext.docType || '';
+      if (!docType) return;
+      openEditionPdfSendModal(docType, __pdfViewerContext.title || 'Document');
     }
     function closePdfViewer(){
       try{
@@ -6385,6 +6894,16 @@ function openClientMsgs(kind){
 </script>
 <script>
   // Charger la liste des documents de base pour le select
+  function _reloadDocsSection() {
+    try {
+      const url = new URL(window.location.href);
+      url.hash = 'docs';
+      url.searchParams.set('_ts', Date.now().toString());
+      window.location.replace(url.toString());
+    } catch (e) {
+      window.location.href = location.pathname + location.search + '&_ts=' + Date.now() + '#docs';
+    }
+  }
   (async function loadDocuments() {
     try {
       const res = await fetch('/documents/');
@@ -6396,6 +6915,7 @@ function openClientMsgs(kind){
         const opt = document.createElement('option');
         opt.value = d.id_document_base;
         opt.textContent = d.documents || `Document ${d.id_document_base}`;
+        if (d.obsolescence_annees) opt.dataset.obsAns = d.obsolescence_annees;
         sel._allOptions.push(opt);
       });
       function renderOptions(filter) {
@@ -6416,6 +6936,24 @@ function openClientMsgs(kind){
     } catch (e) { /* ignore */ }
   })();
 
+  // Auto-remplissage date_obsolescence = date_creation + obsolescence_annees
+  function _autoFillObsDate() {
+    const sel = document.getElementById('document_base_select');
+    const dateCreEl = document.getElementById('date_creation');
+    const dateObsEl = document.getElementById('date_obsolescence');
+    if (!sel || !dateCreEl || !dateObsEl) return;
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    const obsAns = parseInt(opt.dataset.obsAns || '', 10);
+    if (obsAns > 0 && dateCreEl.value) {
+      const d = new Date(dateCreEl.value);
+      d.setFullYear(d.getFullYear() + obsAns);
+      dateObsEl.value = d.toISOString().slice(0, 10);
+    }
+  }
+  document.getElementById('document_base_select').addEventListener('change', _autoFillObsDate);
+  document.getElementById('date_creation').addEventListener('change', _autoFillObsDate);
+
   // Ajout document-client via API
   document.getElementById('addDocForm').addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -6434,7 +6972,7 @@ function openClientMsgs(kind){
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      location.reload();
+      _reloadDocsSection();
     } else {
       const err = await res.json().catch(() => ({}));
       alert('Erreur: ' + (err.detail || res.status));
@@ -6472,7 +7010,7 @@ function openClientMsgs(kind){
       if (data.mail_error) {
         alert(data.mail_error);
       }
-      location.reload();
+      _reloadDocsSection();
     } catch (e) {
       if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
       alert('Erreur inattendue lors de la génération.');
@@ -6809,7 +7347,161 @@ function openClientMsgs(kind){
     }
   }
 
-  async function saveModelePdf(sendMail=false) {
+  function _defaultModelePdfMailSubject() {
+    const select = document.getElementById('modeleDocumentSelect');
+    const docTitle = select && select.options && select.selectedIndex >= 0
+      ? (select.options[select.selectedIndex]?.text || '').trim()
+      : '';
+    return docTitle ? ('Envoi du document PDF - ' + docTitle) : 'Envoi du document PDF';
+  }
+
+  function _defaultModelePdfMailBody(subject) {
+    const clientLabel = {{ ((client.prenom or '') ~ ' ' ~ (client.nom or '') if client else '')|tojson }};
+    const salutation = clientLabel ? ('Bonjour ' + clientLabel + ',') : 'Bonjour,';
+    const subjectLine = subject || _defaultModelePdfMailSubject();
+    return [
+      salutation,
+      '',
+      "Veuillez trouver ci-joint le document PDF '" + subjectLine.replace(/^Envoi du document PDF - /, '') + "'.",
+      '',
+      'Cordialement,'
+    ].join('\n');
+  }
+
+  function openModelePdfSendModal() {
+    const sendModal = document.getElementById('modelePdfSendModal');
+    const subjectEl = document.getElementById('modelePdfMailSubject');
+    const bodyEl = document.getElementById('modelePdfMailBody');
+    if (!sendModal || !subjectEl || !bodyEl) {
+      saveModelePdf(true);
+      return;
+    }
+    const subject = _defaultModelePdfMailSubject();
+    subjectEl.value = subject;
+    bodyEl.value = _defaultModelePdfMailBody(subject);
+    sendModal.style.display = 'flex';
+    if (typeof document.body !== 'undefined') document.body.style.overflow = 'hidden';
+    setTimeout(function(){ subjectEl.focus(); subjectEl.select(); }, 0);
+  }
+
+  function closeModelePdfSendModal() {
+    const sendModal = document.getElementById('modelePdfSendModal');
+    if (sendModal) sendModal.style.display = 'none';
+    if (typeof document.body !== 'undefined') document.body.style.overflow = '';
+  }
+
+  function _defaultEditionPdfMailSubject(docLabel) {
+    const label = (docLabel || '').trim() || 'Document';
+    return 'Envoi du document PDF - ' + label;
+  }
+
+  function _defaultEditionPdfMailBody(docLabel) {
+    const clientLabel = {{ ((client.prenom or '') ~ ' ' ~ (client.nom or '') if client else '')|tojson }};
+    const salutation = clientLabel ? ('Bonjour ' + clientLabel + ',') : 'Bonjour,';
+    const label = (docLabel || '').trim() || 'document';
+    return [
+      salutation,
+      '',
+      "Veuillez trouver ci-joint le document PDF '" + label + "'.",
+      '',
+      'Cordialement,'
+    ].join('\n');
+  }
+
+  function openEditionPdfSendModal(docType, docLabel) {
+    const sendModal = document.getElementById('editionPdfSendModal');
+    const typeEl = document.getElementById('editionPdfDocType');
+    const subjectEl = document.getElementById('editionPdfMailSubject');
+    const bodyEl = document.getElementById('editionPdfMailBody');
+    const titleEl = document.getElementById('editionPdfSendModalTitle');
+    if (!sendModal || !typeEl || !subjectEl || !bodyEl) {
+      sendEditionPdfDocument(docType, docLabel);
+      return;
+    }
+    typeEl.value = docLabel || docType || 'Document';
+    subjectEl.value = _defaultEditionPdfMailSubject(docLabel);
+    bodyEl.value = _defaultEditionPdfMailBody(docLabel);
+    if (titleEl) titleEl.textContent = 'Enregistrer et envoyer';
+    sendModal.dataset.docType = docType || '';
+    sendModal.dataset.docLabel = docLabel || '';
+    sendModal.style.display = 'flex';
+    if (typeof document.body !== 'undefined') document.body.style.overflow = 'hidden';
+    setTimeout(function(){ subjectEl.focus(); subjectEl.select(); }, 0);
+  }
+
+  function closeEditionPdfSendModal() {
+    const sendModal = document.getElementById('editionPdfSendModal');
+    if (sendModal) {
+      sendModal.style.display = 'none';
+      sendModal.dataset.docType = '';
+      sendModal.dataset.docLabel = '';
+    }
+    if (typeof document.body !== 'undefined') document.body.style.overflow = '';
+  }
+
+  async function sendEditionPdfDocument(docType, docLabel, recipientOverride, mailSubjectOverride, mailBodyOverride) {
+    const clientId = CLIENT_ID;
+    if (!clientId) {
+      alert('Client introuvable.');
+      return;
+    }
+    const recipient = (recipientOverride || _clientEmail || '').trim();
+    if (!recipient) {
+      alert('Aucune adresse email pour ce client.');
+      return;
+    }
+    try {
+      if (typeof window.showGlobalLoader === 'function') window.showGlobalLoader('Génération du PDF…');
+      const payload = {
+        send_mail: true,
+        recipient: recipient,
+        mail_subject: (mailSubjectOverride || '').trim() || _defaultEditionPdfMailSubject(docLabel),
+        mail_body: (mailBodyOverride || '').trim() || _defaultEditionPdfMailBody(docLabel),
+      };
+      const res = await fetch(`/dashboard/clients/${clientId}/documents/direct/${encodeURIComponent(docType)}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur : ' + (err.detail || res.status));
+        return;
+      }
+      const data = await res.json();
+      if (data.mail_error) alert(data.mail_error);
+      if (data.pdf_url) {
+        openPdfViewer({
+          title: data.document_label || docLabel || 'Document',
+          inlineUrl: data.pdf_url,
+          downloadUrl: data.download_url || data.pdf_url.replace('?inline=1', '')
+        });
+      }
+      closeEditionPdfSendModal();
+      _reloadDocsSection();
+    } catch (e) {
+      if (typeof window.hideGlobalLoader === 'function') window.hideGlobalLoader();
+      alert('Erreur inattendue lors de l\'envoi.');
+    }
+  }
+
+  async function saveModelePdf(sendMail=false, _recipientOverride, _mailSubjectOverride, _mailBodyOverride) {
+    // Vérification email si envoi demandé
+    if (sendMail && !_clientEmail && !_recipientOverride) {
+      _courrierPendingSend = true;
+      window.__modelePdfPendingMail = {
+        subject: _mailSubjectOverride || null,
+        body: _mailBodyOverride || null
+      };
+      document.getElementById('courrierEmailModalTitle').textContent = 'Email requis pour l\'envoi';
+      document.getElementById('courrierEmailModalDesc').textContent = 'Ce client n\'a pas d\'adresse email. Saisissez-en une pour envoyer le document.';
+      document.getElementById('courrierEmailInput').value = '';
+      document.getElementById('courrierEmailSaveCb').checked = true;
+      document.getElementById('courrierEmailConfirmBtn').textContent = 'Confirmer et envoyer';
+      document.getElementById('courrierEmailModal').style.display = 'flex';
+      return;
+    }
     if (window.__modelePdfSaving) return;
     window.__modelePdfSaving = true;
     try {
@@ -6827,15 +7519,16 @@ function openClientMsgs(kind){
       const contenuHtml = contentField ? contentField.innerHTML : doc.innerHTML;
       const objetText = (objet.value || '').trim();
       if (status) status.textContent = sendMail ? 'Enregistrement et envoi...' : 'Enregistrement...';
-      const clientId = {{ client.id }};
-      const res = await fetch(`/dashboard/clients/${clientId}/documents/modeles/${modeleId}/generate`, {
+      const payload = { send_mail: !!sendMail, contenu_html: contenuHtml, objet: objetText };
+      if (_recipientOverride) payload.recipient = _recipientOverride;
+      if (sendMail) {
+        payload.mail_subject = (_mailSubjectOverride || '').trim() || _defaultModelePdfMailSubject();
+        payload.mail_body = (_mailBodyOverride || '').trim() || _defaultModelePdfMailBody(payload.mail_subject);
+      }
+      const res = await fetch(`/dashboard/clients/${_clientId}/documents/modeles/${modeleId}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          send_mail: !!sendMail,
-          contenu_html: contenuHtml,
-          objet: objetText,
-        })
+        body: JSON.stringify(payload)
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -6851,12 +7544,9 @@ function openClientMsgs(kind){
       const saveState = document.getElementById('modelePdfSaveState');
       if (saveState) saveState.textContent = successMsg;
       if (data.mail_error) alert(data.mail_error);
-      // Ouvrir le PDF généré dans un nouvel onglet, puis recharger pour rafraîchir la liste
-      if (data.pdf_url) {
-        window.open(data.pdf_url, '_blank', 'noopener');
-      }
+      if (data.pdf_url) window.open(data.pdf_url, '_blank', 'noopener');
       closeModelePdfModal();
-      location.reload();
+      _reloadDocsSection();
     } finally {
       window.__modelePdfSaving = false;
     }
@@ -6869,12 +7559,204 @@ function openClientMsgs(kind){
       if (!confirm('Supprimer ce document ?')) return;
       const res = await fetch(`/document_client/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        location.reload();
+        _reloadDocsSection();
       } else {
         alert('Suppression impossible');
       }
     });
   });
+
+  // Modification date d'obsolescence (documents à règle 2 ans)
+  var _editObsDocId = null;
+  function openEditObsModal(id, currentObs, creationDate) {
+    _editObsDocId = id;
+    var defaultVal = currentObs;
+    if (!defaultVal && creationDate) {
+      var d = new Date(creationDate);
+      d.setFullYear(d.getFullYear() + 2);
+      defaultVal = d.toISOString().slice(0, 10);
+    }
+    document.getElementById('editObsDate').value = defaultVal || '';
+    document.getElementById('editObsModal').style.display = 'flex';
+  }
+  function closeEditObsModal() {
+    document.getElementById('editObsModal').style.display = 'none';
+    _editObsDocId = null;
+  }
+  document.querySelectorAll('.editObsBtn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      openEditObsModal(this.dataset.id, this.dataset.obs, this.dataset.creation);
+    });
+  });
+  function _obsDateBadge(dateStr) {
+    if (!dateStr) return '<span style="background:#fef3c7;color:#b45309;border-radius:6px;padding:2px 7px;font-size:.8rem;font-weight:600;display:inline-block;white-space:nowrap;">À définir</span>';
+    var d = new Date(dateStr);
+    var now = new Date();
+    var soon = new Date(now.getTime() + 90 * 86400000);
+    if (d < now) return '<span style="background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 7px;font-size:.8rem;font-weight:600;display:inline-block;white-space:nowrap;">' + dateStr + ' <span style="font-size:.7rem;opacity:.85;">· Expiré</span></span>';
+    if (d < soon) return '<span style="background:#fef3c7;color:#b45309;border-radius:6px;padding:2px 7px;font-size:.8rem;font-weight:600;display:inline-block;white-space:nowrap;">' + dateStr + ' <span style="font-size:.7rem;opacity:.85;">· Bientôt</span></span>';
+    return '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:2px 7px;font-size:.8rem;font-weight:600;display:inline-block;white-space:nowrap;">' + dateStr + '</span>';
+  }
+
+  document.getElementById('editObsSaveBtn').addEventListener('click', async function() {
+    if (!_editObsDocId) return;
+    const dateVal = document.getElementById('editObsDate').value;
+    const res = await fetch('/document_client/' + _editObsDocId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_obsolescence: dateVal || null })
+    });
+    if (res.ok) {
+      const docId = _editObsDocId;
+      closeEditObsModal();
+      // Mise à jour directe du DOM sans rechargement
+      const btn = document.querySelector('.editObsBtn[data-id="' + docId + '"]');
+      if (btn) {
+        btn.dataset.obs = dateVal || '';
+        const tr = btn.closest('tr');
+        if (tr && tr.cells[3]) tr.cells[3].innerHTML = _obsDateBadge(dateVal);
+      }
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert('Erreur : ' + (err.detail || res.status));
+    }
+  });
+
+  // ── Envoi de courrier ──────────────────────────────────────────────────
+  var _clientEmail = `{{ client.email or '' }}`.trim();
+  var _clientId = {{ client.id }};
+  var _courrierPendingSend = false; // true = saveModelePdf(true) en attente après saisie email
+
+  // Synchro select modèle courrier → select modèle PDF existant
+  (function() {
+    var src = document.getElementById('courrierModeleSelect');
+    var dst = document.getElementById('modeleDocumentSelect');
+    var btn = document.getElementById('courrierRedigerBtn');
+    if (!src || !btn) return;
+    src.addEventListener('change', function() {
+      btn.disabled = !this.value;
+    });
+    btn.addEventListener('click', function() {
+      var val = src.value;
+      if (!val) return;
+      // Synchronise le select de la modale PDF
+      if (dst) {
+        dst.value = val;
+        dst.dispatchEvent(new Event('change'));
+      }
+      if (typeof openModelePdfModal === 'function') openModelePdfModal();
+      else document.getElementById('modelePdfModal').style.display = 'flex';
+    });
+    // Bouton ajout/modification email depuis la section courrier
+    var addBtn = document.getElementById('courrierAddEmailBtn');
+    var changeBtn = document.getElementById('courrierChangeEmailBtn');
+    function openEmailEdit() {
+      document.getElementById('courrierEmailModalTitle').textContent = 'Adresse email du client';
+      document.getElementById('courrierEmailModalDesc').textContent = _clientEmail
+        ? 'Modifier l\'adresse email du client.'
+        : 'Ce client n\'a pas d\'adresse email. Saisissez-en une.';
+      document.getElementById('courrierEmailInput').value = _clientEmail || '';
+      document.getElementById('courrierEmailSaveCb').checked = true;
+      document.getElementById('courrierEmailConfirmBtn').textContent = 'Enregistrer';
+      _courrierPendingSend = false;
+      document.getElementById('courrierEmailModal').style.display = 'flex';
+    }
+    if (addBtn) addBtn.addEventListener('click', openEmailEdit);
+    if (changeBtn) changeBtn.addEventListener('click', openEmailEdit);
+  })();
+
+  function closeCourrierEmailModal() {
+    document.getElementById('courrierEmailModal').style.display = 'none';
+    _courrierPendingSend = false;
+  }
+
+  document.getElementById('courrierEmailConfirmBtn').addEventListener('click', async function() {
+    const email = (document.getElementById('courrierEmailInput').value || '').trim();
+    if (!email || !email.includes('@')) {
+      alert('Veuillez saisir une adresse email valide.');
+      return;
+    }
+    const doSave = document.getElementById('courrierEmailSaveCb').checked;
+    if (doSave) {
+      try {
+        const r = await fetch(`/dashboard/clients/${_clientId}/email`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        if (r.ok) {
+          _clientEmail = email;
+          // Mettre à jour l'affichage dans la section courrier
+          const disp = document.getElementById('courrierClientEmailDisplay');
+          if (disp) disp.textContent = email;
+          const info = document.getElementById('courrierEmailInfo');
+          if (info) info.querySelector('span').innerHTML = 'Email du client : <strong id="courrierClientEmailDisplay">' + email + '</strong>';
+        }
+      } catch(e) { /* ignore */ }
+    }
+    const wasSend = _courrierPendingSend;
+    const pendingMail = window.__modelePdfPendingMail || {};
+    document.getElementById('courrierEmailModal').style.display = 'none';
+    _courrierPendingSend = false;
+    window.__modelePdfPendingMail = null;
+    if (wasSend) {
+      await saveModelePdf(true, email, pendingMail.subject, pendingMail.body);
+    }
+  });
+
+  var sendModal = document.getElementById('modelePdfSendModal');
+  var sendConfirmBtn = document.getElementById('modelePdfSendConfirmBtn');
+  if (sendConfirmBtn) {
+    sendConfirmBtn.addEventListener('click', function() {
+      var subject = (document.getElementById('modelePdfMailSubject').value || '').trim();
+      var body = (document.getElementById('modelePdfMailBody').value || '').trim();
+      if (!subject) {
+        alert('L\'objet du mail est requis.');
+        return;
+      }
+      if (!body) {
+        alert('Le message du mail est requis.');
+        return;
+      }
+      closeModelePdfSendModal();
+      saveModelePdf(true, null, subject, body);
+    });
+  }
+  var editionSendModal = document.getElementById('editionPdfSendModal');
+  var editionSendConfirmBtn = document.getElementById('editionPdfSendConfirmBtn');
+  if (editionSendConfirmBtn) {
+    editionSendConfirmBtn.addEventListener('click', function() {
+      var docType = (editionSendModal && editionSendModal.dataset.docType) || '';
+      var docLabel = (editionSendModal && editionSendModal.dataset.docLabel) || '';
+      var subject = (document.getElementById('editionPdfMailSubject').value || '').trim();
+      var body = (document.getElementById('editionPdfMailBody').value || '').trim();
+      if (!docType) {
+        alert('Type de document manquant.');
+        return;
+      }
+      if (!subject) {
+        alert('L\'objet du mail est requis.');
+        return;
+      }
+      if (!body) {
+        alert('Le message du mail est requis.');
+        return;
+      }
+      sendEditionPdfDocument(docType, docLabel, null, subject, body);
+    });
+  }
+  document.addEventListener('keyup', function(e) {
+    if (e.key === 'Escape') {
+      if (editionSendModal && editionSendModal.style.display === 'flex') {
+        closeEditionPdfSendModal();
+        return;
+      }
+      if (sendModal && sendModal.style.display === 'flex') {
+        closeModelePdfSendModal();
+      }
+    }
+  });
+
 
   // DataTable + filtres pour la table Documents client
   (function(){
