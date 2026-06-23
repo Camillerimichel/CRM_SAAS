@@ -1076,7 +1076,6 @@
       </div>
     </div>
   {% endif %}
-
   <!-- ── Identifiants assureurs ───────────────────────────────────────────── -->
   <div class="card" style="margin-bottom:1rem; margin-top:1rem;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
@@ -1568,6 +1567,19 @@
     <!-- Séparateur ESG -->
     <div style="grid-column:1/-1; margin:8px 0 2px; padding:6px 10px; background:#f0fdf4; border-left:3px solid #16a34a; border-radius:4px; font-size:0.75rem; font-weight:700; color:#15803d; letter-spacing:0.04em;">
       ESG — pipeline indépendant
+    </div>
+
+    <!-- Synchronisation libellés fonds depuis ESG_NOTE (mydb) -->
+    <div class="tool-cell">
+      <form method="post" action="/dashboard/superadmin/sync-support-names-esg">
+        <button type="submit" class="btn base-action-btn" data-action-btn data-action-name="Sync libellés fonds (ESG_NOTE)">
+          ESG-0. Sync noms fonds<br><small>(ESG_NOTE → CRM)</small>
+        </button>
+      </form>
+      <div class="tool-progress tool-form-progress">
+        <div class="tool-progress-bar-track"><div class="tool-progress-bar-fill indeterminate"></div></div>
+        <div class="tool-progress-text">Traitement en cours…</div>
+      </div>
     </div>
 
     <!-- Ligne ESG : Import ESG + Migration ESG Legacy + Recalcul notes ESG -->

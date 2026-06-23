@@ -28856,6 +28856,40 @@ def dashboard_superadmin_import_esg(
     return RedirectResponse(url=target_url, status_code=303)
 
 
+@router.post("/superadmin/sync-support-names-esg", response_class=RedirectResponse)
+def dashboard_superadmin_sync_support_names_esg(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Met à jour mariadb_support.nom depuis mydb.Referentiel_final (ESG_NOTE) via ISIN."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    qs = request.url.query
+    msg = "err"
+    try:
+        result = db.execute(text("""
+            UPDATE mariadb_support ms
+            INNER JOIN mydb.`Referentiel_final` rf
+              ON rf.ISIN COLLATE utf8mb4_unicode_ci = ms.code_isin
+            SET ms.nom = rf.company_name
+            WHERE rf.company_name IS NOT NULL AND rf.company_name != ''
+        """))
+        db.commit()
+        updated = result.rowcount
+        msg = f"ok_names_{updated}"
+    except Exception as exc:
+        db.rollback()
+        msg = f"err_{str(exc)[:80]}"
+
+    target = f"/dashboard/superadmin?{qs}&msg={msg}#outils-import" if qs else f"/dashboard/superadmin?msg={msg}#outils-import"
+    return RedirectResponse(url=target, status_code=303)
+
+
 @router.post("/superadmin/recompute-esg-grades", response_class=RedirectResponse)
 def dashboard_superadmin_recompute_esg_grades(
     request: Request,
