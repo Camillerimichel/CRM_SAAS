@@ -188,6 +188,7 @@
     font-weight:700;
   }
   .edition-send-btn i { color:#fff; }
+  .edition-send-btn:disabled i { color:#fff; }
   .edition-send-btn:hover:not(:disabled),
   .edition-send-btn:focus-visible:not(:disabled) {
     transform: translateY(-1px);
@@ -196,9 +197,19 @@
     color:#fff;
   }
   .edition-send-btn:disabled {
-    opacity:.45;
+    opacity:1;
+    background:#94a3b8;
+    border-color:#94a3b8;
+    color:#fff;
     cursor:not-allowed;
     transform:none;
+  }
+  #contactMailSend i,
+  #pdfViewerSendBtn i,
+  #modelePdfSaveSendBtn i,
+  #modelePdfSendConfirmBtn i,
+  #editionPdfSendConfirmBtn i {
+    color:#fff;
   }
   .support-esg-field.active { background:var(--primary); color:#fff; border-color:var(--primary); }
   .client-esg-split { display:flex; gap:12px; align-items:stretch; }

@@ -326,6 +326,16 @@
         .btn:hover { background: #f8fafc; border-color: var(--primary-100); }
         .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
         .btn-primary:hover { background: var(--primary-600); }
+        .btn-primary i,
+        .btn-danger i,
+        .btn-choice-active i,
+        button[style*="background:var(--primary)"][style*="color:#fff"] i,
+        button[style*="background: var(--primary)"][style*="color:#fff"] i,
+        button[style*="background:#2563eb"][style*="color:#fff"] i,
+        button[style*="background:#16a34a"][style*="color:#fff"] i,
+        button[style*="background:#ef4444"][style*="color:#fff"] i {
+            color: #fff;
+        }
 	        .btn-secondary { background: #f1f5f9; color: var(--primary-600); border-color: rgba(15,23,42,0.18); }
 	        .btn-secondary:hover { background: #e2e8f0; }
         .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }

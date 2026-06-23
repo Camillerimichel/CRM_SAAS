@@ -136,8 +136,11 @@
     .sim-scenarios-table th { text-transform:none; font-size:0.72rem; letter-spacing:0; padding:6px; line-height:1.1; white-space:normal; word-break:break-word; }
     .sim-inputs { min-width:0; }
     .sim-inputs .sim-grid { margin-top:0; }
-    .sim-chart-row { display:flex; gap:16px; align-items:stretch; flex-wrap:wrap; margin-top:10px; }
-    #allocSimChart { flex:1 1 560px; min-width:320px; }
+    .sim-chart-row { display:block; margin-top:10px; width:100%; }
+    #sicavChart,
+    #allocAnnualChart,
+    #allocSimChart { width:100%; min-width:0; }
+    #allocSimChart { height:320px; }
     .sim-summary { border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; padding:12px 14px; margin-top:10px; }
     .sim-summary-title { font-weight:700; margin-bottom:8px; }
     .sim-summary-row { display:flex; justify-content:flex-start; gap:8px; font-size:12px; margin:6px 0; }
@@ -601,12 +604,20 @@ $(document).ready(function () {
             html += '  </div>';
             html += '</div>';
             html += '<div class="sim-chart-row">';
-            html += '  <div id="allocSimChart" style="height:320px;"></div>';
+            html += '  <div id="allocSimChart" style="height:320px; width:100%;"></div>';
             html += '</div>';
             simBody.innerHTML = html;
             bindSimControls();
         }
         simCard.style.display = '';
+        requestAnimationFrame(function(){
+            if (window.Plotly) {
+                var simChartEl = document.getElementById('allocSimChart');
+                if (simChartEl) {
+                    try { Plotly.Plots.resize(simChartEl); } catch(e) {}
+                }
+            }
+        });
     }
     function showSimError(msg){
         var el = document.getElementById('sim-error');
@@ -785,6 +796,9 @@ $(document).ready(function () {
         var config = { displayModeBar: true, responsive: true };
         try { Plotly.react(simChartEl, traces, layout, config); }
         catch(e) { Plotly.newPlot(simChartEl, traces, layout, config); }
+        requestAnimationFrame(function(){
+            try { Plotly.Plots.resize(simChartEl); } catch(e) {}
+        });
         var totalContrib = inputs.capital + (inputs.periodic * nPeriods);
         function accumFactor(r, n){
             if (Math.abs(r) < 1e-8) return n;
@@ -1116,6 +1130,11 @@ $(document).ready(function () {
 
         annualTitle.textContent = 'Performances annuelles et SRI – ' + nom;
         annualCard.style.display = '';
+        requestAnimationFrame(function(){
+            if (window.Plotly && annualEl) {
+                try { Plotly.Plots.resize(annualEl); } catch(e) {}
+            }
+        });
     }
 
     // Actions Voir + boutons de fenêtre
@@ -1152,6 +1171,14 @@ $(document).ready(function () {
             var _tAid = _targetBtn.getAttribute('data-aid');
             if (_tNom) { buildSeriesForNom(_tNom); drawAnnualChart(_tNom); }
             if (_tAid) renderAllocSimulations(_tAid);
+            requestAnimationFrame(function(){
+                if (window.Plotly) {
+                    if (annualEl) { try { Plotly.Plots.resize(annualEl); } catch(e) {} }
+                    if (sicavEl) { try { Plotly.Plots.resize(sicavEl); } catch(e) {} }
+                    var _simChart = document.getElementById('allocSimChart');
+                    if (_simChart) { try { Plotly.Plots.resize(_simChart); } catch(e) {} }
+                }
+            });
         }
     } catch(e) {}
 });
