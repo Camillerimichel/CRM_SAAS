@@ -4902,6 +4902,472 @@ def _build_esg_exclusions_check(db: Session, client_id: int) -> dict | None:
         logger.error("ESG exclusions check FAILED client_id=%s error=%s", client_id, exc, exc_info=True)
         return None
 
+def _ia_to_html(raw: str) -> str:
+    """Convertit le texte brut d'un LLM en HTML propre : supprime les marqueurs Markdown (#, *, **) et enveloppe chaque ligne dans <p>."""
+    import re as _re
+    lines = []
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Supprimer les titres Markdown (##, ###, #)
+        line = _re.sub(r'^#+\s*', '', line)
+        # Supprimer le gras/italique Markdown
+        line = _re.sub(r'\*{1,2}(.+?)\*{1,2}', r'<strong>\1</strong>', line)
+        if line:
+            lines.append(f"<p>{line}</p>")
+    return "\n".join(lines)
+
+
+def _generate_profil_coherence_ia(ctx: dict) -> str:
+    """Analyse les incoherences internes du profil et justifie l'allocation choisie (§3)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        import anthropic as _anthropic
+        horizon = ctx.get("horizon_placement") or "non renseigné"
+        niveau = ctx.get("niveau_risque") or "non renseigné"
+        experience = ctx.get("experience") or "non renseignée"
+        connaissance = ctx.get("connaissance") or "non renseignée"
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        rhp = ctx.get("allocation_sri_rhp_years")
+        rhp_str = f"{int(round(float(rhp)))} ans" if rhp else "non renseignée"
+        montant_ct = ctx.get("montant_coherent_total") or 0
+        montant_lt = ctx.get("montant_incoherent_total") or 0
+
+        def _fm(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return "non renseigné"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant la section "Profil d'investissement" d'une lettre d'adéquation réglementaire française (style formel, première personne du pluriel du cabinet).
+
+Données du profil déclaré par le client :
+- Horizon de placement : {horizon}
+- Niveau de risque : {niveau}
+- Expérience financière : {experience}
+- Connaissance des produits : {connaissance}
+
+Recommandation formulée :
+- Allocation : {allocation}
+- Durée de placement conseillée : {rhp_str}
+- Montant des objectifs couverts par cette allocation : {_fm(montant_ct)}
+- Montant des objectifs à horizon plus long (non couverts par cette allocation) : {_fm(montant_lt)}
+
+Rédige un paragraphe de 120 à 160 mots qui :
+1. Confirme la cohérence interne du profil (horizon × niveau de risque × expérience × connaissance) — signale s'il y a une incohérence (ex : horizon long mais niveau de risque faible, ou expérience élevée mais profil conservateur)
+2. Explique pourquoi l'allocation retenue ({allocation}) présente une durée ({rhp_str}) potentiellement plus courte que ce que le profil permettrait (horizon déclaré : {horizon}) : par exemple, les besoins immédiats du client sont à court terme, ou le montant à long terme sera traité dans un second temps
+3. Conclue que cette allocation est adaptée à la fraction du patrimoine concernée par le contrat
+
+Style : formel, pas de liste à puces, commence directement par l'analyse. Montants avec "." comme séparateur de milliers."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_profil_coherence_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_age_adequation_ia(ctx: dict) -> str:
+    """Génère l'analyse réglementaire de l'adéquation de l'âge du client à l'offre proposée."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    age = ctx.get("age_client")
+    age_fin = ctx.get("age_fin_placement")
+    if age is None:
+        return ""
+    try:
+        import anthropic as _anthropic
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        rhp = ctx.get("allocation_sri_rhp_years")
+        rhp_str = f"{int(round(float(rhp)))} ans" if rhp else "non renseignée"
+        status = ctx.get("age_adequation_status") or "ok"
+
+        if status == "ok":
+            consigne_statut = (
+                "L'âge est clairement compatible : conclure positivement que l'adéquation est confirmée. "
+                "Mentionner explicitement que l'âge du client est en adéquation avec la durée de l'offre proposée."
+            )
+        elif status == "attention":
+            consigne_statut = (
+                "L'âge est à la limite de la compatibilité : souligner le point de vigilance, rappeler qu'un accord "
+                "explicite du client est recommandé, mais que l'adéquation reste possible si le client le confirme."
+            )
+        else:
+            consigne_statut = (
+                "L'âge soulève une question d'adéquation importante : indiquer clairement que la durée de placement "
+                "au regard de l'âge du client mérite une attention particulière et doit faire l'objet d'une "
+                "confirmation écrite du client et d'un examen approfondi par le conseiller."
+            )
+
+        age_fin_str = str(age_fin) if age_fin else "indéterminé"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une section réglementaire d'une lettre d'adéquation française (style formel, troisième personne, ne pas écrire 'Monsieur/Madame').
+
+Données :
+- Âge du client : {age} ans
+- Offre financière recommandée : {allocation}
+- Durée de placement conseillée (RHP) : {rhp_str}
+- Âge du client en fin de placement estimé : {age_fin_str} ans
+
+Instruction de statut : {consigne_statut}
+
+Rédige un paragraphe de 80 à 120 mots qui :
+1. Indique l'âge actuel du client et l'âge en fin de placement estimé
+2. Évalue explicitement si cet âge est adapté à la durée de placement de l'offre retenue, en référençant la Directive (UE) 2016/97 (DDA) et l'obligation d'adéquation
+3. Conclut avec une phrase claire sur l'adéquation (ou non)
+
+Style : formel, pas de liste à puces, commence directement. Ne pas écrire "Madame" ni "Monsieur"."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_age_adequation_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_esg_missing_data_ia(ctx: dict) -> str:
+    """Génère la justification réglementaire pour les fonds sans données ESG (§7, règlement 2021/1257)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    esg = ctx.get("esg_exclusions_check") or {}
+    fonds_list = esg.get("fonds") or []
+    exclusions = esg.get("client_exclusions") or []
+    fonds_manquants = [
+        f for f in fonds_list
+        if any(
+            (f.get("status_by_code") or {}).get(e.get("code"), "manquant") == "manquant"
+            for e in exclusions
+        )
+    ]
+    if not fonds_manquants:
+        return ""
+    try:
+        import anthropic as _anthropic
+        fonds_str = "\n".join(
+            f"  - {f.get('nom') or f.get('isin','?')} (ISIN : {f.get('isin','?')})"
+            for f in fonds_manquants
+        )
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant la section ESG d'une lettre d'adéquation réglementaire française (style formel, première personne du pluriel).
+
+Les fonds suivants sont présents dans l'allocation recommandée mais ne disposent pas de données ESG suffisantes pour vérifier leur conformité aux préférences de durabilité du client :
+{fonds_str}
+
+Rédige un paragraphe de 100 à 130 mots qui :
+1. Reconnaît explicitement l'absence de données ESG suffisantes pour ces fonds
+2. Explique que leur maintien provisoire dans l'allocation est justifié par l'absence d'alternative équivalente disponible et par leur adéquation aux autres critères de sélection (performances, frais, horizon)
+3. S'engage à réexaminer ces positions dès que les données extra-financières seront disponibles auprès des fournisseurs de données
+4. Rappelle que conformément au règlement délégué (UE) 2021/1257, le cabinet documente cette situation et en informe le client
+
+Style formel, pas de liste. Commence directement par l'analyse. Signale particulièrement si un fonds porte le label "ESG" dans son nom sans avoir de données disponibles (cas d'incohérence notable)."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_esg_missing_data_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_motivation_ia(ctx: dict) -> str:
+    """Génère via Claude API la motivation détaillée de la recommandation."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        import anthropic as _anthropic
+
+        # Construction du prompt avec les données du contexte
+        client = ctx.get("client")
+        nom_client = f"{ctx.get('civilite', '')} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip() if client else "le client"
+        sit_fam = ctx.get("situation_familiale") or "non renseignée"
+        nb_enf = ctx.get("nb_enfants") or 0
+        patrimoine = ctx.get("patrimoine_net_str") or "non renseigné"
+        revenus = ctx.get("revenus_total_str") or "non renseigné"
+        charges = ctx.get("charges_total_str") or "non renseigné"
+        budget = ctx.get("budget_disponible_str") or "non renseigné"
+        horizon = ctx.get("horizon_placement") or "non renseigné"
+        niveau_risque = ctx.get("niveau_risque") or "non renseigné"
+        experience = ctx.get("experience") or "non renseignée"
+        connaissance = ctx.get("connaissance") or "non renseignée"
+        contrat_nom = ctx.get("contrat_choisi_nom") or "non renseigné"
+        contrat_societe = ctx.get("contrat_choisi_societe") or "non renseignée"
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        frais_entree = ctx.get("frais_entree_pct")
+        frais_gestion = ctx.get("frais_gestion_moyen_pct")
+
+        objectifs_list = ctx.get("adequation_objectifs") or []
+
+        def _fmt_mo(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return ""
+
+        objectifs_str = "; ".join(
+            f"{o.get('objectif_libelle','?')} (horizon: {o.get('horizon_investissement','?')}"
+            + (f", montant: {_fmt_mo(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            for o in objectifs_list
+        ) if objectifs_list else "non renseignés"
+
+        contrats_compares = ctx.get("adequation_contracts") or []
+        contrats_str = ", ".join(
+            f"{c.get('nom_contrat','?')} ({c.get('societe_nom','?')}, {float(c.get('total_frais') or 0):.2f}%/an)"
+            for c in contrats_compares
+        ) if contrats_compares else "aucun comparatif disponible"
+
+        frais_str = ""
+        if frais_entree is not None:
+            frais_str += f"Frais d'entrée : {frais_entree:.2f} %."
+        if frais_gestion is not None:
+            frais_str += f" Frais de gestion moyens : {frais_gestion:.2f} %/an."
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine. Rédige la section « Motivation détaillée de la recommandation » d'une lettre d'adéquation réglementaire en français, dans un style formel et professionnel, en vous adressant directement au client.
+
+Données client :
+- Nom : {nom_client}
+- Situation familiale : {sit_fam}, {nb_enf} enfant(s)
+- Patrimoine net : {patrimoine}
+- Revenus : {revenus} / Charges : {charges} / Budget disponible : {budget}
+- Horizon de placement : {horizon}
+- Niveau de risque : {niveau_risque}
+- Expérience financière : {experience}
+- Connaissance des produits : {connaissance}
+- Objectifs patrimoniaux : {objectifs_str}
+
+Recommandation :
+- Contrat retenu : {contrat_nom} (compagnie : {contrat_societe})
+- Allocation retenue : {allocation}
+- {frais_str}
+- Montant investi estimé (objectifs couverts par l'allocation) : {_fmt_mo(ctx.get('montant_coherent_total') or 0)}
+- Impact chiffré des frais d'entrée : {ctx.get('frais_entree_pct') and f"{ctx['frais_entree_pct']:.2f} % × {_fmt_mo(ctx.get('montant_coherent_total') or 0)} = {_fmt_mo((ctx.get('frais_entree_pct',0)/100)*(ctx.get('montant_coherent_total') or 0))}" or "non renseigné"}
+- Contrats comparés (frais de gestion) : {contrats_str}
+
+Rédige un texte structuré d'environ 400 mots comportant :
+1. Une introduction sur la démarche d'analyse
+2. La description de la situation patrimoniale et financière du client
+3. L'analyse du profil de risque et sa cohérence avec l'allocation retenue
+4. Les raisons spécifiques du choix du contrat (en liste à puces) — critères objectifs : frais de gestion annuels, frais d'entrée avec leur impact chiffré en euros, éligibilité à l'allocation recommandée, structure juridique du contrat
+5. La comparaison avec les alternatives étudiées (frais d'entrée inclus) et les critères de différenciation objectifs
+6. Une conclusion sur l'adéquation globale de la recommandation
+
+Important :
+- Ne commence jamais par "Monsieur", "Madame" ou le nom du client : commence directement par le corps de l'analyse
+- Utilise uniquement les données fournies, sans inventer de chiffres
+- Pour tous les montants en euros, utilise le point "." comme séparateur de milliers (ex : 1.500.000 €) — jamais d'espace dans les nombres
+- Style formel, première personne du pluriel pour le cabinet ("nous avons")
+- Retourne uniquement le texte rédigé, sans balises HTML, ni titre de section
+- Paragraphes séparés par une ligne vide
+- La liste des raisons du choix du contrat doit commencer par un tiret (-)"""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = response.content[0].text.strip() if response.content else ""
+        # Convertir en HTML léger (paragraphes + liste à puces), sans marqueurs Markdown
+        import re as _re
+        lines = raw.split("\n")
+        html_parts = []
+        in_list = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                continue
+            # Strip titres Markdown
+            line = _re.sub(r'^#+\s*', '', line)
+            if not line:
+                continue
+            if line.startswith("- "):
+                if not in_list:
+                    html_parts.append("<ul>")
+                    in_list = True
+                html_parts.append(f"<li>{line[2:]}</li>")
+            else:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                html_parts.append(f"<p>{line}</p>")
+        if in_list:
+            html_parts.append("</ul>")
+        return "\n".join(html_parts)
+    except Exception as _exc:
+        logger.warning("_generate_motivation_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_objectifs_incoherence_ia(ctx: dict) -> str:
+    """Génère via Claude API la justification des incohérences horizon/allocation (§4)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+
+    # Reproduire la logique de détection d'incohérence du template Jinja
+    def _hidx(h: str) -> int:
+        h = h or ""
+        if "8" in h: return 4
+        if "5" in h: return 3
+        if "3" in h: return 2
+        if "1" in h: return 1
+        return 0
+
+    # Référence = durée de placement conseillée de l'allocation (pas l'horizon déclaré par le client)
+    rhp = ctx.get("allocation_sri_rhp_years")
+    if rhp is not None:
+        ref_idx = (4 if float(rhp) >= 8 else (3 if float(rhp) >= 5 else (2 if float(rhp) >= 3 else (1 if float(rhp) >= 1 else 0))))
+        horizon_placement = f"{int(round(float(rhp)))} ans"
+    else:
+        horizon_placement = ctx.get("horizon_placement") or ""
+        ref_idx = _hidx(horizon_placement)
+    objectifs = ctx.get("adequation_objectifs") or []
+    allocation = ctx.get("allocation_reference_name") or "l'allocation retenue"
+    contrat_nom = ctx.get("contrat_choisi_nom") or "le contrat recommandé"
+
+    incoherents = []
+    coherents = []
+    for obj in objectifs:
+        obj_h = obj.get("horizon_investissement") or ""
+        obj_idx = _hidx(obj_h)
+        # Cohérent si l'horizon de l'objectif ≤ RHP de l'allocation
+        # (l'allocation couvre bien ce besoin ; les objectifs plus longs sont signalés)
+        ok = (obj_idx <= ref_idx) and (obj_idx > 0) if (rhp is not None) else (obj_idx >= ref_idx) and (ref_idx > 0) and (obj_idx > 0)
+        (coherents if ok else incoherents).append(obj)
+
+    # Rien à justifier si tout est cohérent
+    if not incoherents:
+        return ""
+
+    try:
+        import anthropic as _anthropic
+
+        def _fmt_m(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return "non renseigné"
+
+        inco_str = "\n".join(
+            f"  - {o.get('objectif_libelle','?')} (horizon : {o.get('horizon_investissement','?')}"
+            + (f", montant : {_fmt_m(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            + (f" — {o.get('commentaire')}" if o.get("commentaire") else "")
+            for o in incoherents
+        )
+        cohe_str = "\n".join(
+            f"  - {o.get('objectif_libelle','?')} (horizon : {o.get('horizon_investissement','?')}"
+            + (f", montant : {_fmt_m(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            for o in coherents
+        ) or "  (aucun)"
+
+        # Calcul des totaux pour nourrir le prompt
+        total_inco = sum(float(o.get("montant") or 0) for o in incoherents)
+        total_cohe = sum(float(o.get("montant") or 0) for o in coherents)
+        total_inco_str = _fmt_m(total_inco) if total_inco > 0 else "non renseigné"
+        total_cohe_str = _fmt_m(total_cohe) if total_cohe > 0 else "non renseigné"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une lettre d'adéquation réglementaire en français (style formel, première personne du pluriel du cabinet).
+
+Contexte :
+- Durée de placement conseillée de l'allocation recommandée : {horizon_placement}
+- Allocation recommandée : {allocation}
+- Contrat recommandé : {contrat_nom}
+
+Objectifs dont l'horizon DÉPASSE la durée de placement conseillée (signalés en rouge) :
+{inco_str}
+→ Total des montants concernés : {total_inco_str}
+
+Objectifs cohérents avec la durée de placement conseillée (horizon ≤ {horizon_placement}) :
+{cohe_str}
+→ Total des montants cohérents : {total_cohe_str}
+
+Rédige un paragraphe de justification de 180 à 220 mots destiné à apparaître dans la lettre d'adéquation. Ce paragraphe doit :
+1. Rappeler que l'allocation {allocation} a une durée de placement conseillée de {horizon_placement}
+2. Identifier les objectifs dont l'horizon dépasse cette durée, en citant leurs montants
+3. Expliquer que ces objectifs à long terme seront couverts par une stratégie complémentaire plus dynamique lors d'une prochaine révision, et que le conseil actuel répond aux besoins immédiats du client dans la durée conseillée
+4. Souligner la proportion relative : si les montants "cohérents" sont significativement plus élevés que les montants "trop longs", mettre en avant l'adéquation globale
+5. Préciser que la présence d'objectifs long terme plus ambitieux ne remet pas en cause la pertinence de l'allocation pour la tranche de patrimoine investie dans ce contrat
+
+Termine par la mention obligatoire suivante, sur une nouvelle ligne en italique (entoure-la avec les balises <em></em>) :
+<em>Conformément à l'article L.522-5 du Code des assurances et au règlement délégué (UE) 2017/2359, le conseiller s'est assuré que la recommandation est adaptée aux besoins, à la situation financière et aux objectifs d'investissement du client dans leur ensemble.</em>
+
+Retourne uniquement le texte rédigé, sans titre de section, paragraphes séparés par une ligne vide, liste à puces précédées d'un tiret (-)."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+
+        # Conversion texte → HTML léger, sans marqueurs Markdown
+        import re as _re
+        lines = raw.split("\n")
+        html_parts = []
+        in_list = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                continue
+            # Strip titres Markdown
+            line = _re.sub(r'^#+\s*', '', line)
+            if not line:
+                continue
+            if line.startswith("- "):
+                if not in_list:
+                    html_parts.append("<ul>")
+                    in_list = True
+                html_parts.append(f"<li>{line[2:]}</li>")
+            else:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                html_parts.append(f"<p>{line}</p>")
+        if in_list:
+            html_parts.append("</ul>")
+        return "\n".join(html_parts)
+
+    except Exception as _exc:
+        logger.warning("_generate_objectifs_incoherence_ia failed: %s", _exc)
+        return ""
+
+
 def _build_client_adequation_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -5132,6 +5598,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                        ro.libelle AS objectif_libelle,
                        o.horizon_investissement,
                        o.commentaire,
+                       o.montant,
                        COALESCE(o.niveau_id, 9999) AS _niv
                 FROM KYC_Client_Objectifs o
                 LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
@@ -5392,10 +5859,31 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         sri_metrics_client = None
         synthese_sri_scenarios = {"horizons": [], "rows": []}
 
-    revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
-    charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
-    actif = float(synthese_latest.get("total_actif") or 0.0) if synthese_latest else 0.0
-    passif = float(synthese_latest.get("total_passif") or 0.0) if synthese_latest else 0.0
+    # Calcul des totaux depuis les tables KYC live (pas depuis KYC_Client_Synthese qui peut être périmée)
+    try:
+        revenues = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Revenus WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
+    try:
+        charges = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Charges WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
+    try:
+        actif = float(db.execute(
+            text("SELECT COALESCE(SUM(valeur),0) FROM KYC_Client_Actif WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        actif = float(synthese_latest.get("total_actif") or 0.0) if synthese_latest else 0.0
+    try:
+        passif = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_rest_du),0) FROM KYC_Client_Passif WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        passif = float(synthese_latest.get("total_passif") or 0.0) if synthese_latest else 0.0
     budget = revenues - charges
     patrimoine_net = actif - passif
 
@@ -5543,6 +6031,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "allocation_sri_scenarios": allocation_sri_scenarios,
         "allocation_sri_scenarios_with_fees": allocation_sri_scenarios_with_fees,
         "allocation_sri_rhp_years": allocation_sri_rhp_years,
+        "allocation_rhp_ref_idx": (4 if (allocation_sri_rhp_years or 0) >= 8 else (3 if (allocation_sri_rhp_years or 0) >= 5 else (2 if (allocation_sri_rhp_years or 0) >= 3 else (1 if (allocation_sri_rhp_years or 0) >= 1 else 0)))),
         "frais_entree_pct": frais_entree_pct,
         "frais_entree_euros": frais_entree_euros,
         "frais_gestion_moyen_pct": avg_total_frais,
@@ -5559,6 +6048,62 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "adequation_chart_img_b64": adequation_chart_img_b64,
         "esg_exclusions_check": _build_esg_exclusions_check(db, client_id),
     }
+    # Calcul des montants cohérents / incohérents (même logique que template §4)
+    def _hidx_ctx(h: str) -> int:
+        h = h or ""
+        if "8" in h: return 4
+        if "5" in h: return 3
+        if "3" in h: return 2
+        if "1" in h: return 1
+        return 0
+    rhp_ref = contexte.get("allocation_rhp_ref_idx") or 0
+    montant_coherent = 0.0
+    montant_incoherent = 0.0
+    for _obj in (contexte.get("adequation_objectifs") or []):
+        _idx = _hidx_ctx(_obj.get("horizon_investissement") or "")
+        _m = float(_obj.get("montant") or 0)
+        if rhp_ref > 0:
+            if _idx > 0 and _idx <= rhp_ref:
+                montant_coherent += _m
+            else:
+                montant_incoherent += _m
+        else:
+            montant_coherent += _m
+    contexte["montant_coherent_total"] = montant_coherent
+    contexte["montant_incoherent_total"] = montant_incoherent
+
+    # Calcul de l'âge client et adéquation avec la durée de placement
+    age_client = None
+    age_fin_placement = None
+    age_adequation_status = "ok"
+    try:
+        from datetime import date as _date_cls
+        dn = (etat_civil_row or {}).get("date_naissance")
+        if dn:
+            if isinstance(dn, str):
+                dn = _date_cls.fromisoformat(dn[:10])
+            elif hasattr(dn, "date"):
+                dn = dn.date()
+            today = datetime.utcnow().date()
+            age_client = (today - dn).days // 365
+            rhp_y = allocation_sri_rhp_years
+            if rhp_y is not None:
+                age_fin_placement = age_client + int(round(float(rhp_y)))
+                if age_fin_placement > 85:
+                    age_adequation_status = "inadapte"
+                elif age_fin_placement > 80:
+                    age_adequation_status = "attention"
+    except Exception:
+        pass
+    contexte["age_client"] = age_client
+    contexte["age_fin_placement"] = age_fin_placement
+    contexte["age_adequation_status"] = age_adequation_status
+
+    contexte["profil_coherence_ia"] = _generate_profil_coherence_ia(contexte)
+    contexte["age_adequation_ia"] = _generate_age_adequation_ia(contexte)
+    contexte["justification_incoherences_ia"] = _generate_objectifs_incoherence_ia(contexte)
+    contexte["motivation_ia"] = _generate_motivation_ia(contexte)
+    contexte["esg_missing_data_ia"] = _generate_esg_missing_data_ia(contexte)
     return contexte
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
     affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
@@ -28888,6 +29433,52 @@ def dashboard_superadmin_sync_support_names_esg(
 
     target = f"/dashboard/superadmin?{qs}&msg={msg}#outils-import" if qs else f"/dashboard/superadmin?msg={msg}#outils-import"
     return RedirectResponse(url=target, status_code=303)
+
+
+@router.get("/superadmin/offres-financieres", response_class=HTMLResponse)
+def superadmin_offres_get(request: Request, db: Session = Depends(get_db)):
+    """Éditeur des textes de présentation des Offres financières."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    rows = db.execute(
+        text("SELECT id, allocation_name, texte FROM allocation_risque WHERE allocation_name LIKE 'Offre%' ORDER BY id")
+    ).fetchall()
+    offres = [{"id": r[0], "nom": r[1], "texte": r[2] or ""} for r in rows]
+    saved = request.query_params.get("saved")
+    return templates.TemplateResponse(
+        "superadmin_offres.html",
+        {"request": request, "offres": offres, "saved": saved},
+    )
+
+
+@router.post("/superadmin/offres-financieres", response_class=RedirectResponse)
+async def superadmin_offres_post(request: Request, db: Session = Depends(get_db)):
+    """Sauvegarde les textes des Offres financières."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    form = await request.form()
+    for key, value in form.items():
+        if key.startswith("texte_"):
+            try:
+                offre_id = int(key.split("_", 1)[1])
+                db.execute(
+                    text("UPDATE allocation_risque SET texte = :t WHERE id = :id"),
+                    {"t": str(value), "id": offre_id},
+                )
+            except Exception:
+                pass
+    db.commit()
+    return RedirectResponse(url="/dashboard/superadmin/offres-financieres?saved=1", status_code=303)
 
 
 @router.post("/superadmin/recompute-esg-grades", response_class=RedirectResponse)
