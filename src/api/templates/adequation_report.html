@@ -172,6 +172,9 @@
   </ul>
 
   <h2>6. Comparatif des offres disponibles</h2>
+  {% if frais_entree_pct is not none %}
+    <p>Les frais d&rsquo;entr&eacute;e applicables s&rsquo;&eacute;l&egrave;vent &agrave; <strong>{{ "%.2f"|format(frais_entree_pct) }} %</strong> du montant investi{% if frais_entree_euros is not none %}, soit <strong>{{ "%.2f"|format(frais_entree_euros) }} &euro;</strong> pour un investissement de 10 000 &euro;{% endif %}.</p>
+  {% endif %}
   <table>
     <thead>
       <tr>
@@ -250,16 +253,113 @@
       </tbody>
     </table>
     <p class="muted">Les scénarios sont basés sur les calculs Cornish‑Fisher utilisés pour l’indicateur SRI de l’offre.</p>
+
+    {% if allocation_sri_scenarios_with_fees and allocation_sri_scenarios_with_fees|length > 0 %}
+    <h3 style="margin-top:18px;">Scénarios int&eacute;grant les frais
+      {% if frais_entree_pct is not none or frais_gestion_moyen_pct %}
+        <span style="font-weight:400; font-size:0.85em; color:#6b7280;">
+          (frais d&rsquo;entr&eacute;e {{ "%.2f"|format(frais_entree_pct or 0) }} %
+          {% if frais_gestion_moyen_pct %} + frais de gestion {{ "%.2f"|format(frais_gestion_moyen_pct) }} % / an{% endif %})
+        </span>
+      {% endif %}
+    </h3>
+    <p class="muted">Sc&eacute;narios calcul&eacute;s sur une base de 10&nbsp;000&nbsp;&euro; apr&egrave;s d&eacute;duction des frais d&rsquo;entr&eacute;e et des frais de gestion annuels.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Horizon</th>
+          <th class="number">Tension</th>
+          <th class="number">Défavorable</th>
+          <th class="number">Intermédiaire</th>
+          <th class="number">Favorable</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in allocation_sri_scenarios_with_fees %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td class="number">{{ row.tension.euro }}<br/><span class="muted">{{ row.tension.pct }}</span><br/><span class="muted" style="font-size:0.78em; color:#dc2626;">− {{ row.tension.diff }}</span></td>
+            <td class="number">{{ row.defavorable.euro }}<br/><span class="muted">{{ row.defavorable.pct }}</span><br/><span class="muted" style="font-size:0.78em; color:#dc2626;">− {{ row.defavorable.diff }}</span></td>
+            <td class="number">{{ row.intermediaire.euro }}<br/><span class="muted">{{ row.intermediaire.pct }}</span><br/><span class="muted" style="font-size:0.78em; color:#dc2626;">− {{ row.intermediaire.diff }}</span></td>
+            <td class="number">{{ row.favorable.euro }}<br/><span class="muted">{{ row.favorable.pct }}</span><br/><span class="muted" style="font-size:0.78em; color:#dc2626;">− {{ row.favorable.diff }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="font-size:0.78em;">Le montant en rouge représente le coût total des frais (entrée + gestion) par différence avec le tableau brut ci-dessus.</p>
+    {% endif %}
   {% endif %}
 
-  <h2>8. Mises en garde</h2>
+  <br/>
+  <h2>8. Préférences ESG et adéquation du portefeuille</h2>
+  {% if esg_exclusions_check and esg_exclusions_check.client_exclusions %}
+    <p>Conformément à la réglementation MiFID II, vos préférences en matière de durabilité ont été prises en compte dans l'analyse d'adéquation. Vous avez déclaré exclure les fonds présentant les caractéristiques suivantes :</p>
+    <ul>
+      {% for e in esg_exclusions_check.client_exclusions %}
+        <li>{{ e.label }}</li>
+      {% endfor %}
+    </ul>
+    {% set nb  = esg_exclusions_check.nb_fonds %}
+    {% set nc  = esg_exclusions_check.nb_conformes %}
+    {% set nk  = esg_exclusions_check.nb_non_conformes %}
+    {% set nm  = esg_exclusions_check.nb_donnees_manquantes %}
+    {% set taux = esg_exclusions_check.taux_conformite %}
+    {% if nb > 0 %}
+      <p>
+        L'analyse du portefeuille actuel ({{ nb }} fonds) au regard de ces préférences donne :
+        <strong style="color:#16a34a;">{{ nc }} fonds conforme{{ 's' if nc > 1 else '' }}</strong>
+        et <strong style="color:#dc2626;">{{ nk }} fonds présentant une divergence</strong>{% if nm > 0 %}, {{ nm }} sans données suffisantes{% endif %}.
+      </p>
+      <table style="border-collapse:collapse; width:100%;">
+        <thead>
+          <tr style="background:#f1f5f9;">
+            <th style="text-align:left; padding:5px 8px; white-space:nowrap; font-size:0.85rem;">ISIN</th>
+            <th style="text-align:left; padding:5px 8px; font-size:0.85rem;">Fonds</th>
+            {% for e in esg_exclusions_check.client_exclusions %}
+              <th style="text-align:center; padding:5px 6px; max-width:90px; white-space:normal; line-height:1.2; font-size:0.78rem;">{{ e.label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in esg_exclusions_check.fonds %}
+            <tr>
+              <td style="padding:4px 8px; border-bottom:1px solid #e2e8f0; white-space:nowrap; font-size:0.8rem;">{{ f.isin }}</td>
+              <td style="padding:4px 8px; border-bottom:1px solid #e2e8f0; font-size:0.8rem;">{{ f.nom or '—' }}</td>
+              {% for e in esg_exclusions_check.client_exclusions %}
+                {% set st = f.status_by_code.get(e.code, 'manquant') %}
+                {% if st == 'divergence' %}
+                  <td style="text-align:center; padding:4px 6px; border-bottom:1px solid #e2e8f0; color:#dc2626; font-weight:700; font-size:1.1em;">✗</td>
+                {% elif st == 'conforme' %}
+                  <td style="text-align:center; padding:4px 6px; border-bottom:1px solid #e2e8f0; color:#16a34a; font-weight:700;">✓</td>
+                {% else %}
+                  <td style="text-align:center; padding:4px 6px; border-bottom:1px solid #e2e8f0; color:#94a3b8;" title="Données insuffisantes">?</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if nm > 0 %}
+        <p class="muted" style="margin-top:4px;">? = données ESG non disponibles dans la base de référence.</p>
+      {% endif %}
+      {% if nk > 0 %}
+        <p class="muted">Les fonds présentant une divergence (✗) feront l'objet d'un arbitrage lors du prochain rendez-vous de révision.</p>
+      {% endif %}
+    {% else %}
+      <p class="muted">Aucun fonds en portefeuille à analyser.</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">Aucune préférence d'exclusion ESG n'a été déclarée dans le questionnaire.</p>
+  {% endif %}
+
+  <h2>9. Mises en garde</h2>
   <ul>
     <li>Vous reconnaissez avoir reçu une information <strong>claire, honnête et non trompeuse</strong> sur les caractéristiques, coûts et risques des contrats présentés.</li>
     <li>La <strong>valeur des supports financiers</strong> peut fluctuer à la hausse comme à la baisse ; les performances passées ne préjugent pas des performances futures.</li>
     <li>Le conseil repose sur les informations communiquées ; toute omission ou inexactitude peut en affecter la pertinence.</li>
   </ul>
 
-  <h2>9. Accord du client</h2>
+  <h2>10. Accord du client</h2>
   <p>Je soussigné(e) <strong>{{ client.prenom or '' }} {{ client.nom or '' }}</strong>, déclare avoir reçu et pris connaissance de la présente lettre d’adéquation. Je confirme que les recommandations formulées correspondent à mes attentes et à mes objectifs patrimoniaux.</p>
   <div class="sig-box">
     <div class="sig-cell">

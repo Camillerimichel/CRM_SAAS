@@ -55,6 +55,11 @@ from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _r
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
+from src.services.esg_fund_exclusions import (
+    check_fund_exclusions,
+    get_client_portfolio_isins,
+    get_affaire_portfolio_isins,
+)
 from src.api.utils.esg import esg_grade_from_letters
 from src.services.fatca_eai_autocertification_pdf import build_fatca_eai_autocertification_pdf_bytes
 from src.services.modele_render import render_modele as render_modele_util
@@ -4884,7 +4889,19 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         "synthese_card": synthese_card,
         "valorisation_card": valorisation_card,
         "indicateurs_card": indicateurs_card,
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id),
     }
+def _build_esg_exclusions_check(db: Session, client_id: int) -> dict | None:
+    """Return ESG exclusion conformity check for use in adequation letter and synthese reports."""
+    try:
+        isins = get_client_portfolio_isins(db, client_id)
+        result = check_fund_exclusions(db, isins, client_id)
+        logger.info("ESG exclusions check client_id=%s nb_fonds=%s nb_excl=%s", client_id, result.get("nb_fonds"), len(result.get("client_exclusions") or []))
+        return result
+    except Exception as exc:
+        logger.error("ESG exclusions check FAILED client_id=%s error=%s", client_id, exc, exc_info=True)
+        return None
+
 def _build_client_adequation_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -5076,14 +5093,35 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                        COALESCE(g.frais_gestion_assureur,0) + COALESCE(g.frais_gestion_courtier,0) AS total_frais
                 FROM mariadb_affaires_generique g
                 LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                INNER JOIN KYC_contrat_choisi kcc ON kcc.id_contrat = g.id AND kcc.id_client = :cid
                 WHERE COALESCE(g.actif, 1) = 1
                 ORDER BY s.nom, g.nom_contrat
                 """
-            )
+            ),
+            {"cid": client_id},
         ).fetchall()
         adequation_contracts = [dict(r._mapping) for r in rows]
     except Exception:
         adequation_contracts = []
+
+    # Frais d'entrée saisis dans KYC
+    frais_entree_pct: float | None = None
+    try:
+        _fe_row = db.execute(
+            text("SELECT frais_entree FROM KYC_frais_entree WHERE id_client = :cid"),
+            {"cid": client_id},
+        ).fetchone()
+        if _fe_row and _fe_row[0] is not None:
+            frais_entree_pct = float(_fe_row[0])
+    except Exception:
+        frais_entree_pct = None
+    frais_entree_euros: float | None = round(10000.0 * frais_entree_pct / 100.0, 2) if frais_entree_pct is not None else None
+
+    # Frais de gestion moyens des contrats sélectionnés
+    avg_total_frais: float = 0.0
+    if adequation_contracts:
+        _fees = [float(c.get("total_frais") or 0) for c in adequation_contracts]
+        avg_total_frais = sum(_fees) / len(_fees) if _fees else 0.0
 
     adequation_objectifs: list[dict] = []
     try:
@@ -5112,6 +5150,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
     allocation_risque_id: int | None = None
     allocation_sri_metrics: dict | None = None
     allocation_sri_scenarios: list[dict] = []
+    allocation_sri_scenarios_with_fees: list[dict] = []
     allocation_sri_rhp_years: float | None = None
     if risque_latest and risque_latest.get("niveau_id") is not None:
         try:
@@ -5261,9 +5300,65 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                             "favorable": _row_sri(row.get("favorable")),
                         }
                     )
+
+                # Scénarios nets : frais d'entrée + frais de gestion annuels
+                allocation_sri_scenarios_with_fees = []
+                _fe = (frais_entree_pct or 0.0) / 100.0
+                _mg = avg_total_frais / 100.0
+
+                def _parse_years_label(lbl: str) -> float:
+                    import re as _re2
+                    if not lbl:
+                        return 1.0
+                    if "1 an" in lbl and "ans" not in lbl:
+                        return 1.0
+                    m = _re2.search(r"(\d+(?:[.,]\d+)?)\s*ans", lbl, _re2.I)
+                    if m:
+                        return float(m.group(1).replace(",", "."))
+                    return 1.0
+
+                for _raw_row, _sri_row in zip(scen_rows, allocation_sri_scenarios):
+                    _years = _parse_years_label(_sri_row["label"])
+
+                    def _row_sri_fees(factor, _y=_years):
+                        try:
+                            f = float(factor)
+                        except (TypeError, ValueError):
+                            return {"euro": "—", "pct": "—", "diff": "—"}
+                        if not math.isfinite(f):
+                            return {"euro": "—", "pct": "—", "diff": "—"}
+                        v_raw = base_cap * f
+                        # Frais d'entrée déduits du capital initial
+                        entry_fee = base_cap * _fe
+                        # Frais de gestion : calcul itératif annuel
+                        # Base début an N = fin an (N-1) - frais (N-1)
+                        # Base moyenne an k = (début + fin) / 2, fin = base × r
+                        N_int = max(1, int(round(_y)))
+                        r = f ** (1.0 / N_int)
+                        C = base_cap - entry_fee  # capital investi après frais d'entrée
+                        total_mgmt = 0.0
+                        for _ in range(N_int):
+                            gross_end = C * r
+                            fee_k = (C + gross_end) / 2.0 * _mg
+                            total_mgmt += fee_k
+                            C = gross_end - fee_k  # base suivante = fin - frais
+                        total_fees = entry_fee + total_mgmt
+                        v_net = C  # capital final après boucle itérative
+                        pct = ((v_net - base_cap) / base_cap) * 100.0 if base_cap else None
+                        pct_str = f"{pct:.2f} %" if pct is not None and math.isfinite(pct) else "—"
+                        return {"euro": _fmt_euro_sri(v_net), "pct": pct_str, "diff": _fmt_euro_sri(total_fees)}
+
+                    allocation_sri_scenarios_with_fees.append({
+                        "label": _sri_row["label"],
+                        "tension": _row_sri_fees(_raw_row.get("tension")),
+                        "defavorable": _row_sri_fees(_raw_row.get("defavorable")),
+                        "intermediaire": _row_sri_fees(_raw_row.get("intermediaire")),
+                        "favorable": _row_sri_fees(_raw_row.get("favorable")),
+                    })
         except Exception:
             allocation_sri_metrics = None
             allocation_sri_scenarios = []
+            allocation_sri_scenarios_with_fees = []
             allocation_sri_rhp_years = None
 
     # Scénarios SRI globaux pour la synthèse:
@@ -5314,30 +5409,87 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                 matplotlib.use('Agg')
                 import matplotlib.pyplot as plt  # type: ignore
                 rows_adq = (
-                    db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                    db.query(Allocation.date, Allocation.sicav, Allocation.sri)
                     .filter(func.lower(func.trim(Allocation.nom)) == allocation_reference_name.strip().lower())
                     .order_by(Allocation.date.asc())
                     .all()
                 )
                 if rows_adq:
-                    adq_dates, adq_svals, adq_vvals = [], [], []
-                    for d, s, v in rows_adq:
-                        adq_dates.append(d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)[:10])
-                        adq_svals.append(float(s or 0))
-                        vol = float(v or 0)
-                        adq_vvals.append(vol * 100.0 if abs(vol) <= 1 else vol)
+                    # Base 100 : première observation comme référence
+                    first_s = float(rows_adq[0][1] or 1) or 1.0
+                    # Agréger par année : dernière valeur de chaque année
+                    year_data: dict = {}
+                    for d, s, sri_val in rows_adq:
+                        yr = d.year if hasattr(d, 'year') else int(str(d)[:4])
+                        year_data[yr] = (float(s or 0), int(sri_val or 0))
+                    sorted_years = sorted(year_data.keys())
+                    x_labels = [str(i + 1) for i in range(len(sorted_years))]
+                    # Performances annuelles (glissement d'une fin d'année à la suivante)
+                    perf_annual = []
+                    prev = first_s
+                    for y in sorted_years:
+                        curr = year_data[y][0]
+                        perf_annual.append((curr / prev - 1) * 100.0 if prev else 0.0)
+                        prev = curr
+                    sri_list = [year_data[y][1] for y in sorted_years]
+                    has_sri = any(s > 0 for s in sri_list)
+                    xs = list(range(len(sorted_years)))
+                    bar_colors = ['#16a34a' if v >= 0 else '#ef4444' for v in perf_annual]
+                    import matplotlib.patches as _mpatch
                     fig, ax1 = plt.subplots(figsize=(6.5, 3.2))
-                    ax2 = ax1.twinx()
-                    ax1.plot(adq_dates, adq_svals, color='#2563eb', linewidth=1.5, label='Performance (%)')
-                    ax2.plot(adq_dates, adq_vvals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
+                    ax1.bar(xs, perf_annual, color=bar_colors, alpha=0.85, label='Performance annuelle (%)')
+                    ax1.axhline(0, color='#64748b', linewidth=0.8, linestyle='--')
+                    # Étiquettes de performance sur chaque barre
+                    _y_vals = perf_annual if perf_annual else [0]
+                    _y_span = (max(_y_vals) - min(_y_vals)) or 1.0
+                    _lbl_off = _y_span * 0.06
+                    for xi, v in zip(xs, perf_annual):
+                        ax1.text(xi, v + (_lbl_off if v >= 0 else -_lbl_off),
+                                 f'{v:+.1f}%', ha='center',
+                                 va='bottom' if v >= 0 else 'top',
+                                 fontsize=7.5, fontweight='bold',
+                                 color='#15803d' if v >= 0 else '#b91c1c')
+                    _pad = _y_span * 0.25
+                    ax1.set_ylim(min(_y_vals) - _pad, max(_y_vals) + _pad)
                     ax1.set_ylabel('Performance (%)')
-                    ax2.set_ylabel('Volatilité (%)')
-                    ax1.set_title(f'Performance et volatilité – {allocation_reference_name}')
-                    ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
-                    ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
-                    h1, l1 = ax1.get_legend_handles_labels()
-                    h2, l2 = ax2.get_legend_handles_labels()
-                    ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=8)
+                    ax1.set_xticks(xs)
+                    ax1.set_xticklabels(x_labels, fontsize=9)
+                    ax1.set_xlabel('Année')
+                    if has_sri:
+                        ax2 = ax1.twinx()
+                        ax2.set_ylim(1, 7)
+                        ax2.set_zorder(ax1.get_zorder() - 1)
+                        ax1.patch.set_visible(False)
+                        # Grisage des intervalles SRI par période consécutive
+                        _seg_start = 0; _seg_sri = sri_list[0]; _segments = []
+                        for _k in range(1, len(sri_list)):
+                            if sri_list[_k] != _seg_sri:
+                                _segments.append((_seg_start, _k - 1, _seg_sri))
+                                _seg_start = _k; _seg_sri = sri_list[_k]
+                        _segments.append((_seg_start, len(sri_list) - 1, _seg_sri))
+                        for _si, _ei, _sv in _segments:
+                            if 1 <= _sv <= 6:
+                                ax2.fill_between(
+                                    [xs[_si] - 0.45, xs[_ei] + 0.45],
+                                    [_sv, _sv], [_sv + 1, _sv + 1],
+                                    color='#94a3b8', alpha=0.30, zorder=0)
+                        # Lignes de séparation légères aux limites des bandes
+                        for _bnd in range(2, 7):
+                            ax2.axhline(_bnd, color='#cbd5e1', linewidth=0.5, linestyle='-', zorder=1)
+                        # Ticks au centre de chaque bande → libellé "3" entre marques 3 et 4
+                        ax2.set_yticks([1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
+                        ax2.set_yticklabels(['1', '2', '3', '4', '5', '6'],
+                                            fontsize=8, color='#475569', fontweight='bold')
+                        ax2.set_ylabel('SRI', fontsize=9)
+                        _sri_patch = _mpatch.Patch(facecolor='#94a3b8', alpha=0.5, label='SRI')
+                        h1, l1 = ax1.get_legend_handles_labels()
+                        ax1.legend(h1 + [_sri_patch], l1 + ['SRI'],
+                                   loc='upper left', frameon=True, fontsize=8)
+                        ax1.set_title(f'Performances annuelles et SRI – {allocation_reference_name}')
+                    else:
+                        ax1.legend(loc='upper left', frameon=True, fontsize=8)
+                        ax1.set_title(f'Performances annuelles – {allocation_reference_name}')
+                    fig.tight_layout()
                     buf = io.BytesIO()
                     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
                     plt.close(fig)
@@ -5389,7 +5541,11 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "allocation_reference_name": allocation_reference_name,
         "allocation_sri_metrics": allocation_sri_metrics,
         "allocation_sri_scenarios": allocation_sri_scenarios,
+        "allocation_sri_scenarios_with_fees": allocation_sri_scenarios_with_fees,
         "allocation_sri_rhp_years": allocation_sri_rhp_years,
+        "frais_entree_pct": frais_entree_pct,
+        "frais_entree_euros": frais_entree_euros,
+        "frais_gestion_moyen_pct": avg_total_frais,
         "contrat_choisi_nom": contrat_choisi_nom,
         "contrat_choisi_societe": contrat_choisi_societe,
         "adequation_contracts": adequation_contracts,
@@ -5401,6 +5557,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "kyc_situations_matrimoniales": situations_matrimoniales,
         "sri_scenarios": synthese_sri_scenarios,
         "adequation_chart_img_b64": adequation_chart_img_b64,
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id),
     }
     return contexte
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
@@ -6117,6 +6274,7 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
         "indicateurs_card": indicateurs_card,
         "affaire": affaire,
         "affaire_events_open": _fetch_affaire_events_open(db, affaire_id),
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id) if client_id else None,
     }
 
 def _fetch_affaire_events_open(db: Session, affaire_id: int) -> list[dict]:
@@ -6470,10 +6628,16 @@ def dashboard_api_synthese(
     _t_render = perf_counter()
     html = templates.get_template("synthese_report.html").render(ctx_render)
     logger.info(
-        "Synthese PDF HTML rendered client_id=%s duration=%.3fs",
+        "Synthese PDF HTML rendered client_id=%s duration=%.3fs esg_check_present=%s",
         id_client,
         perf_counter() - _t_render,
+        "esg_exclusions_check" in ctx_render and ctx_render["esg_exclusions_check"] is not None,
     )
+    try:
+        with open(f"/tmp/debug_synthese_{id_client}.html", "w") as _f:
+            _f.write(html)
+    except Exception:
+        pass
     _t_pdf = perf_counter()
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     logger.info(
@@ -6534,6 +6698,12 @@ def _render_client_synthese_pdf_bytes(request: Request, db: Session, id_client: 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
     html = templates.get_template("synthese_report.html").render(ctx_render)
+    try:
+        client_id_tmp = getattr(ctx.get("client"), "id", "unknown")
+        with open(f"/tmp/debug_synthese_{client_id_tmp}.html", "w") as _f:
+            _f.write(html)
+    except Exception:
+        pass
     return HTML(string=html, base_url=str(request.url)).write_pdf(), ctx
 
 
@@ -18450,37 +18620,80 @@ async def dashboard_client_kyc(
             ui_focus_panel = "chargesPanel"
 
         elif action == "contrat_choisir":
-            # Sélection unique d'un contrat pour le client
-            sel_id_raw = form.get("id_contrat")
+            # Sélection multiple (max 3) de contrats pour le client
+            if hasattr(form, 'getlist'):
+                sel_ids_raw = form.getlist("id_contrat")
+            else:
+                raw = form.get("id_contrat")
+                sel_ids_raw = [raw] if raw else []
+            sel_ids: list[int] = []
+            for _raw in sel_ids_raw:
+                try:
+                    v = int(_raw) if _raw and str(_raw).isdigit() else None
+                except Exception:
+                    v = None
+                if v and v not in sel_ids:
+                    sel_ids.append(v)
+            sel_ids = sel_ids[:3]
+            # Frais d'entrée
+            _fe_raw = (form.get("frais_entree") or "").strip().replace(",", ".")
+            _fe_val: float | None = None
             try:
-                sel_id = int(sel_id_raw) if sel_id_raw and str(sel_id_raw).isdigit() else None
+                _fe_val = float(_fe_raw) if _fe_raw else None
+                if _fe_val is not None and not (0 <= _fe_val <= 100):
+                    _fe_val = None
             except Exception:
-                sel_id = None
-            if sel_id is None:
-                contrat_error = "Veuillez sélectionner un contrat."
+                _fe_val = None
+
+            if not sel_ids:
+                contrat_error = "Veuillez sélectionner au moins un contrat."
             else:
                 try:
-                    # Table (si absente)
+                    # Table avec PK composite (si absente)
                     db.execute(text(
                         """
                         CREATE TABLE IF NOT EXISTS KYC_contrat_choisi (
                           id_client INTEGER NOT NULL,
                           id_contrat INTEGER NOT NULL,
-                          PRIMARY KEY (id_client)
+                          PRIMARY KEY (id_client, id_contrat)
                         )
                         """
                     ))
-                    # Remplace l'existant
+                    # Migration PK si ancienne structure (id_client seul)
+                    try:
+                        db.execute(text(
+                            "ALTER TABLE KYC_contrat_choisi DROP PRIMARY KEY, ADD PRIMARY KEY (id_client, id_contrat)"
+                        ))
+                    except Exception:
+                        pass
+                    # Remplace les sélections existantes
                     db.execute(text("DELETE FROM KYC_contrat_choisi WHERE id_client = :cid"), {"cid": client_id})
-                    db.execute(text("INSERT INTO KYC_contrat_choisi (id_client, id_contrat) VALUES (:cid, :kid)"), {"cid": client_id, "kid": sel_id})
+                    for _kid in sel_ids:
+                        db.execute(text("INSERT INTO KYC_contrat_choisi (id_client, id_contrat) VALUES (:cid, :kid)"), {"cid": client_id, "kid": _kid})
+                    # Frais d'entrée
+                    db.execute(text(
+                        """
+                        CREATE TABLE IF NOT EXISTS KYC_frais_entree (
+                          id_client INTEGER NOT NULL PRIMARY KEY,
+                          frais_entree DECIMAL(5,2) NOT NULL
+                        )
+                        """
+                    ))
+                    if _fe_val is not None:
+                        db.execute(text(
+                            "REPLACE INTO KYC_frais_entree (id_client, frais_entree) VALUES (:cid, :fe)"
+                        ), {"cid": client_id, "fe": _fe_val})
+                    else:
+                        db.execute(text("DELETE FROM KYC_frais_entree WHERE id_client = :cid"), {"cid": client_id})
                     db.commit()
-                    contrat_success = "Contrat enregistré."
-                except Exception as exc:
+                    _n = len(sel_ids)
+                    contrat_success = f"{_n} contrat{'s' if _n > 1 else ''} enregistré{'s' if _n > 1 else ''}."
+                except Exception:
                     try:
                         db.rollback()
                     except Exception:
                         pass
-                    contrat_error = "Impossible d'enregistrer le contrat."
+                    contrat_error = "Impossible d'enregistrer les contrats."
             # Revenir sur le panneau Contrats
             ui_focus_section = "contrats"
             ui_focus_panel = "contratsPanel"
@@ -20399,17 +20612,28 @@ async def dashboard_client_kyc(
     except Exception:
         kyc_contracts = []
 
-    # Contrat sélectionné (si existant)
-    kyc_contrat_selected_id: int | None = None
+    # Contrats sélectionnés (si existants)
+    kyc_contrat_selected_ids: list[int] = []
     try:
-        row = db.execute(text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid LIMIT 1"), {"cid": client_id}).fetchone()
-        if row:
+        rows = db.execute(text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid"), {"cid": client_id}).fetchall()
+        for _r in rows:
             try:
-                kyc_contrat_selected_id = int(row[0]) if row[0] is not None else None
+                _v = int(_r[0]) if _r[0] is not None else None
+                if _v:
+                    kyc_contrat_selected_ids.append(_v)
             except Exception:
-                kyc_contrat_selected_id = None
+                pass
     except Exception:
-        kyc_contrat_selected_id = None
+        kyc_contrat_selected_ids = []
+
+    # Frais d'entrée saisis
+    kyc_frais_entree: float | None = None
+    try:
+        _fe_r = db.execute(text("SELECT frais_entree FROM KYC_frais_entree WHERE id_client = :cid"), {"cid": client_id}).fetchone()
+        if _fe_r and _fe_r[0] is not None:
+            kyc_frais_entree = float(_fe_r[0])
+    except Exception:
+        kyc_frais_entree = None
     logger.info("TIMING kyc %s: after contrats %.3fs", client_id, _pc_kyc() - _t0_kyc)
 
     # ESG: options et questionnaire courant
@@ -21933,7 +22157,8 @@ async def dashboard_client_kyc(
             "ref_type_revenu": ref_type_revenu,
             "ref_type_charge": ref_type_charge,
             "kyc_contracts": kyc_contracts,
-            "kyc_contrat_selected_id": kyc_contrat_selected_id,
+            "kyc_contrat_selected_ids": kyc_contrat_selected_ids,
+            "kyc_frais_entree": kyc_frais_entree,
             "contrat_success": contrat_success,
             "contrat_error": contrat_error,
             "ref_objectifs": ref_objectifs,
@@ -26490,6 +26715,14 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             }
     except Exception:
         superadmin_user = None
+    if superadmin_user is None:
+        superadmin_user = {
+            "id": None,
+            "nom": None,
+            "prenom": None,
+            "mail": None,
+            "telephone": None,
+        }
 
     societes_gestion: list[dict] = []
     total_societes = 0
@@ -30577,6 +30810,52 @@ def dashboard_groupes_esg(
         payload["deprecated_fields"] = deprecated_fields
         payload["deprecated_map"] = deprecated_map
     return payload
+
+
+# ---------------- ESG exclusions API ----------------
+
+@router.get("/clients/{client_id}/esg/exclusions", response_class=JSONResponse)
+def dashboard_client_esg_exclusions(
+    client_id: int,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Check conformity between a client's declared ESG exclusion preferences
+    and the funds currently held across all their affaires.
+    """
+    try:
+        _require_client_read(request, db, client_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    isins = get_client_portfolio_isins(db, client_id)
+    return check_fund_exclusions(db, isins, client_id)
+
+
+@router.get("/affaires/{affaire_id}/esg/exclusions", response_class=JSONResponse)
+def dashboard_affaire_esg_exclusions(
+    affaire_id: int,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Check conformity between a client's declared ESG exclusion preferences
+    and the funds held in a specific affaire.
+    """
+    try:
+        _require_affaire_read(request, db, affaire_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+    if affaire is None:
+        return JSONResponse(status_code=404, content={"detail": "Affaire introuvable."})
+    client_id = getattr(affaire, "id_personne", None)
+    if not client_id:
+        return JSONResponse(status_code=422, content={"detail": "Affaire sans client associé."})
+
+    isins = get_affaire_portfolio_isins(db, affaire_id)
+    return check_fund_exclusions(db, isins, client_id)
 
 
 # ---------------- ESG data API (Global consolidé: tous contrats) ----------------
@@ -35422,15 +35701,15 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             Allocation.perf_sicav_52,
             Allocation.volat,
             Allocation.sicav,
+            Allocation.sri,
         )
         .order_by(Allocation.nom.asc(), Allocation.date.asc())
         .all()
     )
 
     series_data: dict[str, list[dict]] = {}
-    for nom, date, perf52, vol, sicav in series_rows:
+    for nom, date, perf52, vol, sicav, sri_val in series_rows:
         arr = series_data.setdefault(nom, [])
-        # format date en YYYY-MM-DD si possible
         dstr = None
         try:
             dstr = date.strftime("%Y-%m-%d") if date else None
@@ -35441,6 +35720,7 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             "perf": float(perf52 or 0),
             "vol": float(vol or 0),
             "sicav": float(sicav or 0),
+            "sri": int(sri_val) if sri_val is not None else None,
         })
 
     # Derniers métriques SRI par allocation (pour pop-up)

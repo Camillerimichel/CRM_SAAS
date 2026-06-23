@@ -176,10 +176,10 @@
     min-width:84px;
     height:36px;
     padding:0 12px;
-    border:1px solid #dbe4f0;
+    border:1px solid var(--primary);
     border-radius:10px;
-    background:#fff;
-    color:#0f172a;
+    background:var(--primary);
+    color:#fff;
     cursor:pointer;
     transition:background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease;
     flex:0 0 auto;
@@ -187,12 +187,13 @@
     font-size:0.85rem;
     font-weight:700;
   }
+  .edition-send-btn i { color:#fff; }
   .edition-send-btn:hover:not(:disabled),
   .edition-send-btn:focus-visible:not(:disabled) {
     transform: translateY(-1px);
-    background:#eff6ff;
-    border-color:#bfdbfe;
-    color:#1d4ed8;
+    background:var(--primary-600, #1d4ed8);
+    border-color:var(--primary-600, #1d4ed8);
+    color:#fff;
   }
   .edition-send-btn:disabled {
     opacity:.45;
@@ -3363,6 +3364,10 @@ function generateClientSynthese(){
       </button>
       <div class="muted" style="margin-top:8px; font-size:0.82rem;">L'analyse compare les indicateurs ESG du portefeuille à un indice de référence.</div>
     </div>
+    <div id="clientEsgExclusionsPanel" style="margin-top:12px; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; background:#f8fafc; display:none;">
+      <div style="font-weight:600; font-size:0.93rem; margin-bottom:8px; color:#0f172a;">Conformité aux préférences d'exclusion ESG</div>
+      <div id="clientEsgExclusionsContent"><span class="muted" style="font-size:0.85rem;">Chargement…</span></div>
+    </div>
     <div id="clientEsgPanel" style="display:none; margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#f8fafc;">
       <div id="clientEsgLoading" style="display:none; padding:24px 16px; color:#64748b;">
         <div style="margin-bottom:6px; font-size:0.93rem; font-weight:600;" id="clientEsgLoadingMsg">Initialisation…</div>
@@ -3865,6 +3870,81 @@ function openClientMsgs(kind){
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+<script>
+  // ESG exclusions — client
+  (function(){
+    var clientId = {{ client.id if client else 'null' }};
+    if (!clientId) return;
+    var _loaded = false;
+    function renderExclusionsHtml(data){
+      if (!data || !data.client_exclusions || !data.client_exclusions.length){
+        return '<span class="muted" style="font-size:0.85rem;">Aucune préférence d\'exclusion ESG déclarée dans le questionnaire.</span>';
+      }
+      var exclusions = data.client_exclusions;
+      var fonds = data.fonds || [];
+      var nb = data.nb_fonds, nc = data.nb_conformes, nk = data.nb_non_conformes, nm = data.nb_donnees_manquantes;
+      var taux = data.taux_conformite;
+      var excl = exclusions.map(function(e){ return '<li>'+e.label+'</li>'; }).join('');
+      var html = '<ul style="margin:0 0 8px 16px; font-size:0.85rem;">'+excl+'</ul>';
+      if (nb > 0){
+        var tauxStr = taux !== null && taux !== undefined ? ' — Taux de conformité : <strong>'+(Math.round(taux*100))+'%</strong>' : '';
+        var colorNc = nk > 0 ? '#dc2626' : '#16a34a';
+        html += '<p style="margin:0 0 6px; font-size:0.88rem;"><strong style="color:#16a34a;">'+nc+' conforme'+(nc>1?'s':'')+'</strong> · <strong style="color:'+colorNc+';">'+nk+' non conforme'+(nk>1?'s':'')+'</strong>'+(nm>0?' · '+nm+' sans données':'')+tauxStr+'.</p>';
+        if (nb > 0){
+          var th = '<th style="padding:4px 7px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.8rem; white-space:nowrap;">ISIN</th>'
+            +'<th style="padding:4px 7px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.8rem;">Fonds</th>';
+          exclusions.forEach(function(e){
+            th += '<th style="padding:4px 6px; text-align:center; border-bottom:1px solid #e2e8f0; font-size:0.75rem; max-width:80px; white-space:normal; line-height:1.2;">'+e.label+'</th>';
+          });
+          var tbody = '';
+          fonds.forEach(function(f){
+            var sb = f.status_by_code || {};
+            var cells = exclusions.map(function(e){
+              var st = sb[e.code] || 'manquant';
+              if (st === 'divergence') return '<td style="text-align:center; padding:3px 6px; border-bottom:1px solid #f1f5f9; color:#dc2626; font-weight:700; font-size:1.05em;">✗</td>';
+              if (st === 'conforme')   return '<td style="text-align:center; padding:3px 6px; border-bottom:1px solid #f1f5f9; color:#16a34a; font-weight:700;">✓</td>';
+              return '<td style="text-align:center; padding:3px 6px; border-bottom:1px solid #f1f5f9; color:#94a3b8;" title="Données insuffisantes">?</td>';
+            }).join('');
+            tbody += '<tr>'
+              +'<td style="padding:3px 7px; border-bottom:1px solid #f1f5f9; font-size:0.78rem; white-space:nowrap;">'+f.isin+'</td>'
+              +'<td style="padding:3px 7px; border-bottom:1px solid #f1f5f9; font-size:0.78rem; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="'+(f.nom||'')+'">'+( f.nom||'—' )+'</td>'
+              +cells+'</tr>';
+          });
+          html += '<table style="width:100%; border-collapse:collapse; margin-top:4px;">'
+            +'<thead><tr style="background:#f1f5f9;">'+th+'</tr></thead>'
+            +'<tbody>'+tbody+'</tbody></table>';
+          if (nm > 0) html += '<p class="muted" style="font-size:0.72rem; margin:3px 0 0;">? = données ESG non disponibles.</p>';
+        }
+      }
+      return html;
+    }
+    function loadEsgExclusions(){
+      if (_loaded) return;
+      _loaded = true;
+      var panel = document.getElementById('clientEsgExclusionsPanel');
+      var content = document.getElementById('clientEsgExclusionsContent');
+      if (!panel || !content) return;
+      panel.style.display = '';
+      fetch('/dashboard/clients/'+clientId+'/esg/exclusions')
+        .then(function(r){ return r.json(); })
+        .then(function(data){ content.innerHTML = renderExclusionsHtml(data); })
+        .catch(function(){ content.innerHTML = '<span class="muted" style="font-size:0.85rem;">Impossible de charger les données d\'exclusion ESG.</span>'; });
+    }
+    var esgToggle = document.getElementById('esgToggle');
+    if (esgToggle){
+      esgToggle.addEventListener('click', function(){
+        setTimeout(function(){
+          var sec = document.getElementById('esgSection');
+          if (sec && sec.style.display !== 'none') loadEsgExclusions();
+        }, 50);
+      });
+    }
+    window.addEventListener('DOMContentLoaded', function(){
+      var sec = document.getElementById('esgSection');
+      if (sec && sec.style.display !== 'none') loadEsgExclusions();
+    });
+  })();
+</script>
 <script>
   // ESG client (base 100)
   (function(){
