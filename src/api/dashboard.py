@@ -5503,7 +5503,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
             text(
                 """
                 SELECT
-                  r.libelle AS niveau_risque,
+                  r.label AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
                   k.experience,
@@ -5511,7 +5511,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                   k.commentaire,
                   k.confirmation_client
                 FROM KYC_Client_Risque k
-                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                JOIN risque_niveau r ON k.niveau_id = r.id
                 WHERE k.client_id = :cid
                 ORDER BY k.date_saisie DESC, k.id DESC
                 LIMIT 1
@@ -6191,6 +6191,31 @@ def _commit_and_refresh_client_kyc_financial_analysis(db: Session, client_id: in
     """Commit the current transaction and refresh the cached KYC financial analysis."""
     db.commit()
     _persist_client_kyc_financial_analysis(db, client_id)
+
+
+def _get_effective_connaissance_produits(db: Session, client_id: int) -> dict[int, int]:
+    """Niveau de connaissance courant par produit pour un client.
+
+    Non-régression: la valeur retenue pour chaque produit est le maximum jamais
+    saisi (toutes les saisies KYC_Client_Risque du client confondues), même si
+    une saisie plus récente indique un niveau plus faible pour ce produit.
+    """
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT c.produit_id, MAX(c.niveau_id) AS niveau_id
+                FROM KYC_Client_Risque_Connaissance c
+                JOIN KYC_Client_Risque r ON r.id = c.risque_id
+                WHERE r.client_id = :cid
+                GROUP BY c.produit_id
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        return {int(r.produit_id): int(r.niveau_id) for r in rows}
+    except Exception:
+        return {}
 
 
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
@@ -10130,34 +10155,30 @@ async def dashboard_client_kyc_report(
     # Fallback: si aucun objectif enregistré, tenter depuis le dernier questionnaire risque (objectifs principaux)
     try:
         if not objectifs:
-            rq = db.execute(text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
-            if rq:
-                rqid = int(rq[0])
-                rows = db.execute(text(
-                    """
-                    SELECT o.id AS option_id, o.label AS libelle
-                    FROM risque_questionnaire_objectif q
-                    LEFT JOIN risque_objectif_option o ON o.id = q.option_id
-                    WHERE q.questionnaire_id = :qid
-                    ORDER BY q.id ASC
-                    """
-                ), {"qid": rqid}).fetchall()
-                if rows:
-                    tmp = []
-                    pr = 1
-                    for r in rows:
-                        lib = getattr(r, 'libelle', None) or (r[1] if len(r)>1 else None)
-                        oid = getattr(r, 'option_id', None) or (r[0] if len(r)>0 else None)
-                        tmp.append({
-                            'id': None,
-                            'objectif_id': oid,
-                            'objectif_libelle': lib,
-                            'niveau_id': pr,
-                            'horizon_investissement': None,
-                            'commentaire': None,
-                        })
-                        pr += 1
-                    objectifs = tmp
+            rq = db.execute(text("SELECT objectifs_json FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY date_saisie DESC, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+            obj_ids: list[int] = []
+            if rq and rq[0]:
+                try:
+                    obj_ids = [int(x) for x in (json.loads(rq[0]) or [])]
+                except Exception:
+                    obj_ids = []
+            if obj_ids:
+                rows = db.execute(
+                    text("SELECT id, label FROM risque_objectif_option WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+                    {"ids": obj_ids},
+                ).fetchall()
+                labels_by_id = {int(r[0]): r[1] for r in rows}
+                tmp = []
+                for pr, oid in enumerate(obj_ids, start=1):
+                    tmp.append({
+                        'id': None,
+                        'objectif_id': oid,
+                        'objectif_libelle': labels_by_id.get(int(oid)),
+                        'niveau_id': pr,
+                        'horizon_investissement': None,
+                        'commentaire': None,
+                    })
+                objectifs = tmp
     except Exception:
         pass
 
@@ -10174,7 +10195,7 @@ async def dashboard_client_kyc_report(
         # Libellé du niveau de risque (ref)
         try:
             if risque and (risque.get("niveau_id") is not None):
-                r_lbl = db.execute(text("SELECT libelle FROM ref_niveau_risque WHERE id = :i"), {"i": risque.get("niveau_id")}).fetchone()
+                r_lbl = db.execute(text("SELECT label FROM risque_niveau WHERE id = :i"), {"i": risque.get("niveau_id")}).fetchone()
                 if r_lbl and r_lbl[0] is not None:
                     risque["niveau_label"] = r_lbl[0]
         except Exception:
@@ -10250,19 +10271,18 @@ async def dashboard_client_kyc_report(
                         pass
             except Exception:
                 pass
-            # Disponibilité (fallback depuis risque_questionnaire si absente)
+            # Disponibilité / durée: libellés résolus depuis les option-ids de KYC_Client_Risque
             try:
                 if not risque.get("disponibilite"):
                     row_dispo = db.execute(text(
                         """
                         SELECT d.label AS dispo, du.label AS duree
-                        FROM risque_questionnaire rq
-                        LEFT JOIN risque_disponibilite_option d ON d.id = rq.disponibilite_option_id
-                        LEFT JOIN risque_duree_option du ON du.id = rq.duree_option_id
-                        WHERE rq.client_ref = :r
-                        ORDER BY rq.updated_at DESC LIMIT 1
+                        FROM KYC_Client_Risque k
+                        LEFT JOIN risque_disponibilite_option d ON d.id = k.disponibilite_option_id
+                        LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
+                        WHERE k.id = :rid
                         """
-                    ), {"r": str(client_id)}).fetchone()
+                    ), {"rid": risque.get("id")}).fetchone()
                     if row_dispo:
                         m = row_dispo._mapping
                         if m.get("dispo"):
@@ -10280,13 +10300,13 @@ async def dashboard_client_kyc_report(
         row = db.execute(text(
             """
             SELECT
-              r.libelle AS niveau_risque,
+              r.label AS niveau_risque,
               k.duree AS horizon_placement,
               k.experience,
               k.connaissance,
               k.commentaire
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r
+            JOIN risque_niveau r
               ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
@@ -15132,7 +15152,7 @@ def _build_mission_context(db: Session, client_id: int) -> dict:
             text(
                 """
                 SELECT
-                  r.libelle AS niveau_risque,
+                  r.label AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
                   k.experience,
@@ -15140,7 +15160,7 @@ def _build_mission_context(db: Session, client_id: int) -> dict:
                   k.commentaire,
                   k.confirmation_client
                 FROM KYC_Client_Risque k
-                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                JOIN risque_niveau r ON k.niveau_id = r.id
                 WHERE k.client_id = :cid
                 ORDER BY k.date_saisie DESC, k.id DESC
                 LIMIT 1
@@ -19864,17 +19884,10 @@ async def dashboard_client_kyc(
                 # Revenus court-terme objective handling
                 rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme","revenus")), None)
 
-                # Persist
+                # Persist (table unique KYC_Client_Risque, cf. plus bas)
                 from datetime import datetime as _dt, timedelta as _td
                 now = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 obso = (_dt.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
-                # Toujours créer un nouveau questionnaire (historisation)
-                # On lit éventuellement l'ancien pour information, mais on n'update plus.
-                row = db.execute(
-                    _text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
-                    {"r": str(client_id)},
-                ).fetchone()
-                last_rqid = row[0] if row else None
                 # Déterminer l'offre finale selon acceptation et cas revenus CT
                 final_offer = int(offre_calc)
                 rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme", "revenus")), None)
@@ -19890,146 +19903,18 @@ async def dashboard_client_kyc(
                 elif accept_offre_calculee == "non" and offre_personnelle_id in (1,2,3,4,5):
                     final_offer = int(offre_personnelle_id)
 
-                params_main = {
-                    "client_ref": str(client_id),
-                    "saisie_at": now,
-                    "obsolescence_at": obso,
-                    "connaissance_adequate": conso if conso in ("oui","non") else "non",
-                    "decharge_responsabilite": 0,
-                    "perte_option_id": perte_id,
-                    "patrimoine_part_option_id": patr_id,
-                    "disponibilite_option_id": disp_id,
-                    "duree_option_id": duree_id,
-                    "offre_calculee_niveau_id": int(offre_calc),
-                    "offre_finale_niveau_id": final_offer,
-                    "objectif_autre_detail": autre_detail,
-                    "created_at": now,
-                    "updated_at": now,
-                }
                 # Décharge si l'offre finale diffère de l'offre calculée suite à un refus
-                if accept_offre_calculee == "non" and params_main["offre_finale_niveau_id"] != int(offre_calc):
-                    params_main["decharge_responsabilite"] = 1
+                decharge_responsabilite = 1 if (accept_offre_calculee == "non" and final_offer != int(offre_calc)) else 0
                 # SRRI mappé sur l'offre finale
                 srri_map = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
-                srri_val = srri_map.get(int(params_main["offre_finale_niveau_id"]), None)
-                # Insertion systématique d'un nouveau questionnaire
-                db.execute(
-                    _text(
-                        """
-                        INSERT INTO risque_questionnaire (
-                          client_ref, saisie_at, obsolescence_at,
-                          connaissance_adequate, decharge_responsabilite,
-                          perte_option_id, patrimoine_part_option_id,
-                          disponibilite_option_id, duree_option_id,
-                          offre_calculee_niveau_id, offre_finale_niveau_id,
-                          objectif_autre_detail, created_at, updated_at
-                        ) VALUES (
-                          :client_ref, :saisie_at, :obsolescence_at,
-                          :connaissance_adequate, :decharge_responsabilite,
-                          :perte_option_id, :patrimoine_part_option_id,
-                          :disponibilite_option_id, :duree_option_id,
-                          :offre_calculee_niveau_id, :offre_finale_niveau_id,
-                          :objectif_autre_detail, :created_at, :updated_at
-                        )
-                        """
-                    ),
-                    params_main,
-                )
-                rqid = _last_insert_id(db)
-                if not rqid:
-                    try:
-                        row_match = db.execute(
-                            _text(
-                                """
-                                SELECT id
-                                FROM risque_questionnaire
-                                WHERE client_ref = :client_ref
-                                  AND saisie_at = :saisie_at
-                                  AND obsolescence_at = :obsolescence_at
-                                  AND offre_calculee_niveau_id = :offre_calculee_niveau_id
-                                  AND offre_finale_niveau_id = :offre_finale_niveau_id
-                                  AND IFNULL(objectif_autre_detail, '') = IFNULL(:objectif_autre_detail, '')
-                                ORDER BY updated_at DESC, id DESC
-                                LIMIT 1
-                                """
-                            ),
-                            {
-                                "client_ref": str(client_id),
-                                "saisie_at": now,
-                                "obsolescence_at": obso,
-                                "offre_calculee_niveau_id": int(offre_calc),
-                                "offre_finale_niveau_id": final_offer,
-                                "objectif_autre_detail": autre_detail,
-                            },
-                        ).fetchone()
-                        if row_match and row_match[0] is not None:
-                            rqid = int(row_match[0])
-                    except Exception:
-                        rqid = None
-                # insert children
-                for pid, nid in prod_levels.items():
-                    db.execute(
-                        _text("INSERT INTO risque_questionnaire_connaissance (questionnaire_id, produit_id, niveau_id) VALUES (:q,:p,:n)"),
-                        {"q": rqid, "p": int(pid), "n": int(nid)},
-                    )
-                for oid in obj_ids:
-                    db.execute(
-                        _text("INSERT IGNORE INTO risque_questionnaire_objectif (questionnaire_id, option_id) VALUES (:q,:o)"),
-                        {"q": rqid, "o": int(oid)},
-                    )
-                # Upsert risque_decision_client
-                try:
-                    dec_row = db.execute(_text("SELECT id FROM risque_decision_client WHERE questionnaire_id = :q"), {"q": rqid}).fetchone()
-                    decision = 'accepte' if accept_offre_calculee == 'oui' else 'refuse'
-                    dec_params = {
-                        'questionnaire_id': rqid,
-                        'saisie_at': now,
-                        'obsolescence_at': obso,
-                        'decision': decision,
-                        'message': 'Notre proposition est validée' if decision == 'accepte' else 'Le client refuse le risque proposé',
-                        'niveau_client_id': None,
-                        'motivation_refus': motivation_refus if decision == 'refuse' else None,
-                        'created_at': now,
-                        'updated_at': now,
-                    }
-                    if decision == 'refuse' and offre_personnelle_id in (1,2,3,4,5):
-                        dec_params['niveau_client_id'] = int(offre_personnelle_id)
-                    if dec_row:
-                        db.execute(
-                            _text(
-                                """
-                                UPDATE risque_decision_client
-                                SET saisie_at=:saisie_at,
-                                    obsolescence_at=:obsolescence_at,
-                                    decision=:decision,
-                                    message=:message,
-                                    niveau_client_id=:niveau_client_id,
-                                    motivation_refus=:motivation_refus,
-                                    updated_at=:updated_at
-                                WHERE questionnaire_id=:questionnaire_id
-                                """
-                            ),
-                            dec_params,
-                        )
-                    else:
-                        db.execute(
-                            _text(
-                                """
-                                INSERT INTO risque_decision_client (
-                                  questionnaire_id, saisie_at, obsolescence_at,
-                                  decision, message, niveau_client_id, motivation_refus,
-                                  created_at, updated_at
-                                ) VALUES (
-                                  :questionnaire_id, :saisie_at, :obsolescence_at,
-                                  :decision, :message, :niveau_client_id, :motivation_refus,
-                                  :created_at, :updated_at
-                                )
-                                """
-                            ),
-                            dec_params,
-                        )
-                except Exception as exc:
-                    logger.debug("risque_decision_client upsert error: %s", exc, exc_info=True)
+                srri_val = srri_map.get(int(final_offer), None)
+                # Décision (acceptation/refus) — persistée directement sur KYC_Client_Risque plus bas
+                decision = 'accepte' if accept_offre_calculee == 'oui' else 'refuse'
+                decision_niveau_client_id = None
+                if decision == 'refuse' and offre_personnelle_id in (1, 2, 3, 4, 5):
+                    decision_niveau_client_id = int(offre_personnelle_id)
+                decision_motivation_refus = motivation_refus if decision == 'refuse' else None
+                objectifs_json_val = json.dumps(obj_ids or [])
                 # Upsert KYC_Client_Risque (synthèse risque client du jour)
                 try:
                     # Helper to fetch option label by id
@@ -20107,6 +19992,17 @@ async def dashboard_client_kyc(
                         "contraintes": contraintes_txt,
                         "confirmation": confirmation_txt,
                         "commentaire": commentaire_txt,
+                        "perte_option_id": perte_id,
+                        "patrimoine_part_option_id": patr_id,
+                        "disponibilite_option_id": disp_id,
+                        "duree_option_id": duree_id,
+                        "offre_calculee_niveau_id": int(offre_calc),
+                        "objectifs_json": objectifs_json_val,
+                        "objectif_autre_detail": autre_detail,
+                        "decision": decision,
+                        "niveau_client_id": decision_niveau_client_id,
+                        "motivation_refus": decision_motivation_refus,
+                        "updated_at": now,
                     }
                     risque_id: int | None = None
                     if row_kr:
@@ -20123,7 +20019,18 @@ async def dashboard_client_kyc(
                                     confirmation_client = :confirmation,
                                     commentaire = :commentaire,
                                     date_saisie = :date_saisie,
-                                    date_expiration = :date_expiration
+                                    date_expiration = :date_expiration,
+                                    perte_option_id = :perte_option_id,
+                                    patrimoine_part_option_id = :patrimoine_part_option_id,
+                                    disponibilite_option_id = :disponibilite_option_id,
+                                    duree_option_id = :duree_option_id,
+                                    offre_calculee_niveau_id = :offre_calculee_niveau_id,
+                                    objectifs_json = :objectifs_json,
+                                    objectif_autre_detail = :objectif_autre_detail,
+                                    decision = :decision,
+                                    niveau_client_id = :niveau_client_id,
+                                    motivation_refus = :motivation_refus,
+                                    updated_at = :updated_at
                                 WHERE id = :id
                                 """
                             ),
@@ -20135,9 +20042,15 @@ async def dashboard_client_kyc(
                             _text(
                                 """
                                 INSERT INTO KYC_Client_Risque (
-                                    client_id, date_saisie, date_expiration, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire
+                                    client_id, date_saisie, date_expiration, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire,
+                                    perte_option_id, patrimoine_part_option_id, disponibilite_option_id, duree_option_id,
+                                    offre_calculee_niveau_id, objectifs_json, objectif_autre_detail,
+                                    decision, niveau_client_id, motivation_refus, created_at, updated_at
                                 ) VALUES (
-                                    :cid, :date_saisie, :date_expiration, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire
+                                    :cid, :date_saisie, :date_expiration, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire,
+                                    :perte_option_id, :patrimoine_part_option_id, :disponibilite_option_id, :duree_option_id,
+                                    :offre_calculee_niveau_id, :objectifs_json, :objectif_autre_detail,
+                                    :decision, :niveau_client_id, :motivation_refus, :date_saisie, :updated_at
                                 )
                                 """
                             ),
@@ -20150,53 +20063,30 @@ async def dashboard_client_kyc(
                         except Exception as exc:
                             logger.warning("KYC_Client_Risque insert: unable to fetch LAST_INSERT_ID for client=%s: %s", client_id, exc, exc_info=True)
                             risque_id = None
-                    # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
-                    try:
-                        # Créer la table si absente
-                        db.execute(_text(
-                            """
-                            CREATE TABLE IF NOT EXISTS KYC_Client_Risque_Connaissance (
-                              risque_id INTEGER NOT NULL,
-                              produit_id INTEGER NOT NULL,
-                              niveau_id INTEGER NOT NULL,
-                              produit_label TEXT,
-                              niveau_label TEXT,
-                              PRIMARY KEY (risque_id, produit_id),
-                              FOREIGN KEY (risque_id) REFERENCES KYC_Client_Risque(id) ON DELETE CASCADE
+                    # Enregistrer le détail "Niveau par produit" dans la table enfant KYC_Client_Risque_Connaissance
+                    # (table + contraintes créées par la migration 20260703_consolidate_kyc_client_risque.sql)
+                    if risque_id is not None:
+                        # Purge puis insert des paires produit->niveau (labels résolus en SQL, pas de dépendance
+                        # sur risque_opts_local qui ne charge pas toujours la clé "produits")
+                        db.execute(_text("DELETE FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid"), {"rid": risque_id})
+                        for pid, nid in (prod_levels or {}).items():
+                            try:
+                                pid_i = int(pid); nid_i = int(nid)
+                            except Exception:
+                                continue
+                            db.execute(
+                                _text(
+                                    """
+                                    INSERT INTO KYC_Client_Risque_Connaissance (
+                                      risque_id, produit_id, niveau_id, produit_label, niveau_label
+                                    )
+                                    SELECT :rid, :pid, :nid, p.label, n.label
+                                    FROM risque_connaissance_produit_option p, risque_connaissance_niveau_option n
+                                    WHERE p.id = :pid AND n.id = :nid
+                                    """
+                                ),
+                                {"rid": risque_id, "pid": pid_i, "nid": nid_i},
                             )
-                            """
-                        ))
-                        if risque_id is not None:
-                            # Purge puis insert des paires produit->niveau
-                            db.execute(_text("DELETE FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid"), {"rid": risque_id})
-                            # utilitaires libellés
-                            produits_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("produits") or [])}
-                            niveaux_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("niveaux") or [])}
-                            for pid, nid in (prod_levels or {}).items():
-                                try:
-                                    pid_i = int(pid); nid_i = int(nid)
-                                except Exception:
-                                    continue
-                                db.execute(
-                                    _text(
-                                        """
-                                        INSERT OR REPLACE INTO KYC_Client_Risque_Connaissance (
-                                          risque_id, produit_id, niveau_id, produit_label, niveau_label
-                                        ) VALUES (
-                                          :rid, :pid, :nid, :plabel, :nlabel
-                                        )
-                                        """
-                                    ),
-                                    {
-                                        "rid": risque_id,
-                                        "pid": pid_i,
-                                        "nid": nid_i,
-                                        "plabel": produits_map.get(pid_i),
-                                        "nlabel": niveaux_map.get(nid_i),
-                                    },
-                                )
-                    except Exception as _exc_kcr:
-                        logger.debug("KYC_Client_Risque_Connaissance persist error: %s", _exc_kcr, exc_info=True)
                     # pour affichage UI
                     risque_commentaire = payload.get("commentaire")
                     # Récupérer allocation liée au niveau de risque
@@ -20379,6 +20269,7 @@ async def dashboard_client_kyc(
                         pass
                 except Exception as exc:
                     logger.warning("KYC_Client_Risque upsert error for client=%s: %s", client_id, exc, exc_info=True)
+                    raise
                 db.commit()
                 _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                 try:
@@ -21403,65 +21294,50 @@ async def dashboard_client_kyc(
 
     risque_current = None
     risque_decision = None
-    risque_connaissance_map = {}
     risque_objectifs_ids: list[int] = []
     try:
         row = db.execute(
             text(
                 """
                 SELECT *
-                FROM risque_questionnaire
-                WHERE client_ref = :r
-                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
                 LIMIT 1
                 """
             ),
-            {"r": str(client_id)},
+            {"cid": client_id},
         ).fetchone()
         if row:
             m = row._mapping
-            rqid = m.get("id")
             risque_current = {
-                "id": rqid,
-                "saisie_at": _fmt_date(m.get("saisie_at")),
-                "obsolescence_at": _fmt_date(m.get("obsolescence_at")),
-                "connaissance_adequate": m.get("connaissance_adequate"),
-                "decharge_responsabilite": m.get("decharge_responsabilite"),
+                "id": m.get("id"),
+                "saisie_at": _fmt_date(m.get("date_saisie")),
+                "obsolescence_at": _fmt_date(m.get("date_expiration")),
+                "connaissance_adequate": m.get("connaissance"),
+                "decharge_responsabilite": None,
                 "perte_option_id": m.get("perte_option_id"),
                 "patrimoine_part_option_id": m.get("patrimoine_part_option_id"),
                 "disponibilite_option_id": m.get("disponibilite_option_id"),
                 "duree_option_id": m.get("duree_option_id"),
                 "offre_calculee_niveau_id": m.get("offre_calculee_niveau_id"),
-                "offre_finale_niveau_id": m.get("offre_finale_niveau_id"),
+                "offre_finale_niveau_id": m.get("niveau_id"),
                 "objectif_autre_detail": m.get("objectif_autre_detail"),
             }
             try:
-                rows = db.execute(text("SELECT produit_id, niveau_id FROM risque_questionnaire_connaissance WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
-                risque_connaissance_map = {int(r.produit_id): int(r.niveau_id) for r in rows}
-            except Exception:
-                risque_connaissance_map = {}
-            try:
-                rows = db.execute(text("SELECT option_id FROM risque_questionnaire_objectif WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
-                risque_objectifs_ids = [int(x[0]) for x in rows]
+                risque_objectifs_ids = [int(x) for x in (json.loads(m.get("objectifs_json") or "[]") or [])]
             except Exception:
                 risque_objectifs_ids = []
-            # Décision client (acceptation/refus) liée au questionnaire
-            try:
-                drow = db.execute(
-                    text("SELECT decision, niveau_client_id, motivation_refus FROM risque_decision_client WHERE questionnaire_id = :q"),
-                    {"q": rqid},
-                ).fetchone()
-                if drow:
-                    dm = drow._mapping
-                    risque_decision = {
-                        "decision": dm.get("decision"),
-                        "niveau_client_id": dm.get("niveau_client_id"),
-                        "motivation_refus": dm.get("motivation_refus"),
-                    }
-            except Exception:
-                risque_decision = None
+            risque_decision = {
+                "decision": m.get("decision"),
+                "niveau_client_id": m.get("niveau_client_id"),
+                "motivation_refus": m.get("motivation_refus"),
+            }
     except Exception:
         risque_current = None
+
+    # Niveau de connaissance courant par produit (non-régressif, cf. _get_effective_connaissance_produits)
+    risque_connaissance_map = _get_effective_connaissance_produits(db, client_id)
 
     # Calculer affichage dates
     if risque_current and risque_current.get("saisie_at") and risque_current.get("obsolescence_at"):
@@ -21481,7 +21357,10 @@ async def dashboard_client_kyc(
             text(
                 """
                 SELECT id, date_saisie, date_expiration, niveau_id, experience, connaissance,
-                       patrimoine, duree, contraintes, confirmation_client, commentaire
+                       patrimoine, duree, contraintes, confirmation_client, commentaire,
+                       perte_option_id, patrimoine_part_option_id, disponibilite_option_id, duree_option_id,
+                       offre_calculee_niveau_id, objectifs_json, objectif_autre_detail,
+                       decision, niveau_client_id, motivation_refus
                 FROM KYC_Client_Risque
                 WHERE client_id = :cid
                 ORDER BY date_saisie DESC, id DESC
@@ -21643,40 +21522,37 @@ async def dashboard_client_kyc(
             except Exception:
                 connaissance_produits = []
 
-            # Réutiliser ce snapshot pour pré-remplir le formulaire de consultation
-            try:
-                def _find_option_id(options, label):
-                    if not label or not options:
-                        return None
-                    label_str = str(label).strip()
-                    for opt in options:
-                        opt_label = str(opt.get("label") or opt.get("libelle") or "").strip()
-                        if opt_label == label_str:
-                            try:
-                                return int(opt.get("id"))
-                            except Exception:
-                                return None
-                    return None
-
-                risque_current = {
-                    "connaissance_adequate": risque_snapshot.get("connaissance"),
-                    "perte_option_id": _find_option_id(risque_opts.get("perte"), risque_snapshot.get("contraintes")),
-                    "patrimoine_part_option_id": _find_option_id(risque_opts.get("patrimoine_part"), risque_snapshot.get("patrimoine")),
-                    "disponibilite_option_id": None,
-                    "duree_option_id": _find_option_id(risque_opts.get("duree"), risque_snapshot.get("duree")),
-                    "offre_calculee_niveau_id": None,
-                    "offre_finale_niveau_id": risque_snapshot.get("niveau_id"),
-                    "objectif_autre_detail": None,
-                }
-                risque_decision = {
-                    "decision": "accepte" if (risque_snapshot.get("confirmation_client") or "").lower() == "oui" else ("refuse" if (risque_snapshot.get("confirmation_client") or "").lower() == "non" else None),
-                    "niveau_client_id": risque_snapshot.get("niveau_id"),
-                    "motivation_refus": (risque_snapshot.get("commentaire") if (risque_snapshot.get("confirmation_client") or "").lower() == "non" else (risque_snapshot.get("commentaire") if (risque_snapshot.get("confirmation_client") or "").lower() == "oui" else None)),
-                }
-                risque_connaissance_map = {int(r.get("produit_id")): int(r.get("niveau_id")) for r in connaissance_produits if r.get("produit_id") is not None and r.get("niveau_id") is not None}
-                risque_objectifs_ids = []
-            except Exception:
-                pass
+            # Réutiliser ce snapshot pour pré-remplir le formulaire de consultation.
+            # Chaque ligne KYC_Client_Risque porte désormais tous les champs directement
+            # (plus besoin de redeviner les option-ids à partir des libellés affichés).
+            # Uniquement en mode historique explicite (?kr=<ancien id>): la vue "courante"
+            # (par défaut) garde risque_current/risque_decision/risque_objectifs_ids déjà
+            # chargés depuis la dernière ligne, et risque_connaissance_map déjà calculé de
+            # façon non-régressive par _get_effective_connaissance_produits plus haut.
+            if risque_history_mode:
+                try:
+                    risque_current = {
+                        "connaissance_adequate": sel.get("connaissance"),
+                        "perte_option_id": sel.get("perte_option_id"),
+                        "patrimoine_part_option_id": sel.get("patrimoine_part_option_id"),
+                        "disponibilite_option_id": sel.get("disponibilite_option_id"),
+                        "duree_option_id": sel.get("duree_option_id"),
+                        "offre_calculee_niveau_id": sel.get("offre_calculee_niveau_id"),
+                        "offre_finale_niveau_id": sel.get("niveau_id"),
+                        "objectif_autre_detail": sel.get("objectif_autre_detail"),
+                    }
+                    risque_decision = {
+                        "decision": sel.get("decision"),
+                        "niveau_client_id": sel.get("niveau_client_id"),
+                        "motivation_refus": sel.get("motivation_refus"),
+                    }
+                    try:
+                        risque_objectifs_ids = [int(x) for x in (json.loads(sel.get("objectifs_json") or "[]") or [])]
+                    except Exception:
+                        risque_objectifs_ids = []
+                    risque_connaissance_map = {int(r.get("produit_id")): int(r.get("niveau_id")) for r in connaissance_produits if r.get("produit_id") is not None and r.get("niveau_id") is not None}
+                except Exception:
+                    pass
 
     try:
         ref_niveau_rows = db.execute(
@@ -33995,14 +33871,14 @@ def _compute_kyc_completion_status(db: Session, client_id: int) -> dict:
         row = db.execute(
             text(
                 """
-                SELECT id, offre_finale_niveau_id
-                FROM risque_questionnaire
-                WHERE client_ref = :ref
-                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                SELECT id, niveau_id AS offre_finale_niveau_id
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
                 LIMIT 1
                 """
             ),
-            {"ref": str(client_id)},
+            {"cid": client_id},
         ).fetchone()
     except Exception:
         row = None
@@ -35925,7 +35801,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         row = db.execute(text(
             """
             SELECT
-              r.libelle AS niveau_risque,
+              r.label AS niveau_risque,
               k.niveau_id AS niveau_id,
               k.duree AS horizon_placement,
               k.experience,
@@ -35933,7 +35809,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
               k.commentaire,
               k.confirmation_client
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r ON k.niveau_id = r.id
+            JOIN risque_niveau r ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
             LIMIT 1

@@ -354,7 +354,7 @@ def build_client_placeholders(db: Session, client_id: int) -> dict[str, str]:
         db,
         """
         SELECT
-          r.libelle AS niveau_risque,
+          r.label AS niveau_risque,
           k.niveau_id AS niveau_id,
           k.duree AS horizon_placement,
           k.experience,
@@ -362,7 +362,7 @@ def build_client_placeholders(db: Session, client_id: int) -> dict[str, str]:
           k.commentaire,
           k.confirmation_client
         FROM KYC_Client_Risque k
-        JOIN ref_niveau_risque r ON k.niveau_id = r.id
+        JOIN risque_niveau r ON k.niveau_id = r.id
         WHERE k.client_id = :cid
         ORDER BY k.date_saisie DESC, k.id DESC
         LIMIT 1
