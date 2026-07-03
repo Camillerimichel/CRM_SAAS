@@ -6105,6 +6105,94 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
     contexte["motivation_ia"] = _generate_motivation_ia(contexte)
     contexte["esg_missing_data_ia"] = _generate_esg_missing_data_ia(contexte)
     return contexte
+
+
+def _persist_client_kyc_financial_analysis(db: Session, client_id: int) -> None:
+    """Regenerate and persist the KYC financial analysis on write events only."""
+    try:
+        ctx = _build_client_adequation_context(db, client_id)
+        if not ctx:
+            return
+        row = db.execute(
+            text(
+                """
+                SELECT id
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if not row:
+            return
+        risk_id = row[0]
+        profil_html = (ctx.get("profil_coherence_ia") or "").strip()
+        age_html = (ctx.get("age_adequation_ia") or "").strip()
+        age_status = (ctx.get("age_adequation_status") or "ok").strip() or "ok"
+
+        def _fallback_profil() -> str:
+            horizon = ctx.get("horizon_placement") or "—"
+            niveau = ctx.get("niveau_risque") or "—"
+            patrimoine = ctx.get("patrimoine_net_str") or "—"
+            return (
+                f"<p>Le profil d'investissement est apprécié au regard du patrimoine net de {patrimoine}, "
+                f"de l'horizon {horizon} et du niveau de risque {niveau}. "
+                "La cohérence doit être examinée avec les objectifs saisis et les montants concernés.</p>"
+            )
+
+        def _fallback_age() -> str:
+            age_client = ctx.get("age_client")
+            age_fin = ctx.get("age_fin_placement")
+            if age_client is None or age_fin is None:
+                return "<p>L'adéquation de l'âge n'a pas pu être appréciée faute de date de naissance exploitable.</p>"
+            if age_status == "attention":
+                phrase = "L'âge du client appelle un point de vigilance, sans remettre en cause l'adéquation si le client le confirme."
+            elif age_status == "inadapte":
+                phrase = "L'âge du client soulève un point d'attention important au regard de la durée de placement retenue."
+            else:
+                phrase = "L'âge du client est en adéquation avec la durée de placement retenue."
+            return f"<p>Âge actuel estimé : {age_client} ans. Âge en fin de placement estimé : {age_fin} ans. {phrase}</p>"
+
+        if not profil_html:
+            profil_html = _fallback_profil()
+        if not age_html:
+            age_html = _fallback_age()
+
+        db.execute(
+            text(
+                """
+                UPDATE KYC_Client_Risque
+                SET profil_coherence_html = :profil,
+                    age_adequation_html = :age_html,
+                    age_adequation_status = :age_status,
+                    analysis_generated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                """
+            ),
+            {
+                "profil": profil_html,
+                "age_html": age_html,
+                "age_status": age_status,
+                "id": int(risk_id),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.debug("KYC financial analysis persist failed for client=%s: %s", client_id, exc, exc_info=True)
+
+
+def _commit_and_refresh_client_kyc_financial_analysis(db: Session, client_id: int) -> None:
+    """Commit the current transaction and refresh the cached KYC financial analysis."""
+    db.commit()
+    _persist_client_kyc_financial_analysis(db, client_id)
+
+
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
     affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
     if not affaire:
@@ -18262,7 +18350,7 @@ async def dashboard_client_kyc(
                     ),
                     params_s,
                 )
-            db.commit()
+            _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
         except Exception as _exc_synth:
             try:
                 db.rollback()
@@ -18366,7 +18454,7 @@ async def dashboard_client_kyc(
                 except Exception:
                     db.rollback()
                     raise
-                db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                 etat_success = "Etat civil sauvegardé avec succès."
             except Exception as exc:
                 db.rollback()
@@ -18456,9 +18544,9 @@ async def dashboard_client_kyc(
                                         :code_postal, :ville, :pays, :date_saisie, :date_expiration
                                     )
                                     """
-                                ),
-                                params,
-                            )
+                            ),
+                            params,
+                        )
                         db.commit()
                         _snapshot_synthese()
                         adresse_success = "Adresse enregistrée."
@@ -18570,7 +18658,7 @@ async def dashboard_client_kyc(
                                 """
                             ),
                             params,
-                        )
+                    )
                     db.commit()
                     _snapshot_synthese()
                     matrimonial_success = "Situation matrimoniale enregistrée."
@@ -19314,7 +19402,7 @@ async def dashboard_client_kyc(
                             ),
                             params,
                         )
-                        db.commit()
+                        _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                         objectifs_success = "Objectif mis à jour."
                     else:
                         duplicate = db.execute(
@@ -19348,9 +19436,9 @@ async def dashboard_client_kyc(
                                     )
                                     """
                                 ),
-                                params,
-                            )
-                            db.commit()
+                                    params,
+                                )
+                            _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                             objectifs_success = "Objectif enregistré."
                 except Exception as exc:
                     db.rollback()
@@ -19440,7 +19528,7 @@ async def dashboard_client_kyc(
                 except Exception:
                     skipped += 1
             try:
-                db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
             except Exception:
                 db.rollback()
             objectifs_success = f"{saved} objectif(s) enregistré(s)." if saved else None
@@ -19467,7 +19555,7 @@ async def dashboard_client_kyc(
                         text("DELETE FROM KYC_Client_Objectifs WHERE id = :id AND client_id = :cid"),
                         {"id": link_id, "cid": client_id},
                     )
-                    db.commit()
+                    _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                     objectifs_success = "Objectif supprimé."
                     active_objectif_id = None
                 except Exception as exc:
@@ -19815,6 +19903,8 @@ async def dashboard_client_kyc(
                     "offre_calculee_niveau_id": int(offre_calc),
                     "offre_finale_niveau_id": final_offer,
                     "objectif_autre_detail": autre_detail,
+                    "created_at": now,
+                    "updated_at": now,
                 }
                 # Décharge si l'offre finale diffère de l'offre calculée suite à un refus
                 if accept_offre_calculee == "non" and params_main["offre_finale_niveau_id"] != int(offre_calc):
@@ -19832,20 +19922,50 @@ async def dashboard_client_kyc(
                           perte_option_id, patrimoine_part_option_id,
                           disponibilite_option_id, duree_option_id,
                           offre_calculee_niveau_id, offre_finale_niveau_id,
-                          objectif_autre_detail
+                          objectif_autre_detail, created_at, updated_at
                         ) VALUES (
                           :client_ref, :saisie_at, :obsolescence_at,
                           :connaissance_adequate, :decharge_responsabilite,
                           :perte_option_id, :patrimoine_part_option_id,
                           :disponibilite_option_id, :duree_option_id,
                           :offre_calculee_niveau_id, :offre_finale_niveau_id,
-                          :objectif_autre_detail
+                          :objectif_autre_detail, :created_at, :updated_at
                         )
                         """
                     ),
                     params_main,
                 )
                 rqid = _last_insert_id(db)
+                if not rqid:
+                    try:
+                        row_match = db.execute(
+                            _text(
+                                """
+                                SELECT id
+                                FROM risque_questionnaire
+                                WHERE client_ref = :client_ref
+                                  AND saisie_at = :saisie_at
+                                  AND obsolescence_at = :obsolescence_at
+                                  AND offre_calculee_niveau_id = :offre_calculee_niveau_id
+                                  AND offre_finale_niveau_id = :offre_finale_niveau_id
+                                  AND IFNULL(objectif_autre_detail, '') = IFNULL(:objectif_autre_detail, '')
+                                ORDER BY updated_at DESC, id DESC
+                                LIMIT 1
+                                """
+                            ),
+                            {
+                                "client_ref": str(client_id),
+                                "saisie_at": now,
+                                "obsolescence_at": obso,
+                                "offre_calculee_niveau_id": int(offre_calc),
+                                "offre_finale_niveau_id": final_offer,
+                                "objectif_autre_detail": autre_detail,
+                            },
+                        ).fetchone()
+                        if row_match and row_match[0] is not None:
+                            rqid = int(row_match[0])
+                    except Exception:
+                        rqid = None
                 # insert children
                 for pid, nid in prod_levels.items():
                     db.execute(
@@ -19869,6 +19989,8 @@ async def dashboard_client_kyc(
                         'message': 'Notre proposition est validée' if decision == 'accepte' else 'Le client refuse le risque proposé',
                         'niveau_client_id': None,
                         'motivation_refus': motivation_refus if decision == 'refuse' else None,
+                        'created_at': now,
+                        'updated_at': now,
                     }
                     if decision == 'refuse' and offre_personnelle_id in (1,2,3,4,5):
                         dec_params['niveau_client_id'] = int(offre_personnelle_id)
@@ -19882,7 +20004,8 @@ async def dashboard_client_kyc(
                                     decision=:decision,
                                     message=:message,
                                     niveau_client_id=:niveau_client_id,
-                                    motivation_refus=:motivation_refus
+                                    motivation_refus=:motivation_refus,
+                                    updated_at=:updated_at
                                 WHERE questionnaire_id=:questionnaire_id
                                 """
                             ),
@@ -19894,10 +20017,12 @@ async def dashboard_client_kyc(
                                 """
                                 INSERT INTO risque_decision_client (
                                   questionnaire_id, saisie_at, obsolescence_at,
-                                  decision, message, niveau_client_id, motivation_refus
+                                  decision, message, niveau_client_id, motivation_refus,
+                                  created_at, updated_at
                                 ) VALUES (
                                   :questionnaire_id, :saisie_at, :obsolescence_at,
-                                  :decision, :message, :niveau_client_id, :motivation_refus
+                                  :decision, :message, :niveau_client_id, :motivation_refus,
+                                  :created_at, :updated_at
                                 )
                                 """
                             ),
@@ -20255,6 +20380,7 @@ async def dashboard_client_kyc(
                 except Exception as exc:
                     logger.warning("KYC_Client_Risque upsert error for client=%s: %s", client_id, exc, exc_info=True)
                 db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                 try:
                     row_dbg = db.execute(
                         _text("SELECT id, date_saisie, niveau_id, confirmation_client FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY id DESC LIMIT 3"),
@@ -21512,7 +21638,43 @@ async def dashboard_client_kyc(
                     ),
                     {"rid": int(sel.get("id"))},
                 ).fetchall()
-                risque_snapshot["connaissance_produits"] = [dict(r._mapping) for r in rows_c]
+                connaissance_produits = [dict(r._mapping) for r in rows_c]
+                risque_snapshot["connaissance_produits"] = connaissance_produits
+            except Exception:
+                connaissance_produits = []
+
+            # Réutiliser ce snapshot pour pré-remplir le formulaire de consultation
+            try:
+                def _find_option_id(options, label):
+                    if not label or not options:
+                        return None
+                    label_str = str(label).strip()
+                    for opt in options:
+                        opt_label = str(opt.get("label") or opt.get("libelle") or "").strip()
+                        if opt_label == label_str:
+                            try:
+                                return int(opt.get("id"))
+                            except Exception:
+                                return None
+                    return None
+
+                risque_current = {
+                    "connaissance_adequate": risque_snapshot.get("connaissance"),
+                    "perte_option_id": _find_option_id(risque_opts.get("perte"), risque_snapshot.get("contraintes")),
+                    "patrimoine_part_option_id": _find_option_id(risque_opts.get("patrimoine_part"), risque_snapshot.get("patrimoine")),
+                    "disponibilite_option_id": None,
+                    "duree_option_id": _find_option_id(risque_opts.get("duree"), risque_snapshot.get("duree")),
+                    "offre_calculee_niveau_id": None,
+                    "offre_finale_niveau_id": risque_snapshot.get("niveau_id"),
+                    "objectif_autre_detail": None,
+                }
+                risque_decision = {
+                    "decision": "accepte" if (risque_snapshot.get("confirmation_client") or "").lower() == "oui" else ("refuse" if (risque_snapshot.get("confirmation_client") or "").lower() == "non" else None),
+                    "niveau_client_id": risque_snapshot.get("niveau_id"),
+                    "motivation_refus": (risque_snapshot.get("commentaire") if (risque_snapshot.get("confirmation_client") or "").lower() == "non" else (risque_snapshot.get("commentaire") if (risque_snapshot.get("confirmation_client") or "").lower() == "oui" else None)),
+                }
+                risque_connaissance_map = {int(r.get("produit_id")): int(r.get("niveau_id")) for r in connaissance_produits if r.get("produit_id") is not None and r.get("niveau_id") is not None}
+                risque_objectifs_ids = []
             except Exception:
                 pass
 
@@ -22489,6 +22651,40 @@ async def dashboard_client_kyc(
     except Exception:
         lcbft_objectifs = []
 
+    profil_investissement_html = (
+        (risque_snapshot.get("profil_coherence_html") if risque_snapshot else None)
+        or (risque_current.get("profil_coherence_html") if risque_current else None)
+        or ""
+    )
+    age_adequation_html = (
+        (risque_snapshot.get("age_adequation_html") if risque_snapshot else None)
+        or (risque_current.get("age_adequation_html") if risque_current else None)
+        or ""
+    )
+    age_adequation_status_kyc = (
+        (risque_snapshot.get("age_adequation_status") if risque_snapshot else None)
+        or (risque_current.get("age_adequation_status") if risque_current else None)
+        or "ok"
+    )
+    age_client_kyc = None
+    age_fin_placement_kyc = None
+    try:
+        from datetime import date as _date_cls
+        dn = (etat_civil_row or {}).get("date_naissance")
+        if dn:
+            if isinstance(dn, str):
+                dn = _date_cls.fromisoformat(dn[:10])
+            elif hasattr(dn, "date"):
+                dn = dn.date()
+            if hasattr(dn, "year"):
+                today = _date_cls.today()
+                age_client_kyc = (today - dn).days // 365
+                rhp_years = allocation_sri_rhp_years if 'allocation_sri_rhp_years' in locals() else None
+                if rhp_years is not None:
+                    age_fin_placement_kyc = age_client_kyc + int(round(float(rhp_years)))
+    except Exception:
+        pass
+
     nb_contrats_actifs = 0
     nb_supports_references = 0
     try:
@@ -22773,6 +22969,11 @@ async def dashboard_client_kyc(
             # LCBFT objectifs (KYC)
             "lcbft_invest_total": locals().get("lcbft_invest_total", 0.0),
             "lcbft_objectifs": locals().get("lcbft_objectifs", []),
+            "profil_investissement_html": profil_investissement_html,
+            "age_adequation_html": age_adequation_html,
+            "age_client_kyc": age_client_kyc,
+            "age_fin_placement_kyc": age_fin_placement_kyc,
+            "age_adequation_status_kyc": age_adequation_status_kyc,
             "summary_data": {
                 "actifs": synth_actifs,
                 "passifs": synth_passifs,
