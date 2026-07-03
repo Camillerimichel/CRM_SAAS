@@ -19860,8 +19860,8 @@ async def dashboard_client_kyc(
                 if disp_id is not None:
                     disp_code = next((x["code"] for x in risque_opts_local.get("disponibilite", []) if int(x["id"])==disp_id), None)
                     if disp_code in ("court_terme", "tres_liquide"):
-                        # Cap maximum = prudent
-                        offre_calc = min(offre_calc, OFFRE["prudente"])
+                        # Disponibilité immédiate exigée: le risque doit redescendre au plus bas
+                        offre_calc = min(offre_calc, OFFRE["court_terme"])
                     # "autres_economies": aucun changement
 
                 # Durée (cap maximum)
@@ -21323,6 +21323,9 @@ async def dashboard_client_kyc(
                 "offre_calculee_niveau_id": m.get("offre_calculee_niveau_id"),
                 "offre_finale_niveau_id": m.get("niveau_id"),
                 "objectif_autre_detail": m.get("objectif_autre_detail"),
+                "profil_coherence_html": m.get("profil_coherence_html"),
+                "age_adequation_html": m.get("age_adequation_html"),
+                "age_adequation_status": m.get("age_adequation_status"),
             }
             try:
                 risque_objectifs_ids = [int(x) for x in (json.loads(m.get("objectifs_json") or "[]") or [])]
@@ -21360,7 +21363,8 @@ async def dashboard_client_kyc(
                        patrimoine, duree, contraintes, confirmation_client, commentaire,
                        perte_option_id, patrimoine_part_option_id, disponibilite_option_id, duree_option_id,
                        offre_calculee_niveau_id, objectifs_json, objectif_autre_detail,
-                       decision, niveau_client_id, motivation_refus
+                       decision, niveau_client_id, motivation_refus,
+                       profil_coherence_html, age_adequation_html, age_adequation_status
                 FROM KYC_Client_Risque
                 WHERE client_id = :cid
                 ORDER BY date_saisie DESC, id DESC
@@ -21505,6 +21509,9 @@ async def dashboard_client_kyc(
                 "allocation_nom": allocation_nom,
                 "allocation_chart": alloc_chart,
                 "allocation_html": _md_to_html(allocation_md),
+                "profil_coherence_html": sel.get("profil_coherence_html"),
+                "age_adequation_html": sel.get("age_adequation_html"),
+                "age_adequation_status": sel.get("age_adequation_status"),
             }
             # Utiliser les dates du snapshot pour l'entête
             risque_display_saisie = sel.get("date_saisie") or risque_display_saisie
@@ -21540,6 +21547,9 @@ async def dashboard_client_kyc(
                         "offre_calculee_niveau_id": sel.get("offre_calculee_niveau_id"),
                         "offre_finale_niveau_id": sel.get("niveau_id"),
                         "objectif_autre_detail": sel.get("objectif_autre_detail"),
+                        "profil_coherence_html": sel.get("profil_coherence_html"),
+                        "age_adequation_html": sel.get("age_adequation_html"),
+                        "age_adequation_status": sel.get("age_adequation_status"),
                     }
                     risque_decision = {
                         "decision": sel.get("decision"),

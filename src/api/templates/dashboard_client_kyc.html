@@ -1787,7 +1787,7 @@
                 // patrimoine
                 const patrId = valInt('patrimoine_part_option_id'); if(patrId){ const code={{ risque_opts.patrimoine_part|tojson|safe }}.find(x=>x.id===patrId)?.code; if(code==='25_50') offer=Math.max(OFFRE.prudente, offer-1); else if(code==='50_75') offer=Math.max(OFFRE.prudente, offer-2); else if(code==='p75') offer=OFFRE.prudente; }
                 // dispo
-                const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.prudente); }
+                const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.court_terme); }
                 // durée
                 const durId = valInt('duree_option_id'); if(durId){ const code={{ risque_opts.duree|tojson|safe }}.find(x=>x.id===durId)?.code; const caps={ '1_3':OFFRE.court_terme, '3_5':OFFRE.prudente, '5_8':OFFRE.equilibree }; if (code && caps[code]) offer=Math.min(offer, caps[code]); }
                 // objectifs
