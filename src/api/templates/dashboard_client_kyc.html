@@ -1879,6 +1879,11 @@
             // Bouton "Mettre à jour": force un rechargement complet pour obtenir
             // l'analyse IA/DIC fraîchement calculée (même mécanisme que la sortie/
             // réentrée dans la modale).
+            // LIMITATION CONNUE (2026-07-03): l'analyse IA et le DIC de l'offre ne se
+            // rafraîchissent pas automatiquement dans la modale juste après un
+            // enregistrement (création ou modification du risque) ; un rechargement
+            // manuel (ce bouton, ou fermer/rouvrir la modale) reste nécessaire pour
+            // voir la version à jour. Cause racine non identifiée à ce stade.
             (function(){
               const refreshBtn = document.getElementById('riskAnalysisRefreshBtn');
               if (!refreshBtn) return;
