@@ -5013,7 +5013,7 @@ def _generate_age_adequation_ia(ctx: dict) -> str:
 
         age_fin_str = str(age_fin) if age_fin else "indéterminé"
 
-        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une section réglementaire d'une lettre d'adéquation française (style formel, troisième personne, ne pas écrire 'Monsieur/Madame').
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une section réglementaire d'une lettre d'adéquation française (style formel, vouvoiement du client à la deuxième personne comme dans le reste de la lettre, ne pas écrire 'Monsieur/Madame', ne pas parler du client à la troisième personne ("le client")).
 
 Données :
 - Âge du client : {age} ans
@@ -5024,11 +5024,11 @@ Données :
 Instruction de statut : {consigne_statut}
 
 Rédige un paragraphe de 80 à 120 mots qui :
-1. Indique l'âge actuel du client et l'âge en fin de placement estimé
+1. Indique votre âge actuel et votre âge en fin de placement estimé
 2. Évalue explicitement si cet âge est adapté à la durée de placement de l'offre retenue, en référençant la Directive (UE) 2016/97 (DDA) et l'obligation d'adéquation
 3. Conclut avec une phrase claire sur l'adéquation (ou non)
 
-Style : formel, pas de liste à puces, commence directement. Ne pas écrire "Madame" ni "Monsieur"."""
+Style : formel, vouvoiement, pas de liste à puces, commence directement. Ne pas écrire "Madame" ni "Monsieur"."""
 
         _cl = _anthropic.Anthropic(api_key=api_key)
         response = _cl.messages.create(
@@ -6148,11 +6148,11 @@ def _persist_client_kyc_financial_analysis(db: Session, client_id: int) -> None:
             if age_client is None or age_fin is None:
                 return "<p>L'adéquation de l'âge n'a pas pu être appréciée faute de date de naissance exploitable.</p>"
             if age_status == "attention":
-                phrase = "L'âge du client appelle un point de vigilance, sans remettre en cause l'adéquation si le client le confirme."
+                phrase = "Votre âge appelle un point de vigilance, sans remettre en cause l'adéquation si vous le confirmez."
             elif age_status == "inadapte":
-                phrase = "L'âge du client soulève un point d'attention important au regard de la durée de placement retenue."
+                phrase = "Votre âge soulève un point d'attention important au regard de la durée de placement retenue."
             else:
-                phrase = "L'âge du client est en adéquation avec la durée de placement retenue."
+                phrase = "Votre âge est en adéquation avec la durée de placement retenue."
             return f"<p>Âge actuel estimé : {age_client} ans. Âge en fin de placement estimé : {age_fin} ans. {phrase}</p>"
 
         if not profil_html:
@@ -19875,14 +19875,13 @@ async def dashboard_client_kyc(
                     if duree_code in caps:
                         offre_calc = min(offre_calc, caps[duree_code])
 
-                # Objectifs (cap prudent if epargne de précaution)
+                # Objectifs (cap prudent si épargne de précaution ou revenus court terme)
+                # NB: le code réel en base est "revenus court terme" (avec espaces), pas "revenus_court_terme"
+                _obj_codes_prudent = ("epargne_precaution", "revenus court terme")
                 if any(int(x)==obj_id for x in obj_ids for obj_id in [
-                    next((o["id"] for o in risque_opts_local.get("objectifs", []) if o["code"]=="epargne_precaution"), None)
+                    o["id"] for o in risque_opts_local.get("objectifs", []) if o["code"] in _obj_codes_prudent
                 ]):
                     offre_calc = min(offre_calc, OFFRE["prudente"])
-
-                # Revenus court-terme objective handling
-                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme","revenus")), None)
 
                 # Persist (table unique KYC_Client_Risque, cf. plus bas)
                 from datetime import datetime as _dt, timedelta as _td
@@ -19890,7 +19889,7 @@ async def dashboard_client_kyc(
                 obso = (_dt.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
                 # Déterminer l'offre finale selon acceptation et cas revenus CT
                 final_offer = int(offre_calc)
-                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme", "revenus")), None)
+                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") == "revenus court terme"), None)
                 if rev_ct_id and rev_ct_id in (obj_ids or []):
                     if revenus_ct_accept == "oui":
                         final_offer = 1  # Court Terme

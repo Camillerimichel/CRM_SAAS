@@ -924,9 +924,6 @@
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
           .risk-analysis-sticky {
-            position: sticky;
-            top: 0;
-            z-index: 22;
             padding-top: 2px;
           }
           .risk-analysis-sticky .risk-analysis-card {
@@ -1157,6 +1154,9 @@
                 <div class="risk-analysis-title">
                   <i class="fa-solid fa-clipboard-check"></i>
                   Analyse croisée du profil
+                  <button type="button" id="riskAnalysisRefreshBtn" class="btn" style="margin-left:auto; font-weight:400; font-size:0.82rem; padding:4px 10px;">
+                    <i class="fa-solid fa-rotate"></i> Mettre à jour
+                  </button>
                 </div>
                 <div class="risk-analysis-meta">
                   <span class="badge">Âge: {{ age_client_kyc if age_client_kyc is not none else '—' }} ans</span>
@@ -1708,7 +1708,7 @@
               if (stepAnalysis) stepAnalysis.classList.toggle('step-hidden', !showObj);
               // Revenus CT block visibility once objectifs visibles
               const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const rev = objectifs.find(o=>o.code==='revenus court terme');
               const sels = selectedIds('objectif_ids');
               if (stepRev) stepRev.classList.toggle('step-hidden', !(showObj && rev && sels.includes(rev.id)));
               // Afficher l'acceptation dès que la durée est renseignée (même si objectifs pas encore saisis)
@@ -1790,14 +1790,16 @@
                 const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.court_terme); }
                 // durée
                 const durId = valInt('duree_option_id'); if(durId){ const code={{ risque_opts.duree|tojson|safe }}.find(x=>x.id===durId)?.code; const caps={ '1_3':OFFRE.court_terme, '3_5':OFFRE.prudente, '5_8':OFFRE.equilibree }; if (code && caps[code]) offer=Math.min(offer, caps[code]); }
-                // objectifs
-                const objIds = selectedIds('objectif_ids'); const epargneId = {{ (risque_opts.objectifs|tojson)|safe }}.find(o=>o.code==='epargne_precaution')?.id; if (epargneId && objIds.includes(epargneId)) offer=Math.min(offer, OFFRE.prudente);
+                // objectifs (épargne de précaution ou revenus court terme -> plafond prudent)
+                const objIds = selectedIds('objectif_ids');
+                const prudentObjIds = {{ (risque_opts.objectifs|tojson)|safe }}.filter(o=>o.code==='epargne_precaution' || o.code==='revenus court terme').map(o=>o.id);
+                if (prudentObjIds.some(id=>objIds.includes(id))) offer=Math.min(offer, OFFRE.prudente);
               }
               let finalOffer = offer;
               // Revenus CT priority
               try {
                 const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                const rev = objectifs.find(o=>o.code==='revenus court terme');
                 const sels = selectedIds('objectif_ids');
                 const revSelected = rev && sels.includes(rev.id);
                 const revAcc = (val('revenus_ct_accept')||'').toLowerCase();
@@ -1837,7 +1839,7 @@
               // Revenus court-terme: si objectif sélectionné, imposer acceptation oui/non; si non, exiger choix personnel
               try {
                 const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                const rev = objectifs.find(o=>o.code==='revenus court terme');
                 if (rev){
                   const sels = selectedIds('objectif_ids');
                   if (sels.includes(rev.id)){
@@ -1874,12 +1876,24 @@
             updateSaveEnabled();
             updateRevenusCtVisibility();
 
+            // Bouton "Mettre à jour": force un rechargement complet pour obtenir
+            // l'analyse IA/DIC fraîchement calculée (même mécanisme que la sortie/
+            // réentrée dans la modale).
+            (function(){
+              const refreshBtn = document.getElementById('riskAnalysisRefreshBtn');
+              if (!refreshBtn) return;
+              refreshBtn.addEventListener('click', function(ev){
+                if (ev && ev.preventDefault) ev.preventDefault();
+                window.location.reload();
+              });
+            })();
+
             // Revenus CT: afficher bloc acceptation si objectif sélectionné
             function updateRevenusCtVisibility(){
               const block = document.getElementById('riskStepRevenusCt');
               if (!block) return;
               const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const rev = objectifs.find(o=>o.code==='revenus court terme');
               const selected = selectedIds('objectif_ids');
               const isSelected = rev && selected.includes(rev.id);
               block.classList.toggle('step-hidden', !isSelected);
