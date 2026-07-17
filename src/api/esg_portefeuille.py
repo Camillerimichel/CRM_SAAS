@@ -6,8 +6,10 @@ Authentification par la même clé API partagée que les endpoints risque/perfor
 X-API-Key, variable d'environnement RISQUE_PERFORMANCE_API_KEY).
 
 Endpoints :
-  GET  /api/esg/metriques   – liste des métriques disponibles (code, libellé, sens, notable)
-  POST /api/esg/calcul      – calcul ESG pondéré + notes A-G à partir d'un inventaire
+  GET  /api/esg/metriques            – liste des métriques disponibles (code, libellé, sens, notable)
+  POST /api/esg/calcul               – calcul ESG pondéré + notes A-G à partir d'un inventaire
+  GET  /api/esg/exclusions/criteres  – liste des critères d'exclusion disponibles
+  POST /api/esg/exclusions/calcul    – vérifie la conformité du portefeuille aux critères choisis
 """
 from __future__ import annotations
 
@@ -24,6 +26,13 @@ from src.schemas.esg_portefeuille import (
     CalculEsgResponse,
 )
 from src.services.esg_portefeuille import calculer_esg
+from src.schemas.esg_exclusions import (
+    CRITERES_EXCLUSION,
+    CritereDisponible,
+    CalculExclusionsRequest,
+    CalculExclusionsResponse,
+)
+from src.services.esg_exclusions import calculer_exclusions
 
 router = APIRouter(prefix="/api/esg", tags=["esg-portefeuille"])
 
@@ -68,5 +77,37 @@ async def esg_calcul(
     _verifier_api_key(x_api_key)
     try:
         return calculer_esg(db, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get(
+    "/exclusions/criteres",
+    response_model=list[CritereDisponible],
+    summary="Liste les critères d'exclusion ESG disponibles",
+)
+async def esg_exclusions_criteres(x_api_key: str | None = Header(default=None)) -> list[CritereDisponible]:
+    _verifier_api_key(x_api_key)
+    return [CritereDisponible(code=code, libelle=meta["libelle"]) for code, meta in CRITERES_EXCLUSION.items()]
+
+
+@router.post(
+    "/exclusions/calcul",
+    response_model=CalculExclusionsResponse,
+    summary="Vérifie la conformité d'un portefeuille à des critères d'exclusion ESG choisis",
+    description=(
+        "Reprend les mêmes critères et seuils que le mécanisme de vérification des exclusions "
+        "client de CRM_SAAS (src/services/esg_fund_exclusions.py), mais les critères sont fournis "
+        "directement dans la requête plutôt que lus depuis un questionnaire client réel."
+    ),
+)
+async def esg_exclusions_calcul(
+    request: CalculExclusionsRequest,
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> CalculExclusionsResponse:
+    _verifier_api_key(x_api_key)
+    try:
+        return calculer_exclusions(db, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

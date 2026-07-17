@@ -14,6 +14,7 @@ from datetime import date as date_type
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from src.schemas.risque_performance import InventaireHebdoLigne
 from src.schemas.esg_portefeuille import (
     METRIQUES_DISPONIBLES,
     GRADE_LETTERS,
@@ -27,9 +28,11 @@ METHODOLOGIE_URL = "/methodologie"
 TABLE_ESG = "esg_fonds_norm"
 
 
-def _derniere_date_et_poids(request: CalculEsgRequest) -> tuple[date_type, dict[str, float]]:
-    derniere_date = max(l.date for l in request.inventaire)
-    lignes = [l for l in request.inventaire if l.date == derniere_date]
+def derniere_date_et_poids(inventaire: list[InventaireHebdoLigne]) -> tuple[date_type, dict[str, float]]:
+    """Réutilisé par esg_exclusions.py — dernière date de l'inventaire et poids (0-1) par isin,
+    calculés sur la valorisation de cette seule date (photo, pas de série temporelle)."""
+    derniere_date = max(l.date for l in inventaire)
+    lignes = [l for l in inventaire if l.date == derniere_date]
     valo_par_isin: dict[str, float] = defaultdict(float)
     for l in lignes:
         valo_par_isin[l.isin] += l.valo
@@ -74,7 +77,8 @@ def _valeurs_referentiel(db: Session, isins: list[str], metrique: str) -> dict[s
     return {r[0]: float(r[1]) for r in rows if r[0] and r[1] is not None}
 
 
-def _noms_fonds(db: Session, isins: list[str]) -> dict[str, str]:
+def noms_fonds_par_isin(db: Session, isins: list[str]) -> dict[str, str]:
+    """Réutilisé par esg_exclusions.py."""
     if not isins:
         return {}
     rows = db.execute(
@@ -86,9 +90,9 @@ def _noms_fonds(db: Session, isins: list[str]) -> dict[str, str]:
 
 
 def calculer_esg(db: Session, request: CalculEsgRequest) -> CalculEsgResponse:
-    derniere_date, poids = _derniere_date_et_poids(request)
+    derniere_date, poids = derniere_date_et_poids(request.inventaire)
     isins = list(poids.keys())
-    noms = _noms_fonds(db, isins)
+    noms = noms_fonds_par_isin(db, isins)
 
     hypotheses = [
         f"Photo du portefeuille à la dernière date de l'inventaire fourni ({derniere_date}), pas de série temporelle.",
