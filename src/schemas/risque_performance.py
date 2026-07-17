@@ -127,33 +127,34 @@ class CalculPerformanceRisqueResponse(BaseModel):
 # --- Calcul rémunération courtier ---
 # Deux composantes distinctes, cumulatives :
 #
-# 1) Rétrocession par fonds (par isin) — taux propre à chaque fonds, cf. table_retrocession.
-#    Méthode : pour chaque isin, nb_uc_initial = premier nbuc rencontré dans l'inventaire pour ce
-#    fonds ; ce nombre est ensuite ajusté à chaque mouvement (+/-/na, résolu via table_libelles) pour
-#    reconstituer un nb_uc hebdomadaire propre, indépendant de la façon dont chaque société reporte
-#    ses inventaires (hebdo, mensuel, ...). Le vl reste celui reporté dans l'inventaire (donnée de
-#    marché fiable).
+# 1) Rétrocession par fonds UC (par isin) — le taux de chaque fonds (table_retrocession) est le
+#    taux de rétrocession propre au FONDS, pas la part qui revient au courtier. Le courtier ne
+#    touche qu'une quote-part de ce taux, définie par un unique "taux_courtier" (0-100%, propre au
+#    courtier, pas au fonds). Ne s'applique qu'aux isin classés "uc" via table_type_support — les
+#    fonds euros ne sont jamais concernés par ce mécanisme (cf point 2).
+#    Méthode de reconstitution du nb_uc : pour chaque isin, nb_uc_initial = premier nbuc rencontré
+#    dans l'inventaire pour ce fonds ; ce nombre est ensuite ajusté à chaque mouvement (+/-/na,
+#    résolu via table_libelles), indépendant de la façon dont chaque société reporte ses inventaires
+#    (hebdo, mensuel, ...). Le vl reste celui reporté dans l'inventaire (donnée de marché fiable).
 #    valorisation(semaine, isin) = nb_uc_reconstitué(semaine) * vl(semaine, isin)
-#    remuneration(semaine, isin) = valorisation(semaine, isin) * taux_retrocession_annuel(isin) / 52
+#    remuneration(semaine, isin) = valorisation(semaine, isin)
+#                                   * taux_retrocession_annuel(isin) / 100
+#                                   * taux_courtier / 100 / 52
 #
-# 2) Commission de gestion du courtier sur l'encours total — s'ajoute à la rétrocession par fonds.
-#    Le courtier perçoit une quote-part des frais de gestion du client, à un taux qui lui est PROPRE
-#    (pas au fonds) et qui diffère selon que le support est un fonds en euros ou une UC (ex. 0,25%/an
-#    sur les fonds euros, 0,45%/an sur les UC). Chaque isin est classé fonds_euro/uc via
-#    table_type_support (fournie par l'utilisateur). La valorisation de chaque poche (semaine, type)
-#    est calculée à partir du MÊME nb_uc reconstitué que pour la rétrocession par fonds (pas du nbuc
-#    brut de l'inventaire) : valo_poche(semaine, type) = somme, sur les isin de ce type, de
-#    nb_uc_reconstitué(semaine, isin) * vl(semaine, isin). Le taux annuel correspondant au type de
-#    poche est ensuite appliqué au prorata 1/52e sur cette valorisation.
+# 2) Commission de gestion du courtier sur l'encours fonds euros — indépendante de la rétrocession
+#    par fonds, à un taux annuel propre au courtier (taux_commission_fonds_euros_annuel), appliqué
+#    sur la valorisation reconstituée de la poche fonds euros (somme des isin classés "fonds_euro").
+#    valo_fonds_euros(semaine) = somme, sur les isin fonds_euro, de nb_uc_reconstitué(semaine, isin) * vl(semaine, isin)
+#    commission(semaine) = valo_fonds_euros(semaine) * taux_commission_fonds_euros_annuel / 100 / 52
 
 class TypeSupportLigne(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds")
-    type_support: Literal["fonds_euro", "uc"] = Field(..., description="Classification du support pour la commission de gestion courtier")
+    type_support: Literal["fonds_euro", "uc"] = Field(..., description="Classification du support : détermine quel mécanisme de rémunération s'applique")
 
 
 class CommissionGestionCourtierParams(BaseModel):
     taux_commission_fonds_euros_annuel: float = Field(..., description="Taux annuel, en %, propre à ce courtier, appliqué sur l'encours fonds euros")
-    taux_commission_uc_annuel: float = Field(..., description="Taux annuel, en %, propre à ce courtier, appliqué sur l'encours UC")
+    taux_courtier: float = Field(..., ge=0, le=100, description="Part (0-100%) du taux de rétrocession de chaque fonds UC qui revient au courtier — ne s'applique pas aux fonds euros")
 
 
 class CalculRemunerationRequest(BaseModel):
@@ -161,9 +162,9 @@ class CalculRemunerationRequest(BaseModel):
     inventaire: list[InventaireHebdoLigne] = Field(..., description="Inventaire hebdomadaire multi-fonds, au moins 2 dates")
     mouvements: list[MouvementLigne] = Field(default=[], description="Mouvements (souscriptions/rachats/arbitrages) sur la période")
     table_libelles: list[LibelleMouvementLigne] = Field(default=[], description="Table de correspondance libellé -> sens (+/-/na)")
-    table_retrocession: list[RetrocessionUCLigne] = Field(..., description="Taux de rétrocession annuels par fonds")
-    table_type_support: list[TypeSupportLigne] = Field(default=[], description="Classification fonds_euro/uc par isin, requise pour la commission de gestion")
-    commission_gestion_courtier: CommissionGestionCourtierParams | None = Field(default=None, description="Taux de commission de gestion propres au courtier ; si absent, seule la rétrocession est calculée")
+    table_retrocession: list[RetrocessionUCLigne] = Field(..., description="Taux de rétrocession annuels par fonds UC (taux du fonds, pas la part du courtier)")
+    table_type_support: list[TypeSupportLigne] = Field(..., description="Classification fonds_euro/uc par isin — requise pour savoir quel mécanisme appliquer à chaque fonds")
+    commission_gestion_courtier: CommissionGestionCourtierParams | None = Field(default=None, description="Taux propres au courtier (fonds euros + part sur rétrocession UC) ; si absent, seule la rétrocession brute par fonds est calculée")
 
 
 class RemunerationResultLigne(BaseModel):
@@ -171,16 +172,13 @@ class RemunerationResultLigne(BaseModel):
     isin: str
     nb_uc_reconstitue: float = Field(..., description="Nombre d'UC reconstitué (1er nbuc observé + mouvements signés)")
     valorisation: float = Field(..., description="nb_uc_reconstitue * vl à cette date")
-    remuneration_semaine: float = Field(..., description="Rétrocession de la semaine pour ce fonds")
+    remuneration_semaine: float = Field(..., description="Part courtier de la rétrocession de la semaine pour ce fonds (taux_retrocession_annuel * taux_courtier)")
 
 
 class CommissionGestionLigne(BaseModel):
     date: date_type
     valo_fonds_euros: float = Field(..., description="Valorisation reconstituée de la poche fonds euros à cette date")
-    valo_uc: float = Field(..., description="Valorisation reconstituée de la poche UC à cette date")
     commission_fonds_euros_semaine: float
-    commission_uc_semaine: float
-    commission_totale_semaine: float
 
 
 class CalculRemunerationResponse(BaseModel):

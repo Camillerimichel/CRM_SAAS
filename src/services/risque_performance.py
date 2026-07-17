@@ -381,61 +381,62 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
         "Rémunération calculée sur le nb_uc reconstitué (1er nbuc observé + mouvements signés), pas le nbuc brut de l'inventaire.",
     ]
 
+    type_par_isin = {t.isin: t.type_support for t in request.table_type_support}
     taux_retrocession = {r.isin: r.taux_retrocession_annuel for r in request.table_retrocession}
-    resultats_retrocession: list[RemunerationResultLigne] = []
-    for d in calendrier:
-        for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-            taux = taux_retrocession.get(isin)
-            if taux is None:
-                continue
-            vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
-            valorisation = nb_uc * vl
-            resultats_retrocession.append(
-                RemunerationResultLigne(
-                    date=d,
-                    isin=isin,
-                    nb_uc_reconstitue=nb_uc,
-                    valorisation=valorisation,
-                    remuneration_semaine=valorisation * (taux / 100) / SEMAINES_PAR_AN,
-                )
-            )
-    total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
 
-    resultats_commission: list[CommissionGestionLigne] = []
-    total_commission = 0.0
-    if request.commission_gestion_courtier and request.table_type_support:
-        type_par_isin = {t.isin: t.type_support for t in request.table_type_support}
-        params = request.commission_gestion_courtier
+    resultats_retrocession: list[RemunerationResultLigne] = []
+    total_retrocession = 0.0
+    if request.commission_gestion_courtier:
+        taux_courtier = request.commission_gestion_courtier.taux_courtier
         hypotheses.append(
-            f"Commission de gestion courtier : {params.taux_commission_fonds_euros_annuel}%/an sur fonds euros, "
-            f"{params.taux_commission_uc_annuel}%/an sur UC, appliquée au prorata 1/52e sur la valorisation reconstituée."
+            f"Rétrocession UC : {taux_courtier}% (taux_courtier) du taux de rétrocession propre à chaque fonds "
+            "(table_retrocession) — ne s'applique pas aux fonds euros."
         )
         for d in calendrier:
-            valo_fonds_euros = 0.0
-            valo_uc = 0.0
             for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-                type_support = type_par_isin.get(isin)
-                if type_support is None:
+                if type_par_isin.get(isin) != "uc":
+                    continue
+                taux_fonds = taux_retrocession.get(isin)
+                if taux_fonds is None:
                     continue
                 vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
                 valorisation = nb_uc * vl
-                if type_support == "fonds_euro":
-                    valo_fonds_euros += valorisation
-                else:
-                    valo_uc += valorisation
+                remuneration = valorisation * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
+                resultats_retrocession.append(
+                    RemunerationResultLigne(
+                        date=d,
+                        isin=isin,
+                        nb_uc_reconstitue=nb_uc,
+                        valorisation=valorisation,
+                        remuneration_semaine=remuneration,
+                    )
+                )
+        total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
+
+    resultats_commission: list[CommissionGestionLigne] = []
+    total_commission = 0.0
+    if request.commission_gestion_courtier:
+        params = request.commission_gestion_courtier
+        hypotheses.append(
+            f"Commission de gestion courtier sur fonds euros : {params.taux_commission_fonds_euros_annuel}%/an, "
+            "appliquée au prorata 1/52e sur la valorisation reconstituée de la poche fonds euros."
+        )
+        for d in calendrier:
+            valo_fonds_euros = 0.0
+            for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
+                if type_par_isin.get(isin) != "fonds_euro":
+                    continue
+                vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
+                valo_fonds_euros += nb_uc * vl
             commission_fonds_euros = valo_fonds_euros * (params.taux_commission_fonds_euros_annuel / 100) / SEMAINES_PAR_AN
-            commission_uc = valo_uc * (params.taux_commission_uc_annuel / 100) / SEMAINES_PAR_AN
             resultats_commission.append(
                 CommissionGestionLigne(
                     date=d,
                     valo_fonds_euros=valo_fonds_euros,
-                    valo_uc=valo_uc,
                     commission_fonds_euros_semaine=commission_fonds_euros,
-                    commission_uc_semaine=commission_uc,
-                    commission_totale_semaine=commission_fonds_euros + commission_uc,
                 )
             )
-        total_commission = sum(r.commission_totale_semaine for r in resultats_commission)
+        total_commission = sum(r.commission_fonds_euros_semaine for r in resultats_commission)
 
     return CalculRemunerationResponse(
         identifiant=request.identifiant,
