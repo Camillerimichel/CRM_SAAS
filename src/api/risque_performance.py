@@ -1,0 +1,84 @@
+"""API stateless de calcul financier : performance (Dietz/TWR), indicateur de risque
+hebdomadaire et rémunération courtier. Aucune donnée n'est lue ni écrite en base — l'appelant
+fournit l'inventaire et les mouvements, l'API calcule et renvoie le résultat.
+
+Destinée à être appelée par un site externe indépendant (démo) : authentification par clé
+d'API partagée (header X-API-Key), pas par le système de session/RBAC du dashboard CRM_SAAS.
+
+Endpoints :
+  POST /api/risque-performance/calcul   – performance Dietz/TWR + indicateur de risque hebdo
+  POST /api/remuneration/calcul         – rémunération courtier (rétrocession + commission de gestion)
+"""
+from __future__ import annotations
+
+import os
+
+from fastapi import APIRouter, Header, HTTPException
+
+from src.schemas.risque_performance import (
+    CalculPerformanceRisqueRequest,
+    CalculPerformanceRisqueResponse,
+    CalculRemunerationRequest,
+    CalculRemunerationResponse,
+)
+from src.services.risque_performance import calculer_performance_risque, calculer_remuneration
+
+router = APIRouter(prefix="/api", tags=["risque-performance"])
+
+
+def _verifier_api_key(x_api_key: str | None) -> None:
+    cle_attendue = os.getenv("RISQUE_PERFORMANCE_API_KEY")
+    if not cle_attendue:
+        raise HTTPException(status_code=503, detail="API non configurée (RISQUE_PERFORMANCE_API_KEY manquante)")
+    if x_api_key != cle_attendue:
+        raise HTTPException(status_code=401, detail="Clé API invalide ou manquante")
+
+
+@router.post(
+    "/risque-performance/calcul",
+    response_model=CalculPerformanceRisqueResponse,
+    summary="Calcule la performance (Dietz/TWR) et l'indicateur de risque hebdomadaire d'un portefeuille",
+    description=(
+        "Calculateur stateless : rien n'est lu ni écrit en base. L'appelant fournit un inventaire "
+        "hebdomadaire multi-fonds (isin, nbuc, vl) et, optionnellement, des mouvements (nb_uc signé "
+        "via une table de libellés) et une table de frais de gestion annuels. La réponse renvoie, "
+        "semaine par semaine, la VL équivalente Dietz et Time-Weighted, la volatilité annualisée "
+        "glissante (52 semaines) et deux classes de risque (classe_risque_a, classe_risque_b) "
+        "dérivées uniquement de cette volatilité — ce ne sont PAS les indicateurs réglementaires "
+        "SRRI/SRI au sens strict (pas de bootstrap VaR, pas de Market/Credit Risk Measure) ; voir "
+        "methodologie_url dans la réponse pour le détail des choix retenus."
+    ),
+)
+async def risque_performance_calcul(
+    request: CalculPerformanceRisqueRequest,
+    x_api_key: str | None = Header(default=None),
+) -> CalculPerformanceRisqueResponse:
+    _verifier_api_key(x_api_key)
+    try:
+        return calculer_performance_risque(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/remuneration/calcul",
+    response_model=CalculRemunerationResponse,
+    summary="Calcule la rémunération courtier (rétrocession par fonds + commission de gestion)",
+    description=(
+        "Calculateur stateless : rien n'est lu ni écrit en base. Reconstitue le nombre d'UC de "
+        "chaque fonds à partir du premier nbuc observé et des mouvements signés (indépendamment de "
+        "la fréquence de reporting de chaque société), puis calcule deux composantes cumulatives : "
+        "la rétrocession par fonds (table_retrocession, taux propre à chaque isin) et, si fournies, "
+        "la commission de gestion du courtier sur l'encours total (table_type_support + "
+        "commission_gestion_courtier, taux propres au courtier, distincts pour fonds euros et UC)."
+    ),
+)
+async def remuneration_calcul(
+    request: CalculRemunerationRequest,
+    x_api_key: str | None = Header(default=None),
+) -> CalculRemunerationResponse:
+    _verifier_api_key(x_api_key)
+    try:
+        return calculer_remuneration(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

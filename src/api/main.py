@@ -53,6 +53,7 @@ from src.api import import_souscriptions
 from src.api import client_identifiants_fournisseur
 from src.api import societe_identifiants_fournisseur
 from src.api import import_mapping
+from src.api import risque_performance
 app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(groupes.router)
@@ -64,6 +65,7 @@ app.include_router(import_souscriptions.router)
 app.include_router(client_identifiants_fournisseur.router)
 app.include_router(societe_identifiants_fournisseur.router)
 app.include_router(import_mapping.router)
+app.include_router(risque_performance.router)
 
 
 @app.middleware("http")

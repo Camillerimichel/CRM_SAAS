@@ -1,5 +1,8 @@
 documents/
 
+# Secrets (jamais commités)
+.env
+
 # Python cache / compiled artifacts
 __pycache__/
 *.py[cod]

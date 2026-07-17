@@ -1,0 +1,193 @@
+from typing import Literal
+from datetime import date as date_type
+from pydantic import BaseModel, Field, field_validator
+
+
+# --- Entrées : inventaire hebdomadaire et mouvements (données injectées par l'utilisateur, non stockées) ---
+# Un portefeuille peut détenir plusieurs fonds (isin) ; la valorisation consolidée à une date
+# est la somme des valorisations (nbuc * vl) de toutes les lignes de cette date.
+
+class InventaireHebdoLigne(BaseModel):
+    date: date_type = Field(..., description="Fin de semaine de l'inventaire")
+    isin: str = Field(..., description="Code ISIN du fonds")
+    nbuc: float = Field(..., description="Nombre d'unités de compte détenues à cette date, pour ce fonds")
+    vl: float = Field(..., description="Valeur liquidative de l'unité à cette date, pour ce fonds")
+
+    @property
+    def valo(self) -> float:
+        return self.nbuc * self.vl
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def parse_date(cls, v):
+        if isinstance(v, str):
+            return date_type.fromisoformat(v)
+        return v
+
+
+# Un mouvement ne porte que sur un nombre d'UC : c'est la seule donnée juridiquement opposable
+# (contrairement à un montant en devise, qui suppose un VL de conversion arbitraire). Le sens
+# (ajoute / retire / sans incidence) dépend du libellé, résolu via table_libelles ci-dessous.
+
+class MouvementLigne(BaseModel):
+    date: date_type = Field(..., description="Date d'effet du mouvement")
+    isin: str = Field(..., description="Code ISIN du fonds concerné")
+    libelle: str = Field(..., description="Libellé du mouvement tel que reporté par la société (ex. 'Versement libre')")
+    nb_uc: float = Field(..., description="Nombre d'UC concernées, en valeur absolue — pas de montant en devise")
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def parse_date(cls, v):
+        if isinstance(v, str):
+            return date_type.fromisoformat(v)
+        return v
+
+
+# Table de correspondance libellé -> incidence sur le nombre d'UC. Chaque société utilisant ses
+# propres libellés, cette table est fournie par l'utilisateur (pas de liste figée côté API) ;
+# le site démo se charge de proposer à l'utilisateur les libellés distincts trouvés dans son
+# fichier de mouvements pour qu'il leur affecte un sens avant l'envoi du calcul.
+
+class LibelleMouvementLigne(BaseModel):
+    libelle: str = Field(..., description="Libellé de mouvement à qualifier")
+    sens: Literal["+", "-", "na"] = Field(..., description="+ ajoute des UC, - en retire, na = sans incidence")
+
+
+# --- Deux tables de taux annuels, sémantiquement distinctes ---
+# frais_gestion : coût annuel supporté par le CLIENT (utilisé pour la performance nette)
+# retrocession : rémunération annuelle perçue par le COURTIER (utilisée pour le calcul de rémunération)
+
+class FraisGestionUCLigne(BaseModel):
+    isin: str = Field(..., description="Code ISIN du fonds")
+    nom: str | None = Field(default=None, description="Nom du fonds, pour affichage")
+    frais_gestion_annuel: float = Field(..., description="Taux annuel de frais de gestion, en %, coût supporté par le client")
+
+
+class RetrocessionUCLigne(BaseModel):
+    isin: str = Field(..., description="Code ISIN du fonds")
+    nom: str | None = Field(default=None, description="Nom du fonds, pour affichage")
+    taux_retrocession_annuel: float = Field(..., description="Taux annuel de rétrocession, en %, rémunération perçue par le courtier sur ce fonds")
+
+
+# --- Calcul performance / risque (portefeuille consolidé, tous fonds confondus) ---
+# valo_consolidee(semaine) = somme, sur tous les isin, de nbuc*vl à cette semaine (valeurs telles
+# que reportées dans l'inventaire, sans reconstitution).
+# Les mouvements servent à isoler les flux externes (nb_uc signé via table_libelles, valorisés au
+# vl de la semaine du mouvement) pour le calcul Dietz/TWR.
+#
+# Si table_frais_gestion est fournie, on ne sait pas a priori si l'assureur a déjà déduit ses frais
+# de gestion du nombre d'UC ou non. Détection automatique sur le premier mois de données, par isin :
+# on compare le nb_uc réellement observé en fin de mois à celui attendu (nb_uc début de mois +/- les
+# mouvements du mois, sans frais). Si l'écart relatif correspond à ~1/12e du taux annuel de frais
+# (à la tolérance près), les données sont considérées nettes (frais déjà pris) ; sinon elles sont
+# considérées brutes, et le taux hebdomadaire (1/52e du taux annuel) est alors appliqué en cascade
+# sur chaque valorisation calculée, avant le calcul Time-Weighted / Dietz net. Ce statut détecté est
+# renvoyé par isin (cf. StatutFraisIsin) pour être affiché en tête du tableau de résultats.
+
+class StatutFraisIsin(BaseModel):
+    isin: str = Field(..., description="Code ISIN du fonds concerné")
+    frais_deja_deduits: bool = Field(..., description="Détecté sur le 1er mois : True = données nettes, False = données brutes")
+    ecart_relatif_detecte: float = Field(..., description="Écart mesuré entre nb_uc attendu et observé sur le 1er mois, en %")
+    methode: str = Field(
+        default="Détection automatique sur le premier mois de données (comparaison nb_uc attendu / observé)",
+        description="Explication de la détection appliquée pour ce fonds",
+    )
+
+
+class CalculPerformanceRisqueRequest(BaseModel):
+    identifiant: str | None = Field(default=None, description="Libellé libre pour l'affichage, non stocké côté API")
+    inventaire: list[InventaireHebdoLigne] = Field(..., description="Inventaire hebdomadaire multi-fonds, au moins 2 dates")
+    mouvements: list[MouvementLigne] = Field(default=[], description="Mouvements (souscriptions/rachats/arbitrages) sur la période")
+    table_libelles: list[LibelleMouvementLigne] = Field(default=[], description="Table de correspondance libellé -> sens (+/-/na)")
+    table_frais_gestion: list[FraisGestionUCLigne] = Field(default=[], description="Taux de frais de gestion annuels par fonds, pour la performance nette")
+
+
+class PerformanceRisqueLigne(BaseModel):
+    date: date_type
+    valo_consolidee: float = Field(..., description="Somme des valorisations (nbuc*vl) de tous les fonds à cette date")
+    vl_equivalente_dietz: float = Field(..., description="VL équivalente reconstituée (méthode Dietz modifiée), base 100 à la 1ère date")
+    vl_equivalente_twr: float = Field(..., description="VL équivalente reconstituée (méthode Time-Weighted), base 100 à la 1ère date")
+    perf_hebdo_dietz: float | None = Field(default=None, description="Rendement hebdomadaire brut, méthode Dietz")
+    perf_hebdo_twr: float | None = Field(default=None, description="Rendement hebdomadaire brut, méthode Time-Weighted")
+    perf_hebdo_dietz_nette: float | None = Field(default=None, description="Rendement hebdomadaire net de frais de gestion (Dietz), si table_frais_gestion fournie")
+    perf_hebdo_twr_nette: float | None = Field(default=None, description="Rendement hebdomadaire net de frais de gestion (TWR), si table_frais_gestion fournie")
+    volatilite_annualisee_52s: float | None = Field(default=None, description="Écart-type annualisé des rendements TWR, fenêtre glissante 52 semaines (fraction, ex 0.10 = 10%)")
+    classe_risque_a: int | None = Field(default=None, description="Classe de risque 1-7, grille de seuils inspirée SRRI (UCITS) — pas l'indicateur réglementaire strict, cf. methodologie_url")
+    classe_risque_b: int | None = Field(default=None, description="Classe de risque 1-7, grille de seuils inspirée SRI/MRM (PRIIPs) — pas l'indicateur réglementaire strict, cf. methodologie_url")
+
+
+class CalculPerformanceRisqueResponse(BaseModel):
+    identifiant: str | None = None
+    methodologie_url: str = Field(..., description="Lien vers la page décrivant précisément la méthodologie retenue")
+    hypotheses_appliquees: list[str] = Field(default=[], description="Tous les choix/paramètres retenus pour ce calcul précis, à afficher en tête de tableau")
+    statut_frais: list[StatutFraisIsin] = Field(default=[], description="Statut net/brut détecté par fonds, à afficher en tête de tableau")
+    resultats: list[PerformanceRisqueLigne]
+
+
+# --- Calcul rémunération courtier ---
+# Deux composantes distinctes, cumulatives :
+#
+# 1) Rétrocession par fonds (par isin) — taux propre à chaque fonds, cf. table_retrocession.
+#    Méthode : pour chaque isin, nb_uc_initial = premier nbuc rencontré dans l'inventaire pour ce
+#    fonds ; ce nombre est ensuite ajusté à chaque mouvement (+/-/na, résolu via table_libelles) pour
+#    reconstituer un nb_uc hebdomadaire propre, indépendant de la façon dont chaque société reporte
+#    ses inventaires (hebdo, mensuel, ...). Le vl reste celui reporté dans l'inventaire (donnée de
+#    marché fiable).
+#    valorisation(semaine, isin) = nb_uc_reconstitué(semaine) * vl(semaine, isin)
+#    remuneration(semaine, isin) = valorisation(semaine, isin) * taux_retrocession_annuel(isin) / 52
+#
+# 2) Commission de gestion du courtier sur l'encours total — s'ajoute à la rétrocession par fonds.
+#    Le courtier perçoit une quote-part des frais de gestion du client, à un taux qui lui est PROPRE
+#    (pas au fonds) et qui diffère selon que le support est un fonds en euros ou une UC (ex. 0,25%/an
+#    sur les fonds euros, 0,45%/an sur les UC). Chaque isin est classé fonds_euro/uc via
+#    table_type_support (fournie par l'utilisateur). La valorisation de chaque poche (semaine, type)
+#    est calculée à partir du MÊME nb_uc reconstitué que pour la rétrocession par fonds (pas du nbuc
+#    brut de l'inventaire) : valo_poche(semaine, type) = somme, sur les isin de ce type, de
+#    nb_uc_reconstitué(semaine, isin) * vl(semaine, isin). Le taux annuel correspondant au type de
+#    poche est ensuite appliqué au prorata 1/52e sur cette valorisation.
+
+class TypeSupportLigne(BaseModel):
+    isin: str = Field(..., description="Code ISIN du fonds")
+    type_support: Literal["fonds_euro", "uc"] = Field(..., description="Classification du support pour la commission de gestion courtier")
+
+
+class CommissionGestionCourtierParams(BaseModel):
+    taux_commission_fonds_euros_annuel: float = Field(..., description="Taux annuel, en %, propre à ce courtier, appliqué sur l'encours fonds euros")
+    taux_commission_uc_annuel: float = Field(..., description="Taux annuel, en %, propre à ce courtier, appliqué sur l'encours UC")
+
+
+class CalculRemunerationRequest(BaseModel):
+    identifiant: str | None = Field(default=None, description="Libellé libre pour l'affichage, non stocké côté API")
+    inventaire: list[InventaireHebdoLigne] = Field(..., description="Inventaire hebdomadaire multi-fonds, au moins 2 dates")
+    mouvements: list[MouvementLigne] = Field(default=[], description="Mouvements (souscriptions/rachats/arbitrages) sur la période")
+    table_libelles: list[LibelleMouvementLigne] = Field(default=[], description="Table de correspondance libellé -> sens (+/-/na)")
+    table_retrocession: list[RetrocessionUCLigne] = Field(..., description="Taux de rétrocession annuels par fonds")
+    table_type_support: list[TypeSupportLigne] = Field(default=[], description="Classification fonds_euro/uc par isin, requise pour la commission de gestion")
+    commission_gestion_courtier: CommissionGestionCourtierParams | None = Field(default=None, description="Taux de commission de gestion propres au courtier ; si absent, seule la rétrocession est calculée")
+
+
+class RemunerationResultLigne(BaseModel):
+    date: date_type
+    isin: str
+    nb_uc_reconstitue: float = Field(..., description="Nombre d'UC reconstitué (1er nbuc observé + mouvements signés)")
+    valorisation: float = Field(..., description="nb_uc_reconstitue * vl à cette date")
+    remuneration_semaine: float = Field(..., description="Rétrocession de la semaine pour ce fonds")
+
+
+class CommissionGestionLigne(BaseModel):
+    date: date_type
+    valo_fonds_euros: float = Field(..., description="Valorisation reconstituée de la poche fonds euros à cette date")
+    valo_uc: float = Field(..., description="Valorisation reconstituée de la poche UC à cette date")
+    commission_fonds_euros_semaine: float
+    commission_uc_semaine: float
+    commission_totale_semaine: float
+
+
+class CalculRemunerationResponse(BaseModel):
+    identifiant: str | None = None
+    hypotheses_appliquees: list[str] = Field(default=[], description="Tous les choix/paramètres retenus pour ce calcul précis, à afficher en tête de tableau")
+    resultats_retrocession: list[RemunerationResultLigne]
+    total_retrocession: float
+    resultats_commission_gestion: list[CommissionGestionLigne] = []
+    total_commission_gestion: float = 0.0
+    total_remuneration: float = Field(..., description="total_retrocession + total_commission_gestion")
