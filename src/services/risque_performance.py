@@ -67,6 +67,42 @@ def _par_date_isin(inventaire: list[InventaireHebdoLigne]) -> dict[date_type, di
     return dict(resultat)
 
 
+def _grille_forward_fill(
+    inventaire: list[InventaireHebdoLigne],
+    calendrier: list[date_type],
+    mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
+) -> dict[date_type, dict[str, tuple[float, float]]]:
+    """Chaque fonds ne reporte pas forcément à toutes les dates du calendrier consolidé (funds
+    entrant/sortant, sociétés différentes). Entre deux dates où l'inventaire donne une valeur
+    exacte (vérité terrain, qui prime toujours), le nb_uc est ajusté par les mouvements survenus
+    plutôt que simplement reporté à l'identique : un fonds intégralement sorti par arbitrage sans
+    nouvelle ligne d'inventaire ensuite doit tomber à ~0, pas rester à sa dernière valeur connue
+    (sinon double-comptage avec le fonds où la valeur a été transférée). Le vl, lui, est simplement
+    reporté en avant (c'est un prix de marché, pas une quantité qui "s'épuise")."""
+    par_isin: dict[str, dict[date_type, InventaireHebdoLigne]] = defaultdict(dict)
+    for ligne in inventaire:
+        par_isin[ligne.isin][ligne.date] = ligne
+
+    grille: dict[date_type, dict[str, tuple[float, float]]] = defaultdict(dict)
+    for isin, par_date in par_isin.items():
+        premiere_date = min(par_date.keys())
+        nb_uc_courant: float | None = None
+        vl_courant: float | None = None
+        for d in calendrier:
+            if d < premiere_date:
+                continue
+            ligne_exacte = par_date.get(d)
+            if ligne_exacte is not None:
+                nb_uc_courant = ligne_exacte.nbuc
+                vl_courant = ligne_exacte.vl
+            else:
+                for mouvement, signe in mouvements_par_semaine.get(d, {}).get(isin, []):
+                    nb_uc_courant = (nb_uc_courant or 0.0) + signe * mouvement.nb_uc
+            if nb_uc_courant is not None and vl_courant is not None:
+                grille[d][isin] = (nb_uc_courant, vl_courant)
+    return dict(grille)
+
+
 def _mouvements_par_semaine_isin(
     mouvements: list[MouvementLigne],
     calendrier: list[date_type],
@@ -84,8 +120,8 @@ def _mouvements_par_semaine_isin(
     return resultat
 
 
-def _valo_consolidee(par_date_isin: dict[date_type, dict[str, InventaireHebdoLigne]]) -> dict[date_type, float]:
-    return {d: sum(l.valo for l in lignes.values()) for d, lignes in par_date_isin.items()}
+def _valo_consolidee(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, float]:
+    return {d: sum(nbuc * vl for nbuc, vl in lignes.values()) for d, lignes in grille.items()}
 
 
 def _reconstituer_nb_uc(
@@ -118,17 +154,19 @@ def _reconstituer_nb_uc(
     return dict(resultat)
 
 
-def _vl_par_date_isin(inventaire: list[InventaireHebdoLigne]) -> dict[date_type, dict[str, float]]:
-    resultat: dict[date_type, dict[str, float]] = defaultdict(dict)
-    for ligne in inventaire:
-        resultat[ligne.date][ligne.isin] = ligne.vl
-    return dict(resultat)
+def _vl_depuis_grille(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, dict[str, float]]:
+    return {d: {isin: vl for isin, (_nbuc, vl) in lignes.items()} for d, lignes in grille.items()}
+
+
+def _nbuc_depuis_grille(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, dict[str, float]]:
+    return {d: {isin: nbuc for isin, (nbuc, _vl) in lignes.items()} for d, lignes in grille.items()}
 
 
 def _detecter_statut_frais(
     isin: str,
     inventaire_isin: list[InventaireHebdoLigne],
     calendrier: list[date_type],
+    grille: dict[date_type, dict[str, tuple[float, float]]],
     mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
     frais_gestion_annuel: float,
 ) -> StatutFraisIsin:
@@ -152,7 +190,8 @@ def _detecter_statut_frais(
         for mouvement, signe in mouvements_par_semaine.get(d, {}).get(isin, []):
             nb_uc_attendu += signe * mouvement.nb_uc
 
-    nb_uc_observe = next((l.nbuc for l in lignes_triees if l.date == date_arrivee), None)
+    nb_uc_observe_tuple = grille.get(date_arrivee, {}).get(isin)
+    nb_uc_observe = nb_uc_observe_tuple[0] if nb_uc_observe_tuple else None
     if nb_uc_observe is None or nb_uc_attendu == 0:
         return StatutFraisIsin(
             isin=isin,
@@ -253,18 +292,19 @@ def _volatilites_annualisees(perf_twr: dict[date_type, float | None], calendrier
 
 def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> CalculPerformanceRisqueResponse:
     calendrier = _calendrier(request.inventaire)
-    par_date_isin = _par_date_isin(request.inventaire)
-    vl_par_date_isin = _vl_par_date_isin(request.inventaire)
     sens_map = _sens_mouvements(request.table_libelles)
     mouvements_par_semaine = _mouvements_par_semaine_isin(request.mouvements, calendrier, sens_map)
-    nb_uc_brut_par_date_isin = {d: {isin: l.nbuc for isin, l in lignes.items()} for d, lignes in par_date_isin.items()}
+    grille = _grille_forward_fill(request.inventaire, calendrier, mouvements_par_semaine)
+    vl_par_date_isin = _vl_depuis_grille(grille)
+    nb_uc_brut_par_date_isin = _nbuc_depuis_grille(grille)
 
-    valo_brute = _valo_consolidee(par_date_isin)
+    valo_brute = _valo_consolidee(grille)
 
     hypotheses = [
         f"Volatilité annualisée : écart-type des rendements hebdomadaires TWR, fenêtre glissante de {FENETRE_VOLATILITE_SEMAINES} semaines, annualisée par racine(52).",
         "classe_risque_a : grille de seuils inspirée SRRI (UCITS/CESR) ; classe_risque_b : grille inspirée SRI/MRM (PRIIPs). Aucune des deux n'est l'indicateur réglementaire strict (pas de bootstrap VaR, pas de MRM/CRM).",
         "Mouvements valorisés au vl de la semaine où ils prennent effet (nombre d'UC = seule donnée fiable).",
+        "Un fonds sans ligne d'inventaire exacte à une date donnée n'est pas exclu de la valorisation consolidée : son vl est reporté en avant, et son nb_uc est ajusté par les mouvements survenus depuis la dernière ligne exacte (évite le double-comptage d'un fonds intégralement sorti par arbitrage sans nouvelle ligne d'inventaire ensuite).",
     ]
 
     statut_frais: list[StatutFraisIsin] = []
@@ -275,7 +315,7 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
             inventaire_isin = [l for l in request.inventaire if l.isin == frais.isin]
             if not inventaire_isin:
                 continue
-            statut = _detecter_statut_frais(frais.isin, inventaire_isin, calendrier, mouvements_par_semaine, frais.frais_gestion_annuel)
+            statut = _detecter_statut_frais(frais.isin, inventaire_isin, calendrier, grille, mouvements_par_semaine, frais.frais_gestion_annuel)
             statut_frais.append(statut)
             hypotheses.append(
                 f"Fonds {frais.isin} : {'données nettes de frais (aucun ajustement)' if statut.frais_deja_deduits else f'données brutes, taux hebdo {frais.frais_gestion_annuel/52:.4f}% appliqué en cascade sur le vl'}."
@@ -333,8 +373,9 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
     calendrier = _calendrier(request.inventaire)
     sens_map = _sens_mouvements(request.table_libelles)
     mouvements_par_semaine = _mouvements_par_semaine_isin(request.mouvements, calendrier, sens_map)
+    grille = _grille_forward_fill(request.inventaire, calendrier, mouvements_par_semaine)
+    vl_par_date_isin = _vl_depuis_grille(grille)
     nb_uc_reconstitue = _reconstituer_nb_uc(request.inventaire, calendrier, mouvements_par_semaine)
-    vl_par_date_isin = _vl_par_date_isin(request.inventaire)
 
     hypotheses = [
         "Rémunération calculée sur le nb_uc reconstitué (1er nbuc observé + mouvements signés), pas le nbuc brut de l'inventaire.",
