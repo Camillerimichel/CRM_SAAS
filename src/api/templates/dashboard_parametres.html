@@ -3090,11 +3090,12 @@ document.addEventListener('DOMContentLoaded', function(){
       if (!filteredSupports.length){
         return;
       }
-      const header = ['Contrat', 'Société', 'Support', 'Catégorie', 'Zone géo', 'Promoteur', 'Taux (%)'];
+      const header = ['Contrat', 'Société', 'Support', 'ISIN', 'Catégorie', 'Zone géo', 'Promoteur', 'Taux (%)'];
       const rows = filteredSupports.map(item => [
         item.contrat_nom || '',
         item.societe_nom || '',
         item.support_nom || '',
+        item.code_isin || '',
         item.cat_gene || '',
         item.cat_geo || '',
         item.promoteur || '',
