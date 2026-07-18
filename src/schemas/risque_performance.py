@@ -12,6 +12,13 @@ class InventaireHebdoLigne(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds")
     nbuc: float = Field(..., description="Nombre d'unités de compte détenues à cette date, pour ce fonds")
     vl: float = Field(..., description="Valeur liquidative de l'unité à cette date, pour ce fonds")
+    numero_contrat: str = Field(
+        default="",
+        description="Numéro de contrat détenant cette ligne. Permet d'agréger plusieurs contrats dans "
+        "un même calcul (position identifiée par isin+numero_contrat, pas isin seul) — deux contrats "
+        "détenant le même fonds ne sont jamais confondus dans la valorisation consolidée. Vide = "
+        "comportement mono-portefeuille historique (toutes les lignes traitées comme un seul contrat).",
+    )
 
     @property
     def valo(self) -> float:
@@ -34,6 +41,10 @@ class MouvementLigne(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds concerné")
     libelle: str = Field(..., description="Libellé du mouvement tel que reporté par la société (ex. 'Versement libre')")
     nb_uc: float = Field(..., description="Nombre d'UC concernées, en valeur absolue — pas de montant en devise")
+    numero_contrat: str = Field(
+        default="",
+        description="Numéro de contrat concerné par ce mouvement — même convention que InventaireHebdoLigne.numero_contrat.",
+    )
 
     @field_validator("date", mode="before")
     @classmethod
@@ -86,6 +97,7 @@ class RetrocessionUCLigne(BaseModel):
 
 class StatutFraisIsin(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds concerné")
+    numero_contrat: str = Field(default="", description="Numéro de contrat concerné (une détection par position isin+contrat)")
     frais_deja_deduits: bool = Field(..., description="Détecté sur le 1er mois : True = données nettes, False = données brutes")
     ecart_relatif_detecte: float = Field(..., description="Écart mesuré entre nb_uc attendu et observé sur le 1er mois, en %")
     methode: str = Field(
@@ -170,6 +182,7 @@ class CalculRemunerationRequest(BaseModel):
 class RemunerationResultLigne(BaseModel):
     date: date_type
     isin: str
+    numero_contrat: str = Field(default="", description="Numéro de contrat détenant cette position")
     nb_uc_reconstitue: float = Field(..., description="Nombre d'UC reconstitué (1er nbuc observé + mouvements signés)")
     valorisation: float = Field(..., description="nb_uc_reconstitue * vl à cette date")
     remuneration_semaine: float = Field(..., description="Part courtier de la rétrocession de la semaine pour ce fonds (taux_retrocession_annuel * taux_courtier)")
