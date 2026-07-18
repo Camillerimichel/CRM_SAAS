@@ -7,7 +7,7 @@ from time import perf_counter
 from sqlalchemy import text
 
 from src.database import SessionLocal
-from src.services.esg_import import sync_esg_fonds
+from src.services.esg_import import sync_esg_fonds, sync_esg_exclusions_holdings
 
 
 def _ensure_log_tables(db) -> None:
@@ -122,12 +122,16 @@ def main() -> int:
     try:
         log_id = _start_log_entry(db, "esg_import", "Import ESG (CRM_ESG)")
         stats = sync_esg_fonds(db)
+        excl_stats = sync_esg_exclusions_holdings(db)
         elapsed = perf_counter() - started
         message = (
             "ESG import OK: "
             f"{stats.get('written')} rows written, "
             f"{stats.get('fetched')} fetched, "
-            f"{stats.get('skipped')} skipped."
+            f"{stats.get('skipped')} skipped. "
+            "Exclusions look-through: "
+            f"{excl_stats.get('written')} funds written, "
+            f"{excl_stats.get('fetched')} fetched."
         )
         _finish_log_entry(db, log_id, "ok", message, elapsed)
         print(message)

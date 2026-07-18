@@ -51,7 +51,7 @@ from src.services.document_client import (
     ensure_document_base_for_label,
     ensure_document_client_storage_columns,
 )
-from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _recompute_esg_grades
+from src.services.esg_import import sync_esg_fonds, sync_esg_exclusions_holdings, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
@@ -29435,6 +29435,7 @@ def dashboard_superadmin_import_esg(
     started = perf_counter()
     try:
         stats = sync_esg_fonds(db)
+        excl_stats = sync_esg_exclusions_holdings(db)
         ESG_FIELDS_CACHE.clear()
         ESG_COLUMNS_CACHE.clear()
         ESG_GLOBAL_CACHE.clear()
@@ -29452,7 +29453,10 @@ def dashboard_superadmin_import_esg(
             f"{stats.get('written')} rows written, "
             f"{stats.get('fetched')} fetched, "
             f"{stats.get('skipped')} skipped."
-            f"{missing_note}"
+            f"{missing_note} "
+            "Exclusions look-through: "
+            f"{excl_stats.get('written')} funds written, "
+            f"{excl_stats.get('fetched')} fetched."
         )
         _finish_log_entry(
             db,

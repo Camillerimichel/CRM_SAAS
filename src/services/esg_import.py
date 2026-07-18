@@ -294,3 +294,88 @@ def sync_esg_fonds(
         "base_url": config.base_url,
         "grade_updates": grade_updates,
     }
+
+
+# --- Exclusions ESG "look-through" par fonds ---
+# sync_esg_fonds (ci-dessus) ne récupère que des indicateurs PAI au niveau du fonds lui-même
+# (peu de colonnes d'exclusion, cf. EXPORT_FIELDS). CRM_ESG dispose d'un mécanisme bien plus riche
+# (/qualification-esg, onglet Fonds) qui regarde la composition réelle du fonds (ses positions sous-
+# jacentes) et compte, pour 14 catégories (business-involvement + conduite), combien de positions
+# déclenchent chacune. Ce qui suit synchronise ce comptage sous forme de flags binaires par fonds
+# ("au moins une position du fonds déclenche cette catégorie") dans des colonnes esg_fonds dédiées,
+# distinctes des colonnes PAI existantes (jamais écrasées).
+
+EXCLUSION_COUNT_TO_COLUMN = {
+    "excluded_coal_count": "excluded_coal",
+    "excluded_oil_gas_count": "excluded_oil_gas",
+    "excluded_tar_sands_count": "excluded_tar_sands",
+    "excluded_tobacco_count": "excluded_tobacco",
+    "excluded_weapons_count": "excluded_weapons",
+    "excluded_controversial_weapons_count": "excluded_weapons_controversial",
+    "excluded_gambling_count": "excluded_gambling",
+    "excluded_alcohol_count": "excluded_alcohol",
+    "excluded_nuclear_count": "excluded_nuclear",
+    "excluded_pornography_count": "excluded_pornography",
+    "excluded_fossil_power_generation_count": "excluded_fossil_power_generation",
+    "corruption_issue_count": "excluded_corruption",
+    "human_rights_issue_count": "excluded_human_rights_issue",
+    "forced_labour_issue_count": "excluded_forced_labour",
+    "environmental_issue_count": "excluded_environmental_issue",
+}
+
+
+def _fetch_fund_exclusions(config: CrmEsgConfig, token: str, isins: Iterable[str] | None = None) -> list[dict]:
+    params: dict[str, str] = {}
+    if isins:
+        params["isins"] = ",".join(isins)
+    url = f"{config.base_url}/api/esg-qualification/export/fund-exclusions"
+    if params:
+        url += f"?{urlencode(params)}"
+    payload = _request_json(url, method="GET", headers={"Authorization": f"Bearer {token}"}, timeout=config.timeout)
+    items = payload.get("items") or []
+    if not isinstance(items, list):
+        raise RuntimeError("CRM_ESG fund-exclusions payload invalide (items manquant)")
+    return items
+
+
+def sync_esg_exclusions_holdings(db: Session, isins: Iterable[str] | None = None) -> dict[str, object]:
+    """Synchronise les exclusions look-through par fonds (cf. commentaire ci-dessus). Un fonds
+    absent de la réponse (pas enregistré comme "portefeuille" avec composition connue côté CRM_ESG)
+    n'est simplement pas touché — pas de valeur par défaut supposée."""
+    config = load_crm_esg_config()
+    token = _crm_esg_login(config)
+    table_columns = _fetch_esg_fonds_columns(db)
+    if "isin" not in table_columns:
+        raise RuntimeError("esg_fonds table missing isin column")
+    write_columns = [c for c in EXCLUSION_COUNT_TO_COLUMN.values() if c in table_columns]
+    missing_columns = [c for c in EXCLUSION_COUNT_TO_COLUMN.values() if c not in table_columns]
+
+    items = _fetch_fund_exclusions(config, token, isins=isins)
+
+    rows: list[dict] = []
+    for item in items:
+        isin = _normalize_isin(item.get("fund_isin"))
+        if not isin:
+            continue
+        row = {"isin": isin}
+        for count_field, column in EXCLUSION_COUNT_TO_COLUMN.items():
+            if column not in write_columns:
+                continue
+            valeur = item.get(count_field)
+            row[column] = None if valeur is None else (1 if float(valeur) > 0 else 0)
+        rows.append(row)
+
+    written = 0
+    if rows and write_columns:
+        sql = _build_upsert_sql(write_columns)
+        db.execute(text(sql), rows)
+        db.commit()
+        written = len(rows)
+
+    return {
+        "fetched": len(items),
+        "written": written,
+        "write_columns": write_columns,
+        "missing_columns": missing_columns,
+        "base_url": config.base_url,
+    }

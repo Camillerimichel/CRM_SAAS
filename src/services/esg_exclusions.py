@@ -49,7 +49,13 @@ def _donnees_referentiel(db: Session, isins: list[str]) -> dict[str, dict]:
         text(
             """
             SELECT n.isin, n.exposure_to_fossil_fuels, n.sfdr_biodiversity_pai,
-                   n.controversial_weapons, n.violations_ungc, f.note_esg_grade
+                   n.controversial_weapons, n.violations_ungc, f.note_esg_grade,
+                   f.excluded_coal, f.excluded_oil_gas, f.excluded_tar_sands, f.excluded_tobacco,
+                   f.excluded_weapons, f.excluded_weapons_controversial, f.excluded_gambling,
+                   f.excluded_alcohol, f.excluded_nuclear, f.excluded_pornography,
+                   f.excluded_fossil_power_generation, f.excluded_corruption,
+                   f.excluded_human_rights_issue, f.excluded_forced_labour,
+                   f.excluded_environmental_issue
             FROM esg_fonds_norm n
             LEFT JOIN esg_fonds f ON f.isin = n.isin
             WHERE n.isin IN :isins
