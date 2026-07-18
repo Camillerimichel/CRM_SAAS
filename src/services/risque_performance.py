@@ -5,6 +5,7 @@ calculé à partir des payloads fournis par l'appelant, rien n'est persisté.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
 from datetime import date as date_type
 from statistics import stdev
@@ -95,11 +96,14 @@ def _grille_forward_fill(
     grille: dict[date_type, dict[Position, tuple[float, float]]] = defaultdict(dict)
     for position, par_date in par_position.items():
         premiere_date = min(par_date.keys())
+        # bisect plutôt qu'un scan linéaire depuis le début du calendrier : sur un gros calcul
+        # multi-contrats (des milliers de positions, chacune n'active que sur une fraction de
+        # l'historique consolidé), ça évite de re-comparer les dates antérieures à premiere_date
+        # à chaque position — gain significatif quand le calendrier consolidé couvre des décennies.
+        index_depart = bisect_left(calendrier, premiere_date)
         nb_uc_courant: float | None = None
         vl_courant: float | None = None
-        for d in calendrier:
-            if d < premiere_date:
-                continue
+        for d in calendrier[index_depart:]:
             ligne_exacte = par_date.get(d)
             if ligne_exacte is not None:
                 nb_uc_courant = ligne_exacte.nbuc
@@ -133,6 +137,29 @@ def _valo_consolidee(grille: dict[date_type, dict[Position, tuple[float, float]]
     return {d: sum(nbuc * vl for nbuc, vl in lignes.values()) for d, lignes in grille.items()}
 
 
+def _decomposer_grille(
+    grille: dict[date_type, dict[Position, tuple[float, float]]],
+) -> tuple[dict[date_type, dict[Position, float]], dict[date_type, dict[Position, float]], dict[date_type, float]]:
+    """Équivalent de _vl_depuis_grille + _nbuc_depuis_grille + _valo_consolidee, mais en une seule
+    passe sur la grille au lieu de trois — sur un calcul multi-contrats à plusieurs milliers de
+    positions, évite de reparcourir la même structure trois fois pour un résultat identique."""
+    vl_par_date: dict[date_type, dict[Position, float]] = {}
+    nbuc_par_date: dict[date_type, dict[Position, float]] = {}
+    valo_par_date: dict[date_type, float] = {}
+    for d, lignes in grille.items():
+        vl_d: dict[Position, float] = {}
+        nbuc_d: dict[Position, float] = {}
+        total = 0.0
+        for position, (nbuc, vl) in lignes.items():
+            vl_d[position] = vl
+            nbuc_d[position] = nbuc
+            total += nbuc * vl
+        vl_par_date[d] = vl_d
+        nbuc_par_date[d] = nbuc_d
+        valo_par_date[d] = total
+    return vl_par_date, nbuc_par_date, valo_par_date
+
+
 def _reconstituer_nb_uc(
     inventaire: list[InventaireHebdoLigne],
     calendrier: list[date_type],
@@ -147,19 +174,21 @@ def _reconstituer_nb_uc(
         for position in par_date_isin.get(d, {}):
             premiere_date_position.setdefault(position, d)
 
-    nb_uc_courant: dict[Position, float] = {}
     resultat: dict[date_type, dict[Position, float]] = defaultdict(dict)
 
-    for d in calendrier:
-        for position, premiere in premiere_date_position.items():
-            if d < premiere:
-                continue
+    # Boucle par position (bisect pour ne parcourir que la portion pertinente du calendrier),
+    # même optimisation que _grille_forward_fill — évite de rescanner tout l'historique consolidé
+    # pour chaque position sur un calcul multi-contrats à plusieurs milliers de positions.
+    for position, premiere in premiere_date_position.items():
+        index_depart = bisect_left(calendrier, premiere)
+        nb_uc_courant = 0.0
+        for d in calendrier[index_depart:]:
             if d == premiere:
-                nb_uc_courant[position] = par_date_isin[d][position].nbuc
+                nb_uc_courant = par_date_isin[d][position].nbuc
             else:
                 for _mouvement, signe in mouvements_par_semaine.get(d, {}).get(position, []):
-                    nb_uc_courant[position] = nb_uc_courant.get(position, 0.0) + signe * _mouvement.nb_uc
-            resultat[d][position] = nb_uc_courant.get(position, 0.0)
+                    nb_uc_courant += signe * _mouvement.nb_uc
+            resultat[d][position] = nb_uc_courant
 
     return dict(resultat)
 
@@ -260,10 +289,12 @@ def _chainer_performance(
         valo_prev, valo_curr = valo.get(d_prev, 0.0), valo.get(d_curr, 0.0)
         jours_periode = (d_curr - d_prev).days or 1
 
+        vl_curr = vl_par_date_isin.get(d_curr, {})
+
         flux_net = 0.0
         flux_pondere = 0.0
         for position, mouvements in mouvements_par_semaine.get(d_curr, {}).items():
-            vl_semaine = vl_par_date_isin.get(d_curr, {}).get(position)
+            vl_semaine = vl_curr.get(position)
             if vl_semaine is None:
                 continue
             for mouvement, signe in mouvements:
@@ -275,9 +306,14 @@ def _chainer_performance(
         denom_dietz = valo_prev + flux_pondere
         r_dietz = (valo_curr - valo_prev - flux_net) / denom_dietz if denom_dietz else 0.0
 
+        # position est garanti présent dans nbuc_prev (c'est la source d'itération) : accès direct
+        # par clé plutôt que .get(..., 0.0), et les deux dicts extraits une seule fois par semaine
+        # plutôt que ré-évalués à chaque position (gain notable sur un calcul multi-contrats à
+        # plusieurs milliers de positions).
+        nbuc_prev = nbuc_par_date_isin.get(d_prev, {})
         numerateur_twr = sum(
-            nbuc_par_date_isin.get(d_prev, {}).get(position, 0.0) * vl_par_date_isin.get(d_curr, {}).get(position, 0.0)
-            for position in nbuc_par_date_isin.get(d_prev, {})
+            nbuc_prev[position] * vl_curr.get(position, 0.0)
+            for position in nbuc_prev
         )
         r_twr = (numerateur_twr / valo_prev - 1) if valo_prev else 0.0
 
@@ -309,10 +345,7 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
     sens_map = _sens_mouvements(request.table_libelles)
     mouvements_par_semaine = _mouvements_par_semaine_isin(request.mouvements, calendrier, sens_map)
     grille = _grille_forward_fill(request.inventaire, calendrier, mouvements_par_semaine)
-    vl_par_date_isin = _vl_depuis_grille(grille)
-    nb_uc_brut_par_date_isin = _nbuc_depuis_grille(grille)
-
-    valo_brute = _valo_consolidee(grille)
+    vl_par_date_isin, nb_uc_brut_par_date_isin, valo_brute = _decomposer_grille(grille)
 
     hypotheses = [
         f"Volatilité annualisée : écart-type des rendements hebdomadaires TWR, fenêtre glissante de {FENETRE_VOLATILITE_SEMAINES} semaines, annualisée par racine(52).",
@@ -357,9 +390,18 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
     vl_dietz, perf_dietz, vl_twr, perf_twr = _chainer_performance(
         calendrier, valo_brute, nb_uc_brut_par_date_isin, vl_par_date_isin, mouvements_par_semaine
     )
-    _vl_dietz_n, perf_dietz_nette, _vl_twr_n, perf_twr_nette = _chainer_performance(
-        calendrier, valo_nette, nb_uc_brut_par_date_isin, vl_finale_par_date_isin, mouvements_par_semaine
-    )
+    # Sans table_frais_gestion, valo_nette/vl_finale_par_date_isin sont des copies exactes de
+    # valo_brute/vl_par_date_isin (aucun ajustement appliqué) : le second chaînage serait
+    # rigoureusement identique au premier — et son résultat n'est de toute façon jamais exposé dans
+    # ce cas (cf. perf_hebdo_*_nette ci-dessous). Sur un gros portefeuille (des milliers de
+    # positions), ce chaînage est le principal poste de temps de calcul : l'éviter quand il est
+    # inutile réduit le temps total d'environ moitié.
+    if request.table_frais_gestion:
+        _vl_dietz_n, perf_dietz_nette, _vl_twr_n, perf_twr_nette = _chainer_performance(
+            calendrier, valo_nette, nb_uc_brut_par_date_isin, vl_finale_par_date_isin, mouvements_par_semaine
+        )
+    else:
+        perf_dietz_nette, perf_twr_nette = {}, {}
 
     volatilites = _volatilites_annualisees(perf_twr, calendrier)
 
