@@ -23,6 +23,7 @@ from src.schemas.risque_performance import (
     CalculRemunerationResponse,
     RemunerationResultLigne,
     CommissionGestionLigne,
+    RetrocessionAgregeeLigne,
 )
 
 METHODOLOGIE_URL = "/methodologie"
@@ -46,6 +47,12 @@ SEUILS_CLASSE_B = [(0.005, 1), (0.05, 2), (0.12, 3), (0.20, 4), (0.30, 5), (0.80
 
 TOLERANCE_DETECTION_FRAIS = 0.20   # ±20% autour de l'écart théorique attendu (1/12e du taux annuel)
 SEMAINES_MIN_DETECTION_FRAIS = 4    # ~1 mois de données minimum pour tenter la détection
+
+# Au-delà de ce nombre de positions (isin x numero_contrat) éligibles à la rétrocession, le détail
+# par fonds+contrat n'est plus renvoyé (résultat agrégé par date uniquement) : à l'échelle d'une
+# vision globale portant sur un très grand nombre de contrats, le détail complet produirait des
+# millions de lignes, impraticable pour n'importe quelle interface (et coûteux à construire).
+SEUIL_DETAIL_POSITIONS_RETROCESSION = 500
 
 
 def _classe_risque(volatilite: float | None, seuils: list[tuple[float, int]]) -> int | None:
@@ -447,6 +454,8 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
     taux_retrocession = {r.isin: r.taux_retrocession_annuel for r in request.table_retrocession}
 
     resultats_retrocession: list[RemunerationResultLigne] = []
+    resultats_retrocession_agregee: list[RetrocessionAgregeeLigne] = []
+    retrocession_agregee = False
     total_retrocession = 0.0
     if request.commission_gestion_courtier:
         taux_courtier = request.commission_gestion_courtier.taux_courtier
@@ -454,28 +463,58 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
             f"Rétrocession UC : {taux_courtier}% (taux_courtier) du taux de rétrocession propre à chaque fonds "
             "(table_retrocession) — ne s'applique pas aux fonds euros."
         )
-        for d in calendrier:
-            for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-                isin, numero_contrat = position
-                if type_par_isin.get(isin) != "uc":
-                    continue
-                taux_fonds = taux_retrocession.get(isin)
-                if taux_fonds is None:
-                    continue
-                vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
-                valorisation = nb_uc * vl
-                remuneration = valorisation * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
-                resultats_retrocession.append(
-                    RemunerationResultLigne(
-                        date=d,
-                        isin=isin,
-                        numero_contrat=numero_contrat,
-                        nb_uc_reconstitue=nb_uc,
-                        valorisation=valorisation,
-                        remuneration_semaine=remuneration,
+
+        positions_eligibles = {
+            position
+            for lignes in nb_uc_reconstitue.values()
+            for position in lignes
+            if type_par_isin.get(position[0]) == "uc" and position[0] in taux_retrocession
+        }
+        retrocession_agregee = len(positions_eligibles) > SEUIL_DETAIL_POSITIONS_RETROCESSION
+
+        if retrocession_agregee:
+            hypotheses.append(
+                f"Rétrocession agrégée par date uniquement ({len(positions_eligibles)} positions fonds x contrat "
+                f"détectées, seuil de détail = {SEUIL_DETAIL_POSITIONS_RETROCESSION}) : le détail par fonds et par "
+                "contrat n'est pas renvoyé sur une vision portant sur un aussi grand nombre de positions, pour "
+                "éviter une réponse de plusieurs millions de lignes."
+            )
+            for d in calendrier:
+                total_semaine = 0.0
+                for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
+                    isin = position[0]
+                    if type_par_isin.get(isin) != "uc":
+                        continue
+                    taux_fonds = taux_retrocession.get(isin)
+                    if taux_fonds is None:
+                        continue
+                    vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
+                    total_semaine += (nb_uc * vl) * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
+                resultats_retrocession_agregee.append(RetrocessionAgregeeLigne(date=d, remuneration_semaine=total_semaine))
+            total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession_agregee)
+        else:
+            for d in calendrier:
+                for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
+                    isin, numero_contrat = position
+                    if type_par_isin.get(isin) != "uc":
+                        continue
+                    taux_fonds = taux_retrocession.get(isin)
+                    if taux_fonds is None:
+                        continue
+                    vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
+                    valorisation = nb_uc * vl
+                    remuneration = valorisation * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
+                    resultats_retrocession.append(
+                        RemunerationResultLigne(
+                            date=d,
+                            isin=isin,
+                            numero_contrat=numero_contrat,
+                            nb_uc_reconstitue=nb_uc,
+                            valorisation=valorisation,
+                            remuneration_semaine=remuneration,
+                        )
                     )
-                )
-        total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
+            total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
 
     resultats_commission: list[CommissionGestionLigne] = []
     total_commission = 0.0
@@ -507,6 +546,8 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
         identifiant=request.identifiant,
         hypotheses_appliquees=hypotheses,
         resultats_retrocession=resultats_retrocession,
+        resultats_retrocession_agregee=resultats_retrocession_agregee,
+        retrocession_agregee=retrocession_agregee,
         total_retrocession=total_retrocession,
         resultats_commission_gestion=resultats_commission,
         total_commission_gestion=total_commission,

@@ -194,10 +194,27 @@ class CommissionGestionLigne(BaseModel):
     commission_fonds_euros_semaine: float
 
 
+class RetrocessionAgregeeLigne(BaseModel):
+    date: date_type
+    remuneration_semaine: float = Field(..., description="Somme de la rétrocession de la semaine, tous fonds et contrats confondus")
+
+
 class CalculRemunerationResponse(BaseModel):
     identifiant: str | None = None
     hypotheses_appliquees: list[str] = Field(default=[], description="Tous les choix/paramètres retenus pour ce calcul précis, à afficher en tête de tableau")
-    resultats_retrocession: list[RemunerationResultLigne]
+    resultats_retrocession: list[RemunerationResultLigne] = Field(
+        default=[], description="Détail par fonds+contrat — vide si retrocession_agregee=True"
+    )
+    resultats_retrocession_agregee: list[RetrocessionAgregeeLigne] = Field(
+        default=[], description="Rétrocession agrégée par date uniquement — rempli seulement si retrocession_agregee=True"
+    )
+    retrocession_agregee: bool = Field(
+        default=False,
+        description="True si le nombre de positions (fonds x contrat) distinctes dépassait le seuil de détail "
+        "(cf. hypotheses_appliquees pour le seuil exact appliqué à ce calcul) : resultats_retrocession est alors "
+        "vide et resultats_retrocession_agregee contient le total par date, pour éviter une réponse de plusieurs "
+        "millions de lignes sur une vision globale portant sur un très grand nombre de contrats.",
+    )
     total_retrocession: float
     resultats_commission_gestion: list[CommissionGestionLigne] = []
     total_commission_gestion: float = 0.0
