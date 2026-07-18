@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Offres financières — Superadmin{% endblock %}
+{% block header_title %}Offres financières{% endblock %}
+{% block header_subtitle %}Édition des textes de présentation{% endblock %}
+
+{% block content %}
+<style>
+  .offre-editor { display: flex; flex-direction: column; gap: 1.5rem; }
+  .offre-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1.25rem 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .offre-card h3 { margin: 0 0 .5rem 0; font-size: 1.05rem; color: #1e3a5f; }
+  .offre-card .meta { display: flex; gap: 1.5rem; margin-bottom: .75rem; font-size: .85rem; color: #6b7280; }
+  .offre-card textarea {
+    width: 100%; box-sizing: border-box;
+    min-height: 320px; font-family: 'JetBrains Mono', monospace, ui-monospace;
+    font-size: .82rem; line-height: 1.5;
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 10px 12px;
+    resize: vertical; white-space: pre;
+  }
+  .offre-card textarea:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem; }
+  .badge-rhp { display: inline-block; background: #dbeafe; color: #1e40af; border-radius: 999px; padding: 2px 10px; font-size: .78rem; font-weight: 600; }
+  .save-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; border-radius: 8px; padding: .75rem 1rem; margin-bottom: 1rem; }
+  .preview-btn { background: none; border: 1px solid #d1d5db; border-radius: 6px; padding: 4px 12px; font-size: .8rem; cursor: pointer; color: #374151; }
+  .preview-btn:hover { background: #f3f4f6; }
+  .preview-pane { display: none; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; background: #f8fafc; margin-top: 8px; font-size: .85rem; line-height: 1.6; }
+  .preview-pane.visible { display: block; }
+  .preview-pane h3, .preview-pane h4 { margin: .5rem 0 .25rem; }
+  .preview-pane ul { margin: .25rem 0 .5rem 1.2rem; }
+  .sticky-bar { position: sticky; bottom: 0; background: rgba(255,255,255,.95); backdrop-filter: blur(4px); border-top: 1px solid #e2e8f0; padding: .75rem 0; margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: .75rem; }
+</style>
+
+<div class="main-container">
+  <div class="toolbar">
+    <a href="/dashboard/superadmin#outils-import" class="btn btn-secondary">← Retour superadmin</a>
+    <span class="muted" style="font-size:.85rem;">Les textes sont affichés dans la lettre d'adéquation (§6 Détail de l'allocation) et dans la fiche offre financière.</span>
+  </div>
+
+  {% if saved %}
+  <div class="save-banner">✓ Textes enregistrés avec succès.</div>
+  {% endif %}
+
+  <form method="post" action="/dashboard/superadmin/offres-financieres">
+    <div class="offre-editor">
+      {% set rhp_map = {1: '3 ans', 2: '5 ans', 3: '8 ans', 4: '8 ans', 10: '8 ans'} %}
+      {% for offre in offres %}
+      <div class="offre-card">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.5rem;">
+          <h3>{{ offre.nom }}</h3>
+          <span class="badge-rhp">RHP : {{ rhp_map.get(offre.id, '—') }}</span>
+        </div>
+        <div style="display:flex; gap:.5rem; margin-bottom:.5rem;">
+          <button type="button" class="preview-btn" onclick="togglePreview({{ offre.id }})">👁 Aperçu</button>
+          <span class="muted" style="font-size:.78rem; line-height:2;">Format Markdown — ## Titre, - liste, **gras**, *italique*</span>
+        </div>
+        <textarea name="texte_{{ offre.id }}" id="ta_{{ offre.id }}"
+                  oninput="updatePreview({{ offre.id }})">{{ offre.texte }}</textarea>
+        <div class="preview-pane" id="preview_{{ offre.id }}"></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="sticky-bar">
+      <a href="/dashboard/superadmin/offres-financieres" class="btn btn-secondary">Annuler les modifications</a>
+      <button type="submit" class="btn base-action-btn" style="background:var(--primary); color:#fff; border:none; padding:.5rem 1.5rem;">
+        Enregistrer toutes les offres
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function mdToHtml(md) {
+  if (!md) return '';
+  let html = md
+    .replace(/^## (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h5>$1</h5>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n- /g, '<br>• ');
+  return '<p>' + html + '</p>';
+}
+
+function togglePreview(id) {
+  const pane = document.getElementById('preview_' + id);
+  pane.classList.toggle('visible');
+  if (pane.classList.contains('visible')) updatePreview(id);
+}
+
+function updatePreview(id) {
+  const pane = document.getElementById('preview_' + id);
+  if (!pane.classList.contains('visible')) return;
+  const val = document.getElementById('ta_' + id).value;
+  pane.innerHTML = mdToHtml(val);
+}
+</script>
+{% endblock %}

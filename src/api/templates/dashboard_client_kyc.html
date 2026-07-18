@@ -913,12 +913,69 @@
 	      <div class="accordion-panel" id="knowledgePanel">
 	        <style>
 	          /* Pleine largeur pour une meilleure lisibilité */
-	          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+          #knowledgePanel { overflow: visible; }
+          #knowledgeContainer .accordion {
+            overflow: visible;
+          }
+          .risk-grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
 	          .risk-block { border:1px solid var(--border); border-radius:10px; padding:12px; background:#fff; }
 	          .risk-block h5 { margin:0 0 8px 0; font-size:0.95rem; background:#e9f2ff; color:#1d4ed8; padding:6px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; }
           #knowledgePanel #risqueSnapshotCard .summary-balance .label { background:#16a34a; color:#fff; padding:4px 8px; border-radius:6px; display:inline-block; }
           .btn-group { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; text-align:left; }
           .btn-group .btn-choice { min-width: 110px; padding:6px 10px; font-size:0.85rem; height:34px; min-height:34px; text-transform:none; }
+          .risk-analysis-sticky {
+            padding-top: 2px;
+          }
+          .risk-analysis-sticky .risk-analysis-card {
+            background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,250,251,0.98));
+            border:1px solid #dbe4f0;
+            border-radius:12px;
+            padding:12px;
+            box-shadow:0 10px 24px rgba(15,23,42,0.10);
+          }
+          .risk-analysis-title {
+            display:flex;
+            align-items:center;
+            gap:8px;
+            font-weight:700;
+            color:#1f2b6c;
+            margin-bottom:8px;
+          }
+          .risk-analysis-meta {
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+            margin-bottom:10px;
+          }
+          .risk-analysis-meta .badge {
+            background:#e2e8f0;
+            color:#111827;
+            border-radius:999px;
+            padding:4px 10px;
+            font-size:0.82rem;
+          }
+          .risk-analysis-grid {
+            display:grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap:10px;
+          }
+          .risk-analysis-box {
+            border:1px solid #e5e7eb;
+            border-radius:10px;
+            background:#fff;
+            padding:10px 12px;
+            min-width:0;
+          }
+          .risk-analysis-box h6 {
+            margin:0 0 8px 0;
+            font-size:0.92rem;
+            color:#0f172a;
+          }
+          .risk-analysis-box .md-block p { margin:0 0 8px 0; }
+          .risk-analysis-box .md-block p:last-child { margin-bottom:0; }
+          @media (max-width: 860px) {
+            .risk-analysis-grid { grid-template-columns:1fr; }
+          }
           /* Boutons sélectionnés : gris (comme ESG) */
           #knowledgePanel .btn-choice.btn-choice-active {
             background:#e2e8f0;
@@ -931,7 +988,21 @@
           .offer-pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--primary); color:var(--primary); background:#fff; font-weight:700; }
 	          .step-hidden { display:none !important; }
 	          /* Bandeau sticky en haut du panel */
-	          .risk-sticky { position: sticky; top: 0; z-index: 20; background: var(--surface); }
+	          .risk-sticky {
+	            position: sticky;
+	            top: 0;
+	            z-index: 25;
+	            background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(255,255,255,0.92));
+	            padding: 6px 0 10px;
+	          }
+	          body.embed-mode #knowledgePanel .risk-sticky { top: 0; }
+	          @media (max-width: 980px) {
+	            body:not(.embed-mode) #knowledgePanel .risk-sticky { top: 0; }
+	          }
+	          #knowledgePanel .risk-sticky .card {
+	            margin-bottom: 0;
+	            box-shadow: 0 10px 24px rgba(15,23,42,0.12);
+	          }
 	          /* Barre SRRI (bleu -> vert -> orange -> rouge) */
 	          .srri-progress-wrap { display:inline-flex; align-items:center; gap:8px; }
 	          .srri-progress {
@@ -968,30 +1039,27 @@
           <input type="hidden" name="form_action" value="risque_save" />
 
           <!-- Bandeau résumé en haut: risque déterminé + dates -->
-          {% if not risque_history_mode %}
-	          <div class="risk-sticky">
-	            <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-	              <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-	                <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
-	                <span style="margin-left:10px;">Offre financière retenue : <strong>{{ risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else '—' }}</strong></span>
-	              </div>
-	              <div class="muted-small">
-	                Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
-	                <span style="margin:0 6px;">|</span>
-	                Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
-	                <span style="margin:0 6px;">|</span>
-	                <span class="srri-progress-wrap">
-	                  SRRI: <span id="riskSrriValue" class="offer-pill">—</span>
-	                  <span id="riskSrriProgress" class="srri-progress" aria-label="Niveau SRRI">
-	                    <span id="riskSrriMarker" class="srri-marker" style="display:none;"></span>
-	                  </span>
-	                </span>
-	              </div>
-	            </div>
-	          </div>
-	          {% endif %}
+          <div class="risk-sticky">
+            <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <div class="muted-small" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span>Saisi le <span class="js-local-dt" data-iso="{{ risque_display_saisie }}">{{ risque_display_saisie }}</span>, expire le <span class="js-local-dt" data-iso="{{ risque_display_obsolescence }}">{{ risque_display_obsolescence }}</span></span>
+                <span style="margin-left:10px;">Offre financière retenue : <strong>{{ risque_snapshot.allocation_nom if risque_snapshot and risque_snapshot.allocation_nom else '—' }}</strong></span>
+              </div>
+              <div class="muted-small">
+                Calculée: <span id="riskOfferCalcPill" class="offer-pill">—</span>
+                <span style="margin:0 6px;">|</span>
+                Finale: <span id="riskOfferFinalPill" class="offer-pill">—</span>
+                <span style="margin:0 6px;">|</span>
+                <span class="srri-progress-wrap">
+                  SRRI: <span id="riskSrriValue" class="offer-pill">—</span>
+                  <span id="riskSrriProgress" class="srri-progress" aria-label="Niveau SRRI">
+                    <span id="riskSrriMarker" class="srri-marker" style="display:none;"></span>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
 
-          {% if not risque_history_mode %}
           <div class="risk-grid">
 	            <div class="risk-block">
 	              <h5>Connaissance générale</h5>
@@ -1074,11 +1142,44 @@
                   {% endfor %}
                 {% endif %}
               </div>
-              <div class="field" style="margin-top:6px;">
+            <div class="field" style="margin-top:6px;">
                 <label>Précision (si autre)</label>
                 <input type="text" name="objectif_autre_detail" value="{{ risque_current.objectif_autre_detail if risque_current else '' }}" />
               </div>
             </div>
+
+            {% if profil_investissement_html or age_adequation_html %}
+            <div class="risk-analysis-sticky step-hidden" id="riskInvestmentAnalysisBlock">
+              <div class="risk-analysis-card">
+                <div class="risk-analysis-title">
+                  <i class="fa-solid fa-clipboard-check"></i>
+                  Analyse croisée du profil
+                  <button type="button" id="riskAnalysisRefreshBtn" class="btn" style="margin-left:auto; font-weight:400; font-size:0.82rem; padding:4px 10px;">
+                    <i class="fa-solid fa-rotate"></i> Mettre à jour
+                  </button>
+                </div>
+                <div class="risk-analysis-meta">
+                  <span class="badge">Âge: {{ age_client_kyc if age_client_kyc is not none else '—' }} ans</span>
+                  <span class="badge">Patrimoine net: {{ patrimoine_net_str if patrimoine_net_str else '—' }}</span>
+                  <span class="badge">Allocation: {{ allocation_reference_name if allocation_reference_name else '—' }}</span>
+                </div>
+                <div class="risk-analysis-grid">
+                  <div class="risk-analysis-box">
+                    <h6>Profil d'investissement</h6>
+                    <div class="md-block">
+                      {{ profil_investissement_html | safe }}
+                    </div>
+                  </div>
+                  <div class="risk-analysis-box">
+                    <h6>Adéquation de l'âge{% if age_adequation_status_kyc == 'ok' %} confirmée{% elif age_adequation_status_kyc == 'attention' %} sous réserve{% else %} à confirmer{% endif %}</h6>
+                    <div class="md-block">
+                      {{ age_adequation_html | safe }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endif %}
 
             <!-- Revenus court-terme: acceptation du risque / choix personnel -->
 	            <div class="risk-block step-other step-hidden" id="riskStepRevenusCt">
@@ -1148,7 +1249,6 @@
               <button type="submit" class="btn-primary" id="riskSaveBtn" style="margin-left:8px;" disabled>Enregistrer</button>
             </div>
           </div>
-          {% endif %}
         </form>
 
         {% if risque_snapshot %}
@@ -1579,16 +1679,17 @@
               const stepDisp = document.getElementById('riskStepOther3');
               const stepDur = document.getElementById('riskStepOther4');
               const stepObj = document.getElementById('riskStepOther5');
+              const stepAnalysis = document.getElementById('riskInvestmentAnalysisBlock');
               const stepRev = document.getElementById('riskStepRevenusCt');
               const stepAccept = document.getElementById('riskAcceptBlock');
               if (conso === 'non'){
                 stepKN.classList.add('step-hidden');
-                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
+                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepAnalysis,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
                 return;
               }
               if (conso !== 'oui'){
                 stepKN.classList.add('step-hidden');
-                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
+                [stepPerte,stepPatr,stepDisp,stepDur,stepObj,stepAnalysis,stepRev,stepAccept].forEach(el=>{ if(el) el.classList.add('step-hidden'); });
                 return;
               }
               // conso == 'oui'
@@ -1604,9 +1705,10 @@
               if (stepDisp) stepDisp.classList.toggle('step-hidden', !showDisp);
               if (stepDur) stepDur.classList.toggle('step-hidden', !showDur);
               if (stepObj) stepObj.classList.toggle('step-hidden', !showObj);
+              if (stepAnalysis) stepAnalysis.classList.toggle('step-hidden', !showObj);
               // Revenus CT block visibility once objectifs visibles
               const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const rev = objectifs.find(o=>o.code==='revenus court terme');
               const sels = selectedIds('objectif_ids');
               if (stepRev) stepRev.classList.toggle('step-hidden', !(showObj && rev && sels.includes(rev.id)));
               // Afficher l'acceptation dès que la durée est renseignée (même si objectifs pas encore saisis)
@@ -1685,17 +1787,19 @@
                 // patrimoine
                 const patrId = valInt('patrimoine_part_option_id'); if(patrId){ const code={{ risque_opts.patrimoine_part|tojson|safe }}.find(x=>x.id===patrId)?.code; if(code==='25_50') offer=Math.max(OFFRE.prudente, offer-1); else if(code==='50_75') offer=Math.max(OFFRE.prudente, offer-2); else if(code==='p75') offer=OFFRE.prudente; }
                 // dispo
-                const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.prudente); }
+                const dispId = valInt('disponibilite_option_id'); if(dispId){ const code={{ risque_opts.disponibilite|tojson|safe }}.find(x=>x.id===dispId)?.code; if(code==='tres_liquide' || code==='court_terme') offer=Math.min(offer, OFFRE.court_terme); }
                 // durée
                 const durId = valInt('duree_option_id'); if(durId){ const code={{ risque_opts.duree|tojson|safe }}.find(x=>x.id===durId)?.code; const caps={ '1_3':OFFRE.court_terme, '3_5':OFFRE.prudente, '5_8':OFFRE.equilibree }; if (code && caps[code]) offer=Math.min(offer, caps[code]); }
-                // objectifs
-                const objIds = selectedIds('objectif_ids'); const epargneId = {{ (risque_opts.objectifs|tojson)|safe }}.find(o=>o.code==='epargne_precaution')?.id; if (epargneId && objIds.includes(epargneId)) offer=Math.min(offer, OFFRE.prudente);
+                // objectifs (épargne de précaution ou revenus court terme -> plafond prudent)
+                const objIds = selectedIds('objectif_ids');
+                const prudentObjIds = {{ (risque_opts.objectifs|tojson)|safe }}.filter(o=>o.code==='epargne_precaution' || o.code==='revenus court terme').map(o=>o.id);
+                if (prudentObjIds.some(id=>objIds.includes(id))) offer=Math.min(offer, OFFRE.prudente);
               }
               let finalOffer = offer;
               // Revenus CT priority
               try {
                 const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                const rev = objectifs.find(o=>o.code==='revenus court terme');
                 const sels = selectedIds('objectif_ids');
                 const revSelected = rev && sels.includes(rev.id);
                 const revAcc = (val('revenus_ct_accept')||'').toLowerCase();
@@ -1735,7 +1839,7 @@
               // Revenus court-terme: si objectif sélectionné, imposer acceptation oui/non; si non, exiger choix personnel
               try {
                 const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-                const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+                const rev = objectifs.find(o=>o.code==='revenus court terme');
                 if (rev){
                   const sels = selectedIds('objectif_ids');
                   if (sels.includes(rev.id)){
@@ -1772,12 +1876,29 @@
             updateSaveEnabled();
             updateRevenusCtVisibility();
 
+            // Bouton "Mettre à jour": force un rechargement complet pour obtenir
+            // l'analyse IA/DIC fraîchement calculée (même mécanisme que la sortie/
+            // réentrée dans la modale).
+            // LIMITATION CONNUE (2026-07-03): l'analyse IA et le DIC de l'offre ne se
+            // rafraîchissent pas automatiquement dans la modale juste après un
+            // enregistrement (création ou modification du risque) ; un rechargement
+            // manuel (ce bouton, ou fermer/rouvrir la modale) reste nécessaire pour
+            // voir la version à jour. Cause racine non identifiée à ce stade.
+            (function(){
+              const refreshBtn = document.getElementById('riskAnalysisRefreshBtn');
+              if (!refreshBtn) return;
+              refreshBtn.addEventListener('click', function(ev){
+                if (ev && ev.preventDefault) ev.preventDefault();
+                window.location.reload();
+              });
+            })();
+
             // Revenus CT: afficher bloc acceptation si objectif sélectionné
             function updateRevenusCtVisibility(){
               const block = document.getElementById('riskStepRevenusCt');
               if (!block) return;
               const objectifs = {{ risque_opts.objectifs | tojson | safe }};
-              const rev = objectifs.find(o=>o.code==='revenus_court_terme' || o.code==='revenus');
+              const rev = objectifs.find(o=>o.code==='revenus court terme');
               const selected = selectedIds('objectif_ids');
               const isSelected = rev && selected.includes(rev.id);
               block.classList.toggle('step-hidden', !isSelected);

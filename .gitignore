@@ -1,5 +1,8 @@
 documents/
 
+# Secrets (jamais commités)
+.env
+
 # Python cache / compiled artifacts
 __pycache__/
 *.py[cod]
@@ -8,13 +11,26 @@ __pycache__/
 .venv/**/__pycache__/
 
 # Runtime / logs
+*.log
+*.pid
+*.lock
+*.swp
+logs/
+tmp_mpl/
 uvicorn.pid
 uvicorn.lock
 uvicorn.log
 deploy.log
+frontend_runtime.log
+git_auto_push.log
 
 # Frontend build output (généré par npm run build)
 frontend/build/
+backup/
+documents/generated_clients/
+documents/generated_affaires/
+documents/exports/*
+!documents/exports/README.md
 
 # Frontend caches
 frontend/node_modules/.cache/

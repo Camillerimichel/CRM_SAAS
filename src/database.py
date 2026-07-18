@@ -3,11 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 # Connexion MySQL (tunnel SSH actif sur 127.0.0.1:3306)
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    # Mot de passe contient '@@' → encodé en %40%40
-    "mysql+pymysql://crm_user:Veduta1789%40%40@127.0.0.1:3306/MariaDB_CRM_SAAS?charset=utf8mb4",
-)
+SQLALCHEMY_DATABASE_URL = os.environ["DATABASE_URL"]
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

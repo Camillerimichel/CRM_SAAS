@@ -55,6 +55,12 @@ from src.services.esg_import import sync_esg_fonds, _fetch_esg_fonds_columns, _r
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
+from src.services.esg_fund_exclusions import (
+    check_fund_exclusions,
+    get_client_portfolio_isins,
+    get_affaire_portfolio_isins,
+)
+from src.api.utils.esg import esg_grade_from_letters
 from src.services.fatca_eai_autocertification_pdf import build_fatca_eai_autocertification_pdf_bytes
 from src.services.modele_render import render_modele as render_modele_util
 from src.services.mailer import send_email_with_attachments
@@ -1005,15 +1011,18 @@ def _get_consolidated_supports(
                        COALESCE(g.frais_gestion_assureur, 0) AS frais_gestion_assureur,
                        COALESCE(g.frais_gestion_courtier, 0) AS frais_gestion_courtier,
                        SUM(h.valo) AS valo, SUM(h.nbuc) AS nbuc,
-                       AVG(h.prmp) AS prmp, AVG(h.vl) AS vl
+                       AVG(h.prmp) AS prmp, AVG(h.vl) AS vl,
+                       esg.note_e_grade AS noteE, esg.note_s_grade AS noteS, esg.note_g_grade AS noteG
                 FROM mariadb_historique_support_w h
                 JOIN mariadb_support s ON s.id = h.id_support
                 JOIN mariadb_affaires a ON a.id = h.id_source
                 LEFT JOIN mariadb_affaires_generique g ON g.id = a.id_affaire_generique
+                LEFT JOIN esg_fonds esg ON esg.isin = s.code_isin
                 WHERE h.id_source IN (SELECT id FROM client_affaires)
                   AND h.date >= :snap_start AND h.date <= :snap_end
                 GROUP BY s.code_isin, a.ref, h.id_source, h.id_support,
-                         g.frais_gestion_assureur, g.frais_gestion_courtier
+                         g.frais_gestion_assureur, g.frais_gestion_courtier,
+                         esg.note_e_grade, esg.note_s_grade, esg.note_g_grade
                 ORDER BY a.ref, s.code_isin
                 """
             ),
@@ -1036,6 +1045,9 @@ def _get_consolidated_supports(
                 "nbuc":  float(row.nbuc  or 0),
                 "prmp":  float(row.prmp  or 0),
                 "vl":    float(row.vl    or 0),
+                "noteE": row.noteE,
+                "noteS": row.noteS,
+                "noteG": row.noteG,
             })
         for isin in set(support_isins.values()):
             consolidated_support_contracts.setdefault(isin, [])
@@ -4877,7 +4889,485 @@ def _build_client_synthese_context(db: Session, client_id: int) -> dict | None:
         "synthese_card": synthese_card,
         "valorisation_card": valorisation_card,
         "indicateurs_card": indicateurs_card,
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id),
     }
+def _build_esg_exclusions_check(db: Session, client_id: int) -> dict | None:
+    """Return ESG exclusion conformity check for use in adequation letter and synthese reports."""
+    try:
+        isins = get_client_portfolio_isins(db, client_id)
+        result = check_fund_exclusions(db, isins, client_id)
+        logger.info("ESG exclusions check client_id=%s nb_fonds=%s nb_excl=%s", client_id, result.get("nb_fonds"), len(result.get("client_exclusions") or []))
+        return result
+    except Exception as exc:
+        logger.error("ESG exclusions check FAILED client_id=%s error=%s", client_id, exc, exc_info=True)
+        return None
+
+def _ia_to_html(raw: str) -> str:
+    """Convertit le texte brut d'un LLM en HTML propre : supprime les marqueurs Markdown (#, *, **) et enveloppe chaque ligne dans <p>."""
+    import re as _re
+    lines = []
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Supprimer les titres Markdown (##, ###, #)
+        line = _re.sub(r'^#+\s*', '', line)
+        # Supprimer le gras/italique Markdown
+        line = _re.sub(r'\*{1,2}(.+?)\*{1,2}', r'<strong>\1</strong>', line)
+        if line:
+            lines.append(f"<p>{line}</p>")
+    return "\n".join(lines)
+
+
+def _generate_profil_coherence_ia(ctx: dict) -> str:
+    """Analyse les incoherences internes du profil et justifie l'allocation choisie (§3)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        import anthropic as _anthropic
+        horizon = ctx.get("horizon_placement") or "non renseigné"
+        niveau = ctx.get("niveau_risque") or "non renseigné"
+        experience = ctx.get("experience") or "non renseignée"
+        connaissance = ctx.get("connaissance") or "non renseignée"
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        rhp = ctx.get("allocation_sri_rhp_years")
+        rhp_str = f"{int(round(float(rhp)))} ans" if rhp else "non renseignée"
+        montant_ct = ctx.get("montant_coherent_total") or 0
+        montant_lt = ctx.get("montant_incoherent_total") or 0
+
+        def _fm(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return "non renseigné"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant la section "Profil d'investissement" d'une lettre d'adéquation réglementaire française (style formel, première personne du pluriel du cabinet).
+
+Données du profil déclaré par le client :
+- Horizon de placement : {horizon}
+- Niveau de risque : {niveau}
+- Expérience financière : {experience}
+- Connaissance des produits : {connaissance}
+
+Recommandation formulée :
+- Allocation : {allocation}
+- Durée de placement conseillée : {rhp_str}
+- Montant des objectifs couverts par cette allocation : {_fm(montant_ct)}
+- Montant des objectifs à horizon plus long (non couverts par cette allocation) : {_fm(montant_lt)}
+
+Rédige un paragraphe de 120 à 160 mots qui :
+1. Confirme la cohérence interne du profil (horizon × niveau de risque × expérience × connaissance) — signale s'il y a une incohérence (ex : horizon long mais niveau de risque faible, ou expérience élevée mais profil conservateur)
+2. Explique pourquoi l'allocation retenue ({allocation}) présente une durée ({rhp_str}) potentiellement plus courte que ce que le profil permettrait (horizon déclaré : {horizon}) : par exemple, les besoins immédiats du client sont à court terme, ou le montant à long terme sera traité dans un second temps
+3. Conclue que cette allocation est adaptée à la fraction du patrimoine concernée par le contrat
+
+Style : formel, pas de liste à puces, commence directement par l'analyse. Montants avec "." comme séparateur de milliers."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_profil_coherence_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_age_adequation_ia(ctx: dict) -> str:
+    """Génère l'analyse réglementaire de l'adéquation de l'âge du client à l'offre proposée."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    age = ctx.get("age_client")
+    age_fin = ctx.get("age_fin_placement")
+    if age is None:
+        return ""
+    try:
+        import anthropic as _anthropic
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        rhp = ctx.get("allocation_sri_rhp_years")
+        rhp_str = f"{int(round(float(rhp)))} ans" if rhp else "non renseignée"
+        status = ctx.get("age_adequation_status") or "ok"
+
+        if status == "ok":
+            consigne_statut = (
+                "L'âge est clairement compatible : conclure positivement que l'adéquation est confirmée. "
+                "Mentionner explicitement que l'âge du client est en adéquation avec la durée de l'offre proposée."
+            )
+        elif status == "attention":
+            consigne_statut = (
+                "L'âge est à la limite de la compatibilité : souligner le point de vigilance, rappeler qu'un accord "
+                "explicite du client est recommandé, mais que l'adéquation reste possible si le client le confirme."
+            )
+        else:
+            consigne_statut = (
+                "L'âge soulève une question d'adéquation importante : indiquer clairement que la durée de placement "
+                "au regard de l'âge du client mérite une attention particulière et doit faire l'objet d'une "
+                "confirmation écrite du client et d'un examen approfondi par le conseiller."
+            )
+
+        age_fin_str = str(age_fin) if age_fin else "indéterminé"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une section réglementaire d'une lettre d'adéquation française (style formel, vouvoiement du client à la deuxième personne comme dans le reste de la lettre, ne pas écrire 'Monsieur/Madame', ne pas parler du client à la troisième personne ("le client")).
+
+Données :
+- Âge du client : {age} ans
+- Offre financière recommandée : {allocation}
+- Durée de placement conseillée (RHP) : {rhp_str}
+- Âge du client en fin de placement estimé : {age_fin_str} ans
+
+Instruction de statut : {consigne_statut}
+
+Rédige un paragraphe de 80 à 120 mots qui :
+1. Indique votre âge actuel et votre âge en fin de placement estimé
+2. Évalue explicitement si cet âge est adapté à la durée de placement de l'offre retenue, en référençant la Directive (UE) 2016/97 (DDA) et l'obligation d'adéquation
+3. Conclut avec une phrase claire sur l'adéquation (ou non)
+
+Style : formel, vouvoiement, pas de liste à puces, commence directement. Ne pas écrire "Madame" ni "Monsieur"."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_age_adequation_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_esg_missing_data_ia(ctx: dict) -> str:
+    """Génère la justification réglementaire pour les fonds sans données ESG (§7, règlement 2021/1257)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    esg = ctx.get("esg_exclusions_check") or {}
+    fonds_list = esg.get("fonds") or []
+    exclusions = esg.get("client_exclusions") or []
+    fonds_manquants = [
+        f for f in fonds_list
+        if any(
+            (f.get("status_by_code") or {}).get(e.get("code"), "manquant") == "manquant"
+            for e in exclusions
+        )
+    ]
+    if not fonds_manquants:
+        return ""
+    try:
+        import anthropic as _anthropic
+        fonds_str = "\n".join(
+            f"  - {f.get('nom') or f.get('isin','?')} (ISIN : {f.get('isin','?')})"
+            for f in fonds_manquants
+        )
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant la section ESG d'une lettre d'adéquation réglementaire française (style formel, première personne du pluriel).
+
+Les fonds suivants sont présents dans l'allocation recommandée mais ne disposent pas de données ESG suffisantes pour vérifier leur conformité aux préférences de durabilité du client :
+{fonds_str}
+
+Rédige un paragraphe de 100 à 130 mots qui :
+1. Reconnaît explicitement l'absence de données ESG suffisantes pour ces fonds
+2. Explique que leur maintien provisoire dans l'allocation est justifié par l'absence d'alternative équivalente disponible et par leur adéquation aux autres critères de sélection (performances, frais, horizon)
+3. S'engage à réexaminer ces positions dès que les données extra-financières seront disponibles auprès des fournisseurs de données
+4. Rappelle que conformément au règlement délégué (UE) 2021/1257, le cabinet documente cette situation et en informe le client
+
+Style formel, pas de liste. Commence directement par l'analyse. Signale particulièrement si un fonds porte le label "ESG" dans son nom sans avoir de données disponibles (cas d'incohérence notable)."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+        return _ia_to_html(raw)
+    except Exception as _exc:
+        logger.warning("_generate_esg_missing_data_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_motivation_ia(ctx: dict) -> str:
+    """Génère via Claude API la motivation détaillée de la recommandation."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        import anthropic as _anthropic
+
+        # Construction du prompt avec les données du contexte
+        client = ctx.get("client")
+        nom_client = f"{ctx.get('civilite', '')} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip() if client else "le client"
+        sit_fam = ctx.get("situation_familiale") or "non renseignée"
+        nb_enf = ctx.get("nb_enfants") or 0
+        patrimoine = ctx.get("patrimoine_net_str") or "non renseigné"
+        revenus = ctx.get("revenus_total_str") or "non renseigné"
+        charges = ctx.get("charges_total_str") or "non renseigné"
+        budget = ctx.get("budget_disponible_str") or "non renseigné"
+        horizon = ctx.get("horizon_placement") or "non renseigné"
+        niveau_risque = ctx.get("niveau_risque") or "non renseigné"
+        experience = ctx.get("experience") or "non renseignée"
+        connaissance = ctx.get("connaissance") or "non renseignée"
+        contrat_nom = ctx.get("contrat_choisi_nom") or "non renseigné"
+        contrat_societe = ctx.get("contrat_choisi_societe") or "non renseignée"
+        allocation = ctx.get("allocation_reference_name") or "non renseignée"
+        frais_entree = ctx.get("frais_entree_pct")
+        frais_gestion = ctx.get("frais_gestion_moyen_pct")
+
+        objectifs_list = ctx.get("adequation_objectifs") or []
+
+        def _fmt_mo(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return ""
+
+        objectifs_str = "; ".join(
+            f"{o.get('objectif_libelle','?')} (horizon: {o.get('horizon_investissement','?')}"
+            + (f", montant: {_fmt_mo(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            for o in objectifs_list
+        ) if objectifs_list else "non renseignés"
+
+        contrats_compares = ctx.get("adequation_contracts") or []
+        contrats_str = ", ".join(
+            f"{c.get('nom_contrat','?')} ({c.get('societe_nom','?')}, {float(c.get('total_frais') or 0):.2f}%/an)"
+            for c in contrats_compares
+        ) if contrats_compares else "aucun comparatif disponible"
+
+        frais_str = ""
+        if frais_entree is not None:
+            frais_str += f"Frais d'entrée : {frais_entree:.2f} %."
+        if frais_gestion is not None:
+            frais_str += f" Frais de gestion moyens : {frais_gestion:.2f} %/an."
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine. Rédige la section « Motivation détaillée de la recommandation » d'une lettre d'adéquation réglementaire en français, dans un style formel et professionnel, en vous adressant directement au client.
+
+Données client :
+- Nom : {nom_client}
+- Situation familiale : {sit_fam}, {nb_enf} enfant(s)
+- Patrimoine net : {patrimoine}
+- Revenus : {revenus} / Charges : {charges} / Budget disponible : {budget}
+- Horizon de placement : {horizon}
+- Niveau de risque : {niveau_risque}
+- Expérience financière : {experience}
+- Connaissance des produits : {connaissance}
+- Objectifs patrimoniaux : {objectifs_str}
+
+Recommandation :
+- Contrat retenu : {contrat_nom} (compagnie : {contrat_societe})
+- Allocation retenue : {allocation}
+- {frais_str}
+- Montant investi estimé (objectifs couverts par l'allocation) : {_fmt_mo(ctx.get('montant_coherent_total') or 0)}
+- Impact chiffré des frais d'entrée : {ctx.get('frais_entree_pct') and f"{ctx['frais_entree_pct']:.2f} % × {_fmt_mo(ctx.get('montant_coherent_total') or 0)} = {_fmt_mo((ctx.get('frais_entree_pct',0)/100)*(ctx.get('montant_coherent_total') or 0))}" or "non renseigné"}
+- Contrats comparés (frais de gestion) : {contrats_str}
+
+Rédige un texte structuré d'environ 400 mots comportant :
+1. Une introduction sur la démarche d'analyse
+2. La description de la situation patrimoniale et financière du client
+3. L'analyse du profil de risque et sa cohérence avec l'allocation retenue
+4. Les raisons spécifiques du choix du contrat (en liste à puces) — critères objectifs : frais de gestion annuels, frais d'entrée avec leur impact chiffré en euros, éligibilité à l'allocation recommandée, structure juridique du contrat
+5. La comparaison avec les alternatives étudiées (frais d'entrée inclus) et les critères de différenciation objectifs
+6. Une conclusion sur l'adéquation globale de la recommandation
+
+Important :
+- Ne commence jamais par "Monsieur", "Madame" ou le nom du client : commence directement par le corps de l'analyse
+- Utilise uniquement les données fournies, sans inventer de chiffres
+- Pour tous les montants en euros, utilise le point "." comme séparateur de milliers (ex : 1.500.000 €) — jamais d'espace dans les nombres
+- Style formel, première personne du pluriel pour le cabinet ("nous avons")
+- Retourne uniquement le texte rédigé, sans balises HTML, ni titre de section
+- Paragraphes séparés par une ligne vide
+- La liste des raisons du choix du contrat doit commencer par un tiret (-)"""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = response.content[0].text.strip() if response.content else ""
+        # Convertir en HTML léger (paragraphes + liste à puces), sans marqueurs Markdown
+        import re as _re
+        lines = raw.split("\n")
+        html_parts = []
+        in_list = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                continue
+            # Strip titres Markdown
+            line = _re.sub(r'^#+\s*', '', line)
+            if not line:
+                continue
+            if line.startswith("- "):
+                if not in_list:
+                    html_parts.append("<ul>")
+                    in_list = True
+                html_parts.append(f"<li>{line[2:]}</li>")
+            else:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                html_parts.append(f"<p>{line}</p>")
+        if in_list:
+            html_parts.append("</ul>")
+        return "\n".join(html_parts)
+    except Exception as _exc:
+        logger.warning("_generate_motivation_ia failed: %s", _exc)
+        return ""
+
+
+def _generate_objectifs_incoherence_ia(ctx: dict) -> str:
+    """Génère via Claude API la justification des incohérences horizon/allocation (§4)."""
+    import os as _os
+    api_key = _os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+
+    # Reproduire la logique de détection d'incohérence du template Jinja
+    def _hidx(h: str) -> int:
+        h = h or ""
+        if "8" in h: return 4
+        if "5" in h: return 3
+        if "3" in h: return 2
+        if "1" in h: return 1
+        return 0
+
+    # Référence = durée de placement conseillée de l'allocation (pas l'horizon déclaré par le client)
+    rhp = ctx.get("allocation_sri_rhp_years")
+    if rhp is not None:
+        ref_idx = (4 if float(rhp) >= 8 else (3 if float(rhp) >= 5 else (2 if float(rhp) >= 3 else (1 if float(rhp) >= 1 else 0))))
+        horizon_placement = f"{int(round(float(rhp)))} ans"
+    else:
+        horizon_placement = ctx.get("horizon_placement") or ""
+        ref_idx = _hidx(horizon_placement)
+    objectifs = ctx.get("adequation_objectifs") or []
+    allocation = ctx.get("allocation_reference_name") or "l'allocation retenue"
+    contrat_nom = ctx.get("contrat_choisi_nom") or "le contrat recommandé"
+
+    incoherents = []
+    coherents = []
+    for obj in objectifs:
+        obj_h = obj.get("horizon_investissement") or ""
+        obj_idx = _hidx(obj_h)
+        # Cohérent si l'horizon de l'objectif ≤ RHP de l'allocation
+        # (l'allocation couvre bien ce besoin ; les objectifs plus longs sont signalés)
+        ok = (obj_idx <= ref_idx) and (obj_idx > 0) if (rhp is not None) else (obj_idx >= ref_idx) and (ref_idx > 0) and (obj_idx > 0)
+        (coherents if ok else incoherents).append(obj)
+
+    # Rien à justifier si tout est cohérent
+    if not incoherents:
+        return ""
+
+    try:
+        import anthropic as _anthropic
+
+        def _fmt_m(v) -> str:
+            try:
+                return "{:,.0f}".format(float(v)).replace(",", ".") + " €"
+            except Exception:
+                return "non renseigné"
+
+        inco_str = "\n".join(
+            f"  - {o.get('objectif_libelle','?')} (horizon : {o.get('horizon_investissement','?')}"
+            + (f", montant : {_fmt_m(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            + (f" — {o.get('commentaire')}" if o.get("commentaire") else "")
+            for o in incoherents
+        )
+        cohe_str = "\n".join(
+            f"  - {o.get('objectif_libelle','?')} (horizon : {o.get('horizon_investissement','?')}"
+            + (f", montant : {_fmt_m(o['montant'])}" if o.get('montant') is not None else "")
+            + ")"
+            for o in coherents
+        ) or "  (aucun)"
+
+        # Calcul des totaux pour nourrir le prompt
+        total_inco = sum(float(o.get("montant") or 0) for o in incoherents)
+        total_cohe = sum(float(o.get("montant") or 0) for o in coherents)
+        total_inco_str = _fmt_m(total_inco) if total_inco > 0 else "non renseigné"
+        total_cohe_str = _fmt_m(total_cohe) if total_cohe > 0 else "non renseigné"
+
+        prompt = f"""Tu es conseiller en gestion de patrimoine rédigeant une lettre d'adéquation réglementaire en français (style formel, première personne du pluriel du cabinet).
+
+Contexte :
+- Durée de placement conseillée de l'allocation recommandée : {horizon_placement}
+- Allocation recommandée : {allocation}
+- Contrat recommandé : {contrat_nom}
+
+Objectifs dont l'horizon DÉPASSE la durée de placement conseillée (signalés en rouge) :
+{inco_str}
+→ Total des montants concernés : {total_inco_str}
+
+Objectifs cohérents avec la durée de placement conseillée (horizon ≤ {horizon_placement}) :
+{cohe_str}
+→ Total des montants cohérents : {total_cohe_str}
+
+Rédige un paragraphe de justification de 180 à 220 mots destiné à apparaître dans la lettre d'adéquation. Ce paragraphe doit :
+1. Rappeler que l'allocation {allocation} a une durée de placement conseillée de {horizon_placement}
+2. Identifier les objectifs dont l'horizon dépasse cette durée, en citant leurs montants
+3. Expliquer que ces objectifs à long terme seront couverts par une stratégie complémentaire plus dynamique lors d'une prochaine révision, et que le conseil actuel répond aux besoins immédiats du client dans la durée conseillée
+4. Souligner la proportion relative : si les montants "cohérents" sont significativement plus élevés que les montants "trop longs", mettre en avant l'adéquation globale
+5. Préciser que la présence d'objectifs long terme plus ambitieux ne remet pas en cause la pertinence de l'allocation pour la tranche de patrimoine investie dans ce contrat
+
+Termine par la mention obligatoire suivante, sur une nouvelle ligne en italique (entoure-la avec les balises <em></em>) :
+<em>Conformément à l'article L.522-5 du Code des assurances et au règlement délégué (UE) 2017/2359, le conseiller s'est assuré que la recommandation est adaptée aux besoins, à la situation financière et aux objectifs d'investissement du client dans leur ensemble.</em>
+
+Retourne uniquement le texte rédigé, sans titre de section, paragraphes séparés par une ligne vide, liste à puces précédées d'un tiret (-)."""
+
+        _cl = _anthropic.Anthropic(api_key=api_key)
+        response = _cl.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = (response.content[0].text or "").strip() if response.content else ""
+
+        # Conversion texte → HTML léger, sans marqueurs Markdown
+        import re as _re
+        lines = raw.split("\n")
+        html_parts = []
+        in_list = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                continue
+            # Strip titres Markdown
+            line = _re.sub(r'^#+\s*', '', line)
+            if not line:
+                continue
+            if line.startswith("- "):
+                if not in_list:
+                    html_parts.append("<ul>")
+                    in_list = True
+                html_parts.append(f"<li>{line[2:]}</li>")
+            else:
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                html_parts.append(f"<p>{line}</p>")
+        if in_list:
+            html_parts.append("</ul>")
+        return "\n".join(html_parts)
+
+    except Exception as _exc:
+        logger.warning("_generate_objectifs_incoherence_ia failed: %s", _exc)
+        return ""
+
+
 def _build_client_adequation_context(db: Session, client_id: int) -> dict | None:
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
@@ -5013,7 +5503,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
             text(
                 """
                 SELECT
-                  r.libelle AS niveau_risque,
+                  r.label AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
                   k.experience,
@@ -5021,7 +5511,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                   k.commentaire,
                   k.confirmation_client
                 FROM KYC_Client_Risque k
-                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                JOIN risque_niveau r ON k.niveau_id = r.id
                 WHERE k.client_id = :cid
                 ORDER BY k.date_saisie DESC, k.id DESC
                 LIMIT 1
@@ -5069,14 +5559,35 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                        COALESCE(g.frais_gestion_assureur,0) + COALESCE(g.frais_gestion_courtier,0) AS total_frais
                 FROM mariadb_affaires_generique g
                 LEFT JOIN mariadb_societe s ON s.id = g.id_societe
+                INNER JOIN KYC_contrat_choisi kcc ON kcc.id_contrat = g.id AND kcc.id_client = :cid
                 WHERE COALESCE(g.actif, 1) = 1
                 ORDER BY s.nom, g.nom_contrat
                 """
-            )
+            ),
+            {"cid": client_id},
         ).fetchall()
         adequation_contracts = [dict(r._mapping) for r in rows]
     except Exception:
         adequation_contracts = []
+
+    # Frais d'entrée saisis dans KYC
+    frais_entree_pct: float | None = None
+    try:
+        _fe_row = db.execute(
+            text("SELECT frais_entree FROM KYC_frais_entree WHERE id_client = :cid"),
+            {"cid": client_id},
+        ).fetchone()
+        if _fe_row and _fe_row[0] is not None:
+            frais_entree_pct = float(_fe_row[0])
+    except Exception:
+        frais_entree_pct = None
+    frais_entree_euros: float | None = round(10000.0 * frais_entree_pct / 100.0, 2) if frais_entree_pct is not None else None
+
+    # Frais de gestion moyens des contrats sélectionnés
+    avg_total_frais: float = 0.0
+    if adequation_contracts:
+        _fees = [float(c.get("total_frais") or 0) for c in adequation_contracts]
+        avg_total_frais = sum(_fees) / len(_fees) if _fees else 0.0
 
     adequation_objectifs: list[dict] = []
     try:
@@ -5087,6 +5598,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                        ro.libelle AS objectif_libelle,
                        o.horizon_investissement,
                        o.commentaire,
+                       o.montant,
                        COALESCE(o.niveau_id, 9999) AS _niv
                 FROM KYC_Client_Objectifs o
                 LEFT JOIN ref_objectif ro ON ro.id = o.objectif_id
@@ -5105,6 +5617,7 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
     allocation_risque_id: int | None = None
     allocation_sri_metrics: dict | None = None
     allocation_sri_scenarios: list[dict] = []
+    allocation_sri_scenarios_with_fees: list[dict] = []
     allocation_sri_rhp_years: float | None = None
     if risque_latest and risque_latest.get("niveau_id") is not None:
         try:
@@ -5254,9 +5767,65 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                             "favorable": _row_sri(row.get("favorable")),
                         }
                     )
+
+                # Scénarios nets : frais d'entrée + frais de gestion annuels
+                allocation_sri_scenarios_with_fees = []
+                _fe = (frais_entree_pct or 0.0) / 100.0
+                _mg = avg_total_frais / 100.0
+
+                def _parse_years_label(lbl: str) -> float:
+                    import re as _re2
+                    if not lbl:
+                        return 1.0
+                    if "1 an" in lbl and "ans" not in lbl:
+                        return 1.0
+                    m = _re2.search(r"(\d+(?:[.,]\d+)?)\s*ans", lbl, _re2.I)
+                    if m:
+                        return float(m.group(1).replace(",", "."))
+                    return 1.0
+
+                for _raw_row, _sri_row in zip(scen_rows, allocation_sri_scenarios):
+                    _years = _parse_years_label(_sri_row["label"])
+
+                    def _row_sri_fees(factor, _y=_years):
+                        try:
+                            f = float(factor)
+                        except (TypeError, ValueError):
+                            return {"euro": "—", "pct": "—", "diff": "—"}
+                        if not math.isfinite(f):
+                            return {"euro": "—", "pct": "—", "diff": "—"}
+                        v_raw = base_cap * f
+                        # Frais d'entrée déduits du capital initial
+                        entry_fee = base_cap * _fe
+                        # Frais de gestion : calcul itératif annuel
+                        # Base début an N = fin an (N-1) - frais (N-1)
+                        # Base moyenne an k = (début + fin) / 2, fin = base × r
+                        N_int = max(1, int(round(_y)))
+                        r = f ** (1.0 / N_int)
+                        C = base_cap - entry_fee  # capital investi après frais d'entrée
+                        total_mgmt = 0.0
+                        for _ in range(N_int):
+                            gross_end = C * r
+                            fee_k = (C + gross_end) / 2.0 * _mg
+                            total_mgmt += fee_k
+                            C = gross_end - fee_k  # base suivante = fin - frais
+                        total_fees = entry_fee + total_mgmt
+                        v_net = C  # capital final après boucle itérative
+                        pct = ((v_net - base_cap) / base_cap) * 100.0 if base_cap else None
+                        pct_str = f"{pct:.2f} %" if pct is not None and math.isfinite(pct) else "—"
+                        return {"euro": _fmt_euro_sri(v_net), "pct": pct_str, "diff": _fmt_euro_sri(total_fees)}
+
+                    allocation_sri_scenarios_with_fees.append({
+                        "label": _sri_row["label"],
+                        "tension": _row_sri_fees(_raw_row.get("tension")),
+                        "defavorable": _row_sri_fees(_raw_row.get("defavorable")),
+                        "intermediaire": _row_sri_fees(_raw_row.get("intermediaire")),
+                        "favorable": _row_sri_fees(_raw_row.get("favorable")),
+                    })
         except Exception:
             allocation_sri_metrics = None
             allocation_sri_scenarios = []
+            allocation_sri_scenarios_with_fees = []
             allocation_sri_rhp_years = None
 
     # Scénarios SRI globaux pour la synthèse:
@@ -5290,10 +5859,31 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         sri_metrics_client = None
         synthese_sri_scenarios = {"horizons": [], "rows": []}
 
-    revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
-    charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
-    actif = float(synthese_latest.get("total_actif") or 0.0) if synthese_latest else 0.0
-    passif = float(synthese_latest.get("total_passif") or 0.0) if synthese_latest else 0.0
+    # Calcul des totaux depuis les tables KYC live (pas depuis KYC_Client_Synthese qui peut être périmée)
+    try:
+        revenues = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Revenus WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        revenues = float(synthese_latest.get("total_revenus") or 0.0) if synthese_latest else 0.0
+    try:
+        charges = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_annuel),0) FROM KYC_Client_Charges WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        charges = float(synthese_latest.get("total_charges") or 0.0) if synthese_latest else 0.0
+    try:
+        actif = float(db.execute(
+            text("SELECT COALESCE(SUM(valeur),0) FROM KYC_Client_Actif WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        actif = float(synthese_latest.get("total_actif") or 0.0) if synthese_latest else 0.0
+    try:
+        passif = float(db.execute(
+            text("SELECT COALESCE(SUM(montant_rest_du),0) FROM KYC_Client_Passif WHERE client_id=:cid AND (date_expiration IS NULL OR date_expiration >= NOW())"),
+            {"cid": client_id}).scalar() or 0.0)
+    except Exception:
+        passif = float(synthese_latest.get("total_passif") or 0.0) if synthese_latest else 0.0
     budget = revenues - charges
     patrimoine_net = actif - passif
 
@@ -5307,30 +5897,87 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
                 matplotlib.use('Agg')
                 import matplotlib.pyplot as plt  # type: ignore
                 rows_adq = (
-                    db.query(Allocation.date, Allocation.sicav, Allocation.volat)
+                    db.query(Allocation.date, Allocation.sicav, Allocation.sri)
                     .filter(func.lower(func.trim(Allocation.nom)) == allocation_reference_name.strip().lower())
                     .order_by(Allocation.date.asc())
                     .all()
                 )
                 if rows_adq:
-                    adq_dates, adq_svals, adq_vvals = [], [], []
-                    for d, s, v in rows_adq:
-                        adq_dates.append(d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)[:10])
-                        adq_svals.append(float(s or 0))
-                        vol = float(v or 0)
-                        adq_vvals.append(vol * 100.0 if abs(vol) <= 1 else vol)
+                    # Base 100 : première observation comme référence
+                    first_s = float(rows_adq[0][1] or 1) or 1.0
+                    # Agréger par année : dernière valeur de chaque année
+                    year_data: dict = {}
+                    for d, s, sri_val in rows_adq:
+                        yr = d.year if hasattr(d, 'year') else int(str(d)[:4])
+                        year_data[yr] = (float(s or 0), int(sri_val or 0))
+                    sorted_years = sorted(year_data.keys())
+                    x_labels = [str(i + 1) for i in range(len(sorted_years))]
+                    # Performances annuelles (glissement d'une fin d'année à la suivante)
+                    perf_annual = []
+                    prev = first_s
+                    for y in sorted_years:
+                        curr = year_data[y][0]
+                        perf_annual.append((curr / prev - 1) * 100.0 if prev else 0.0)
+                        prev = curr
+                    sri_list = [year_data[y][1] for y in sorted_years]
+                    has_sri = any(s > 0 for s in sri_list)
+                    xs = list(range(len(sorted_years)))
+                    bar_colors = ['#16a34a' if v >= 0 else '#ef4444' for v in perf_annual]
+                    import matplotlib.patches as _mpatch
                     fig, ax1 = plt.subplots(figsize=(6.5, 3.2))
-                    ax2 = ax1.twinx()
-                    ax1.plot(adq_dates, adq_svals, color='#2563eb', linewidth=1.5, label='Performance (%)')
-                    ax2.plot(adq_dates, adq_vvals, color='#ef4444', linewidth=1.2, label='Volatilité (%)')
+                    ax1.bar(xs, perf_annual, color=bar_colors, alpha=0.85, label='Performance annuelle (%)')
+                    ax1.axhline(0, color='#64748b', linewidth=0.8, linestyle='--')
+                    # Étiquettes de performance sur chaque barre
+                    _y_vals = perf_annual if perf_annual else [0]
+                    _y_span = (max(_y_vals) - min(_y_vals)) or 1.0
+                    _lbl_off = _y_span * 0.06
+                    for xi, v in zip(xs, perf_annual):
+                        ax1.text(xi, v + (_lbl_off if v >= 0 else -_lbl_off),
+                                 f'{v:+.1f}%', ha='center',
+                                 va='bottom' if v >= 0 else 'top',
+                                 fontsize=7.5, fontweight='bold',
+                                 color='#15803d' if v >= 0 else '#b91c1c')
+                    _pad = _y_span * 0.25
+                    ax1.set_ylim(min(_y_vals) - _pad, max(_y_vals) + _pad)
                     ax1.set_ylabel('Performance (%)')
-                    ax2.set_ylabel('Volatilité (%)')
-                    ax1.set_title(f'Performance et volatilité – {allocation_reference_name}')
-                    ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
-                    ax2.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
-                    h1, l1 = ax1.get_legend_handles_labels()
-                    h2, l2 = ax2.get_legend_handles_labels()
-                    ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=8)
+                    ax1.set_xticks(xs)
+                    ax1.set_xticklabels(x_labels, fontsize=9)
+                    ax1.set_xlabel('Année')
+                    if has_sri:
+                        ax2 = ax1.twinx()
+                        ax2.set_ylim(1, 7)
+                        ax2.set_zorder(ax1.get_zorder() - 1)
+                        ax1.patch.set_visible(False)
+                        # Grisage des intervalles SRI par période consécutive
+                        _seg_start = 0; _seg_sri = sri_list[0]; _segments = []
+                        for _k in range(1, len(sri_list)):
+                            if sri_list[_k] != _seg_sri:
+                                _segments.append((_seg_start, _k - 1, _seg_sri))
+                                _seg_start = _k; _seg_sri = sri_list[_k]
+                        _segments.append((_seg_start, len(sri_list) - 1, _seg_sri))
+                        for _si, _ei, _sv in _segments:
+                            if 1 <= _sv <= 6:
+                                ax2.fill_between(
+                                    [xs[_si] - 0.45, xs[_ei] + 0.45],
+                                    [_sv, _sv], [_sv + 1, _sv + 1],
+                                    color='#94a3b8', alpha=0.30, zorder=0)
+                        # Lignes de séparation légères aux limites des bandes
+                        for _bnd in range(2, 7):
+                            ax2.axhline(_bnd, color='#cbd5e1', linewidth=0.5, linestyle='-', zorder=1)
+                        # Ticks au centre de chaque bande → libellé "3" entre marques 3 et 4
+                        ax2.set_yticks([1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
+                        ax2.set_yticklabels(['1', '2', '3', '4', '5', '6'],
+                                            fontsize=8, color='#475569', fontweight='bold')
+                        ax2.set_ylabel('SRI', fontsize=9)
+                        _sri_patch = _mpatch.Patch(facecolor='#94a3b8', alpha=0.5, label='SRI')
+                        h1, l1 = ax1.get_legend_handles_labels()
+                        ax1.legend(h1 + [_sri_patch], l1 + ['SRI'],
+                                   loc='upper left', frameon=True, fontsize=8)
+                        ax1.set_title(f'Performances annuelles et SRI – {allocation_reference_name}')
+                    else:
+                        ax1.legend(loc='upper left', frameon=True, fontsize=8)
+                        ax1.set_title(f'Performances annuelles – {allocation_reference_name}')
+                    fig.tight_layout()
                     buf = io.BytesIO()
                     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
                     plt.close(fig)
@@ -5382,7 +6029,12 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "allocation_reference_name": allocation_reference_name,
         "allocation_sri_metrics": allocation_sri_metrics,
         "allocation_sri_scenarios": allocation_sri_scenarios,
+        "allocation_sri_scenarios_with_fees": allocation_sri_scenarios_with_fees,
         "allocation_sri_rhp_years": allocation_sri_rhp_years,
+        "allocation_rhp_ref_idx": (4 if (allocation_sri_rhp_years or 0) >= 8 else (3 if (allocation_sri_rhp_years or 0) >= 5 else (2 if (allocation_sri_rhp_years or 0) >= 3 else (1 if (allocation_sri_rhp_years or 0) >= 1 else 0)))),
+        "frais_entree_pct": frais_entree_pct,
+        "frais_entree_euros": frais_entree_euros,
+        "frais_gestion_moyen_pct": avg_total_frais,
         "contrat_choisi_nom": contrat_choisi_nom,
         "contrat_choisi_societe": contrat_choisi_societe,
         "adequation_contracts": adequation_contracts,
@@ -5394,8 +6046,178 @@ def _build_client_adequation_context(db: Session, client_id: int) -> dict | None
         "kyc_situations_matrimoniales": situations_matrimoniales,
         "sri_scenarios": synthese_sri_scenarios,
         "adequation_chart_img_b64": adequation_chart_img_b64,
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id),
     }
+    # Calcul des montants cohérents / incohérents (même logique que template §4)
+    def _hidx_ctx(h: str) -> int:
+        h = h or ""
+        if "8" in h: return 4
+        if "5" in h: return 3
+        if "3" in h: return 2
+        if "1" in h: return 1
+        return 0
+    rhp_ref = contexte.get("allocation_rhp_ref_idx") or 0
+    montant_coherent = 0.0
+    montant_incoherent = 0.0
+    for _obj in (contexte.get("adequation_objectifs") or []):
+        _idx = _hidx_ctx(_obj.get("horizon_investissement") or "")
+        _m = float(_obj.get("montant") or 0)
+        if rhp_ref > 0:
+            if _idx > 0 and _idx <= rhp_ref:
+                montant_coherent += _m
+            else:
+                montant_incoherent += _m
+        else:
+            montant_coherent += _m
+    contexte["montant_coherent_total"] = montant_coherent
+    contexte["montant_incoherent_total"] = montant_incoherent
+
+    # Calcul de l'âge client et adéquation avec la durée de placement
+    age_client = None
+    age_fin_placement = None
+    age_adequation_status = "ok"
+    try:
+        from datetime import date as _date_cls
+        dn = (etat_civil_row or {}).get("date_naissance")
+        if dn:
+            if isinstance(dn, str):
+                dn = _date_cls.fromisoformat(dn[:10])
+            elif hasattr(dn, "date"):
+                dn = dn.date()
+            today = datetime.utcnow().date()
+            age_client = (today - dn).days // 365
+            rhp_y = allocation_sri_rhp_years
+            if rhp_y is not None:
+                age_fin_placement = age_client + int(round(float(rhp_y)))
+                if age_fin_placement > 85:
+                    age_adequation_status = "inadapte"
+                elif age_fin_placement > 80:
+                    age_adequation_status = "attention"
+    except Exception:
+        pass
+    contexte["age_client"] = age_client
+    contexte["age_fin_placement"] = age_fin_placement
+    contexte["age_adequation_status"] = age_adequation_status
+
+    contexte["profil_coherence_ia"] = _generate_profil_coherence_ia(contexte)
+    contexte["age_adequation_ia"] = _generate_age_adequation_ia(contexte)
+    contexte["justification_incoherences_ia"] = _generate_objectifs_incoherence_ia(contexte)
+    contexte["motivation_ia"] = _generate_motivation_ia(contexte)
+    contexte["esg_missing_data_ia"] = _generate_esg_missing_data_ia(contexte)
     return contexte
+
+
+def _persist_client_kyc_financial_analysis(db: Session, client_id: int) -> None:
+    """Regenerate and persist the KYC financial analysis on write events only."""
+    try:
+        ctx = _build_client_adequation_context(db, client_id)
+        if not ctx:
+            return
+        row = db.execute(
+            text(
+                """
+                SELECT id
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"cid": client_id},
+        ).fetchone()
+        if not row:
+            return
+        risk_id = row[0]
+        profil_html = (ctx.get("profil_coherence_ia") or "").strip()
+        age_html = (ctx.get("age_adequation_ia") or "").strip()
+        age_status = (ctx.get("age_adequation_status") or "ok").strip() or "ok"
+
+        def _fallback_profil() -> str:
+            horizon = ctx.get("horizon_placement") or "—"
+            niveau = ctx.get("niveau_risque") or "—"
+            patrimoine = ctx.get("patrimoine_net_str") or "—"
+            return (
+                f"<p>Le profil d'investissement est apprécié au regard du patrimoine net de {patrimoine}, "
+                f"de l'horizon {horizon} et du niveau de risque {niveau}. "
+                "La cohérence doit être examinée avec les objectifs saisis et les montants concernés.</p>"
+            )
+
+        def _fallback_age() -> str:
+            age_client = ctx.get("age_client")
+            age_fin = ctx.get("age_fin_placement")
+            if age_client is None or age_fin is None:
+                return "<p>L'adéquation de l'âge n'a pas pu être appréciée faute de date de naissance exploitable.</p>"
+            if age_status == "attention":
+                phrase = "Votre âge appelle un point de vigilance, sans remettre en cause l'adéquation si vous le confirmez."
+            elif age_status == "inadapte":
+                phrase = "Votre âge soulève un point d'attention important au regard de la durée de placement retenue."
+            else:
+                phrase = "Votre âge est en adéquation avec la durée de placement retenue."
+            return f"<p>Âge actuel estimé : {age_client} ans. Âge en fin de placement estimé : {age_fin} ans. {phrase}</p>"
+
+        if not profil_html:
+            profil_html = _fallback_profil()
+        if not age_html:
+            age_html = _fallback_age()
+
+        db.execute(
+            text(
+                """
+                UPDATE KYC_Client_Risque
+                SET profil_coherence_html = :profil,
+                    age_adequation_html = :age_html,
+                    age_adequation_status = :age_status,
+                    analysis_generated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                """
+            ),
+            {
+                "profil": profil_html,
+                "age_html": age_html,
+                "age_status": age_status,
+                "id": int(risk_id),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.debug("KYC financial analysis persist failed for client=%s: %s", client_id, exc, exc_info=True)
+
+
+def _commit_and_refresh_client_kyc_financial_analysis(db: Session, client_id: int) -> None:
+    """Commit the current transaction and refresh the cached KYC financial analysis."""
+    db.commit()
+    _persist_client_kyc_financial_analysis(db, client_id)
+
+
+def _get_effective_connaissance_produits(db: Session, client_id: int) -> dict[int, int]:
+    """Niveau de connaissance courant par produit pour un client.
+
+    Non-régression: la valeur retenue pour chaque produit est le maximum jamais
+    saisi (toutes les saisies KYC_Client_Risque du client confondues), même si
+    une saisie plus récente indique un niveau plus faible pour ce produit.
+    """
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT c.produit_id, MAX(c.niveau_id) AS niveau_id
+                FROM KYC_Client_Risque_Connaissance c
+                JOIN KYC_Client_Risque r ON r.id = c.risque_id
+                WHERE r.client_id = :cid
+                GROUP BY c.produit_id
+                """
+            ),
+            {"cid": client_id},
+        ).fetchall()
+        return {int(r.produit_id): int(r.niveau_id) for r in rows}
+    except Exception:
+        return {}
+
+
 def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None:
     affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
     if not affaire:
@@ -6110,6 +6932,7 @@ def _build_affaire_synthese_context(db: Session, affaire_id: int) -> dict | None
         "indicateurs_card": indicateurs_card,
         "affaire": affaire,
         "affaire_events_open": _fetch_affaire_events_open(db, affaire_id),
+        "esg_exclusions_check": _build_esg_exclusions_check(db, client_id) if client_id else None,
     }
 
 def _fetch_affaire_events_open(db: Session, affaire_id: int) -> list[dict]:
@@ -6463,10 +7286,16 @@ def dashboard_api_synthese(
     _t_render = perf_counter()
     html = templates.get_template("synthese_report.html").render(ctx_render)
     logger.info(
-        "Synthese PDF HTML rendered client_id=%s duration=%.3fs",
+        "Synthese PDF HTML rendered client_id=%s duration=%.3fs esg_check_present=%s",
         id_client,
         perf_counter() - _t_render,
+        "esg_exclusions_check" in ctx_render and ctx_render["esg_exclusions_check"] is not None,
     )
+    try:
+        with open(f"/tmp/debug_synthese_{id_client}.html", "w") as _f:
+            _f.write(html)
+    except Exception:
+        pass
     _t_pdf = perf_counter()
     pdf_bytes = HTML(string=html, base_url=str(request.url)).write_pdf()
     logger.info(
@@ -6527,6 +7356,12 @@ def _render_client_synthese_pdf_bytes(request: Request, db: Session, id_client: 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"WeasyPrint indisponible: {exc}")
     html = templates.get_template("synthese_report.html").render(ctx_render)
+    try:
+        client_id_tmp = getattr(ctx.get("client"), "id", "unknown")
+        with open(f"/tmp/debug_synthese_{client_id_tmp}.html", "w") as _f:
+            _f.write(html)
+    except Exception:
+        pass
     return HTML(string=html, base_url=str(request.url)).write_pdf(), ctx
 
 
@@ -7119,6 +7954,48 @@ def _ensure_generated_client_pdf_path(client_id: int, modele_name: str) -> Path:
     return generated_dir / f"{_slugify_document_filename(modele_name)}_{client_id}_{timestamp}.pdf"
 
 
+async def _consume_pdf_response_bytes(resp) -> bytes:
+    chunks: list[bytes] = []
+    body_iter = getattr(resp, "body_iterator", None)
+    if body_iter is None:
+        return b""
+    async for chunk in body_iter:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk)
+        else:
+            chunks.append(str(chunk).encode())
+    return b"".join(chunks)
+
+
+async def _build_client_direct_pdf_bytes(doc_type: str, client_id: int, request: Request, db: Session) -> tuple[bytes, str]:
+    doc_key = (doc_type or "").strip().lower()
+    if doc_key == "der":
+        resp = await dashboard_client_der_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "DER"
+    if doc_key == "mission":
+        resp = await dashboard_client_mission_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Lettre de mission"
+    if doc_key == "adequation":
+        resp = await dashboard_client_adequation_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Lettre d'adéquation"
+    if doc_key == "fatca":
+        resp = await dashboard_client_fatca_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "FATCA / EAI"
+    if doc_key == "tracfin":
+        resp = await dashboard_client_tracfin_pdf(client_id, request, inline=1, db=db)
+        return await _consume_pdf_response_bytes(resp), "Tracfin"
+    if doc_key == "kyc":
+        kyc_scope = dict(request.scope)
+        kyc_scope["query_string"] = b"style=conformite&pdf=1&inline=1"
+        kyc_request = Request(kyc_scope, request.receive)
+        gen_resp = await dashboard_client_kyc_report(client_id, kyc_request, pdf=1, db=db)
+        return await _consume_pdf_response_bytes(gen_resp), "Compte rendu d'entretien"
+    if doc_key == "synthese":
+        pdf_bytes, _ctx = _render_client_synthese_pdf_bytes(request, db, client_id, esg=1)
+        return pdf_bytes, "Synthèse"
+    raise HTTPException(status_code=400, detail="Type de document direct non géré.")
+
+
 def _log_document_generation_error(message: str) -> None:
     try:
         error_log = PROJECT_ROOT / "logs" / "document_generation_errors.log"
@@ -7221,6 +8098,8 @@ async def dashboard_client_modele_generate(
         recipient = (payload.get("recipient") or getattr(client, "email", None) or "").strip()
         override_contenu = payload.get("contenu_html") or payload.get("contenu")
         override_objet = payload.get("objet") or payload.get("title")
+        mail_subject_override = payload.get("mail_subject") or payload.get("mail_objet") or payload.get("subject")
+        mail_body_override = payload.get("mail_body") or payload.get("body")
 
         rendered = render_modele_util(db, modele_id, {"client_id": client_id})
         contenu_html = override_contenu if isinstance(override_contenu, str) and override_contenu.strip() else rendered.get("contenu") or ""
@@ -7282,14 +8161,23 @@ async def dashboard_client_modele_generate(
             if not recipient:
                 mail_error = "Aucun destinataire email pour le client."
             else:
-                subject = rendered.get("objet") or modele.objet or modele.nom or "Document"
+                subject = (
+                    (mail_subject_override or "").strip()
+                    if isinstance(mail_subject_override, str) and mail_subject_override.strip()
+                    else (rendered.get("objet") or modele.objet or modele.nom or "Document")
+                )
                 client_civilite = _get_client_civilite(db, client_id, client)
                 client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
-                salutation = f"Bonjour {client_full_name}," if client_full_name else "Bonjour,"
-                body = (
-                    f"{salutation}\n\n"
+                default_body = (
+                    f"Bonjour {client_full_name},\n\n" if client_full_name else "Bonjour,\n\n"
+                ) + (
                     f"Veuillez trouver ci-joint le document '{subject}'.\n\n"
-                    f"Cordialement,\n"
+                    "Cordialement,\n"
+                )
+                body = (
+                    (mail_body_override or "").strip()
+                    if isinstance(mail_body_override, str) and mail_body_override.strip()
+                    else default_body
                 )
                 mail_sent, mail_error = send_email_with_attachments(
                     recipient,
@@ -7314,6 +8202,122 @@ async def dashboard_client_modele_generate(
         raise
     except Exception:
         _log_document_generation_error(f"client_id={client_id} modele_id={modele_id}")
+        raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
+
+
+@router.post("/clients/{client_id}/documents/direct/{doc_type}/generate")
+async def dashboard_client_direct_document_generate(
+    client_id: int,
+    doc_type: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Génère, enregistre et éventuellement envoie un PDF direct (DER, mission, adéquation, FATCA, Tracfin, synthèse)."""
+    try:
+        _require_client_read(request, db, client_id)
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        payload = payload if isinstance(payload, dict) else {}
+        send_mail = bool(payload.get("send_mail"))
+        recipient = (payload.get("recipient") or getattr(client, "email", None) or "").strip()
+        mail_subject_override = payload.get("mail_subject") or payload.get("mail_objet") or payload.get("subject")
+        mail_body_override = payload.get("mail_body") or payload.get("body")
+
+        pdf_bytes, doc_label = await _build_client_direct_pdf_bytes(doc_type, client_id, request, db)
+        file_path = _ensure_generated_client_pdf_path(client_id, doc_label)
+        file_path.write_bytes(pdf_bytes)
+
+        ensure_document_client_storage_columns(db)
+        base_doc_id = ensure_document_base_for_label(db, doc_label, niveau="généré", risque=None)
+        client_full_name = " ".join(
+            p for p in [
+                (getattr(client, "prenom", "") or "").strip(),
+                (getattr(client, "nom", "") or "").strip(),
+            ] if p
+        ).strip()
+        doc_name = doc_label + (f" - {client_full_name}" if client_full_name else "")
+        doc_client_payload = DocumentClientCreateSchema(
+            id_client=client_id,
+            id_document_base=base_doc_id,
+            nom_document=doc_name,
+            date_creation=datetime.utcnow(),
+            date_obsolescence=None,
+            obsolescence="généré",
+            stored_filename=file_path.name,
+            stored_path=str(file_path.relative_to(DOCUMENTS_DIR)),
+            mime_type="application/pdf",
+            file_size=len(pdf_bytes),
+        )
+        doc_client, err = create_document_client(db, doc_client_payload)
+        if err or not doc_client:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=err or "Impossible d'enregistrer le document client")
+
+        doc_client_id = doc_client["id"] if isinstance(doc_client, dict) else getattr(doc_client, "id", None)
+        if not doc_client_id:
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Document créé mais identifiant introuvable.")
+
+        mail_sent = False
+        mail_error = None
+        if send_mail:
+            if not recipient:
+                mail_error = "Aucun destinataire email pour le client."
+            else:
+                subject = (
+                    (mail_subject_override or "").strip()
+                    if isinstance(mail_subject_override, str) and mail_subject_override.strip()
+                    else doc_label
+                )
+                client_civilite = _get_client_civilite(db, client_id, client)
+                client_full_name = f"{client_civilite} {getattr(client, 'prenom', '') or ''} {getattr(client, 'nom', '') or ''}".strip()
+                default_body = (
+                    f"Bonjour {client_full_name},\n\n" if client_full_name else "Bonjour,\n\n"
+                ) + (
+                    f"Veuillez trouver ci-joint le document PDF '{subject}'.\n\n"
+                    "Cordialement,\n"
+                )
+                body = (
+                    (mail_body_override or "").strip()
+                    if isinstance(mail_body_override, str) and mail_body_override.strip()
+                    else default_body
+                )
+                mail_sent, mail_error = send_email_with_attachments(
+                    recipient,
+                    subject,
+                    body,
+                    attachments=[(file_path.name, pdf_bytes, "application/pdf")],
+                )
+                if not mail_sent:
+                    mail_error = mail_error or "Envoi SMTP impossible ou non configuré."
+
+        return {
+            "document_id": doc_client_id,
+            "client_id": client_id,
+            "doc_type": doc_type,
+            "document_label": doc_label,
+            "filename": file_path.name,
+            "pdf_url": f"/dashboard/document-client/{doc_client_id}/pdf?inline=1",
+            "download_url": f"/dashboard/document-client/{doc_client_id}/pdf",
+            "mail_sent": mail_sent,
+            "mail_error": mail_error,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        _log_document_generation_error(f"client_id={client_id} doc_type={doc_type}")
         raise HTTPException(status_code=500, detail="Erreur interne lors de la génération du document.")
 
 
@@ -9151,34 +10155,30 @@ async def dashboard_client_kyc_report(
     # Fallback: si aucun objectif enregistré, tenter depuis le dernier questionnaire risque (objectifs principaux)
     try:
         if not objectifs:
-            rq = db.execute(text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"), {"r": str(client_id)}).fetchone()
-            if rq:
-                rqid = int(rq[0])
-                rows = db.execute(text(
-                    """
-                    SELECT o.id AS option_id, o.label AS libelle
-                    FROM risque_questionnaire_objectif q
-                    LEFT JOIN risque_objectif_option o ON o.id = q.option_id
-                    WHERE q.questionnaire_id = :qid
-                    ORDER BY q.id ASC
-                    """
-                ), {"qid": rqid}).fetchall()
-                if rows:
-                    tmp = []
-                    pr = 1
-                    for r in rows:
-                        lib = getattr(r, 'libelle', None) or (r[1] if len(r)>1 else None)
-                        oid = getattr(r, 'option_id', None) or (r[0] if len(r)>0 else None)
-                        tmp.append({
-                            'id': None,
-                            'objectif_id': oid,
-                            'objectif_libelle': lib,
-                            'niveau_id': pr,
-                            'horizon_investissement': None,
-                            'commentaire': None,
-                        })
-                        pr += 1
-                    objectifs = tmp
+            rq = db.execute(text("SELECT objectifs_json FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY date_saisie DESC, id DESC LIMIT 1"), {"cid": client_id}).fetchone()
+            obj_ids: list[int] = []
+            if rq and rq[0]:
+                try:
+                    obj_ids = [int(x) for x in (json.loads(rq[0]) or [])]
+                except Exception:
+                    obj_ids = []
+            if obj_ids:
+                rows = db.execute(
+                    text("SELECT id, label FROM risque_objectif_option WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+                    {"ids": obj_ids},
+                ).fetchall()
+                labels_by_id = {int(r[0]): r[1] for r in rows}
+                tmp = []
+                for pr, oid in enumerate(obj_ids, start=1):
+                    tmp.append({
+                        'id': None,
+                        'objectif_id': oid,
+                        'objectif_libelle': labels_by_id.get(int(oid)),
+                        'niveau_id': pr,
+                        'horizon_investissement': None,
+                        'commentaire': None,
+                    })
+                objectifs = tmp
     except Exception:
         pass
 
@@ -9195,7 +10195,7 @@ async def dashboard_client_kyc_report(
         # Libellé du niveau de risque (ref)
         try:
             if risque and (risque.get("niveau_id") is not None):
-                r_lbl = db.execute(text("SELECT libelle FROM ref_niveau_risque WHERE id = :i"), {"i": risque.get("niveau_id")}).fetchone()
+                r_lbl = db.execute(text("SELECT label FROM risque_niveau WHERE id = :i"), {"i": risque.get("niveau_id")}).fetchone()
                 if r_lbl and r_lbl[0] is not None:
                     risque["niveau_label"] = r_lbl[0]
         except Exception:
@@ -9271,19 +10271,18 @@ async def dashboard_client_kyc_report(
                         pass
             except Exception:
                 pass
-            # Disponibilité (fallback depuis risque_questionnaire si absente)
+            # Disponibilité / durée: libellés résolus depuis les option-ids de KYC_Client_Risque
             try:
                 if not risque.get("disponibilite"):
                     row_dispo = db.execute(text(
                         """
                         SELECT d.label AS dispo, du.label AS duree
-                        FROM risque_questionnaire rq
-                        LEFT JOIN risque_disponibilite_option d ON d.id = rq.disponibilite_option_id
-                        LEFT JOIN risque_duree_option du ON du.id = rq.duree_option_id
-                        WHERE rq.client_ref = :r
-                        ORDER BY rq.updated_at DESC LIMIT 1
+                        FROM KYC_Client_Risque k
+                        LEFT JOIN risque_disponibilite_option d ON d.id = k.disponibilite_option_id
+                        LEFT JOIN risque_duree_option du ON du.id = k.duree_option_id
+                        WHERE k.id = :rid
                         """
-                    ), {"r": str(client_id)}).fetchone()
+                    ), {"rid": risque.get("id")}).fetchone()
                     if row_dispo:
                         m = row_dispo._mapping
                         if m.get("dispo"):
@@ -9301,13 +10300,13 @@ async def dashboard_client_kyc_report(
         row = db.execute(text(
             """
             SELECT
-              r.libelle AS niveau_risque,
+              r.label AS niveau_risque,
               k.duree AS horizon_placement,
               k.experience,
               k.connaissance,
               k.commentaire
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r
+            JOIN risque_niveau r
               ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
@@ -14153,7 +15152,7 @@ def _build_mission_context(db: Session, client_id: int) -> dict:
             text(
                 """
                 SELECT
-                  r.libelle AS niveau_risque,
+                  r.label AS niveau_risque,
                   k.niveau_id AS niveau_id,
                   k.duree AS horizon_placement,
                   k.experience,
@@ -14161,7 +15160,7 @@ def _build_mission_context(db: Session, client_id: int) -> dict:
                   k.commentaire,
                   k.confirmation_client
                 FROM KYC_Client_Risque k
-                JOIN ref_niveau_risque r ON k.niveau_id = r.id
+                JOIN risque_niveau r ON k.niveau_id = r.id
                 WHERE k.client_id = :cid
                 ORDER BY k.date_saisie DESC, k.id DESC
                 LIMIT 1
@@ -15530,6 +16529,71 @@ def _list_group_members(db: Session, group_id: int, actifs_only: bool = False) -
     return members
 
 
+def _append_group_history_line(current_motif: str | None, line: str) -> str:
+    current = (current_motif or "").strip()
+    if not current:
+        return line
+    return f"{current}\n{line}"
+
+
+def _collect_group_removal_labels(db: Session, group_id: int) -> list[str]:
+    labels: list[str] = []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT g.id,
+                       g.client_id,
+                       g.affaire_id,
+                       c.nom AS client_nom,
+                       c.prenom AS client_prenom,
+                       a.ref AS affaire_ref,
+                       a.id AS affaire_code,
+                       ac.nom AS affaire_client_nom,
+                       ac.prenom AS affaire_client_prenom
+                FROM administration_groupe g
+                LEFT JOIN mariadb_clients c ON c.id = g.client_id
+                LEFT JOIN mariadb_affaires a ON a.id = g.affaire_id
+                LEFT JOIN mariadb_clients ac ON ac.id = a.id_personne
+                WHERE g.groupe_id = :gid
+                  AND (COALESCE(g.actif, 1) != 0)
+                ORDER BY g.id
+                """
+            ),
+            {"gid": group_id},
+        ).fetchall()
+    except Exception:
+        return labels
+    for row in rows or []:
+        m = row._mapping
+        client_id = m.get("client_id")
+        affaire_id = m.get("affaire_id")
+        if client_id is not None:
+            parts = [
+                (m.get("client_prenom") or "").strip(),
+                (m.get("client_nom") or "").strip(),
+            ]
+            label = " ".join(p for p in parts if p) or f"Client #{client_id}"
+            labels.append(label)
+            continue
+        if affaire_id is not None:
+            affaire_ref = (m.get("affaire_ref") or "").strip()
+            affaire_code = m.get("affaire_code")
+            client_parts = [
+                (m.get("affaire_client_prenom") or "").strip(),
+                (m.get("affaire_client_nom") or "").strip(),
+            ]
+            client_label = " ".join(p for p in client_parts if p)
+            base = affaire_ref or (f"Affaire #{affaire_code}" if affaire_code is not None else f"Affaire #{affaire_id}")
+            if client_label:
+                labels.append(f"{base} / {client_label}")
+            else:
+                labels.append(base)
+            continue
+        labels.append(f"Ligne groupe #{m.get('id')}")
+    return labels
+
+
 def _resolve_affaire_client(db: Session, affaire_id: int | None) -> tuple[int | None, str | None]:
     """Pour une affaire, retourne (client_id, ref) si possible."""
     if affaire_id is None:
@@ -15712,6 +16776,93 @@ async def delete_administration_group(group_key: int, request: Request, db: Sess
         db.rollback()
         logger.error(f"delete_administration_group failed: {e}")
         return _group_error_redirect(f"Suppression impossible : {e}")
+
+
+@router.post("/groupes/{group_key}/delete", response_class=HTMLResponse)
+async def dashboard_groupes_delete(group_key: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin_or_write(request, db)
+    form = await request.form()
+    confirm = (form.get("confirm_delete") or "").strip()
+    if confirm != "SUPPRIMER":
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Merci de saisir SUPPRIMER pour confirmer la suppression.')}",
+            status_code=303,
+        )
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT id, nom, type_groupe, motif, actif
+                FROM administration_groupe_detail
+                WHERE id = :gid
+                LIMIT 1
+                """
+            ),
+            {"gid": group_key},
+        ).fetchone()
+    except Exception as e:
+        logger.error(f"dashboard_groupes_delete lookup failed: {e}")
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Groupe introuvable ou table inaccessible.')}",
+            status_code=303,
+        )
+    if not row:
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote('Groupe introuvable.')}",
+            status_code=303,
+        )
+    data = row._mapping
+    try:
+        now_dt = datetime.utcnow()
+        labels = _collect_group_removal_labels(db, int(group_key))
+        db.execute(
+            text(
+                """
+                UPDATE administration_groupe
+                SET actif = 0,
+                    date_retrait = :now_dt
+                WHERE groupe_id = :gid
+                  AND (COALESCE(actif, 1) != 0)
+                """
+            ),
+            {"now_dt": now_dt, "gid": int(group_key)},
+        )
+        hist_ts = _fmt_display_dt(now_dt)
+        hist_lines = [
+            f"[{hist_ts}] Suppression du groupe validée par saisie SUPPRIMER.",
+            f"[{hist_ts}] {len(labels)} personne(s)/affaire(s) retirée(s) du groupe.",
+        ]
+        if labels:
+            preview = "; ".join(labels[:20])
+            if len(labels) > 20:
+                preview += f" … (+{len(labels) - 20} autre(s))"
+            hist_lines.append(f"[{hist_ts}] Membres retirés : {preview}.")
+        motif = _append_group_history_line(data.get("motif"), "\n".join(hist_lines))
+        db.execute(
+            text(
+                """
+                UPDATE administration_groupe_detail
+                SET actif = 0,
+                    date_fin = :date_fin,
+                    motif = :motif
+                WHERE id = :gid
+                """
+            ),
+            {
+                "date_fin": now_dt.date(),
+                "motif": motif,
+                "gid": int(group_key),
+            },
+        )
+        db.commit()
+        return RedirectResponse(url="/dashboard/groupes?deleted=1", status_code=303)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"dashboard_groupes_delete failed: {e}")
+        return RedirectResponse(
+            url=f"/dashboard/groupes?error=1&errmsg={quote(f'Suppression impossible : {e}')}",
+            status_code=303,
+        )
 
 
 # ---- Administration : Ressources humaines ----
@@ -17219,7 +18370,7 @@ async def dashboard_client_kyc(
                     ),
                     params_s,
                 )
-            db.commit()
+            _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
         except Exception as _exc_synth:
             try:
                 db.rollback()
@@ -17323,7 +18474,7 @@ async def dashboard_client_kyc(
                 except Exception:
                     db.rollback()
                     raise
-                db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                 etat_success = "Etat civil sauvegardé avec succès."
             except Exception as exc:
                 db.rollback()
@@ -17413,9 +18564,9 @@ async def dashboard_client_kyc(
                                         :code_postal, :ville, :pays, :date_saisie, :date_expiration
                                     )
                                     """
-                                ),
-                                params,
-                            )
+                            ),
+                            params,
+                        )
                         db.commit()
                         _snapshot_synthese()
                         adresse_success = "Adresse enregistrée."
@@ -17527,7 +18678,7 @@ async def dashboard_client_kyc(
                                 """
                             ),
                             params,
-                        )
+                    )
                     db.commit()
                     _snapshot_synthese()
                     matrimonial_success = "Situation matrimoniale enregistrée."
@@ -18122,37 +19273,80 @@ async def dashboard_client_kyc(
             ui_focus_panel = "chargesPanel"
 
         elif action == "contrat_choisir":
-            # Sélection unique d'un contrat pour le client
-            sel_id_raw = form.get("id_contrat")
+            # Sélection multiple (max 3) de contrats pour le client
+            if hasattr(form, 'getlist'):
+                sel_ids_raw = form.getlist("id_contrat")
+            else:
+                raw = form.get("id_contrat")
+                sel_ids_raw = [raw] if raw else []
+            sel_ids: list[int] = []
+            for _raw in sel_ids_raw:
+                try:
+                    v = int(_raw) if _raw and str(_raw).isdigit() else None
+                except Exception:
+                    v = None
+                if v and v not in sel_ids:
+                    sel_ids.append(v)
+            sel_ids = sel_ids[:3]
+            # Frais d'entrée
+            _fe_raw = (form.get("frais_entree") or "").strip().replace(",", ".")
+            _fe_val: float | None = None
             try:
-                sel_id = int(sel_id_raw) if sel_id_raw and str(sel_id_raw).isdigit() else None
+                _fe_val = float(_fe_raw) if _fe_raw else None
+                if _fe_val is not None and not (0 <= _fe_val <= 100):
+                    _fe_val = None
             except Exception:
-                sel_id = None
-            if sel_id is None:
-                contrat_error = "Veuillez sélectionner un contrat."
+                _fe_val = None
+
+            if not sel_ids:
+                contrat_error = "Veuillez sélectionner au moins un contrat."
             else:
                 try:
-                    # Table (si absente)
+                    # Table avec PK composite (si absente)
                     db.execute(text(
                         """
                         CREATE TABLE IF NOT EXISTS KYC_contrat_choisi (
                           id_client INTEGER NOT NULL,
                           id_contrat INTEGER NOT NULL,
-                          PRIMARY KEY (id_client)
+                          PRIMARY KEY (id_client, id_contrat)
                         )
                         """
                     ))
-                    # Remplace l'existant
+                    # Migration PK si ancienne structure (id_client seul)
+                    try:
+                        db.execute(text(
+                            "ALTER TABLE KYC_contrat_choisi DROP PRIMARY KEY, ADD PRIMARY KEY (id_client, id_contrat)"
+                        ))
+                    except Exception:
+                        pass
+                    # Remplace les sélections existantes
                     db.execute(text("DELETE FROM KYC_contrat_choisi WHERE id_client = :cid"), {"cid": client_id})
-                    db.execute(text("INSERT INTO KYC_contrat_choisi (id_client, id_contrat) VALUES (:cid, :kid)"), {"cid": client_id, "kid": sel_id})
+                    for _kid in sel_ids:
+                        db.execute(text("INSERT INTO KYC_contrat_choisi (id_client, id_contrat) VALUES (:cid, :kid)"), {"cid": client_id, "kid": _kid})
+                    # Frais d'entrée
+                    db.execute(text(
+                        """
+                        CREATE TABLE IF NOT EXISTS KYC_frais_entree (
+                          id_client INTEGER NOT NULL PRIMARY KEY,
+                          frais_entree DECIMAL(5,2) NOT NULL
+                        )
+                        """
+                    ))
+                    if _fe_val is not None:
+                        db.execute(text(
+                            "REPLACE INTO KYC_frais_entree (id_client, frais_entree) VALUES (:cid, :fe)"
+                        ), {"cid": client_id, "fe": _fe_val})
+                    else:
+                        db.execute(text("DELETE FROM KYC_frais_entree WHERE id_client = :cid"), {"cid": client_id})
                     db.commit()
-                    contrat_success = "Contrat enregistré."
-                except Exception as exc:
+                    _n = len(sel_ids)
+                    contrat_success = f"{_n} contrat{'s' if _n > 1 else ''} enregistré{'s' if _n > 1 else ''}."
+                except Exception:
                     try:
                         db.rollback()
                     except Exception:
                         pass
-                    contrat_error = "Impossible d'enregistrer le contrat."
+                    contrat_error = "Impossible d'enregistrer les contrats."
             # Revenir sur le panneau Contrats
             ui_focus_section = "contrats"
             ui_focus_panel = "contratsPanel"
@@ -18228,7 +19422,7 @@ async def dashboard_client_kyc(
                             ),
                             params,
                         )
-                        db.commit()
+                        _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                         objectifs_success = "Objectif mis à jour."
                     else:
                         duplicate = db.execute(
@@ -18262,9 +19456,9 @@ async def dashboard_client_kyc(
                                     )
                                     """
                                 ),
-                                params,
-                            )
-                            db.commit()
+                                    params,
+                                )
+                            _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                             objectifs_success = "Objectif enregistré."
                 except Exception as exc:
                     db.rollback()
@@ -18354,7 +19548,7 @@ async def dashboard_client_kyc(
                 except Exception:
                     skipped += 1
             try:
-                db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
             except Exception:
                 db.rollback()
             objectifs_success = f"{saved} objectif(s) enregistré(s)." if saved else None
@@ -18381,7 +19575,7 @@ async def dashboard_client_kyc(
                         text("DELETE FROM KYC_Client_Objectifs WHERE id = :id AND client_id = :cid"),
                         {"id": link_id, "cid": client_id},
                     )
-                    db.commit()
+                    _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                     objectifs_success = "Objectif supprimé."
                     active_objectif_id = None
                 except Exception as exc:
@@ -18666,8 +19860,8 @@ async def dashboard_client_kyc(
                 if disp_id is not None:
                     disp_code = next((x["code"] for x in risque_opts_local.get("disponibilite", []) if int(x["id"])==disp_id), None)
                     if disp_code in ("court_terme", "tres_liquide"):
-                        # Cap maximum = prudent
-                        offre_calc = min(offre_calc, OFFRE["prudente"])
+                        # Disponibilité immédiate exigée: le risque doit redescendre au plus bas
+                        offre_calc = min(offre_calc, OFFRE["court_terme"])
                     # "autres_economies": aucun changement
 
                 # Durée (cap maximum)
@@ -18681,29 +19875,21 @@ async def dashboard_client_kyc(
                     if duree_code in caps:
                         offre_calc = min(offre_calc, caps[duree_code])
 
-                # Objectifs (cap prudent if epargne de précaution)
+                # Objectifs (cap prudent si épargne de précaution ou revenus court terme)
+                # NB: le code réel en base est "revenus court terme" (avec espaces), pas "revenus_court_terme"
+                _obj_codes_prudent = ("epargne_precaution", "revenus court terme")
                 if any(int(x)==obj_id for x in obj_ids for obj_id in [
-                    next((o["id"] for o in risque_opts_local.get("objectifs", []) if o["code"]=="epargne_precaution"), None)
+                    o["id"] for o in risque_opts_local.get("objectifs", []) if o["code"] in _obj_codes_prudent
                 ]):
                     offre_calc = min(offre_calc, OFFRE["prudente"])
 
-                # Revenus court-terme objective handling
-                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme","revenus")), None)
-
-                # Persist
+                # Persist (table unique KYC_Client_Risque, cf. plus bas)
                 from datetime import datetime as _dt, timedelta as _td
                 now = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 obso = (_dt.utcnow() + _td(days=730)).strftime("%Y-%m-%d %H:%M:%S")
-                # Toujours créer un nouveau questionnaire (historisation)
-                # On lit éventuellement l'ancien pour information, mais on n'update plus.
-                row = db.execute(
-                    _text("SELECT id FROM risque_questionnaire WHERE client_ref = :r ORDER BY updated_at DESC LIMIT 1"),
-                    {"r": str(client_id)},
-                ).fetchone()
-                last_rqid = row[0] if row else None
                 # Déterminer l'offre finale selon acceptation et cas revenus CT
                 final_offer = int(offre_calc)
-                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") in ("revenus_court_terme", "revenus")), None)
+                rev_ct_id = next((int(o["id"]) for o in risque_opts_local.get("objectifs", []) if o.get("code") == "revenus court terme"), None)
                 if rev_ct_id and rev_ct_id in (obj_ids or []):
                     if revenus_ct_accept == "oui":
                         final_offer = 1  # Court Terme
@@ -18716,109 +19902,18 @@ async def dashboard_client_kyc(
                 elif accept_offre_calculee == "non" and offre_personnelle_id in (1,2,3,4,5):
                     final_offer = int(offre_personnelle_id)
 
-                params_main = {
-                    "client_ref": str(client_id),
-                    "saisie_at": now,
-                    "obsolescence_at": obso,
-                    "connaissance_adequate": conso if conso in ("oui","non") else "non",
-                    "decharge_responsabilite": 0,
-                    "perte_option_id": perte_id,
-                    "patrimoine_part_option_id": patr_id,
-                    "disponibilite_option_id": disp_id,
-                    "duree_option_id": duree_id,
-                    "offre_calculee_niveau_id": int(offre_calc),
-                    "offre_finale_niveau_id": final_offer,
-                    "objectif_autre_detail": autre_detail,
-                }
                 # Décharge si l'offre finale diffère de l'offre calculée suite à un refus
-                if accept_offre_calculee == "non" and params_main["offre_finale_niveau_id"] != int(offre_calc):
-                    params_main["decharge_responsabilite"] = 1
+                decharge_responsabilite = 1 if (accept_offre_calculee == "non" and final_offer != int(offre_calc)) else 0
                 # SRRI mappé sur l'offre finale
                 srri_map = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
-                srri_val = srri_map.get(int(params_main["offre_finale_niveau_id"]), None)
-                # Insertion systématique d'un nouveau questionnaire
-                db.execute(
-                    _text(
-                        """
-                        INSERT INTO risque_questionnaire (
-                          client_ref, saisie_at, obsolescence_at,
-                          connaissance_adequate, decharge_responsabilite,
-                          perte_option_id, patrimoine_part_option_id,
-                          disponibilite_option_id, duree_option_id,
-                          offre_calculee_niveau_id, offre_finale_niveau_id,
-                          objectif_autre_detail
-                        ) VALUES (
-                          :client_ref, :saisie_at, :obsolescence_at,
-                          :connaissance_adequate, :decharge_responsabilite,
-                          :perte_option_id, :patrimoine_part_option_id,
-                          :disponibilite_option_id, :duree_option_id,
-                          :offre_calculee_niveau_id, :offre_finale_niveau_id,
-                          :objectif_autre_detail
-                        )
-                        """
-                    ),
-                    params_main,
-                )
-                rqid = _last_insert_id(db)
-                # insert children
-                for pid, nid in prod_levels.items():
-                    db.execute(
-                        _text("INSERT INTO risque_questionnaire_connaissance (questionnaire_id, produit_id, niveau_id) VALUES (:q,:p,:n)"),
-                        {"q": rqid, "p": int(pid), "n": int(nid)},
-                    )
-                for oid in obj_ids:
-                    db.execute(
-                        _text("INSERT IGNORE INTO risque_questionnaire_objectif (questionnaire_id, option_id) VALUES (:q,:o)"),
-                        {"q": rqid, "o": int(oid)},
-                    )
-                # Upsert risque_decision_client
-                try:
-                    dec_row = db.execute(_text("SELECT id FROM risque_decision_client WHERE questionnaire_id = :q"), {"q": rqid}).fetchone()
-                    decision = 'accepte' if accept_offre_calculee == 'oui' else 'refuse'
-                    dec_params = {
-                        'questionnaire_id': rqid,
-                        'saisie_at': now,
-                        'obsolescence_at': obso,
-                        'decision': decision,
-                        'message': 'Notre proposition est validée' if decision == 'accepte' else 'Le client refuse le risque proposé',
-                        'niveau_client_id': None,
-                        'motivation_refus': motivation_refus if decision == 'refuse' else None,
-                    }
-                    if decision == 'refuse' and offre_personnelle_id in (1,2,3,4,5):
-                        dec_params['niveau_client_id'] = int(offre_personnelle_id)
-                    if dec_row:
-                        db.execute(
-                            _text(
-                                """
-                                UPDATE risque_decision_client
-                                SET saisie_at=:saisie_at,
-                                    obsolescence_at=:obsolescence_at,
-                                    decision=:decision,
-                                    message=:message,
-                                    niveau_client_id=:niveau_client_id,
-                                    motivation_refus=:motivation_refus
-                                WHERE questionnaire_id=:questionnaire_id
-                                """
-                            ),
-                            dec_params,
-                        )
-                    else:
-                        db.execute(
-                            _text(
-                                """
-                                INSERT INTO risque_decision_client (
-                                  questionnaire_id, saisie_at, obsolescence_at,
-                                  decision, message, niveau_client_id, motivation_refus
-                                ) VALUES (
-                                  :questionnaire_id, :saisie_at, :obsolescence_at,
-                                  :decision, :message, :niveau_client_id, :motivation_refus
-                                )
-                                """
-                            ),
-                            dec_params,
-                        )
-                except Exception as exc:
-                    logger.debug("risque_decision_client upsert error: %s", exc, exc_info=True)
+                srri_val = srri_map.get(int(final_offer), None)
+                # Décision (acceptation/refus) — persistée directement sur KYC_Client_Risque plus bas
+                decision = 'accepte' if accept_offre_calculee == 'oui' else 'refuse'
+                decision_niveau_client_id = None
+                if decision == 'refuse' and offre_personnelle_id in (1, 2, 3, 4, 5):
+                    decision_niveau_client_id = int(offre_personnelle_id)
+                decision_motivation_refus = motivation_refus if decision == 'refuse' else None
+                objectifs_json_val = json.dumps(obj_ids or [])
                 # Upsert KYC_Client_Risque (synthèse risque client du jour)
                 try:
                     # Helper to fetch option label by id
@@ -18896,6 +19991,17 @@ async def dashboard_client_kyc(
                         "contraintes": contraintes_txt,
                         "confirmation": confirmation_txt,
                         "commentaire": commentaire_txt,
+                        "perte_option_id": perte_id,
+                        "patrimoine_part_option_id": patr_id,
+                        "disponibilite_option_id": disp_id,
+                        "duree_option_id": duree_id,
+                        "offre_calculee_niveau_id": int(offre_calc),
+                        "objectifs_json": objectifs_json_val,
+                        "objectif_autre_detail": autre_detail,
+                        "decision": decision,
+                        "niveau_client_id": decision_niveau_client_id,
+                        "motivation_refus": decision_motivation_refus,
+                        "updated_at": now,
                     }
                     risque_id: int | None = None
                     if row_kr:
@@ -18912,7 +20018,18 @@ async def dashboard_client_kyc(
                                     confirmation_client = :confirmation,
                                     commentaire = :commentaire,
                                     date_saisie = :date_saisie,
-                                    date_expiration = :date_expiration
+                                    date_expiration = :date_expiration,
+                                    perte_option_id = :perte_option_id,
+                                    patrimoine_part_option_id = :patrimoine_part_option_id,
+                                    disponibilite_option_id = :disponibilite_option_id,
+                                    duree_option_id = :duree_option_id,
+                                    offre_calculee_niveau_id = :offre_calculee_niveau_id,
+                                    objectifs_json = :objectifs_json,
+                                    objectif_autre_detail = :objectif_autre_detail,
+                                    decision = :decision,
+                                    niveau_client_id = :niveau_client_id,
+                                    motivation_refus = :motivation_refus,
+                                    updated_at = :updated_at
                                 WHERE id = :id
                                 """
                             ),
@@ -18924,9 +20041,15 @@ async def dashboard_client_kyc(
                             _text(
                                 """
                                 INSERT INTO KYC_Client_Risque (
-                                    client_id, date_saisie, date_expiration, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire
+                                    client_id, date_saisie, date_expiration, niveau_id, experience, connaissance, patrimoine, duree, contraintes, confirmation_client, commentaire,
+                                    perte_option_id, patrimoine_part_option_id, disponibilite_option_id, duree_option_id,
+                                    offre_calculee_niveau_id, objectifs_json, objectif_autre_detail,
+                                    decision, niveau_client_id, motivation_refus, created_at, updated_at
                                 ) VALUES (
-                                    :cid, :date_saisie, :date_expiration, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire
+                                    :cid, :date_saisie, :date_expiration, :niv, :exp, :connaissance, :patrimoine, :duree, :contraintes, :confirmation, :commentaire,
+                                    :perte_option_id, :patrimoine_part_option_id, :disponibilite_option_id, :duree_option_id,
+                                    :offre_calculee_niveau_id, :objectifs_json, :objectif_autre_detail,
+                                    :decision, :niveau_client_id, :motivation_refus, :date_saisie, :updated_at
                                 )
                                 """
                             ),
@@ -18939,53 +20062,30 @@ async def dashboard_client_kyc(
                         except Exception as exc:
                             logger.warning("KYC_Client_Risque insert: unable to fetch LAST_INSERT_ID for client=%s: %s", client_id, exc, exc_info=True)
                             risque_id = None
-                    # Enregistrer le détail "Niveau par produit" dans une table enfant normalisée
-                    try:
-                        # Créer la table si absente
-                        db.execute(_text(
-                            """
-                            CREATE TABLE IF NOT EXISTS KYC_Client_Risque_Connaissance (
-                              risque_id INTEGER NOT NULL,
-                              produit_id INTEGER NOT NULL,
-                              niveau_id INTEGER NOT NULL,
-                              produit_label TEXT,
-                              niveau_label TEXT,
-                              PRIMARY KEY (risque_id, produit_id),
-                              FOREIGN KEY (risque_id) REFERENCES KYC_Client_Risque(id) ON DELETE CASCADE
+                    # Enregistrer le détail "Niveau par produit" dans la table enfant KYC_Client_Risque_Connaissance
+                    # (table + contraintes créées par la migration 20260703_consolidate_kyc_client_risque.sql)
+                    if risque_id is not None:
+                        # Purge puis insert des paires produit->niveau (labels résolus en SQL, pas de dépendance
+                        # sur risque_opts_local qui ne charge pas toujours la clé "produits")
+                        db.execute(_text("DELETE FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid"), {"rid": risque_id})
+                        for pid, nid in (prod_levels or {}).items():
+                            try:
+                                pid_i = int(pid); nid_i = int(nid)
+                            except Exception:
+                                continue
+                            db.execute(
+                                _text(
+                                    """
+                                    INSERT INTO KYC_Client_Risque_Connaissance (
+                                      risque_id, produit_id, niveau_id, produit_label, niveau_label
+                                    )
+                                    SELECT :rid, :pid, :nid, p.label, n.label
+                                    FROM risque_connaissance_produit_option p, risque_connaissance_niveau_option n
+                                    WHERE p.id = :pid AND n.id = :nid
+                                    """
+                                ),
+                                {"rid": risque_id, "pid": pid_i, "nid": nid_i},
                             )
-                            """
-                        ))
-                        if risque_id is not None:
-                            # Purge puis insert des paires produit->niveau
-                            db.execute(_text("DELETE FROM KYC_Client_Risque_Connaissance WHERE risque_id = :rid"), {"rid": risque_id})
-                            # utilitaires libellés
-                            produits_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("produits") or [])}
-                            niveaux_map = {int(x.get("id")): (x.get("label") or x.get("libelle") or str(x.get("id"))) for x in (risque_opts_local.get("niveaux") or [])}
-                            for pid, nid in (prod_levels or {}).items():
-                                try:
-                                    pid_i = int(pid); nid_i = int(nid)
-                                except Exception:
-                                    continue
-                                db.execute(
-                                    _text(
-                                        """
-                                        INSERT OR REPLACE INTO KYC_Client_Risque_Connaissance (
-                                          risque_id, produit_id, niveau_id, produit_label, niveau_label
-                                        ) VALUES (
-                                          :rid, :pid, :nid, :plabel, :nlabel
-                                        )
-                                        """
-                                    ),
-                                    {
-                                        "rid": risque_id,
-                                        "pid": pid_i,
-                                        "nid": nid_i,
-                                        "plabel": produits_map.get(pid_i),
-                                        "nlabel": niveaux_map.get(nid_i),
-                                    },
-                                )
-                    except Exception as _exc_kcr:
-                        logger.debug("KYC_Client_Risque_Connaissance persist error: %s", _exc_kcr, exc_info=True)
                     # pour affichage UI
                     risque_commentaire = payload.get("commentaire")
                     # Récupérer allocation liée au niveau de risque
@@ -19168,7 +20268,9 @@ async def dashboard_client_kyc(
                         pass
                 except Exception as exc:
                     logger.warning("KYC_Client_Risque upsert error for client=%s: %s", client_id, exc, exc_info=True)
+                    raise
                 db.commit()
+                _commit_and_refresh_client_kyc_financial_analysis(db, client_id)
                 try:
                     row_dbg = db.execute(
                         _text("SELECT id, date_saisie, niveau_id, confirmation_client FROM KYC_Client_Risque WHERE client_id = :cid ORDER BY id DESC LIMIT 3"),
@@ -20071,17 +21173,28 @@ async def dashboard_client_kyc(
     except Exception:
         kyc_contracts = []
 
-    # Contrat sélectionné (si existant)
-    kyc_contrat_selected_id: int | None = None
+    # Contrats sélectionnés (si existants)
+    kyc_contrat_selected_ids: list[int] = []
     try:
-        row = db.execute(text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid LIMIT 1"), {"cid": client_id}).fetchone()
-        if row:
+        rows = db.execute(text("SELECT id_contrat FROM KYC_contrat_choisi WHERE id_client = :cid"), {"cid": client_id}).fetchall()
+        for _r in rows:
             try:
-                kyc_contrat_selected_id = int(row[0]) if row[0] is not None else None
+                _v = int(_r[0]) if _r[0] is not None else None
+                if _v:
+                    kyc_contrat_selected_ids.append(_v)
             except Exception:
-                kyc_contrat_selected_id = None
+                pass
     except Exception:
-        kyc_contrat_selected_id = None
+        kyc_contrat_selected_ids = []
+
+    # Frais d'entrée saisis
+    kyc_frais_entree: float | None = None
+    try:
+        _fe_r = db.execute(text("SELECT frais_entree FROM KYC_frais_entree WHERE id_client = :cid"), {"cid": client_id}).fetchone()
+        if _fe_r and _fe_r[0] is not None:
+            kyc_frais_entree = float(_fe_r[0])
+    except Exception:
+        kyc_frais_entree = None
     logger.info("TIMING kyc %s: after contrats %.3fs", client_id, _pc_kyc() - _t0_kyc)
 
     # ESG: options et questionnaire courant
@@ -20180,65 +21293,53 @@ async def dashboard_client_kyc(
 
     risque_current = None
     risque_decision = None
-    risque_connaissance_map = {}
     risque_objectifs_ids: list[int] = []
     try:
         row = db.execute(
             text(
                 """
                 SELECT *
-                FROM risque_questionnaire
-                WHERE client_ref = :r
-                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
                 LIMIT 1
                 """
             ),
-            {"r": str(client_id)},
+            {"cid": client_id},
         ).fetchone()
         if row:
             m = row._mapping
-            rqid = m.get("id")
             risque_current = {
-                "id": rqid,
-                "saisie_at": _fmt_date(m.get("saisie_at")),
-                "obsolescence_at": _fmt_date(m.get("obsolescence_at")),
-                "connaissance_adequate": m.get("connaissance_adequate"),
-                "decharge_responsabilite": m.get("decharge_responsabilite"),
+                "id": m.get("id"),
+                "saisie_at": _fmt_date(m.get("date_saisie")),
+                "obsolescence_at": _fmt_date(m.get("date_expiration")),
+                "connaissance_adequate": m.get("connaissance"),
+                "decharge_responsabilite": None,
                 "perte_option_id": m.get("perte_option_id"),
                 "patrimoine_part_option_id": m.get("patrimoine_part_option_id"),
                 "disponibilite_option_id": m.get("disponibilite_option_id"),
                 "duree_option_id": m.get("duree_option_id"),
                 "offre_calculee_niveau_id": m.get("offre_calculee_niveau_id"),
-                "offre_finale_niveau_id": m.get("offre_finale_niveau_id"),
+                "offre_finale_niveau_id": m.get("niveau_id"),
                 "objectif_autre_detail": m.get("objectif_autre_detail"),
+                "profil_coherence_html": m.get("profil_coherence_html"),
+                "age_adequation_html": m.get("age_adequation_html"),
+                "age_adequation_status": m.get("age_adequation_status"),
             }
             try:
-                rows = db.execute(text("SELECT produit_id, niveau_id FROM risque_questionnaire_connaissance WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
-                risque_connaissance_map = {int(r.produit_id): int(r.niveau_id) for r in rows}
-            except Exception:
-                risque_connaissance_map = {}
-            try:
-                rows = db.execute(text("SELECT option_id FROM risque_questionnaire_objectif WHERE questionnaire_id = :q"), {"q": rqid}).fetchall()
-                risque_objectifs_ids = [int(x[0]) for x in rows]
+                risque_objectifs_ids = [int(x) for x in (json.loads(m.get("objectifs_json") or "[]") or [])]
             except Exception:
                 risque_objectifs_ids = []
-            # Décision client (acceptation/refus) liée au questionnaire
-            try:
-                drow = db.execute(
-                    text("SELECT decision, niveau_client_id, motivation_refus FROM risque_decision_client WHERE questionnaire_id = :q"),
-                    {"q": rqid},
-                ).fetchone()
-                if drow:
-                    dm = drow._mapping
-                    risque_decision = {
-                        "decision": dm.get("decision"),
-                        "niveau_client_id": dm.get("niveau_client_id"),
-                        "motivation_refus": dm.get("motivation_refus"),
-                    }
-            except Exception:
-                risque_decision = None
+            risque_decision = {
+                "decision": m.get("decision"),
+                "niveau_client_id": m.get("niveau_client_id"),
+                "motivation_refus": m.get("motivation_refus"),
+            }
     except Exception:
         risque_current = None
+
+    # Niveau de connaissance courant par produit (non-régressif, cf. _get_effective_connaissance_produits)
+    risque_connaissance_map = _get_effective_connaissance_produits(db, client_id)
 
     # Calculer affichage dates
     if risque_current and risque_current.get("saisie_at") and risque_current.get("obsolescence_at"):
@@ -20258,7 +21359,11 @@ async def dashboard_client_kyc(
             text(
                 """
                 SELECT id, date_saisie, date_expiration, niveau_id, experience, connaissance,
-                       patrimoine, duree, contraintes, confirmation_client, commentaire
+                       patrimoine, duree, contraintes, confirmation_client, commentaire,
+                       perte_option_id, patrimoine_part_option_id, disponibilite_option_id, duree_option_id,
+                       offre_calculee_niveau_id, objectifs_json, objectif_autre_detail,
+                       decision, niveau_client_id, motivation_refus,
+                       profil_coherence_html, age_adequation_html, age_adequation_status
                 FROM KYC_Client_Risque
                 WHERE client_id = :cid
                 ORDER BY date_saisie DESC, id DESC
@@ -20403,6 +21508,9 @@ async def dashboard_client_kyc(
                 "allocation_nom": allocation_nom,
                 "allocation_chart": alloc_chart,
                 "allocation_html": _md_to_html(allocation_md),
+                "profil_coherence_html": sel.get("profil_coherence_html"),
+                "age_adequation_html": sel.get("age_adequation_html"),
+                "age_adequation_status": sel.get("age_adequation_status"),
             }
             # Utiliser les dates du snapshot pour l'entête
             risque_display_saisie = sel.get("date_saisie") or risque_display_saisie
@@ -20415,9 +21523,45 @@ async def dashboard_client_kyc(
                     ),
                     {"rid": int(sel.get("id"))},
                 ).fetchall()
-                risque_snapshot["connaissance_produits"] = [dict(r._mapping) for r in rows_c]
+                connaissance_produits = [dict(r._mapping) for r in rows_c]
+                risque_snapshot["connaissance_produits"] = connaissance_produits
             except Exception:
-                pass
+                connaissance_produits = []
+
+            # Réutiliser ce snapshot pour pré-remplir le formulaire de consultation.
+            # Chaque ligne KYC_Client_Risque porte désormais tous les champs directement
+            # (plus besoin de redeviner les option-ids à partir des libellés affichés).
+            # Uniquement en mode historique explicite (?kr=<ancien id>): la vue "courante"
+            # (par défaut) garde risque_current/risque_decision/risque_objectifs_ids déjà
+            # chargés depuis la dernière ligne, et risque_connaissance_map déjà calculé de
+            # façon non-régressive par _get_effective_connaissance_produits plus haut.
+            if risque_history_mode:
+                try:
+                    risque_current = {
+                        "connaissance_adequate": sel.get("connaissance"),
+                        "perte_option_id": sel.get("perte_option_id"),
+                        "patrimoine_part_option_id": sel.get("patrimoine_part_option_id"),
+                        "disponibilite_option_id": sel.get("disponibilite_option_id"),
+                        "duree_option_id": sel.get("duree_option_id"),
+                        "offre_calculee_niveau_id": sel.get("offre_calculee_niveau_id"),
+                        "offre_finale_niveau_id": sel.get("niveau_id"),
+                        "objectif_autre_detail": sel.get("objectif_autre_detail"),
+                        "profil_coherence_html": sel.get("profil_coherence_html"),
+                        "age_adequation_html": sel.get("age_adequation_html"),
+                        "age_adequation_status": sel.get("age_adequation_status"),
+                    }
+                    risque_decision = {
+                        "decision": sel.get("decision"),
+                        "niveau_client_id": sel.get("niveau_client_id"),
+                        "motivation_refus": sel.get("motivation_refus"),
+                    }
+                    try:
+                        risque_objectifs_ids = [int(x) for x in (json.loads(sel.get("objectifs_json") or "[]") or [])]
+                    except Exception:
+                        risque_objectifs_ids = []
+                    risque_connaissance_map = {int(r.get("produit_id")): int(r.get("niveau_id")) for r in connaissance_produits if r.get("produit_id") is not None and r.get("niveau_id") is not None}
+                except Exception:
+                    pass
 
     try:
         ref_niveau_rows = db.execute(
@@ -21392,6 +22536,40 @@ async def dashboard_client_kyc(
     except Exception:
         lcbft_objectifs = []
 
+    profil_investissement_html = (
+        (risque_snapshot.get("profil_coherence_html") if risque_snapshot else None)
+        or (risque_current.get("profil_coherence_html") if risque_current else None)
+        or ""
+    )
+    age_adequation_html = (
+        (risque_snapshot.get("age_adequation_html") if risque_snapshot else None)
+        or (risque_current.get("age_adequation_html") if risque_current else None)
+        or ""
+    )
+    age_adequation_status_kyc = (
+        (risque_snapshot.get("age_adequation_status") if risque_snapshot else None)
+        or (risque_current.get("age_adequation_status") if risque_current else None)
+        or "ok"
+    )
+    age_client_kyc = None
+    age_fin_placement_kyc = None
+    try:
+        from datetime import date as _date_cls
+        dn = (etat_civil_row or {}).get("date_naissance")
+        if dn:
+            if isinstance(dn, str):
+                dn = _date_cls.fromisoformat(dn[:10])
+            elif hasattr(dn, "date"):
+                dn = dn.date()
+            if hasattr(dn, "year"):
+                today = _date_cls.today()
+                age_client_kyc = (today - dn).days // 365
+                rhp_years = allocation_sri_rhp_years if 'allocation_sri_rhp_years' in locals() else None
+                if rhp_years is not None:
+                    age_fin_placement_kyc = age_client_kyc + int(round(float(rhp_years)))
+    except Exception:
+        pass
+
     nb_contrats_actifs = 0
     nb_supports_references = 0
     try:
@@ -21605,7 +22783,8 @@ async def dashboard_client_kyc(
             "ref_type_revenu": ref_type_revenu,
             "ref_type_charge": ref_type_charge,
             "kyc_contracts": kyc_contracts,
-            "kyc_contrat_selected_id": kyc_contrat_selected_id,
+            "kyc_contrat_selected_ids": kyc_contrat_selected_ids,
+            "kyc_frais_entree": kyc_frais_entree,
             "contrat_success": contrat_success,
             "contrat_error": contrat_error,
             "ref_objectifs": ref_objectifs,
@@ -21675,6 +22854,11 @@ async def dashboard_client_kyc(
             # LCBFT objectifs (KYC)
             "lcbft_invest_total": locals().get("lcbft_invest_total", 0.0),
             "lcbft_objectifs": locals().get("lcbft_objectifs", []),
+            "profil_investissement_html": profil_investissement_html,
+            "age_adequation_html": age_adequation_html,
+            "age_client_kyc": age_client_kyc,
+            "age_fin_placement_kyc": age_fin_placement_kyc,
+            "age_adequation_status_kyc": age_adequation_status_kyc,
             "summary_data": {
                 "actifs": synth_actifs,
                 "passifs": synth_passifs,
@@ -22575,6 +23759,11 @@ def dashboard_groupes(request: Request, db: Session = Depends(get_db)):
         gid = row.get("id")
         if not gid:
             continue
+        try:
+            if int(row.get("actif") or 0) == 0:
+                continue
+        except Exception:
+            pass
         type_raw = (row.get("type_groupe") or "").lower()
         resp_label = " ".join(
             p for p in [
@@ -24023,11 +25212,17 @@ def dashboard_affaire_detail(affaire_id: int, request: Request, db: Session = De
                 "nbuc": r.nbuc,
                 "vl": r.vl,
                 "prmp": r.prmp,
+                "prma": r.prmp,
                 "valo": r.valo,
                 "srri_support": getattr(r, "srri_support", None),
                 "noteE": getattr(r, "noteE", None),
                 "noteS": getattr(r, "noteS", None),
                 "noteG": getattr(r, "noteG", None),
+                "note_esg": esg_grade_from_letters(
+                    getattr(r, "noteE", None),
+                    getattr(r, "noteS", None),
+                    getattr(r, "noteG", None),
+                ),
                 "cat_gene": getattr(r, "cat_gene", None),
                 "cat_principale": getattr(r, "cat_principale", None),
                 "cat_det": getattr(r, "cat_det", None),
@@ -26151,6 +27346,14 @@ def dashboard_superadmin(request: Request, db: Session = Depends(get_db)):
             }
     except Exception:
         superadmin_user = None
+    if superadmin_user is None:
+        superadmin_user = {
+            "id": None,
+            "nom": None,
+            "prenom": None,
+            "mail": None,
+            "telephone": None,
+        }
 
     societes_gestion: list[dict] = []
     total_societes = 0
@@ -28284,6 +29487,86 @@ def dashboard_superadmin_import_esg(
     return RedirectResponse(url=target_url, status_code=303)
 
 
+@router.post("/superadmin/sync-support-names-esg", response_class=RedirectResponse)
+def dashboard_superadmin_sync_support_names_esg(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Met à jour mariadb_support.nom depuis mydb.Referentiel_final (ESG_NOTE) via ISIN."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifie")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    qs = request.url.query
+    msg = "err"
+    try:
+        result = db.execute(text("""
+            UPDATE mariadb_support ms
+            INNER JOIN mydb.`Referentiel_final` rf
+              ON rf.ISIN COLLATE utf8mb4_unicode_ci = ms.code_isin
+            SET ms.nom = rf.company_name
+            WHERE rf.company_name IS NOT NULL AND rf.company_name != ''
+        """))
+        db.commit()
+        updated = result.rowcount
+        msg = f"ok_names_{updated}"
+    except Exception as exc:
+        db.rollback()
+        msg = f"err_{str(exc)[:80]}"
+
+    target = f"/dashboard/superadmin?{qs}&msg={msg}#outils-import" if qs else f"/dashboard/superadmin?msg={msg}#outils-import"
+    return RedirectResponse(url=target, status_code=303)
+
+
+@router.get("/superadmin/offres-financieres", response_class=HTMLResponse)
+def superadmin_offres_get(request: Request, db: Session = Depends(get_db)):
+    """Éditeur des textes de présentation des Offres financières."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    rows = db.execute(
+        text("SELECT id, allocation_name, texte FROM allocation_risque WHERE allocation_name LIKE 'Offre%' ORDER BY id")
+    ).fetchall()
+    offres = [{"id": r[0], "nom": r[1], "texte": r[2] or ""} for r in rows]
+    saved = request.query_params.get("saved")
+    return templates.TemplateResponse(
+        "superadmin_offres.html",
+        {"request": request, "offres": offres, "saved": saved},
+    )
+
+
+@router.post("/superadmin/offres-financieres", response_class=RedirectResponse)
+async def superadmin_offres_post(request: Request, db: Session = Depends(get_db)):
+    """Sauvegarde les textes des Offres financières."""
+    user_type, current_user_id, req_scope = extract_user_context(request)
+    if current_user_id is None:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+    access = load_access(db, user_type=user_type, user_id=current_user_id)
+    current_scope = pick_scope(access, req_scope)
+    require_permission(access, "administration", "access", societe_id=current_scope)
+
+    form = await request.form()
+    for key, value in form.items():
+        if key.startswith("texte_"):
+            try:
+                offre_id = int(key.split("_", 1)[1])
+                db.execute(
+                    text("UPDATE allocation_risque SET texte = :t WHERE id = :id"),
+                    {"t": str(value), "id": offre_id},
+                )
+            except Exception:
+                pass
+    db.commit()
+    return RedirectResponse(url="/dashboard/superadmin/offres-financieres?saved=1", status_code=303)
+
+
 @router.post("/superadmin/recompute-esg-grades", response_class=RedirectResponse)
 def dashboard_superadmin_recompute_esg_grades(
     request: Request,
@@ -30238,6 +31521,52 @@ def dashboard_groupes_esg(
         payload["deprecated_fields"] = deprecated_fields
         payload["deprecated_map"] = deprecated_map
     return payload
+
+
+# ---------------- ESG exclusions API ----------------
+
+@router.get("/clients/{client_id}/esg/exclusions", response_class=JSONResponse)
+def dashboard_client_esg_exclusions(
+    client_id: int,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Check conformity between a client's declared ESG exclusion preferences
+    and the funds currently held across all their affaires.
+    """
+    try:
+        _require_client_read(request, db, client_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    isins = get_client_portfolio_isins(db, client_id)
+    return check_fund_exclusions(db, isins, client_id)
+
+
+@router.get("/affaires/{affaire_id}/esg/exclusions", response_class=JSONResponse)
+def dashboard_affaire_esg_exclusions(
+    affaire_id: int,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Check conformity between a client's declared ESG exclusion preferences
+    and the funds held in a specific affaire.
+    """
+    try:
+        _require_affaire_read(request, db, affaire_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    affaire = db.query(Affaire).filter(Affaire.id == affaire_id).first()
+    if affaire is None:
+        return JSONResponse(status_code=404, content={"detail": "Affaire introuvable."})
+    client_id = getattr(affaire, "id_personne", None)
+    if not client_id:
+        return JSONResponse(status_code=422, content={"detail": "Affaire sans client associé."})
+
+    isins = get_affaire_portfolio_isins(db, affaire_id)
+    return check_fund_exclusions(db, isins, client_id)
 
 
 # ---------------- ESG data API (Global consolidé: tous contrats) ----------------
@@ -32551,14 +33880,14 @@ def _compute_kyc_completion_status(db: Session, client_id: int) -> dict:
         row = db.execute(
             text(
                 """
-                SELECT id, offre_finale_niveau_id
-                FROM risque_questionnaire
-                WHERE client_ref = :ref
-                ORDER BY COALESCE(updated_at, saisie_at, created_at, id) DESC
+                SELECT id, niveau_id AS offre_finale_niveau_id
+                FROM KYC_Client_Risque
+                WHERE client_id = :cid
+                ORDER BY date_saisie DESC, id DESC
                 LIMIT 1
                 """
             ),
-            {"ref": str(client_id)},
+            {"cid": client_id},
         ).fetchone()
     except Exception:
         row = None
@@ -33401,6 +34730,8 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
 
     client_affaires = []
     consolidation_rows: list[dict] = []
+    note_map_esg = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7}
+    inv_map_esg = {v: k for k, v in note_map_esg.items()}
     for r in affaires_rows:
         srri_calc = _srri_from_vol(r.last_volat)
         icon = _icon_for_compare(r.SRRI, srri_calc)
@@ -33441,6 +34772,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             "total_mvt": total_mvt,
             "ecart_valo_mvt": ecart_valo_mvt,
             "last_valo_numeric": last_valo_numeric,
+            "note_esg": None,
         })
 
     effective_support_date = as_of_effective or (labels[-1] if labels else None)
@@ -33539,6 +34871,12 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     "noteS": _grade(st["s_sum"], st["s_w"]),
                     "noteG": _grade(st["g_sum"], st["g_w"]),
                 }
+                affaire_esg_grade = esg_grade_from_letters(
+                    affaire_esg_map[aid]["noteE"],
+                    affaire_esg_map[aid]["noteS"],
+                    affaire_esg_map[aid]["noteG"],
+                )
+                affaire_esg_map[aid]["grade"] = affaire_esg_grade
         except Exception:
             affaire_esg_map = {}
 
@@ -33554,6 +34892,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
             aff["noteE"] = esg.get("noteE")
             aff["noteS"] = esg.get("noteS")
             aff["noteG"] = esg.get("noteG")
+            aff["note_esg"] = esg.get("grade")
 
     # Note ESG agrégée (pondérée par valorisation) pour le client
     client_esg_grade = None
@@ -33615,12 +34954,6 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
                     g_weight_total += valo
         if esg_weight_total > 0:
             client_esg_score = esg_weighted_sum / esg_weight_total
-            grade_num = int(round(client_esg_score))
-            if grade_num < 1:
-                grade_num = 1
-            if grade_num > 7:
-                grade_num = 7
-            client_esg_grade = inv_map.get(grade_num)
             if total_valo_esg > 0:
                 client_esg_coverage_pct = (esg_weight_total / total_valo_esg) * 100.0
         def _grade_from(weighted_sum: float, weight_total: float) -> str | None:
@@ -33636,6 +34969,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         client_esg_e_grade = _grade_from(e_weighted_sum, e_weight_total)
         client_esg_s_grade = _grade_from(s_weighted_sum, s_weight_total)
         client_esg_g_grade = _grade_from(g_weighted_sum, g_weight_total)
+        client_esg_grade = esg_grade_from_letters(client_esg_e_grade, client_esg_s_grade, client_esg_g_grade)
     except Exception as _esg_exc:
         logger.warning("ESG grade computation failed client %s: %s", client_id, _esg_exc)
         client_esg_grade = None
@@ -34476,7 +35810,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
         row = db.execute(text(
             """
             SELECT
-              r.libelle AS niveau_risque,
+              r.label AS niveau_risque,
               k.niveau_id AS niveau_id,
               k.duree AS horizon_placement,
               k.experience,
@@ -34484,7 +35818,7 @@ def dashboard_client_detail(client_id: int, request: Request, db: Session = Depe
               k.commentaire,
               k.confirmation_client
             FROM KYC_Client_Risque k
-            JOIN ref_niveau_risque r ON k.niveau_id = r.id
+            JOIN risque_niveau r ON k.niveau_id = r.id
             WHERE k.client_id = :cid
             ORDER BY k.date_saisie DESC, k.id DESC
             LIMIT 1
@@ -35078,15 +36412,15 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             Allocation.perf_sicav_52,
             Allocation.volat,
             Allocation.sicav,
+            Allocation.sri,
         )
         .order_by(Allocation.nom.asc(), Allocation.date.asc())
         .all()
     )
 
     series_data: dict[str, list[dict]] = {}
-    for nom, date, perf52, vol, sicav in series_rows:
+    for nom, date, perf52, vol, sicav, sri_val in series_rows:
         arr = series_data.setdefault(nom, [])
-        # format date en YYYY-MM-DD si possible
         dstr = None
         try:
             dstr = date.strftime("%Y-%m-%d") if date else None
@@ -35097,6 +36431,7 @@ def dashboard_allocations(request: Request, db: Session = Depends(get_db)):
             "perf": float(perf52 or 0),
             "vol": float(vol or 0),
             "sicav": float(sicav or 0),
+            "sri": int(sri_val) if sri_val is not None else None,
         })
 
     # Derniers métriques SRI par allocation (pour pop-up)

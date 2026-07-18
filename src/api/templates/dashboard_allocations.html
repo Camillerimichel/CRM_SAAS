@@ -5,12 +5,14 @@
 
 {% block content %}
 <style>
+    .container { max-width: none !important; padding: 0 !important; }
     .main-container {
         background: white;
         border-radius: 15px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         padding: 2rem;
         margin: 0.15rem auto;
+        max-width: 1200px;
     }
     .header-section {
         background: var(--primary);
@@ -134,8 +136,11 @@
     .sim-scenarios-table th { text-transform:none; font-size:0.72rem; letter-spacing:0; padding:6px; line-height:1.1; white-space:normal; word-break:break-word; }
     .sim-inputs { min-width:0; }
     .sim-inputs .sim-grid { margin-top:0; }
-    .sim-chart-row { display:flex; gap:16px; align-items:stretch; flex-wrap:wrap; margin-top:10px; }
-    #allocSimChart { flex:1 1 560px; min-width:320px; }
+    .sim-chart-row { display:block; margin-top:10px; width:100%; }
+    #sicavChart,
+    #allocAnnualChart,
+    #allocSimChart { width:100%; min-width:0; }
+    #allocSimChart { height:320px; }
     .sim-summary { border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; padding:12px 14px; margin-top:10px; }
     .sim-summary-title { font-weight:700; margin-bottom:8px; }
     .sim-summary-row { display:flex; justify-content:flex-start; gap:8px; font-size:12px; margin:6px 0; }
@@ -275,16 +280,21 @@
         </table>
     </div>
 
-    <div id="allocPerfCard" class="card alloc-perf-card" style="margin-top:1.5rem;">
-        <h3>Performance hebdomadaire et Volatilité</h3>
-        <div id="sicavChart" style="height: 280px;"></div>
-    </div>
+</div>
 
-    <div id="allocSimCard" class="card alloc-perf-card" style="margin-top:1.5rem; display:none;">
-        <h3>Simulations</h3>
-        <div id="allocSimBody" class="muted">Choisissez une offre pour afficher les simulations.</div>
-    </div>
-    
+<div id="allocPerfCard" class="card alloc-perf-card" style="margin-top:1.5rem;">
+    <h3>Performance hebdomadaire et Volatilité</h3>
+    <div id="sicavChart" style="height: 280px;"></div>
+</div>
+
+<div id="allocAnnualCard" class="card alloc-perf-card" style="margin-top:1.5rem; display:none;">
+    <h3 id="allocAnnualTitle" style="padding:0 0.5rem;">Performances annuelles et SRI</h3>
+    <div id="allocAnnualChart" style="height: 400px;"></div>
+</div>
+
+<div id="allocSimCard" class="card alloc-perf-card" style="margin-top:1.5rem; display:none;">
+    <h3>Simulations</h3>
+    <div id="allocSimBody" class="muted">Choisissez une offre pour afficher les simulations.</div>
 </div>
 
 <!-- Modal SRI allocations -->
@@ -586,7 +596,7 @@ $(document).ready(function () {
             html += '        <div class="sim-field"><label for="sim-capital">Investi (€)</label><input id="sim-capital" type="number" min="10000" step="100" value="10000"></div>';
             html += '        <div class="sim-field"><label for="sim-periodic">Vst. périodique (€)</label><input id="sim-periodic" type="number" min="0" step="50" value="0"></div>';
             html += '        <div class="sim-field"><label for="sim-period">Périodicité</label><select id="sim-period"><option value="monthly">Mensuelle</option><option value="quarterly">Trimestrielle</option><option value="yearly">Annuelle</option></select></div>';
-            html += '        <div class="sim-field"><label for="sim-inflation">Inflation/an</label><input id="sim-inflation" type="number" min="0.01" max="4.99" step="0.1" value="2.0"></div>';
+            html += '        <div class="sim-field"><label for="sim-inflation">Frais de gestion / an</label><input id="sim-inflation" type="number" min="0.01" max="4.99" step="0.1" value="2.0"></div>';
             html += '      </div>';
             html += '      <div id="sim-error" class="sim-error"></div>';
             html += '      <div id="allocSimSummaryBody" class="sim-summary-body"></div>';
@@ -594,12 +604,20 @@ $(document).ready(function () {
             html += '  </div>';
             html += '</div>';
             html += '<div class="sim-chart-row">';
-            html += '  <div id="allocSimChart" style="height:320px;"></div>';
+            html += '  <div id="allocSimChart" style="height:320px; width:100%;"></div>';
             html += '</div>';
             simBody.innerHTML = html;
             bindSimControls();
         }
         simCard.style.display = '';
+        requestAnimationFrame(function(){
+            if (window.Plotly) {
+                var simChartEl = document.getElementById('allocSimChart');
+                if (simChartEl) {
+                    try { Plotly.Plots.resize(simChartEl); } catch(e) {}
+                }
+            }
+        });
     }
     function showSimError(msg){
         var el = document.getElementById('sim-error');
@@ -623,7 +641,7 @@ $(document).ready(function () {
         var inflationPct = parseFloat(String(infEl.value).replace(',', '.'));
         if(!isFinite(capital) || capital < 10000) return { error: 'Le capital investi doit être ≥ 10 000 €.' };
         if(!isFinite(periodic) || periodic < 0) return { error: 'Les versements périodiques doivent être ≥ 0 €.' };
-        if(!isFinite(inflationPct) || inflationPct <= 0 || inflationPct >= 5) return { error: "L'inflation doit être > 0% et < 5%." };
+        if(!isFinite(inflationPct) || inflationPct <= 0 || inflationPct >= 5) return { error: "Les frais de gestion doivent être > 0% et < 5%." };
         var periodYears = 1;
         if(perSel.value === 'monthly') periodYears = 1 / 12;
         else if(perSel.value === 'quarterly') periodYears = 1 / 4;
@@ -778,6 +796,9 @@ $(document).ready(function () {
         var config = { displayModeBar: true, responsive: true };
         try { Plotly.react(simChartEl, traces, layout, config); }
         catch(e) { Plotly.newPlot(simChartEl, traces, layout, config); }
+        requestAnimationFrame(function(){
+            try { Plotly.Plots.resize(simChartEl); } catch(e) {}
+        });
         var totalContrib = inputs.capital + (inputs.periodic * nPeriods);
         function accumFactor(r, n){
             if (Math.abs(r) < 1e-8) return n;
@@ -967,11 +988,161 @@ $(document).ready(function () {
         catch(e) { Plotly.newPlot(sicavEl, traces, layout, config); }
     }
 
+    // ---- Graphique annuel performances + SRI ----
+    var annualEl = document.getElementById('allocAnnualChart');
+    var annualCard = document.getElementById('allocAnnualCard');
+    var annualTitle = document.getElementById('allocAnnualTitle');
+
+    function drawAnnualChart(nom) {
+        var raw = (seriesData[nom] || []).filter(function(d){ return d && d.date; });
+        raw.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+
+        // Agréger par année : dernière valeur sicav + dernier SRI de l'année
+        var byYear = {};
+        raw.forEach(function(d){
+            var yr = d.date.slice(0, 4);
+            byYear[yr] = { sicav: d.sicav, sri: d.sri };
+        });
+        var sortedYears = Object.keys(byYear).sort();
+        if (sortedYears.length < 2) {
+            annualCard.style.display = 'none';
+            return;
+        }
+
+        var labels = [], perfs = [], colors = [], sriList = [];
+        for (var i = 1; i < sortedYears.length; i++) {
+            var prev = byYear[sortedYears[i-1]].sicav;
+            var curr = byYear[sortedYears[i]].sicav;
+            if (!prev || !curr || prev <= 0) continue;
+            var pct = (curr / prev - 1) * 100;
+            labels.push('An ' + i);
+            perfs.push(parseFloat(pct.toFixed(2)));
+            colors.push(pct >= 0 ? '#16a34a' : '#ef4444');
+            sriList.push(byYear[sortedYears[i]].sri || 0);
+        }
+
+        if (!labels.length) { annualCard.style.display = 'none'; return; }
+
+        var hasSri = sriList.some(function(s){ return s > 0; });
+
+        // Construire segments SRI consécutifs pour les bandes grises
+        var shapes = [];
+        var annotations = [];
+        if (hasSri) {
+            var segStart = 0, segSri = sriList[0];
+            function addSeg(start, end, sv) {
+                if (sv >= 1 && sv <= 6) {
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x', yref: 'y2',
+                        x0: start - 0.45, x1: end + 0.45,
+                        y0: sv, y1: sv + 1,
+                        fillcolor: 'rgba(148,163,184,0.25)',
+                        line: { width: 0 },
+                        layer: 'below'
+                    });
+                }
+            }
+            for (var k = 1; k < sriList.length; k++) {
+                if (sriList[k] !== segSri) {
+                    addSeg(segStart, k - 1, segSri);
+                    segStart = k; segSri = sriList[k];
+                }
+            }
+            addSeg(segStart, sriList.length - 1, segSri);
+            // Lignes de grille SRI
+            for (var b = 2; b <= 6; b++) {
+                shapes.push({
+                    type: 'line',
+                    xref: 'paper', yref: 'y2',
+                    x0: 0, x1: 1, y0: b, y1: b,
+                    line: { color: '#cbd5e1', width: 0.5 }
+                });
+            }
+        }
+
+        // Étiquettes sur les barres
+        perfs.forEach(function(v, i){
+            annotations.push({
+                x: i, y: v,
+                xref: 'x', yref: 'y',
+                text: (v >= 0 ? '+' : '') + v.toFixed(1) + '%',
+                showarrow: false,
+                yanchor: v >= 0 ? 'bottom' : 'top',
+                yshift: v >= 0 ? 4 : -4,
+                font: { size: 9, color: v >= 0 ? '#15803d' : '#b91c1c', family: 'Arial', bold: true }
+            });
+        });
+
+        var traces = [{
+            x: labels,
+            y: perfs,
+            type: 'bar',
+            name: 'Performance annuelle (%)',
+            marker: { color: colors, opacity: 0.85 },
+            yaxis: 'y'
+        }];
+
+        if (hasSri) {
+            traces.push({
+                x: labels,
+                y: sriList.map(function(s){ return s + 0.5; }),
+                type: 'scatter',
+                mode: 'none',
+                name: 'SRI',
+                yaxis: 'y2',
+                showlegend: true,
+                hovertemplate: 'SRI : %{customdata}<extra></extra>',
+                customdata: sriList
+            });
+        }
+
+        var yVals = perfs.filter(function(v){ return isFinite(v); });
+        var yMin = Math.min.apply(null, yVals), yMax = Math.max.apply(null, yVals);
+        var yPad = (yMax - yMin) * 0.25 || 2;
+
+        var layout = {
+            margin: { l: 50, r: hasSri ? 55 : 20, t: 10, b: 30 },
+            xaxis: { tickvals: labels.map(function(_,i){ return i; }), ticktext: labels, fixedrange: true },
+            yaxis: { title: 'Performance (%)', range: [yMin - yPad, yMax + yPad], zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 1 },
+            shapes: shapes,
+            annotations: annotations,
+            legend: { orientation: 'h', x: 0, y: 1.12 },
+            plot_bgcolor: 'white',
+            paper_bgcolor: 'white'
+        };
+        if (hasSri) {
+            layout.yaxis2 = {
+                title: 'SRI',
+                overlaying: 'y',
+                side: 'right',
+                range: [1, 7],
+                tickvals: [1.5, 2.5, 3.5, 4.5, 5.5, 6.5],
+                ticktext: ['1', '2', '3', '4', '5', '6'],
+                fixedrange: true,
+                showgrid: false
+            };
+        }
+
+        var config = { displayModeBar: false, responsive: true };
+        try { Plotly.react(annualEl, traces, layout, config); }
+        catch(e) { Plotly.newPlot(annualEl, traces, layout, config); }
+
+        annualTitle.textContent = 'Performances annuelles et SRI – ' + nom;
+        annualCard.style.display = '';
+        requestAnimationFrame(function(){
+            if (window.Plotly && annualEl) {
+                try { Plotly.Plots.resize(annualEl); } catch(e) {}
+            }
+        });
+    }
+
     // Actions Voir + boutons de fenêtre
     $(document).on('click', '.seeBtn', function(){
         var nom = $(this).data('nom');
         var aid = $(this).data('aid');
         buildSeriesForNom(nom);
+        drawAnnualChart(nom);
         renderAllocSimulations(aid);
         var perfCard = document.getElementById('allocPerfCard');
         if (perfCard) {
@@ -998,8 +1169,16 @@ $(document).ready(function () {
         if (_targetBtn) {
             var _tNom = _targetBtn.getAttribute('data-nom');
             var _tAid = _targetBtn.getAttribute('data-aid');
-            if (_tNom) buildSeriesForNom(_tNom);
+            if (_tNom) { buildSeriesForNom(_tNom); drawAnnualChart(_tNom); }
             if (_tAid) renderAllocSimulations(_tAid);
+            requestAnimationFrame(function(){
+                if (window.Plotly) {
+                    if (annualEl) { try { Plotly.Plots.resize(annualEl); } catch(e) {} }
+                    if (sicavEl) { try { Plotly.Plots.resize(sicavEl); } catch(e) {} }
+                    var _simChart = document.getElementById('allocSimChart');
+                    if (_simChart) { try { Plotly.Plots.resize(_simChart); } catch(e) {} }
+                }
+            });
         }
     } catch(e) {}
 });
