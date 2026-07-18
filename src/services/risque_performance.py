@@ -5,7 +5,6 @@ calculé à partir des payloads fournis par l'appelant, rien n'est persisté.
 """
 from __future__ import annotations
 
-from bisect import bisect_left
 from collections import defaultdict
 from datetime import date as date_type
 from statistics import stdev
@@ -23,18 +22,9 @@ from src.schemas.risque_performance import (
     CalculRemunerationResponse,
     RemunerationResultLigne,
     CommissionGestionLigne,
-    RetrocessionAgregeeLigne,
 )
 
 METHODOLOGIE_URL = "/methodologie"
-
-# Une "position" identifie un fonds détenu au sein d'un contrat donné : (isin, numero_contrat).
-# Toute la grille interne (forward-fill, reconstitution nb_uc, chaînage Dietz/TWR) est indexée par
-# position plutôt que par isin seul, pour que deux contrats détenant le même fonds ne soient jamais
-# confondus dans la valorisation consolidée (leur somme reste correcte : c'est une généralisation
-# du mécanisme multi-fonds déjà existant, pas un nouveau mécanisme). numero_contrat="" (défaut) pour
-# tout l'inventaire reproduit exactement le comportement mono-portefeuille historique.
-Position = tuple[str, str]  # (isin, numero_contrat)
 
 FENETRE_VOLATILITE_SEMAINES = 52
 SEMAINES_PAR_AN = 52
@@ -47,12 +37,6 @@ SEUILS_CLASSE_B = [(0.005, 1), (0.05, 2), (0.12, 3), (0.20, 4), (0.30, 5), (0.80
 
 TOLERANCE_DETECTION_FRAIS = 0.20   # ±20% autour de l'écart théorique attendu (1/12e du taux annuel)
 SEMAINES_MIN_DETECTION_FRAIS = 4    # ~1 mois de données minimum pour tenter la détection
-
-# Au-delà de ce nombre de positions (isin x numero_contrat) éligibles à la rétrocession, le détail
-# par fonds+contrat n'est plus renvoyé (résultat agrégé par date uniquement) : à l'échelle d'une
-# vision globale portant sur un très grand nombre de contrats, le détail complet produirait des
-# millions de lignes, impraticable pour n'importe quelle interface (et coûteux à construire).
-SEUIL_DETAIL_POSITIONS_RETROCESSION = 500
 
 
 def _classe_risque(volatilite: float | None, seuils: list[tuple[float, int]]) -> int | None:
@@ -76,50 +60,46 @@ def _calendrier(inventaire: list[InventaireHebdoLigne]) -> list[date_type]:
     return sorted({ligne.date for ligne in inventaire})
 
 
-def _par_date_isin(inventaire: list[InventaireHebdoLigne]) -> dict[date_type, dict[Position, InventaireHebdoLigne]]:
-    resultat: dict[date_type, dict[Position, InventaireHebdoLigne]] = defaultdict(dict)
+def _par_date_isin(inventaire: list[InventaireHebdoLigne]) -> dict[date_type, dict[str, InventaireHebdoLigne]]:
+    resultat: dict[date_type, dict[str, InventaireHebdoLigne]] = defaultdict(dict)
     for ligne in inventaire:
-        resultat[ligne.date][(ligne.isin, ligne.numero_contrat)] = ligne
+        resultat[ligne.date][ligne.isin] = ligne
     return dict(resultat)
 
 
 def _grille_forward_fill(
     inventaire: list[InventaireHebdoLigne],
     calendrier: list[date_type],
-    mouvements_par_semaine: dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]],
-) -> dict[date_type, dict[Position, tuple[float, float]]]:
-    """Chaque fonds (au sein d'un contrat donné) ne reporte pas forcément à toutes les dates du
-    calendrier consolidé (funds entrant/sortant, sociétés différentes). Entre deux dates où
-    l'inventaire donne une valeur exacte (vérité terrain, qui prime toujours), le nb_uc est ajusté
-    par les mouvements survenus plutôt que simplement reporté à l'identique : une position
-    intégralement sortie par arbitrage sans nouvelle ligne d'inventaire ensuite doit tomber à ~0,
-    pas rester à sa dernière valeur connue (sinon double-comptage avec la position où la valeur a
-    été transférée). Le vl, lui, est simplement reporté en avant (c'est un prix de marché, pas une
-    quantité qui "s'épuise")."""
-    par_position: dict[Position, dict[date_type, InventaireHebdoLigne]] = defaultdict(dict)
+    mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
+) -> dict[date_type, dict[str, tuple[float, float]]]:
+    """Chaque fonds ne reporte pas forcément à toutes les dates du calendrier consolidé (funds
+    entrant/sortant, sociétés différentes). Entre deux dates où l'inventaire donne une valeur
+    exacte (vérité terrain, qui prime toujours), le nb_uc est ajusté par les mouvements survenus
+    plutôt que simplement reporté à l'identique : un fonds intégralement sorti par arbitrage sans
+    nouvelle ligne d'inventaire ensuite doit tomber à ~0, pas rester à sa dernière valeur connue
+    (sinon double-comptage avec le fonds où la valeur a été transférée). Le vl, lui, est simplement
+    reporté en avant (c'est un prix de marché, pas une quantité qui "s'épuise")."""
+    par_isin: dict[str, dict[date_type, InventaireHebdoLigne]] = defaultdict(dict)
     for ligne in inventaire:
-        par_position[(ligne.isin, ligne.numero_contrat)][ligne.date] = ligne
+        par_isin[ligne.isin][ligne.date] = ligne
 
-    grille: dict[date_type, dict[Position, tuple[float, float]]] = defaultdict(dict)
-    for position, par_date in par_position.items():
+    grille: dict[date_type, dict[str, tuple[float, float]]] = defaultdict(dict)
+    for isin, par_date in par_isin.items():
         premiere_date = min(par_date.keys())
-        # bisect plutôt qu'un scan linéaire depuis le début du calendrier : sur un gros calcul
-        # multi-contrats (des milliers de positions, chacune n'active que sur une fraction de
-        # l'historique consolidé), ça évite de re-comparer les dates antérieures à premiere_date
-        # à chaque position — gain significatif quand le calendrier consolidé couvre des décennies.
-        index_depart = bisect_left(calendrier, premiere_date)
         nb_uc_courant: float | None = None
         vl_courant: float | None = None
-        for d in calendrier[index_depart:]:
+        for d in calendrier:
+            if d < premiere_date:
+                continue
             ligne_exacte = par_date.get(d)
             if ligne_exacte is not None:
                 nb_uc_courant = ligne_exacte.nbuc
                 vl_courant = ligne_exacte.vl
             else:
-                for mouvement, signe in mouvements_par_semaine.get(d, {}).get(position, []):
+                for mouvement, signe in mouvements_par_semaine.get(d, {}).get(isin, []):
                     nb_uc_courant = (nb_uc_courant or 0.0) + signe * mouvement.nb_uc
             if nb_uc_courant is not None and vl_courant is not None:
-                grille[d][position] = (nb_uc_courant, vl_courant)
+                grille[d][isin] = (nb_uc_courant, vl_courant)
     return dict(grille)
 
 
@@ -127,104 +107,76 @@ def _mouvements_par_semaine_isin(
     mouvements: list[MouvementLigne],
     calendrier: list[date_type],
     sens_map: dict[str, str],
-) -> dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]]:
+) -> dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]]:
     """Rattache chaque mouvement à la première date du calendrier >= sa date (la semaine où il
     prend effet), avec son signe résolu (+1/-1/0) via la table de libellés."""
-    resultat: dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]] = defaultdict(lambda: defaultdict(list))
+    resultat: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]] = defaultdict(lambda: defaultdict(list))
     for m in mouvements:
         semaine = next((d for d in calendrier if d >= m.date), None)
         if semaine is None:
             continue
         signe = _signe(sens_map.get(m.libelle, "na"))
-        resultat[semaine][(m.isin, m.numero_contrat)].append((m, signe))
+        resultat[semaine][m.isin].append((m, signe))
     return resultat
 
 
-def _valo_consolidee(grille: dict[date_type, dict[Position, tuple[float, float]]]) -> dict[date_type, float]:
+def _valo_consolidee(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, float]:
     return {d: sum(nbuc * vl for nbuc, vl in lignes.values()) for d, lignes in grille.items()}
-
-
-def _decomposer_grille(
-    grille: dict[date_type, dict[Position, tuple[float, float]]],
-) -> tuple[dict[date_type, dict[Position, float]], dict[date_type, dict[Position, float]], dict[date_type, float]]:
-    """Équivalent de _vl_depuis_grille + _nbuc_depuis_grille + _valo_consolidee, mais en une seule
-    passe sur la grille au lieu de trois — sur un calcul multi-contrats à plusieurs milliers de
-    positions, évite de reparcourir la même structure trois fois pour un résultat identique."""
-    vl_par_date: dict[date_type, dict[Position, float]] = {}
-    nbuc_par_date: dict[date_type, dict[Position, float]] = {}
-    valo_par_date: dict[date_type, float] = {}
-    for d, lignes in grille.items():
-        vl_d: dict[Position, float] = {}
-        nbuc_d: dict[Position, float] = {}
-        total = 0.0
-        for position, (nbuc, vl) in lignes.items():
-            vl_d[position] = vl
-            nbuc_d[position] = nbuc
-            total += nbuc * vl
-        vl_par_date[d] = vl_d
-        nbuc_par_date[d] = nbuc_d
-        valo_par_date[d] = total
-    return vl_par_date, nbuc_par_date, valo_par_date
 
 
 def _reconstituer_nb_uc(
     inventaire: list[InventaireHebdoLigne],
     calendrier: list[date_type],
-    mouvements_par_semaine: dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]],
-) -> dict[date_type, dict[Position, float]]:
-    """Pour chaque position (isin+contrat), part du premier nbuc observé puis l'ajuste à chaque
-    mouvement, plutôt que de faire confiance au nbuc reporté chaque semaine (hétérogénéité de
-    reporting entre sociétés)."""
+    mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
+) -> dict[date_type, dict[str, float]]:
+    """Pour chaque isin, part du premier nbuc observé puis l'ajuste à chaque mouvement, plutôt que
+    de faire confiance au nbuc reporté chaque semaine (hétérogénéité de reporting entre sociétés)."""
     par_date_isin = _par_date_isin(inventaire)
-    premiere_date_position: dict[Position, date_type] = {}
+    premiere_date_isin: dict[str, date_type] = {}
     for d in calendrier:
-        for position in par_date_isin.get(d, {}):
-            premiere_date_position.setdefault(position, d)
+        for isin in par_date_isin.get(d, {}):
+            premiere_date_isin.setdefault(isin, d)
 
-    resultat: dict[date_type, dict[Position, float]] = defaultdict(dict)
+    nb_uc_courant: dict[str, float] = {}
+    resultat: dict[date_type, dict[str, float]] = defaultdict(dict)
 
-    # Boucle par position (bisect pour ne parcourir que la portion pertinente du calendrier),
-    # même optimisation que _grille_forward_fill — évite de rescanner tout l'historique consolidé
-    # pour chaque position sur un calcul multi-contrats à plusieurs milliers de positions.
-    for position, premiere in premiere_date_position.items():
-        index_depart = bisect_left(calendrier, premiere)
-        nb_uc_courant = 0.0
-        for d in calendrier[index_depart:]:
+    for d in calendrier:
+        for isin, premiere in premiere_date_isin.items():
+            if d < premiere:
+                continue
             if d == premiere:
-                nb_uc_courant = par_date_isin[d][position].nbuc
+                nb_uc_courant[isin] = par_date_isin[d][isin].nbuc
             else:
-                for _mouvement, signe in mouvements_par_semaine.get(d, {}).get(position, []):
-                    nb_uc_courant += signe * _mouvement.nb_uc
-            resultat[d][position] = nb_uc_courant
+                for _mouvement, signe in mouvements_par_semaine.get(d, {}).get(isin, []):
+                    nb_uc_courant[isin] = nb_uc_courant.get(isin, 0.0) + signe * _mouvement.nb_uc
+            resultat[d][isin] = nb_uc_courant.get(isin, 0.0)
 
     return dict(resultat)
 
 
-def _vl_depuis_grille(grille: dict[date_type, dict[Position, tuple[float, float]]]) -> dict[date_type, dict[Position, float]]:
-    return {d: {position: vl for position, (_nbuc, vl) in lignes.items()} for d, lignes in grille.items()}
+def _vl_depuis_grille(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, dict[str, float]]:
+    return {d: {isin: vl for isin, (_nbuc, vl) in lignes.items()} for d, lignes in grille.items()}
 
 
-def _nbuc_depuis_grille(grille: dict[date_type, dict[Position, tuple[float, float]]]) -> dict[date_type, dict[Position, float]]:
-    return {d: {position: nbuc for position, (nbuc, _vl) in lignes.items()} for d, lignes in grille.items()}
+def _nbuc_depuis_grille(grille: dict[date_type, dict[str, tuple[float, float]]]) -> dict[date_type, dict[str, float]]:
+    return {d: {isin: nbuc for isin, (nbuc, _vl) in lignes.items()} for d, lignes in grille.items()}
 
 
 def _detecter_statut_frais(
-    position: Position,
-    inventaire_position: list[InventaireHebdoLigne],
+    isin: str,
+    inventaire_isin: list[InventaireHebdoLigne],
     calendrier: list[date_type],
-    grille: dict[date_type, dict[Position, tuple[float, float]]],
-    mouvements_par_semaine: dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]],
+    grille: dict[date_type, dict[str, tuple[float, float]]],
+    mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
     frais_gestion_annuel: float,
 ) -> StatutFraisIsin:
-    isin, numero_contrat = position
-    lignes_triees = sorted(inventaire_position, key=lambda l: l.date)
+    lignes_triees = sorted(inventaire_isin, key=lambda l: l.date)
     dates_calendrier_isin = [d for d in calendrier if d >= lignes_triees[0].date]
     fenetre = dates_calendrier_isin[:SEMAINES_MIN_DETECTION_FRAIS + 1]
 
     if len(fenetre) < 2:
         return StatutFraisIsin(
             isin=isin,
-            numero_contrat=numero_contrat,
             frais_deja_deduits=False,
             ecart_relatif_detecte=0.0,
             methode="Données insuffisantes (< 2 semaines) pour la détection automatique — traité par défaut comme brut",
@@ -235,15 +187,14 @@ def _detecter_statut_frais(
 
     nb_uc_attendu = nb_uc_depart
     for d in fenetre[1:]:
-        for mouvement, signe in mouvements_par_semaine.get(d, {}).get(position, []):
+        for mouvement, signe in mouvements_par_semaine.get(d, {}).get(isin, []):
             nb_uc_attendu += signe * mouvement.nb_uc
 
-    nb_uc_observe_tuple = grille.get(date_arrivee, {}).get(position)
+    nb_uc_observe_tuple = grille.get(date_arrivee, {}).get(isin)
     nb_uc_observe = nb_uc_observe_tuple[0] if nb_uc_observe_tuple else None
     if nb_uc_observe is None or nb_uc_attendu == 0:
         return StatutFraisIsin(
             isin=isin,
-            numero_contrat=numero_contrat,
             frais_deja_deduits=False,
             ecart_relatif_detecte=0.0,
             methode="Observation manquante en fin de fenêtre — traité par défaut comme brut",
@@ -257,7 +208,6 @@ def _detecter_statut_frais(
 
     return StatutFraisIsin(
         isin=isin,
-        numero_contrat=numero_contrat,
         frais_deja_deduits=deja_deduits,
         ecart_relatif_detecte=round(ecart_relatif * 100, 4),
         methode=(
@@ -271,9 +221,9 @@ def _detecter_statut_frais(
 def _chainer_performance(
     calendrier: list[date_type],
     valo: dict[date_type, float],
-    nbuc_par_date_isin: dict[date_type, dict[Position, float]],
-    vl_par_date_isin: dict[date_type, dict[Position, float]],
-    mouvements_par_semaine: dict[date_type, dict[Position, list[tuple[MouvementLigne, int]]]],
+    nbuc_par_date_isin: dict[date_type, dict[str, float]],
+    vl_par_date_isin: dict[date_type, dict[str, float]],
+    mouvements_par_semaine: dict[date_type, dict[str, list[tuple[MouvementLigne, int]]]],
 ) -> tuple[dict[date_type, float], dict[date_type, float | None], dict[date_type, float], dict[date_type, float | None]]:
     """Calcule, semaine par semaine : VL équivalente Dietz et TWR (base 100 à la 1ère date) et les
     rendements hebdomadaires correspondants. Les mouvements sont valorisés au vl de la semaine où
@@ -296,12 +246,10 @@ def _chainer_performance(
         valo_prev, valo_curr = valo.get(d_prev, 0.0), valo.get(d_curr, 0.0)
         jours_periode = (d_curr - d_prev).days or 1
 
-        vl_curr = vl_par_date_isin.get(d_curr, {})
-
         flux_net = 0.0
         flux_pondere = 0.0
-        for position, mouvements in mouvements_par_semaine.get(d_curr, {}).items():
-            vl_semaine = vl_curr.get(position)
+        for isin, mouvements in mouvements_par_semaine.get(d_curr, {}).items():
+            vl_semaine = vl_par_date_isin.get(d_curr, {}).get(isin)
             if vl_semaine is None:
                 continue
             for mouvement, signe in mouvements:
@@ -313,14 +261,9 @@ def _chainer_performance(
         denom_dietz = valo_prev + flux_pondere
         r_dietz = (valo_curr - valo_prev - flux_net) / denom_dietz if denom_dietz else 0.0
 
-        # position est garanti présent dans nbuc_prev (c'est la source d'itération) : accès direct
-        # par clé plutôt que .get(..., 0.0), et les deux dicts extraits une seule fois par semaine
-        # plutôt que ré-évalués à chaque position (gain notable sur un calcul multi-contrats à
-        # plusieurs milliers de positions).
-        nbuc_prev = nbuc_par_date_isin.get(d_prev, {})
         numerateur_twr = sum(
-            nbuc_prev[position] * vl_curr.get(position, 0.0)
-            for position in nbuc_prev
+            nbuc_par_date_isin.get(d_prev, {}).get(isin, 0.0) * vl_par_date_isin.get(d_curr, {}).get(isin, 0.0)
+            for isin in nbuc_par_date_isin.get(d_prev, {})
         )
         r_twr = (numerateur_twr / valo_prev - 1) if valo_prev else 0.0
 
@@ -352,7 +295,10 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
     sens_map = _sens_mouvements(request.table_libelles)
     mouvements_par_semaine = _mouvements_par_semaine_isin(request.mouvements, calendrier, sens_map)
     grille = _grille_forward_fill(request.inventaire, calendrier, mouvements_par_semaine)
-    vl_par_date_isin, nb_uc_brut_par_date_isin, valo_brute = _decomposer_grille(grille)
+    vl_par_date_isin = _vl_depuis_grille(grille)
+    nb_uc_brut_par_date_isin = _nbuc_depuis_grille(grille)
+
+    valo_brute = _valo_consolidee(grille)
 
     hypotheses = [
         f"Volatilité annualisée : écart-type des rendements hebdomadaires TWR, fenêtre glissante de {FENETRE_VOLATILITE_SEMAINES} semaines, annualisée par racine(52).",
@@ -365,50 +311,35 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
     vl_finale_par_date_isin = {d: dict(lignes) for d, lignes in vl_par_date_isin.items()}
 
     if request.table_frais_gestion:
-        positions_par_isin: dict[str, list[Position]] = defaultdict(list)
-        for position in {(l.isin, l.numero_contrat) for l in request.inventaire}:
-            positions_par_isin[position[0]].append(position)
-
         for frais in request.table_frais_gestion:
-            for position in positions_par_isin.get(frais.isin, []):
-                inventaire_position = [l for l in request.inventaire if (l.isin, l.numero_contrat) == position]
-                if not inventaire_position:
-                    continue
-                statut = _detecter_statut_frais(position, inventaire_position, calendrier, grille, mouvements_par_semaine, frais.frais_gestion_annuel)
-                statut_frais.append(statut)
-                suffixe_contrat = f" (contrat {position[1]})" if position[1] else ""
-                hypotheses.append(
-                    f"Fonds {frais.isin}{suffixe_contrat} : {'données nettes de frais (aucun ajustement)' if statut.frais_deja_deduits else f'données brutes, taux hebdo {frais.frais_gestion_annuel/52:.4f}% appliqué en cascade sur le vl'}."
-                )
-                if not statut.frais_deja_deduits:
-                    facteur_hebdo = 1 - (frais.frais_gestion_annuel / 100) / SEMAINES_PAR_AN
-                    premiere_date = min(l.date for l in inventaire_position)
-                    dates_isin = [d for d in calendrier if d >= premiere_date]
-                    for n, d in enumerate(dates_isin):
-                        vl_brut = vl_finale_par_date_isin.get(d, {}).get(position)
-                        if vl_brut is not None:
-                            vl_finale_par_date_isin.setdefault(d, {})[position] = vl_brut * (facteur_hebdo ** n)
+            inventaire_isin = [l for l in request.inventaire if l.isin == frais.isin]
+            if not inventaire_isin:
+                continue
+            statut = _detecter_statut_frais(frais.isin, inventaire_isin, calendrier, grille, mouvements_par_semaine, frais.frais_gestion_annuel)
+            statut_frais.append(statut)
+            hypotheses.append(
+                f"Fonds {frais.isin} : {'données nettes de frais (aucun ajustement)' if statut.frais_deja_deduits else f'données brutes, taux hebdo {frais.frais_gestion_annuel/52:.4f}% appliqué en cascade sur le vl'}."
+            )
+            if not statut.frais_deja_deduits:
+                facteur_hebdo = 1 - (frais.frais_gestion_annuel / 100) / SEMAINES_PAR_AN
+                premiere_date = min(l.date for l in inventaire_isin)
+                dates_isin = [d for d in calendrier if d >= premiere_date]
+                for n, d in enumerate(dates_isin):
+                    vl_brut = vl_finale_par_date_isin.get(d, {}).get(frais.isin)
+                    if vl_brut is not None:
+                        vl_finale_par_date_isin.setdefault(d, {})[frais.isin] = vl_brut * (facteur_hebdo ** n)
 
     valo_nette = {
-        d: sum(nb_uc_brut_par_date_isin.get(d, {}).get(position, 0.0) * vl for position, vl in lignes.items())
+        d: sum(nb_uc_brut_par_date_isin.get(d, {}).get(isin, 0.0) * vl for isin, vl in lignes.items())
         for d, lignes in vl_finale_par_date_isin.items()
     }
 
     vl_dietz, perf_dietz, vl_twr, perf_twr = _chainer_performance(
         calendrier, valo_brute, nb_uc_brut_par_date_isin, vl_par_date_isin, mouvements_par_semaine
     )
-    # Sans table_frais_gestion, valo_nette/vl_finale_par_date_isin sont des copies exactes de
-    # valo_brute/vl_par_date_isin (aucun ajustement appliqué) : le second chaînage serait
-    # rigoureusement identique au premier — et son résultat n'est de toute façon jamais exposé dans
-    # ce cas (cf. perf_hebdo_*_nette ci-dessous). Sur un gros portefeuille (des milliers de
-    # positions), ce chaînage est le principal poste de temps de calcul : l'éviter quand il est
-    # inutile réduit le temps total d'environ moitié.
-    if request.table_frais_gestion:
-        _vl_dietz_n, perf_dietz_nette, _vl_twr_n, perf_twr_nette = _chainer_performance(
-            calendrier, valo_nette, nb_uc_brut_par_date_isin, vl_finale_par_date_isin, mouvements_par_semaine
-        )
-    else:
-        perf_dietz_nette, perf_twr_nette = {}, {}
+    _vl_dietz_n, perf_dietz_nette, _vl_twr_n, perf_twr_nette = _chainer_performance(
+        calendrier, valo_nette, nb_uc_brut_par_date_isin, vl_finale_par_date_isin, mouvements_par_semaine
+    )
 
     volatilites = _volatilites_annualisees(perf_twr, calendrier)
 
@@ -454,8 +385,6 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
     taux_retrocession = {r.isin: r.taux_retrocession_annuel for r in request.table_retrocession}
 
     resultats_retrocession: list[RemunerationResultLigne] = []
-    resultats_retrocession_agregee: list[RetrocessionAgregeeLigne] = []
-    retrocession_agregee = False
     total_retrocession = 0.0
     if request.commission_gestion_courtier:
         taux_courtier = request.commission_gestion_courtier.taux_courtier
@@ -463,58 +392,26 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
             f"Rétrocession UC : {taux_courtier}% (taux_courtier) du taux de rétrocession propre à chaque fonds "
             "(table_retrocession) — ne s'applique pas aux fonds euros."
         )
-
-        positions_eligibles = {
-            position
-            for lignes in nb_uc_reconstitue.values()
-            for position in lignes
-            if type_par_isin.get(position[0]) == "uc" and position[0] in taux_retrocession
-        }
-        retrocession_agregee = len(positions_eligibles) > SEUIL_DETAIL_POSITIONS_RETROCESSION
-
-        if retrocession_agregee:
-            hypotheses.append(
-                f"Rétrocession agrégée par date uniquement ({len(positions_eligibles)} positions fonds x contrat "
-                f"détectées, seuil de détail = {SEUIL_DETAIL_POSITIONS_RETROCESSION}) : le détail par fonds et par "
-                "contrat n'est pas renvoyé sur une vision portant sur un aussi grand nombre de positions, pour "
-                "éviter une réponse de plusieurs millions de lignes."
-            )
-            for d in calendrier:
-                total_semaine = 0.0
-                for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-                    isin = position[0]
-                    if type_par_isin.get(isin) != "uc":
-                        continue
-                    taux_fonds = taux_retrocession.get(isin)
-                    if taux_fonds is None:
-                        continue
-                    vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
-                    total_semaine += (nb_uc * vl) * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
-                resultats_retrocession_agregee.append(RetrocessionAgregeeLigne(date=d, remuneration_semaine=total_semaine))
-            total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession_agregee)
-        else:
-            for d in calendrier:
-                for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-                    isin, numero_contrat = position
-                    if type_par_isin.get(isin) != "uc":
-                        continue
-                    taux_fonds = taux_retrocession.get(isin)
-                    if taux_fonds is None:
-                        continue
-                    vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
-                    valorisation = nb_uc * vl
-                    remuneration = valorisation * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
-                    resultats_retrocession.append(
-                        RemunerationResultLigne(
-                            date=d,
-                            isin=isin,
-                            numero_contrat=numero_contrat,
-                            nb_uc_reconstitue=nb_uc,
-                            valorisation=valorisation,
-                            remuneration_semaine=remuneration,
-                        )
+        for d in calendrier:
+            for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
+                if type_par_isin.get(isin) != "uc":
+                    continue
+                taux_fonds = taux_retrocession.get(isin)
+                if taux_fonds is None:
+                    continue
+                vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
+                valorisation = nb_uc * vl
+                remuneration = valorisation * (taux_fonds / 100) * (taux_courtier / 100) / SEMAINES_PAR_AN
+                resultats_retrocession.append(
+                    RemunerationResultLigne(
+                        date=d,
+                        isin=isin,
+                        nb_uc_reconstitue=nb_uc,
+                        valorisation=valorisation,
+                        remuneration_semaine=remuneration,
                     )
-            total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
+                )
+        total_retrocession = sum(r.remuneration_semaine for r in resultats_retrocession)
 
     resultats_commission: list[CommissionGestionLigne] = []
     total_commission = 0.0
@@ -526,11 +423,10 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
         )
         for d in calendrier:
             valo_fonds_euros = 0.0
-            for position, nb_uc in nb_uc_reconstitue.get(d, {}).items():
-                isin, _numero_contrat = position
+            for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
                 if type_par_isin.get(isin) != "fonds_euro":
                     continue
-                vl = vl_par_date_isin.get(d, {}).get(position, 0.0)
+                vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
                 valo_fonds_euros += nb_uc * vl
             commission_fonds_euros = valo_fonds_euros * (params.taux_commission_fonds_euros_annuel / 100) / SEMAINES_PAR_AN
             resultats_commission.append(
@@ -546,8 +442,6 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
         identifiant=request.identifiant,
         hypotheses_appliquees=hypotheses,
         resultats_retrocession=resultats_retrocession,
-        resultats_retrocession_agregee=resultats_retrocession_agregee,
-        retrocession_agregee=retrocession_agregee,
         total_retrocession=total_retrocession,
         resultats_commission_gestion=resultats_commission,
         total_commission_gestion=total_commission,

@@ -12,13 +12,6 @@ class InventaireHebdoLigne(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds")
     nbuc: float = Field(..., description="Nombre d'unités de compte détenues à cette date, pour ce fonds")
     vl: float = Field(..., description="Valeur liquidative de l'unité à cette date, pour ce fonds")
-    numero_contrat: str = Field(
-        default="",
-        description="Numéro de contrat détenant cette ligne. Permet d'agréger plusieurs contrats dans "
-        "un même calcul (position identifiée par isin+numero_contrat, pas isin seul) — deux contrats "
-        "détenant le même fonds ne sont jamais confondus dans la valorisation consolidée. Vide = "
-        "comportement mono-portefeuille historique (toutes les lignes traitées comme un seul contrat).",
-    )
 
     @property
     def valo(self) -> float:
@@ -41,10 +34,6 @@ class MouvementLigne(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds concerné")
     libelle: str = Field(..., description="Libellé du mouvement tel que reporté par la société (ex. 'Versement libre')")
     nb_uc: float = Field(..., description="Nombre d'UC concernées, en valeur absolue — pas de montant en devise")
-    numero_contrat: str = Field(
-        default="",
-        description="Numéro de contrat concerné par ce mouvement — même convention que InventaireHebdoLigne.numero_contrat.",
-    )
 
     @field_validator("date", mode="before")
     @classmethod
@@ -97,7 +86,6 @@ class RetrocessionUCLigne(BaseModel):
 
 class StatutFraisIsin(BaseModel):
     isin: str = Field(..., description="Code ISIN du fonds concerné")
-    numero_contrat: str = Field(default="", description="Numéro de contrat concerné (une détection par position isin+contrat)")
     frais_deja_deduits: bool = Field(..., description="Détecté sur le 1er mois : True = données nettes, False = données brutes")
     ecart_relatif_detecte: float = Field(..., description="Écart mesuré entre nb_uc attendu et observé sur le 1er mois, en %")
     methode: str = Field(
@@ -182,7 +170,6 @@ class CalculRemunerationRequest(BaseModel):
 class RemunerationResultLigne(BaseModel):
     date: date_type
     isin: str
-    numero_contrat: str = Field(default="", description="Numéro de contrat détenant cette position")
     nb_uc_reconstitue: float = Field(..., description="Nombre d'UC reconstitué (1er nbuc observé + mouvements signés)")
     valorisation: float = Field(..., description="nb_uc_reconstitue * vl à cette date")
     remuneration_semaine: float = Field(..., description="Part courtier de la rétrocession de la semaine pour ce fonds (taux_retrocession_annuel * taux_courtier)")
@@ -194,27 +181,10 @@ class CommissionGestionLigne(BaseModel):
     commission_fonds_euros_semaine: float
 
 
-class RetrocessionAgregeeLigne(BaseModel):
-    date: date_type
-    remuneration_semaine: float = Field(..., description="Somme de la rétrocession de la semaine, tous fonds et contrats confondus")
-
-
 class CalculRemunerationResponse(BaseModel):
     identifiant: str | None = None
     hypotheses_appliquees: list[str] = Field(default=[], description="Tous les choix/paramètres retenus pour ce calcul précis, à afficher en tête de tableau")
-    resultats_retrocession: list[RemunerationResultLigne] = Field(
-        default=[], description="Détail par fonds+contrat — vide si retrocession_agregee=True"
-    )
-    resultats_retrocession_agregee: list[RetrocessionAgregeeLigne] = Field(
-        default=[], description="Rétrocession agrégée par date uniquement — rempli seulement si retrocession_agregee=True"
-    )
-    retrocession_agregee: bool = Field(
-        default=False,
-        description="True si le nombre de positions (fonds x contrat) distinctes dépassait le seuil de détail "
-        "(cf. hypotheses_appliquees pour le seuil exact appliqué à ce calcul) : resultats_retrocession est alors "
-        "vide et resultats_retrocession_agregee contient le total par date, pour éviter une réponse de plusieurs "
-        "millions de lignes sur une vision globale portant sur un très grand nombre de contrats.",
-    )
+    resultats_retrocession: list[RemunerationResultLigne]
     total_retrocession: float
     resultats_commission_gestion: list[CommissionGestionLigne] = []
     total_commission_gestion: float = 0.0
