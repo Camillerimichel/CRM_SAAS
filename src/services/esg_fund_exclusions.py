@@ -101,7 +101,16 @@ def check_fund_exclusions(
                 n.sfdr_biodiversity_pai,
                 n.controversial_weapons,
                 n.violations_ungc,
-                f.note_esg_grade
+                f.note_esg_grade,
+                f.excluded_coal,
+                f.excluded_oil_gas,
+                f.excluded_tar_sands,
+                f.excluded_fossil_power_generation,
+                f.excluded_weapons_controversial,
+                f.excluded_corruption,
+                f.excluded_human_rights_issue,
+                f.excluded_forced_labour,
+                f.excluded_environmental_issue
             FROM esg_fonds_norm n
             LEFT JOIN esg_fonds f ON f.isin = n.isin
             LEFT JOIN mariadb_support s ON s.code_isin = n.isin
@@ -109,7 +118,11 @@ def check_fund_exclusions(
             GROUP BY n.isin, s.nom, n.name,
                      n.exposure_to_fossil_fuels, n.sfdr_biodiversity_pai,
                      n.controversial_weapons, n.violations_ungc,
-                     f.note_esg_grade
+                     f.note_esg_grade, f.excluded_coal, f.excluded_oil_gas,
+                     f.excluded_tar_sands, f.excluded_fossil_power_generation,
+                     f.excluded_weapons_controversial, f.excluded_corruption,
+                     f.excluded_human_rights_issue, f.excluded_forced_labour,
+                     f.excluded_environmental_issue
             """
         ).bindparams(bindparam("isins", expanding=True)),
         {"isins": list(isins)},
@@ -134,21 +147,32 @@ def check_fund_exclusions(
         except (TypeError, ValueError):
             return None
 
-    # Per-exclusion check helpers: code → (column, is_triggered_fn)
-    _CHECKS: dict[str, tuple[str, Any]] = {
-        "fossiles":          ("exposure_to_fossil_fuels", lambda v: _binary_flag(v) is True),
-        "zones_sensibles":   ("sfdr_biodiversity_pai",   lambda v: _binary_flag(v) is True),
-        "armes_controversees": ("controversial_weapons", lambda v: _binary_flag(v) is True),
-        "violations_pacte_ocde": ("violations_ungc",    lambda v: _binary_flag(v) is True),
-        "faible_note_esg":   ("note_esg_grade",          lambda v: v is not None and str(v).strip().upper() in _FAIBLE_ESG_GRADES),
+    # Per-exclusion check : code → liste de colonnes, déclenché si L'UNE d'elles est à 1. Combine
+    # l'indicateur PAI historique au niveau du fonds et les compteurs "look-through" sur la
+    # composition réelle du fonds (ajoutés le 2026-07-18, cf. esg_import.py::sync_esg_exclusions_holdings)
+    # — élargit la couverture de détection sans changer les libellés/choix proposés au client dans
+    # son questionnaire (esg_exclusion_option n'a pas été modifiée). faible_note_esg reste à part
+    # (comparaison de grade, pas un flag binaire).
+    _CHECKS_MULTI: dict[str, list[str]] = {
+        "fossiles": [
+            "exposure_to_fossil_fuels", "excluded_coal", "excluded_oil_gas",
+            "excluded_tar_sands", "excluded_fossil_power_generation",
+        ],
+        "zones_sensibles": ["sfdr_biodiversity_pai"],
+        "armes_controversees": ["controversial_weapons", "excluded_weapons_controversial"],
+        "violations_pacte_ocde": [
+            "violations_ungc", "excluded_corruption", "excluded_human_rights_issue",
+            "excluded_forced_labour", "excluded_environmental_issue",
+        ],
     }
+    _CHECK_CODES = set(_CHECKS_MULTI) | {"faible_note_esg"}
 
     fonds_result: list[dict[str, Any]] = []
     for isin in isins:
         m = fund_data.get(isin)
         if m is None:
             # No ESG data at all for this ISIN
-            status_by_code = {e["code"]: "manquant" for e in client_exclusions if e["code"] in _CHECKS}
+            status_by_code = {e["code"]: "manquant" for e in client_exclusions if e["code"] in _CHECK_CODES}
             fonds_result.append(
                 {
                     "isin": isin,
@@ -168,16 +192,28 @@ def check_fund_exclusions(
 
         for excl in client_exclusions:
             code = excl["code"]
-            if code not in _CHECKS:
+            if code not in _CHECK_CODES:
                 continue
-            col, is_triggered = _CHECKS[code]
-            val = m.get(col) if hasattr(m, "get") else None
-            if val is None:
-                status_by_code[code] = "manquant"
-                has_missing = True
-            elif is_triggered(val):
+
+            if code == "faible_note_esg":
+                val = m.get("note_esg_grade") if hasattr(m, "get") else None
+                if val is None:
+                    status_by_code[code] = "manquant"
+                    has_missing = True
+                elif str(val).strip().upper() in _FAIBLE_ESG_GRADES:
+                    status_by_code[code] = "divergence"
+                    divergences.append(excl_by_code[code])
+                else:
+                    status_by_code[code] = "conforme"
+                continue
+
+            flags = [_binary_flag(m.get(col) if hasattr(m, "get") else None) for col in _CHECKS_MULTI[code]]
+            if any(f is True for f in flags):
                 status_by_code[code] = "divergence"
                 divergences.append(excl_by_code[code])
+            elif all(f is None for f in flags):
+                status_by_code[code] = "manquant"
+                has_missing = True
             else:
                 status_by_code[code] = "conforme"
 
