@@ -463,7 +463,7 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
     nb_uc_reconstitue = _reconstituer_nb_uc(request.inventaire, calendrier, mouvements_par_semaine)
 
     hypotheses = [
-        "Rémunération calculée sur le nb_uc reconstitué (1er nbuc observé + mouvements signés), pas le nbuc brut de l'inventaire.",
+        "Rémunération calculée sur la valorisation reconstituée (nb_uc reconstitué : 1er nbuc observé + mouvements signés, multiplié par le vl), pas sur le nbuc brut de l'inventaire.",
     ]
 
     type_par_isin = {t.isin: t.type_support for t in request.table_type_support}
