@@ -6,8 +6,9 @@ Destinée à être appelée par un site externe indépendant (démo) : authentif
 d'API partagée (header X-API-Key), pas par le système de session/RBAC du dashboard CRM_SAAS.
 
 Endpoints :
-  POST /api/risque-performance/calcul   – performance Dietz/TWR + indicateur de risque hebdo
-  POST /api/remuneration/calcul         – rémunération courtier (rétrocession + commission de gestion)
+  POST /api/risque-performance/calcul             – performance Dietz/TWR + indicateur de risque hebdo (inventaire+mouvements par fonds)
+  POST /api/risque-performance/calcul-consolide    – idem, à partir d'une série déjà consolidée par date (valorisation + mouvement net), sans détail par fonds
+  POST /api/remuneration/calcul                    – rémunération courtier (rétrocession + commission de gestion)
 """
 from __future__ import annotations
 
@@ -18,10 +19,15 @@ from fastapi import APIRouter, Header, HTTPException
 from src.schemas.risque_performance import (
     CalculPerformanceRisqueRequest,
     CalculPerformanceRisqueResponse,
+    CalculPerformanceRisqueConsolideRequest,
     CalculRemunerationRequest,
     CalculRemunerationResponse,
 )
-from src.services.risque_performance import calculer_performance_risque, calculer_remuneration
+from src.services.risque_performance import (
+    calculer_performance_risque,
+    calculer_performance_risque_consolide,
+    calculer_remuneration,
+)
 
 router = APIRouter(prefix="/api", tags=["risque-performance"])
 
@@ -56,6 +62,32 @@ async def risque_performance_calcul(
     _verifier_api_key(x_api_key)
     try:
         return calculer_performance_risque(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/risque-performance/calcul-consolide",
+    response_model=CalculPerformanceRisqueResponse,
+    summary="Calcule la performance (Dietz/TWR) et l'indicateur de risque hebdomadaire à partir d'une série déjà consolidée",
+    description=(
+        "Calculateur stateless : rien n'est lu ni écrit en base. Variante de /risque-performance/calcul "
+        "pour les appelants qui disposent déjà, par leur propre système, d'une série consolidée par "
+        "date (valorisation totale du portefeuille + mouvement net signé de la période), sans détail "
+        "par fonds (isin/nbuc/vl). Évite de reproduire côté appelant la reconstitution "
+        "inventaire+mouvements → valorisation, au prix d'une approximation du TWR (flux net supposé "
+        "survenu en fin de période, faute de détail par fonds pour le revaloriser précisément) — voir "
+        "hypotheses_appliquees dans la réponse pour le détail des conventions retenues. Aucune "
+        "détection de frais net/brut (statut_frais toujours vide, mécanisme intrinsèquement par-isin)."
+    ),
+)
+async def risque_performance_calcul_consolide(
+    request: CalculPerformanceRisqueConsolideRequest,
+    x_api_key: str | None = Header(default=None),
+) -> CalculPerformanceRisqueResponse:
+    _verifier_api_key(x_api_key)
+    try:
+        return calculer_performance_risque_consolide(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
