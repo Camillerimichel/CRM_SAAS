@@ -33,6 +33,12 @@ class FondNonCouvert(BaseModel):
     motif: str = Field(..., description="Raison de l'exclusion (ex. composition inconnue côté CRM_ESG)")
 
 
+class MatriceCellule(BaseModel):
+    secteur: str = Field(..., description="Nom du secteur (colonne)")
+    pays: str = Field(..., description="Nom du pays (ligne)")
+    poids_pct: float = Field(..., description="Poids de cette paire secteur/pays, en %")
+
+
 class DetailFonds(BaseModel):
     isin: str
     nom: str | None = None
@@ -40,6 +46,7 @@ class DetailFonds(BaseModel):
     periode_analyse: date_type = Field(..., description="Dernière période ESG connue pour CE fonds côté CRM_ESG (propre à chaque fonds)")
     secteurs: list[RepartitionPoste] = Field(..., description="Répartition sectorielle interne de ce fonds (totalise 100%)")
     pays: list[RepartitionPoste] = Field(..., description="Répartition géographique interne de ce fonds (totalise 100%)")
+    matrice: list[MatriceCellule] = Field(default=[], description="Tableau croisé secteur x pays interne de ce fonds (totalise 100%)")
 
 
 class CalculSecteurPaysResponse(BaseModel):
@@ -49,5 +56,6 @@ class CalculSecteurPaysResponse(BaseModel):
     taux_couverture_pct: float = Field(..., description="Part du portefeuille (en valorisation) couverte par un fonds connu de CRM_ESG")
     secteurs_globaux: list[RepartitionPoste] = Field(..., description="Répartition sectorielle globale du portefeuille (renormalisée à 100% sur la seule assiette couverte)")
     pays_globaux: list[RepartitionPoste] = Field(..., description="Répartition géographique globale du portefeuille (renormalisée à 100% sur la seule assiette couverte)")
+    matrice_globale: list[MatriceCellule] = Field(default=[], description="Tableau croisé secteur x pays global du portefeuille (renormalisé à 100% sur la seule assiette couverte)")
     fonds_non_couverts: list[FondNonCouvert] = Field(default=[], description="Fonds détenus dont la composition est inconnue de CRM_ESG, exclus de l'agrégation")
     detail_par_fonds: list[DetailFonds] = Field(default=[], description="Répartition secteur/pays propre à chaque fonds couvert")

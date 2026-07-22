@@ -19,6 +19,7 @@ from src.schemas.secteur_pays import (
     CalculSecteurPaysResponse,
     DetailFonds,
     FondNonCouvert,
+    MatriceCellule,
     RepartitionPoste,
 )
 
@@ -46,6 +47,7 @@ def calculer_secteur_pays(db: Session, request: CalculSecteurPaysRequest) -> Cal
 
     secteurs_bruts: dict[str, float] = defaultdict(float)
     pays_bruts: dict[str, float] = defaultdict(float)
+    matrice_brute: dict[tuple[str, str], float] = defaultdict(float)
     fonds_non_couverts: list[FondNonCouvert] = []
     detail_par_fonds: list[DetailFonds] = []
     poids_couvert_total = 0.0
@@ -81,6 +83,14 @@ def calculer_secteur_pays(db: Session, request: CalculSecteurPaysRequest) -> Cal
             for c in pays_fonds:
                 pays_bruts[c.libelle] += poids_fonds * (c.poids_pct / 100)
 
+            data_matrice = _appeler_breakdown(client, "/api/stats/sector-country-matrix", isin)
+            matrice_fonds = [
+                MatriceCellule(secteur=cell["sector"], pays=cell["country"], poids_pct=cell["weight_percent"])
+                for cell in (data_matrice["cells"] if data_matrice else [])
+            ]
+            for cell in matrice_fonds:
+                matrice_brute[(cell.secteur, cell.pays)] += poids_fonds * (cell.poids_pct / 100)
+
             nom_fonds = (noms.get(isin) or data_secteur["fund"]["name"] or "").strip() or None
             detail_par_fonds.append(DetailFonds(
                 isin=isin,
@@ -89,6 +99,7 @@ def calculer_secteur_pays(db: Session, request: CalculSecteurPaysRequest) -> Cal
                 periode_analyse=data_secteur["periode_analyse"],
                 secteurs=sorted(secteurs_fonds, key=lambda r: -r.poids_pct),
                 pays=sorted(pays_fonds, key=lambda r: -r.poids_pct),
+                matrice=sorted(matrice_fonds, key=lambda r: -r.poids_pct),
             ))
 
     diviseur = poids_couvert_total or 1.0
@@ -98,6 +109,10 @@ def calculer_secteur_pays(db: Session, request: CalculSecteurPaysRequest) -> Cal
     )
     pays_globaux = sorted(
         (RepartitionPoste(libelle=k, poids_pct=round((v / diviseur) * 100, 2)) for k, v in pays_bruts.items()),
+        key=lambda r: -r.poids_pct,
+    )
+    matrice_globale = sorted(
+        (MatriceCellule(secteur=k[0], pays=k[1], poids_pct=round((v / diviseur) * 100, 2)) for k, v in matrice_brute.items()),
         key=lambda r: -r.poids_pct,
     )
 
@@ -118,6 +133,7 @@ def calculer_secteur_pays(db: Session, request: CalculSecteurPaysRequest) -> Cal
         taux_couverture_pct=round(poids_couvert_total * 100, 2),
         secteurs_globaux=secteurs_globaux,
         pays_globaux=pays_globaux,
+        matrice_globale=matrice_globale,
         fonds_non_couverts=fonds_non_couverts,
         detail_par_fonds=detail_par_fonds,
     )
