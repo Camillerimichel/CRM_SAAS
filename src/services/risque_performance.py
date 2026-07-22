@@ -6,7 +6,7 @@ calculé à partir des payloads fournis par l'appelant, rien n'est persisté.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 from statistics import stdev
 from math import sqrt
 
@@ -455,8 +455,30 @@ def calculer_performance_risque_consolide(request: CalculPerformanceRisqueConsol
     )
 
 
+def _densifier_calendrier_hebdo(calendrier: list[date_type]) -> list[date_type]:
+    """Certaines sociétés ne reportent l'inventaire que ponctuellement (mensuel, trimestriel, au gré
+    des mouvements...), pas chaque semaine — le calendrier brut (_calendrier, juste les dates
+    observées) peut alors avoir des trous de plusieurs mois. Pour la rémunération, qui applique un
+    taux annuel au prorata 1/52e à CHAQUE date du calendrier, il faut générer les semaines
+    manquantes entre la première et la dernière date observée (une semaine = un pas de 7 jours),
+    en plus des dates réellement observées (ex: arbitrages hors cycle) — sinon un intervalle de
+    plusieurs mois n'est compté que comme une seule semaine et la rémunération réelle sur cette
+    période est très sous-évaluée. Les semaines ainsi ajoutées sont ensuite valorisées comme
+    d'habitude par forward-fill (cf. _grille_forward_fill, _reconstituer_nb_uc) : aucun changement
+    nécessaire dans le reste du pipeline, seul le calendrier passé en entrée est plus dense."""
+    if not calendrier:
+        return []
+    debut, fin = calendrier[0], calendrier[-1]
+    dense = set(calendrier)
+    d = debut
+    while d <= fin:
+        dense.add(d)
+        d += timedelta(days=7)
+    return sorted(dense)
+
+
 def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerationResponse:
-    calendrier = _calendrier(request.inventaire)
+    calendrier = _densifier_calendrier_hebdo(_calendrier(request.inventaire))
     sens_map = _sens_mouvements(request.table_libelles)
     mouvements_par_semaine = _mouvements_par_semaine_isin(request.mouvements, calendrier, sens_map)
     grille = _grille_forward_fill(request.inventaire, calendrier, mouvements_par_semaine)
@@ -465,6 +487,7 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
 
     hypotheses = [
         "Rémunération calculée sur la valorisation reconstituée (nb_uc reconstitué : 1er nbuc observé + mouvements signés, multiplié par le vl), pas sur le nbuc brut de l'inventaire.",
+        "Calendrier densifié à un pas hebdomadaire (7 jours) entre la première et la dernière date de l'inventaire, en plus des dates réellement observées : si l'inventaire ne reporte que ponctuellement (mensuel, trimestriel...), chaque semaine réelle est tout de même valorisée (par report en avant) et rémunérée séparément au prorata 1/52e — un intervalle de plusieurs mois n'est jamais compté comme une seule semaine.",
     ]
 
     type_par_isin = {t.isin: t.type_support for t in request.table_type_support}
