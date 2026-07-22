@@ -23,6 +23,7 @@ from src.schemas.risque_performance import (
     CalculRemunerationResponse,
     RemunerationResultLigne,
     CommissionGestionLigne,
+    CommissionGestionUCLigne,
 )
 
 METHODOLOGIE_URL = "/methodologie"
@@ -523,6 +524,31 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
             )
         total_commission = sum(r.commission_fonds_euros_semaine for r in resultats_commission)
 
+    resultats_commission_uc: list[CommissionGestionUCLigne] = []
+    total_commission_uc = 0.0
+    if request.commission_gestion_courtier:
+        params = request.commission_gestion_courtier
+        hypotheses.append(
+            f"Commission de gestion courtier sur UC (hors fonds euros) : {params.taux_commission_gestion_uc_annuel}%/an, "
+            "appliquée au prorata 1/52e sur la valorisation reconstituée de la poche UC — additionnelle à la rétrocession par fonds."
+        )
+        for d in calendrier:
+            valo_uc = 0.0
+            for isin, nb_uc in nb_uc_reconstitue.get(d, {}).items():
+                if type_par_isin.get(isin) != "uc":
+                    continue
+                vl = vl_par_date_isin.get(d, {}).get(isin, 0.0)
+                valo_uc += nb_uc * vl
+            commission_uc = valo_uc * (params.taux_commission_gestion_uc_annuel / 100) / SEMAINES_PAR_AN
+            resultats_commission_uc.append(
+                CommissionGestionUCLigne(
+                    date=d,
+                    valo_uc=valo_uc,
+                    commission_uc_semaine=commission_uc,
+                )
+            )
+        total_commission_uc = sum(r.commission_uc_semaine for r in resultats_commission_uc)
+
     return CalculRemunerationResponse(
         identifiant=request.identifiant,
         hypotheses_appliquees=hypotheses,
@@ -530,5 +556,7 @@ def calculer_remuneration(request: CalculRemunerationRequest) -> CalculRemunerat
         total_retrocession=total_retrocession,
         resultats_commission_gestion=resultats_commission,
         total_commission_gestion=total_commission,
-        total_remuneration=total_retrocession + total_commission,
+        resultats_commission_gestion_uc=resultats_commission_uc,
+        total_commission_gestion_uc=total_commission_uc,
+        total_remuneration=total_retrocession + total_commission + total_commission_uc,
     )

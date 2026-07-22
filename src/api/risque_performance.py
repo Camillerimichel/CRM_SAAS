@@ -95,14 +95,16 @@ async def risque_performance_calcul_consolide(
 @router.post(
     "/remuneration/calcul",
     response_model=CalculRemunerationResponse,
-    summary="Calcule la rémunération courtier (rétrocession par fonds + commission de gestion)",
+    summary="Calcule la rémunération courtier (rétrocession par fonds + commissions de gestion fonds euros et UC)",
     description=(
         "Calculateur stateless : rien n'est lu ni écrit en base. Reconstitue le nombre d'UC de "
         "chaque fonds à partir du premier nbuc observé et des mouvements signés (indépendamment de "
-        "la fréquence de reporting de chaque société), puis calcule deux composantes cumulatives : "
-        "la rétrocession par fonds (table_retrocession, taux propre à chaque isin) et, si fournies, "
-        "la commission de gestion du courtier sur l'encours total (table_type_support + "
-        "commission_gestion_courtier, taux propres au courtier, distincts pour fonds euros et UC)."
+        "la fréquence de reporting de chaque société), puis calcule trois composantes cumulatives, "
+        "si commission_gestion_courtier est fourni : la rétrocession par fonds UC (table_retrocession, "
+        "taux propre à chaque isin, part du courtier définie par taux_courtier), la commission de "
+        "gestion sur l'encours fonds euros (taux_commission_fonds_euros_annuel) et la commission de "
+        "gestion sur l'encours UC hors fonds euros (taux_commission_gestion_uc_annuel, additionnelle "
+        "à la rétrocession) — classification fonds_euro/uc fournie par table_type_support."
     ),
 )
 async def remuneration_calcul(
