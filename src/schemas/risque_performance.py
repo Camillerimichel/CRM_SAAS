@@ -94,6 +94,43 @@ class StatutFraisIsin(BaseModel):
     )
 
 
+class ConsolideLigne(BaseModel):
+    date: date_type = Field(..., description="Fin de semaine")
+    valorisation: float = Field(..., description="Valorisation totale du portefeuille à cette date, déjà consolidée côté appelant (tous fonds confondus)")
+    mouvement: float = Field(default=0.0, description="Montant net signé (en devise) des mouvements de la semaine (versements positifs, rachats négatifs) ; 0 si aucun mouvement")
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def parse_date(cls, v):
+        if isinstance(v, str):
+            return date_type.fromisoformat(v)
+        return v
+
+
+# --- Variante "fichier consolidé" : l'appelant fournit directement, pour chaque date, la
+# valorisation totale du portefeuille et le mouvement net de la semaine (déjà calculés de son côté,
+# par exemple à partir de son propre système de gestion), sans détail par fonds (isin/nbuc/vl).
+# Cela évite de reproduire côté appelant la reconstitution inventaire+mouvements -> valorisation
+# (source d'erreurs si l'appelant ne maîtrise pas bien ce calcul), au prix d'une perte de précision
+# sur le TWR : le moteur "standard" (cf. CalculPerformanceRisqueRequest) revalorise individuellement
+# chaque fonds détenu aux nouveaux VL de la semaine pour isoler l'effet marché de l'effet des flux ;
+# ce détail n'existe plus ici. Conventions retenues (documentées dans hypotheses_appliquees à chaque
+# réponse) :
+#   - Dietz : formule "Simple Dietz" standard, flux pondéré à mi-période (poids 0.5) :
+#       r = (V1 - V0 - F) / (V0 + F/2)
+#   - TWR : le mouvement net de la semaine est supposé survenu en fin de période (convention
+#     standard en l'absence de valorisation immédiatement avant/après le flux) :
+#       r = (V1 - F) / V0 - 1
+#   - Aucune détection de frais net/brut ni statut par fonds (statut_frais toujours vide) : ce
+#     mécanisme est intrinsèquement par-isin.
+# La réponse réutilise CalculPerformanceRisqueResponse/PerformanceRisqueLigne tels quels (déjà
+# consolidés au niveau portefeuille, aucun champ par-isin).
+
+class CalculPerformanceRisqueConsolideRequest(BaseModel):
+    identifiant: str | None = Field(default=None, description="Libellé libre pour l'affichage, non stocké côté API")
+    consolide: list[ConsolideLigne] = Field(..., description="Série consolidée par date (valorisation + mouvement net), au moins 2 dates")
+
+
 class CalculPerformanceRisqueRequest(BaseModel):
     identifiant: str | None = Field(default=None, description="Libellé libre pour l'affichage, non stocké côté API")
     inventaire: list[InventaireHebdoLigne] = Field(..., description="Inventaire hebdomadaire multi-fonds, au moins 2 dates")

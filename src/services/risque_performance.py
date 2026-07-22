@@ -16,6 +16,7 @@ from src.schemas.risque_performance import (
     LibelleMouvementLigne,
     CalculPerformanceRisqueRequest,
     CalculPerformanceRisqueResponse,
+    CalculPerformanceRisqueConsolideRequest,
     PerformanceRisqueLigne,
     StatutFraisIsin,
     CalculRemunerationRequest,
@@ -365,6 +366,90 @@ def calculer_performance_risque(request: CalculPerformanceRisqueRequest) -> Calc
         methodologie_url=METHODOLOGIE_URL,
         hypotheses_appliquees=hypotheses,
         statut_frais=statut_frais,
+        resultats=resultats,
+    )
+
+
+def _chainer_performance_consolide(
+    calendrier: list[date_type],
+    valo: dict[date_type, float],
+    mouvement: dict[date_type, float],
+) -> tuple[dict[date_type, float], dict[date_type, float | None], dict[date_type, float], dict[date_type, float | None]]:
+    """Variante consolidée (pas de détail par fonds) : Dietz en formule "Simple Dietz" (flux net de
+    la semaine pondéré à mi-période, poids 0.5) ; TWR approximé en supposant ce flux survenu en fin
+    de période (convention standard quand on ne dispose pas d'une valorisation immédiatement
+    avant/après le flux). Moins précis que _chainer_performance, qui revalorise individuellement
+    chaque fonds détenu aux nouveaux vl de la semaine."""
+    vl_dietz: dict[date_type, float] = {}
+    vl_twr: dict[date_type, float] = {}
+    perf_dietz: dict[date_type, float | None] = {}
+    perf_twr: dict[date_type, float | None] = {}
+
+    if not calendrier:
+        return vl_dietz, perf_dietz, vl_twr, perf_twr
+
+    vl_dietz[calendrier[0]] = 100.0
+    vl_twr[calendrier[0]] = 100.0
+    perf_dietz[calendrier[0]] = None
+    perf_twr[calendrier[0]] = None
+
+    for i in range(1, len(calendrier)):
+        d_prev, d_curr = calendrier[i - 1], calendrier[i]
+        valo_prev, valo_curr = valo.get(d_prev, 0.0), valo.get(d_curr, 0.0)
+        flux_net = mouvement.get(d_curr, 0.0)
+
+        denom_dietz = valo_prev + flux_net / 2
+        r_dietz = (valo_curr - valo_prev - flux_net) / denom_dietz if denom_dietz else 0.0
+        r_twr = ((valo_curr - flux_net) / valo_prev - 1) if valo_prev else 0.0
+
+        vl_dietz[d_curr] = vl_dietz[d_prev] * (1 + r_dietz)
+        vl_twr[d_curr] = vl_twr[d_prev] * (1 + r_twr)
+        perf_dietz[d_curr] = r_dietz
+        perf_twr[d_curr] = r_twr
+
+    return vl_dietz, perf_dietz, vl_twr, perf_twr
+
+
+def calculer_performance_risque_consolide(request: CalculPerformanceRisqueConsolideRequest) -> CalculPerformanceRisqueResponse:
+    lignes_triees = sorted(request.consolide, key=lambda l: l.date)
+    calendrier = [l.date for l in lignes_triees]
+    valo = {l.date: l.valorisation for l in lignes_triees}
+    mouvement = {l.date: l.mouvement for l in lignes_triees}
+
+    hypotheses = [
+        "Mode fichier consolidé : valorisation et mouvement net fournis directement par l'appelant, par date (pas de détail par fonds isin/nbuc/vl).",
+        "Dietz : formule « Simple Dietz » standard, flux net de la semaine pondéré à mi-période (poids 0.5) : r = (V1 - V0 - F) / (V0 + F/2).",
+        "TWR : approximé en supposant le mouvement net de la semaine survenu en fin de période (convention standard en l'absence de valorisation immédiatement avant/après le flux) : r = (V1 - F) / V0 - 1. Moins précis que le moteur standard (mode inventaire+mouvements), qui revalorise individuellement chaque fonds détenu.",
+        f"Volatilité annualisée : écart-type des rendements hebdomadaires TWR, fenêtre glissante de {FENETRE_VOLATILITE_SEMAINES} semaines, annualisée par racine(52).",
+        "classe_risque_a : grille de seuils inspirée SRRI (UCITS/CESR) ; classe_risque_b : grille inspirée SRI/MRM (PRIIPs). Aucune des deux n'est l'indicateur réglementaire strict (pas de bootstrap VaR, pas de MRM/CRM).",
+        "Aucune détection de frais net/brut (statut_frais toujours vide) : ce mécanisme est intrinsèquement par-isin, indisponible en mode fichier consolidé.",
+    ]
+
+    vl_dietz, perf_dietz, vl_twr, perf_twr = _chainer_performance_consolide(calendrier, valo, mouvement)
+    volatilites = _volatilites_annualisees(perf_twr, calendrier)
+
+    resultats = [
+        PerformanceRisqueLigne(
+            date=d,
+            valo_consolidee=valo.get(d, 0.0),
+            vl_equivalente_dietz=vl_dietz.get(d, 0.0),
+            vl_equivalente_twr=vl_twr.get(d, 0.0),
+            perf_hebdo_dietz=perf_dietz.get(d),
+            perf_hebdo_twr=perf_twr.get(d),
+            perf_hebdo_dietz_nette=None,
+            perf_hebdo_twr_nette=None,
+            volatilite_annualisee_52s=volatilites.get(d),
+            classe_risque_a=_classe_risque(volatilites.get(d), SEUILS_CLASSE_A),
+            classe_risque_b=_classe_risque(volatilites.get(d), SEUILS_CLASSE_B),
+        )
+        for d in calendrier
+    ]
+
+    return CalculPerformanceRisqueResponse(
+        identifiant=request.identifiant,
+        methodologie_url=METHODOLOGIE_URL,
+        hypotheses_appliquees=hypotheses,
+        statut_frais=[],
         resultats=resultats,
     )
 
