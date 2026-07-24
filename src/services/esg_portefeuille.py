@@ -25,7 +25,7 @@ from src.schemas.esg_portefeuille import (
     EsgMetriqueResultat,
     EsgHoldingLigne,
 )
-from src.services.esg_import import _grade_for_score, GRADE_COLUMNS
+from src.services.esg_import import _grade_for_score, GRADE_COLUMNS, grade_thresholds_from_population
 
 METHODOLOGIE_URL = "/methodologie"
 TABLE_ESG = "esg_fonds_norm"
@@ -143,10 +143,17 @@ def calculer_esg(db: Session, request: CalculEsgRequest) -> CalculEsgResponse:
 
         note_grade = None
         if echelle_absolue:
+            # Seuils calibrés sur la distribution réelle de CETTE métrique dans le référentiel
+            # entier (pas seulement les fonds détenus) — note_S et note_G ont une échelle bien plus
+            # resserrée que note_ESG, cf. grade_thresholds_from_population.
+            toutes_valeurs = db.execute(
+                text(f"SELECT `{metrique}` FROM {TABLE_ESG} WHERE `{metrique}` IS NOT NULL")
+            ).fetchall()
+            seuils = grade_thresholds_from_population([r[0] for r in toutes_valeurs])
             notes_par_isin_metrique[metrique] = {
-                isin: grade for isin, v in valeurs.items() if (grade := _grade_for_score(v)) is not None
+                isin: grade for isin, v in valeurs.items() if (grade := _grade_for_score(v, seuils)) is not None
             }
-            note_grade = _grade_for_score(valeur_ponderee) if valeur_ponderee is not None else None
+            note_grade = _grade_for_score(valeur_ponderee, seuils) if valeur_ponderee is not None else None
         else:
             rangs: dict[str, int] = {}
             if meta["notable"]:

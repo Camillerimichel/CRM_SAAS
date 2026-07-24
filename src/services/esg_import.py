@@ -67,17 +67,38 @@ GRADE_THRESHOLDS = (
     ("D", 0.30),
 )
 GRADE_FLOOR_LETTER = "E"
+GRADE_LETTERS_ABSOLUE = ("A", "B", "C", "D", "E")
 
 
-def _grade_for_score(score: object) -> str | None:
+def _grade_for_score(score: object, thresholds: tuple[tuple[str, float], ...] | None = None) -> str | None:
     try:
         value = float(score)
     except (TypeError, ValueError):
         return None
-    for letter, threshold in GRADE_THRESHOLDS:
+    for letter, threshold in (thresholds if thresholds is not None else GRADE_THRESHOLDS):
         if value >= threshold:
             return letter
     return GRADE_FLOOR_LETTER
+
+
+def grade_thresholds_from_population(values: list[object]) -> tuple[tuple[str, float], ...]:
+    """Seuils A-E calibrés sur la distribution réelle d'UNE dimension donnée (bornes équi-réparties
+    entre 0 et le score maximum observé sur le référentiel courant), plutôt que de réutiliser un
+    seuil unique partagé entre toutes les dimensions. GRADE_THRESHOLDS (ci-dessus) a été calibré
+    sur note_ESG (qui s'étale raisonnablement de ~0,29 à ~0,77) ; mais note_S et surtout note_G ont
+    une échelle naturelle bien plus resserrée (note_G ne dépasse jamais 0,25 sur les 2480 sociétés
+    du référentiel CRM_ESG au 24/07/2026) — appliquer les mêmes bornes absolues y classait donc
+    systématiquement tout le monde en E, quelle que soit la qualité réelle. Reste une échelle
+    absolue (pas un rang relatif par septile) : un score donné produit toujours la même lettre tant
+    que le maximum observé ne change pas, contrairement à un classement qui bouge à chaque société
+    ajoutée/retirée."""
+    valeurs_valides = [float(v) for v in values if v is not None]
+    meilleur = max(valeurs_valides, default=0.0)
+    nb = len(GRADE_LETTERS_ABSOLUE)
+    if meilleur <= 0:
+        return tuple()  # aucune valeur positive : tout le monde tombe sur le plancher E
+    pas = meilleur / nb
+    return tuple((GRADE_LETTERS_ABSOLUE[i], pas * (nb - 1 - i)) for i in range(nb - 1))
 
 
 @dataclass(frozen=True)
@@ -247,6 +268,10 @@ def _clear_orphaned_pai_rows(
 
 
 def _recompute_esg_grades(db: Session, table_columns: set[str]) -> dict[str, int]:
+    """Seuils recalculés séparément pour chaque colonne (note_e/s/g/esg) à partir de sa propre
+    distribution courante dans esg_fonds (cf. grade_thresholds_from_population) — note_S et note_G
+    ont une échelle naturelle bien plus resserrée que note_ESG, un seuil unique partagé les classait
+    systématiquement en E quelle que soit la qualité réelle."""
     updated_counts: dict[str, int] = {}
     for score_col, grade_col in GRADE_COLUMNS.items():
         if score_col not in table_columns or grade_col not in table_columns:
@@ -254,10 +279,11 @@ def _recompute_esg_grades(db: Session, table_columns: set[str]) -> dict[str, int
         rows = db.execute(
             text(f"SELECT isin, `{score_col}` FROM esg_fonds WHERE `{score_col}` IS NOT NULL")
         ).fetchall()
+        seuils = grade_thresholds_from_population([r[1] for r in (rows or [])])
         updates = [
             {"isin": r[0], "grade": grade}
             for r in (rows or [])
-            if r and r[0] is not None and (grade := _grade_for_score(r[1])) is not None
+            if r and r[0] is not None and (grade := _grade_for_score(r[1], seuils)) is not None
         ]
         if updates:
             db.execute(
@@ -443,6 +469,11 @@ def sync_esg_exclusions_holdings(db: Session, isins: Iterable[str] | None = None
 # Ne touche JAMAIS un fonds qui a déjà une notation directe (note_esg_grade non NULL) pour ne pas la
 # masquer — à exécuter après sync_esg_fonds dans la même passe pour que ce test reflète l'état frais
 # (orphelins déjà nettoyés par sync_esg_fonds à ce stade).
+#
+# N'écrit que les scores bruts (note_e/s/g/esg), jamais les lettres directement : les grades sont
+# recalculés juste après par un appel unique à _recompute_esg_grades portant sur l'ensemble de la
+# table (fonds notés directement + fonds look-through confondus), pour que les seuils par colonne
+# (grade_thresholds_from_population) soient calibrés sur la même population pour tout le monde.
 
 def sync_esg_lookthrough_notes(db: Session, isins: Iterable[str] | None = None) -> dict[str, object]:
     config = load_crm_esg_config()
@@ -450,8 +481,7 @@ def sync_esg_lookthrough_notes(db: Session, isins: Iterable[str] | None = None) 
     if "isin" not in table_columns:
         raise RuntimeError("esg_fonds table missing isin column")
 
-    grade_columns_map = {"note_e": "note_e_grade", "note_s": "note_s_grade", "note_g": "note_g_grade", "note_esg": "note_esg_grade"}
-    write_columns = [c for c in grade_columns_map if c in table_columns] + [g for g in grade_columns_map.values() if g in table_columns]
+    score_columns = [c for c in GRADE_COLUMNS if c in table_columns]
 
     portfolios_payload = _request_json(f"{config.base_url}/api/stats/portfolios", timeout=config.timeout)
     tracked_isins = [i for p in (portfolios_payload.get("items") or []) if (i := _normalize_isin(p.get("isin")))]
@@ -479,13 +509,11 @@ def sync_esg_lookthrough_notes(db: Session, isins: Iterable[str] | None = None) 
         except Exception:
             continue
         row: dict[str, object] = {"isin": isin}
-        for score_col, grade_col in grade_columns_map.items():
-            valeur = data.get(score_col)
-            if score_col in write_columns:
-                row[score_col] = valeur
-            if grade_col in write_columns:
-                row[grade_col] = _grade_for_score(valeur) if valeur is not None else None
+        for score_col in score_columns:
+            row[score_col] = data.get(score_col)
         rows.append(row)
+
+    write_columns = score_columns
 
     written = 0
     if rows and write_columns:

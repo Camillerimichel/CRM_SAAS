@@ -29439,6 +29439,9 @@ def dashboard_superadmin_import_esg(
         # Après sync_esg_fonds (nettoyage des orphelins inclus) : repli look-through uniquement
         # pour les fonds suivis côté CRM_ESG mais sans notation directe à jour.
         lookthrough_stats = sync_esg_lookthrough_notes(db)
+        # Recalcule les grades A-E sur l'ensemble de la table (fonds notés directement + fonds
+        # look-through confondus) avec des seuils par colonne calibrés sur la même population.
+        _recompute_esg_grades(db, _fetch_esg_fonds_columns(db))
         ESG_FIELDS_CACHE.clear()
         ESG_COLUMNS_CACHE.clear()
         ESG_GLOBAL_CACHE.clear()
