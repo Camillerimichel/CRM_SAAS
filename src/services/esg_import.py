@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlencode
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 EXPORT_FIELDS = [
@@ -49,13 +49,35 @@ EXPORT_FIELDS = [
     "evic",
 ]
 
-GRADE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
 GRADE_COLUMNS = {
     "note_e": "note_e_grade",
     "note_s": "note_s_grade",
     "note_g": "note_g_grade",
     "note_esg": "note_esg_grade",
 }
+
+# Échelle publique ESGSCORE (page Méthodologie, section "Échelle de notation") : bornes absolues
+# sur un score normalisé 0-1, indépendantes de la population de fonds présente dans esg_fonds.
+# Remplace l'ancien lettrage par septiles (rang relatif sur 7 groupes A-G), qui ne correspondait
+# à aucune méthodologie publiée et produisait des lettres (F, G) n'existant pas dans l'échelle A-E.
+GRADE_THRESHOLDS = (
+    ("A", 0.80),
+    ("B", 0.65),
+    ("C", 0.45),
+    ("D", 0.30),
+)
+GRADE_FLOOR_LETTER = "E"
+
+
+def _grade_for_score(score: object) -> str | None:
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return None
+    for letter, threshold in GRADE_THRESHOLDS:
+        if value >= threshold:
+            return letter
+    return GRADE_FLOOR_LETTER
 
 
 @dataclass(frozen=True)
@@ -185,32 +207,43 @@ def _build_upsert_sql(write_columns: list[str]) -> str:
     return f"INSERT IGNORE INTO esg_fonds ({cols_sql}) VALUES ({vals_sql})"
 
 
-def _assign_septile_grades(rows: list[tuple[str, object]]) -> dict[str, str]:
-    if not rows:
-        return {}
-    def _score_key(item: tuple[str, object]) -> tuple[float, str]:
-        score = item[1]
-        try:
-            score_val = float(score)
-        except Exception:
-            score_val = float("-inf")
-        return (-score_val, str(item[0] or ""))
-    ordered = sorted(rows, key=_score_key)
-    total = len(ordered)
-    base = total // len(GRADE_LETTERS)
-    extra = total % len(GRADE_LETTERS)
-    grades: dict[str, str] = {}
-    idx = 0
-    for bucket, letter in enumerate(GRADE_LETTERS):
-        size = base + (1 if bucket < extra else 0)
-        for _ in range(size):
-            if idx >= total:
-                break
-            isin = ordered[idx][0]
-            if isin:
-                grades[str(isin)] = letter
-            idx += 1
-    return grades
+def _clear_orphaned_pai_rows(
+    db: Session,
+    write_columns: list[str],
+    grade_columns: list[str],
+    fetched_isins: set[str],
+    requested_isins: set[str] | None,
+) -> list[str]:
+    """Un ISIN déjà importé (colonnes PAI renseignées) qui n'apparaît plus dans l'export CRM_ESG a
+    disparu du référentiel source (ex: archivage annuel sans recréation de la ligne). sync_esg_fonds
+    ne faisait auparavant que des UPSERT : une notation figée d'avant la disparition restait donc
+    affichée indéfiniment, sans source vivante côté CRM_ESG. On efface ici les colonnes PAI/notes/
+    grades des ISIN orphelins — jamais les colonnes d'exclusions look-through (sync_esg_exclusions_
+    holdings), qui restent valables tant que le fonds est suivi comme portefeuille côté CRM_ESG."""
+    if not write_columns:
+        return []
+
+    if requested_isins is not None:
+        # Sync ciblée sur un sous-ensemble d'ISIN : seuls ceux explicitement demandés mais absents
+        # de la réponse sont candidats (on n'a pas vu le reste du référentiel dans cet appel).
+        candidate_isins = requested_isins - fetched_isins
+    else:
+        has_data_sql = " OR ".join(f"`{c}` IS NOT NULL" for c in write_columns)
+        rows = db.execute(text(f"SELECT isin FROM esg_fonds WHERE {has_data_sql}")).fetchall()
+        known_isins = {r[0] for r in rows or [] if r and r[0]}
+        candidate_isins = known_isins - fetched_isins
+
+    if not candidate_isins:
+        return []
+
+    clear_columns = write_columns + [c for c in grade_columns if c not in write_columns]
+    set_sql = ", ".join(f"`{c}` = NULL" for c in clear_columns)
+    db.execute(
+        text(f"UPDATE esg_fonds SET {set_sql} WHERE isin = :isin"),
+        [{"isin": isin} for isin in candidate_isins],
+    )
+    db.commit()
+    return sorted(candidate_isins)
 
 
 def _recompute_esg_grades(db: Session, table_columns: set[str]) -> dict[str, int]:
@@ -221,17 +254,20 @@ def _recompute_esg_grades(db: Session, table_columns: set[str]) -> dict[str, int
         rows = db.execute(
             text(f"SELECT isin, `{score_col}` FROM esg_fonds WHERE `{score_col}` IS NOT NULL")
         ).fetchall()
-        values = [(r[0], r[1]) for r in rows or [] if r and r[0] is not None]
-        grade_map = _assign_septile_grades(values)
-        if grade_map:
+        updates = [
+            {"isin": r[0], "grade": grade}
+            for r in (rows or [])
+            if r and r[0] is not None and (grade := _grade_for_score(r[1])) is not None
+        ]
+        if updates:
             db.execute(
                 text(f"UPDATE esg_fonds SET `{grade_col}` = :grade WHERE isin = :isin"),
-                [{"isin": isin, "grade": grade} for isin, grade in grade_map.items()],
+                updates,
             )
         db.execute(
             text(f"UPDATE esg_fonds SET `{grade_col}` = NULL WHERE `{score_col}` IS NULL")
         )
-        updated_counts[grade_col] = len(grade_map)
+        updated_counts[grade_col] = len(updates)
     db.commit()
     return updated_counts
 
@@ -247,11 +283,17 @@ def sync_esg_fonds(
         raise RuntimeError("esg_fonds table missing isin column")
     write_columns = [c for c in EXPORT_FIELDS if c in table_columns]
     missing_columns = [c for c in EXPORT_FIELDS if c not in table_columns]
+    grade_columns = [c for c in GRADE_COLUMNS.values() if c in table_columns]
     sql = _build_upsert_sql(write_columns)
+
+    requested_isins: set[str] | None = None
+    if isins:
+        requested_isins = {norm for i in isins if (norm := _normalize_isin(i))}
 
     total_fetched = 0
     total_written = 0
     total_skipped = 0
+    fetched_isins: set[str] = set()
     page = 0
     offset = 0
     while True:
@@ -267,6 +309,7 @@ def sync_esg_fonds(
         total_fetched += len(items)
         rows, skipped = _prepare_rows(items, write_columns)
         total_skipped += skipped
+        fetched_isins.update(row["isin"] for row in rows)
         if rows:
             db.execute(text(sql), rows)
             db.commit()
@@ -277,6 +320,15 @@ def sync_esg_fonds(
         if config.max_pages is not None and page >= config.max_pages:
             break
         offset += config.page_size
+
+    orphaned_cleared: list[str] = []
+    try:
+        orphaned_cleared = _clear_orphaned_pai_rows(
+            db, write_columns, grade_columns, fetched_isins, requested_isins
+        )
+    except Exception:
+        db.rollback()
+        orphaned_cleared = []
 
     grade_updates = {}
     try:
@@ -293,6 +345,7 @@ def sync_esg_fonds(
         "write_columns": write_columns,
         "base_url": config.base_url,
         "grade_updates": grade_updates,
+        "orphaned_cleared": orphaned_cleared,
     }
 
 
@@ -377,5 +430,75 @@ def sync_esg_exclusions_holdings(db: Session, isins: Iterable[str] | None = None
         "written": written,
         "write_columns": write_columns,
         "missing_columns": missing_columns,
+        "base_url": config.base_url,
+    }
+
+
+# --- Note ESG "look-through" (repli pour les fonds jamais notés directement) ---
+# Un fonds suivi comme "portefeuille" côté CRM_ESG (composition connue via
+# portefeuille_inventaire_ligne) n'est pas forcément noté lui-même dans Referentiel_final (source
+# de sync_esg_fonds ci-dessus) — c'est deux systèmes distincts. Pour ces fonds, on calcule une note
+# de repli = moyenne pondérée des notes E/S/G/ESG des sociétés réellement détenues (déjà notées
+# individuellement dans Referentiel_final), via GET /api/stats/fund-lookthrough-note côté CRM_ESG.
+# Ne touche JAMAIS un fonds qui a déjà une notation directe (note_esg_grade non NULL) pour ne pas la
+# masquer — à exécuter après sync_esg_fonds dans la même passe pour que ce test reflète l'état frais
+# (orphelins déjà nettoyés par sync_esg_fonds à ce stade).
+
+def sync_esg_lookthrough_notes(db: Session, isins: Iterable[str] | None = None) -> dict[str, object]:
+    config = load_crm_esg_config()
+    table_columns = _fetch_esg_fonds_columns(db)
+    if "isin" not in table_columns:
+        raise RuntimeError("esg_fonds table missing isin column")
+
+    grade_columns_map = {"note_e": "note_e_grade", "note_s": "note_s_grade", "note_g": "note_g_grade", "note_esg": "note_esg_grade"}
+    write_columns = [c for c in grade_columns_map if c in table_columns] + [g for g in grade_columns_map.values() if g in table_columns]
+
+    portfolios_payload = _request_json(f"{config.base_url}/api/stats/portfolios", timeout=config.timeout)
+    tracked_isins = [i for p in (portfolios_payload.get("items") or []) if (i := _normalize_isin(p.get("isin")))]
+    if isins:
+        voulus = {i for val in isins if (i := _normalize_isin(val))}
+        tracked_isins = [i for i in tracked_isins if i in voulus]
+
+    deja_notes: set[str] = set()
+    if tracked_isins:
+        rows_existants = db.execute(
+            text("SELECT isin, note_esg_grade FROM esg_fonds WHERE isin IN :isins")
+            .bindparams(bindparam("isins", expanding=True)),
+            {"isins": tracked_isins},
+        ).fetchall()
+        deja_notes = {r[0] for r in rows_existants if r[1] is not None}
+    candidats = [i for i in tracked_isins if i not in deja_notes]
+
+    rows: list[dict] = []
+    for isin in candidats:
+        try:
+            data = _request_json(
+                f"{config.base_url}/api/stats/fund-lookthrough-note?{urlencode({'isin': isin})}",
+                timeout=config.timeout,
+            )
+        except Exception:
+            continue
+        row: dict[str, object] = {"isin": isin}
+        for score_col, grade_col in grade_columns_map.items():
+            valeur = data.get(score_col)
+            if score_col in write_columns:
+                row[score_col] = valeur
+            if grade_col in write_columns:
+                row[grade_col] = _grade_for_score(valeur) if valeur is not None else None
+        rows.append(row)
+
+    written = 0
+    if rows and write_columns:
+        sql = _build_upsert_sql(write_columns)
+        db.execute(text(sql), rows)
+        db.commit()
+        written = len(rows)
+
+    return {
+        "tracked": len(tracked_isins),
+        "deja_notes_ignores": len(deja_notes),
+        "candidats": len(candidats),
+        "written": written,
+        "write_columns": write_columns,
         "base_url": config.base_url,
     }

@@ -51,7 +51,7 @@ from src.services.document_client import (
     ensure_document_base_for_label,
     ensure_document_client_storage_columns,
 )
-from src.services.esg_import import sync_esg_fonds, sync_esg_exclusions_holdings, _fetch_esg_fonds_columns, _recompute_esg_grades
+from src.services.esg_import import sync_esg_fonds, sync_esg_exclusions_holdings, sync_esg_lookthrough_notes, _fetch_esg_fonds_columns, _recompute_esg_grades
 from src.services.esg_legacy_migration import migrate_esg_legacy_fields
 from src.services.esg_tableau_one import compute_tableau_one
 from src.services.esg_sensitivity import get_esg_top_metrics
@@ -29436,6 +29436,9 @@ def dashboard_superadmin_import_esg(
     try:
         stats = sync_esg_fonds(db)
         excl_stats = sync_esg_exclusions_holdings(db)
+        # Après sync_esg_fonds (nettoyage des orphelins inclus) : repli look-through uniquement
+        # pour les fonds suivis côté CRM_ESG mais sans notation directe à jour.
+        lookthrough_stats = sync_esg_lookthrough_notes(db)
         ESG_FIELDS_CACHE.clear()
         ESG_COLUMNS_CACHE.clear()
         ESG_GLOBAL_CACHE.clear()
@@ -29462,7 +29465,11 @@ def dashboard_superadmin_import_esg(
             f"{missing_note}{orphaned_note} "
             "Exclusions look-through: "
             f"{excl_stats.get('written')} funds written, "
-            f"{excl_stats.get('fetched')} fetched."
+            f"{excl_stats.get('fetched')} fetched. "
+            "Notes ESG look-through: "
+            f"{lookthrough_stats.get('written')} funds written, "
+            f"{lookthrough_stats.get('candidats')} candidats, "
+            f"{lookthrough_stats.get('tracked')} suivis."
         )
         _finish_log_entry(
             db,
