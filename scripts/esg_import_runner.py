@@ -7,7 +7,13 @@ from time import perf_counter
 from sqlalchemy import text
 
 from src.database import SessionLocal
-from src.services.esg_import import sync_esg_fonds, sync_esg_exclusions_holdings
+from src.services.esg_import import (
+    sync_esg_fonds,
+    sync_esg_exclusions_holdings,
+    sync_esg_lookthrough_notes,
+    _fetch_esg_fonds_columns,
+    _recompute_esg_grades,
+)
 
 
 def _ensure_log_tables(db) -> None:
@@ -123,6 +129,13 @@ def main() -> int:
         log_id = _start_log_entry(db, "esg_import", "Import ESG (CRM_ESG)")
         stats = sync_esg_fonds(db)
         excl_stats = sync_esg_exclusions_holdings(db)
+        # Exécuté après sync_esg_fonds (nettoyage des orphelins inclus) pour que le repli
+        # look-through ne s'applique qu'aux fonds réellement sans notation directe à jour.
+        lookthrough_stats = sync_esg_lookthrough_notes(db)
+        # Recalcule les grades A-E sur l'ensemble de la table (fonds notés directement + fonds
+        # look-through confondus), pour que les seuils par colonne soient calibrés sur la même
+        # population pour tout le monde (cf. grade_thresholds_from_population).
+        _recompute_esg_grades(db, _fetch_esg_fonds_columns(db))
         elapsed = perf_counter() - started
         message = (
             "ESG import OK: "
@@ -131,7 +144,11 @@ def main() -> int:
             f"{stats.get('skipped')} skipped. "
             "Exclusions look-through: "
             f"{excl_stats.get('written')} funds written, "
-            f"{excl_stats.get('fetched')} fetched."
+            f"{excl_stats.get('fetched')} fetched. "
+            "Notes ESG look-through: "
+            f"{lookthrough_stats.get('written')} funds written, "
+            f"{lookthrough_stats.get('candidats')} candidats, "
+            f"{lookthrough_stats.get('tracked')} suivis."
         )
         _finish_log_entry(db, log_id, "ok", message, elapsed)
         print(message)
