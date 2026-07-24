@@ -1,7 +1,9 @@
 """Calcul ESG d'un portefeuille : lit la table de référence esg_fonds_norm (locale à CRM_SAAS,
 déjà synchronisée depuis CRM_ESG — cf. src/services/esg_import.py) pour calculer, à partir de
 l'inventaire fourni (dernière date uniquement, l'ESG est une photo pas une série temporelle), une
-valeur pondérée et une note A-G par septile pour chaque métrique sélectionnée.
+valeur pondérée et une note A-G pour chaque métrique sélectionnée : échelle publique A-E à seuils
+absolus pour note_esg/e/s/g (cf. METRIQUES_ECHELLE_ABSOLUE ci-dessous), rang par septile pour les
+autres métriques notables faute d'échelle absolue publiée.
 
 Contrairement aux endpoints risque/performance, celui-ci lit une donnée de référence partagée en
 base (aucune donnée client n'est stockée ni lue, uniquement le référentiel de fonds).
@@ -23,9 +25,18 @@ from src.schemas.esg_portefeuille import (
     EsgMetriqueResultat,
     EsgHoldingLigne,
 )
+from src.services.esg_import import _grade_for_score, GRADE_COLUMNS
 
 METHODOLOGIE_URL = "/methodologie"
 TABLE_ESG = "esg_fonds_norm"
+
+# note_esg/e/s/g sont les scores normalisés 0-1 décrits par l'échelle publique A-E de la page
+# Méthodologie (seuils absolus : A≥0,80, B≥0,65, C≥0,45, D≥0,30, E sinon — cf. _grade_for_score
+# dans esg_import.py, même barème que celui appliqué à esg_fonds). Toutes les autres métriques
+# "notables" (intensité carbone en tCO2e, score de température en °C, ratio de rémunération, etc.)
+# n'ont pas d'échelle absolue publiée : leur note A-G reste un rang relatif par septile sur le
+# référentiel courant, pour ne pas inventer un seuil arbitraire.
+METRIQUES_ECHELLE_ABSOLUE = set(GRADE_COLUMNS.keys())
 
 
 def derniere_date_et_poids(inventaire: list[InventaireHebdoLigne]) -> tuple[date_type, dict[str, float]]:
@@ -43,8 +54,9 @@ def derniere_date_et_poids(inventaire: list[InventaireHebdoLigne]) -> tuple[date
 
 def _septile_rangs(db: Session, metrique: str, sens_favorable: str) -> dict[str, int]:
     """Classe tous les fonds du référentiel par cette métrique et assigne un rang 1(A)-7(G) par
-    septile — généralise _assign_septile_grades de esg_import.py à n'importe quel champ, dans le
-    sens indiqué (haut = valeur la plus élevée classée en tête / meilleur septile)."""
+    septile, dans le sens indiqué (haut = valeur la plus élevée classée en tête / meilleur septile).
+    Utilisé uniquement pour les métriques hors METRIQUES_ECHELLE_ABSOLUE (pas d'échelle publique
+    absolue pour ces indicateurs)."""
     rows = db.execute(text(f"SELECT isin, `{metrique}` FROM {TABLE_ESG} WHERE `{metrique}` IS NOT NULL")).fetchall()
     valides = [(r[0], float(r[1])) for r in rows if r[0] and r[1] is not None]
     if not valides:
@@ -96,8 +108,12 @@ def calculer_esg(db: Session, request: CalculEsgRequest) -> CalculEsgResponse:
 
     hypotheses = [
         f"Photo du portefeuille à la dernière date de l'inventaire fourni ({derniere_date}), pas de série temporelle.",
-        "Note A-G calculée par rang en septile sur l'ensemble des fonds du référentiel esg_fonds_norm "
-        "(A = meilleur septile, G = moins bon) — relative au référentiel courant, pas un seuil réglementaire absolu.",
+        "Note ESG globale, E, S et G : échelle publique A-E à seuils absolus (page Méthodologie — "
+        "A≥0,80, B≥0,65, C≥0,45, D≥0,30, E sinon), appliquée à la valeur de chaque fonds puis à la "
+        "valeur pondérée du portefeuille.",
+        "Autres métriques notables : note A-G par rang en septile sur l'ensemble des fonds du "
+        "référentiel esg_fonds_norm (A = meilleur septile, G = moins bon) — relative au référentiel "
+        "courant, faute d'échelle absolue publiée pour ces indicateurs.",
         "Valeur pondérée = moyenne des valeurs des fonds détenus disposant de la donnée, pondérée par leur "
         "valorisation (le taux de couverture indique la part de la valorisation concernée).",
     ]
@@ -117,13 +133,7 @@ def calculer_esg(db: Session, request: CalculEsgRequest) -> CalculEsgResponse:
         meta = METRIQUES_DISPONIBLES[metrique]
         valeurs = _valeurs_referentiel(db, isins, metrique)
         valeurs_par_isin_metrique[metrique] = valeurs
-
-        rangs: dict[str, int] = {}
-        if meta["notable"]:
-            rangs = _septile_rangs(db, metrique, meta["sens_favorable"])
-        notes_par_isin_metrique[metrique] = {
-            isin: GRADE_LETTERS[rangs[isin] - 1] for isin in valeurs if isin in rangs
-        }
+        echelle_absolue = metrique in METRIQUES_ECHELLE_ABSOLUE
 
         poids_valeur_total = sum(poids[isin] for isin in valeurs)
         valeur_ponderee = (
@@ -132,12 +142,24 @@ def calculer_esg(db: Session, request: CalculEsgRequest) -> CalculEsgResponse:
         )
 
         note_grade = None
-        if meta["notable"]:
-            poids_rang_total = sum(poids[isin] for isin in valeurs if isin in rangs)
-            if poids_rang_total > 0:
-                rang_pondere = sum(poids[isin] * rangs[isin] for isin in valeurs if isin in rangs) / poids_rang_total
-                rang_arrondi = max(1, min(7, round(rang_pondere)))
-                note_grade = GRADE_LETTERS[rang_arrondi - 1]
+        if echelle_absolue:
+            notes_par_isin_metrique[metrique] = {
+                isin: grade for isin, v in valeurs.items() if (grade := _grade_for_score(v)) is not None
+            }
+            note_grade = _grade_for_score(valeur_ponderee) if valeur_ponderee is not None else None
+        else:
+            rangs: dict[str, int] = {}
+            if meta["notable"]:
+                rangs = _septile_rangs(db, metrique, meta["sens_favorable"])
+            notes_par_isin_metrique[metrique] = {
+                isin: GRADE_LETTERS[rangs[isin] - 1] for isin in valeurs if isin in rangs
+            }
+            if meta["notable"]:
+                poids_rang_total = sum(poids[isin] for isin in valeurs if isin in rangs)
+                if poids_rang_total > 0:
+                    rang_pondere = sum(poids[isin] * rangs[isin] for isin in valeurs if isin in rangs) / poids_rang_total
+                    rang_arrondi = max(1, min(7, round(rang_pondere)))
+                    note_grade = GRADE_LETTERS[rang_arrondi - 1]
 
         resultats.append(
             EsgMetriqueResultat(

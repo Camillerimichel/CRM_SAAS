@@ -84,7 +84,7 @@ class EsgMetriqueResultat(BaseModel):
     est_pourcentage: bool
     unite: str | None = None
     valeur_ponderee: float | None = Field(default=None, description="Valeur du portefeuille pondérée par la valorisation des fonds ayant cette donnée")
-    note_grade: str | None = Field(default=None, description="Note A (meilleur septile du référentiel) à G (moins bon) ; absente si notable=False pour cette métrique")
+    note_grade: str | None = Field(default=None, description="Pour note_esg/e/s/g : lettre A-E de l'échelle publique à seuils absolus. Pour les autres métriques notables : rang A (meilleur septile du référentiel) à G (moins bon). Absente si notable=False pour cette métrique")
     taux_couverture_pct: float = Field(..., description="Part de la valorisation du portefeuille disposant de cette donnée, en %")
 
 

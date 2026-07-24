@@ -29448,12 +29448,18 @@ def dashboard_superadmin_import_esg(
             preview = ", ".join(missing[:12])
             suffix = "..." if len(missing) > 12 else ""
             missing_note = f" Missing columns: {preview}{suffix}."
+        orphaned = stats.get("orphaned_cleared") or []
+        orphaned_note = ""
+        if orphaned:
+            preview = ", ".join(orphaned[:12])
+            suffix = "..." if len(orphaned) > 12 else ""
+            orphaned_note = f" Orphaned (cleared, no longer in CRM_ESG referentiel): {len(orphaned)} [{preview}{suffix}]."
         message = (
             "ESG import OK: "
             f"{stats.get('written')} rows written, "
             f"{stats.get('fetched')} fetched, "
             f"{stats.get('skipped')} skipped."
-            f"{missing_note} "
+            f"{missing_note}{orphaned_note} "
             "Exclusions look-through: "
             f"{excl_stats.get('written')} funds written, "
             f"{excl_stats.get('fetched')} fetched."
